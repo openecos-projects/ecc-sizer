@@ -17,9 +17,9 @@ include_directories(${OPENSTALIB_HOME}/include)
 
 file(GLOB SOURCES "*.cpp")
 
-add_executable(sizer ${SOURCES})
+add_executable(TritonSizer ${SOURCES})
 
-target_link_libraries(sizer 
+target_link_libraries(TritonSizer 
     ${TCLLIB}
     OpenSTA
     -L${ZLIB_HOME} -lz

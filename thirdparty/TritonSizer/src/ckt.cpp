@@ -2903,7 +2903,11 @@ void Circuit::init_opensta(sta::Sta* _sta) {
         MinMaxAll::max(), 
         false,
         true,
-        false ,0.0, ReduceParasiticsTo::none, false, true, false);
+        false ,0.0, 
+        ReduceParasiticsTo::pi_elmore, 
+        false, 
+        true, 
+        false);
     cout << "read_parasitics done : " << parasitics << endl;
 }
 
@@ -3186,7 +3190,9 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
             SUB_NODE sn;
 
             Parasitic* para = parasitics->findParasiticNetwork(connPin, ap);
-
+            if(para == nullptr){
+                continue;
+            }
             ConcreteParasitic* conc_para =
                 static_cast< ConcreteParasitic* >(para);
             sta::ConcreteParasiticNetwork* conc_net_para =
