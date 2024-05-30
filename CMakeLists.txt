@@ -13,16 +13,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_VERBOSE_MAKEFILEON ON)
 
 set(CMAKE_BUILD_TYPE Debug)
-set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -ggdb ") # -Wl --start-group
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -ggdb -fstandalone-debug") # -Wl --start-group
 add_compile_options("-D_GLIBCXX_USE_CXX11_ABI=1")
 set(OpenROAD_DIR ${CMAKE_SOURCE_DIR}/thirdparty/OpenROAD)
 set(iEDA_DIR ${CMAKE_SOURCE_DIR}/thirdparty/iEDA)
 set(taskflow_DIR ${CMAKE_SOURCE_DIR}/thirdparty/taskflow)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # include_directories(${CMAKE_SOURCE_DIR}/src)
 # include_directories(${CMAKE_SOURCE_DIR}/thirdparty/OpenROAD/include)
 
 # add_subdirectory(src)
+# add_subdirectory(thirdparty/iEDA)
 add_subdirectory(thirdparty/OpenROAD)
 # 包含目录（如果有必要）
 # include_directories(${CMAKE_SOURCE_DIR}/include)
