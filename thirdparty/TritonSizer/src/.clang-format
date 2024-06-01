@@ -19,4 +19,4 @@ BraceWrapping:
     AfterUnion:            false
     BeforeCatch:           true 
     BeforeElse:            true 
-
+SortIncludes: false

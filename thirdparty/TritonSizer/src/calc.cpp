@@ -227,7 +227,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
             slew_viol += max(
                 pins[view][curpin].ftran - pins[view][curpin].max_tran, 0.0);
 
-            if(VERBOSE == 2) {
+            if(VERBOSE >= 2) {
                 if(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
                    pins[view][curpin].max_tran)
                     cout << cells[i].name
@@ -342,7 +342,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
             }
             max_pos_rslk = max(max_pos_rslk, pins[view][curpin].rslk);
             max_pos_fslk = max(max_pos_fslk, pins[view][curpin].fslk);
-            if(VERBOSE == -2) {
+            if(VERBOSE >= 2) {
                 cout << "TIMING END POINT CHECK: "
                      << getFullPinName(pins[view][curpin]) << " "
                      << pins[view][curpin].rslk << "/"
@@ -394,7 +394,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
         }
         max_pos_rslk = max(max_pos_rslk, pins[view][curpin].rslk);
         max_pos_fslk = max(max_pos_fslk, pins[view][curpin].fslk);
-        if(VERBOSE == -2) {
+        if(VERBOSE >= 2) {
             cout << "TIMING END POINT CHECK: "
                  << getFullPinName(pins[view][curpin]) << " "
                  << pins[view][curpin].rslk << "/" << pins[view][curpin].fslk

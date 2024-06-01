@@ -4518,7 +4518,7 @@ vector< unsigned > Sizer::GetCellList(unsigned index, unsigned num_cell) {
             break;
     }
 
-    if(VERBOSE == -300) {
+    if(VERBOSE >= 300) {
         for(unsigned i = 0; i < cell_list.size(); i++) {
             cout << cells[cell_list[i]].name << " ";
         }
@@ -4642,7 +4642,7 @@ vector< vector< int > > Sizer::GenSequence(unsigned option, unsigned num_cell) {
         }
     }
 
-    if(VERBOSE == -300) {
+    if(VERBOSE >= 300) {
         for(unsigned i = 0; i < gray_code_ary.size(); ++i) {
             for(unsigned j = 0; j < gray_code_ary[i].size(); ++j) {
                 cout << gray_code_ary[i][j] << " ";
@@ -5731,7 +5731,7 @@ void Sizer::Parallel_Sizer_Launcher() {
             ReportWithPT(best_cells_poweropt, "prft", wns, power);
             time_LeakOpt = cpuTime() - begin;
 
-            if(VERBOSE == 1) {
+            if(VERBOSE >= 1) {
                 cout << "BEST POWER " << best_power << " " << second_best_power
                      << endl;
             }
@@ -5747,7 +5747,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                 }
                 all_cells.push_back(current_cells);
                 powerlist.push_back(best_power);
-                if(VERBOSE == 1) {
+                if(VERBOSE >= 1) {
                     cout << "COPY SOL FROM BEST DONE " << endl;
                 }
             }
@@ -5763,13 +5763,13 @@ void Sizer::Parallel_Sizer_Launcher() {
                 }
                 all_cells.push_back(current_cells2);
                 powerlist.push_back(second_best_power);
-                if(VERBOSE == 1) {
+                if(VERBOSE >= 1) {
                     cout << "COPY SOL FROM SECOND BEST DONE " << endl;
                 }
             }
 
             if(GWTW_MAX > 1) {
-                if(VERBOSE == 1) {
+                if(VERBOSE >= 1) {
                     cout << "GET NEXT START " << endl;
                 }
                 for(unsigned i = 0; i < numcells; i++) {
@@ -5802,7 +5802,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                     }
                 }
             }
-            if(VERBOSE == 1) {
+            if(VERBOSE >= 1) {
                 cout << "GET NEXT START END" << endl;
             }
         }
@@ -6082,7 +6082,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
     cout << "THREAD " << thread_id << " BEFORE KICKOPT" << endl;
     CalcStats((unsigned)thread_id, true, "OPT");
-    if(VERBOSE == -3) {
+    if(VERBOSE >= 3) {
         cout << "Initial TNS from Sizer     : " << skew_violation << " ns"
              << endl;
     }
@@ -6865,7 +6865,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 CalcStats((unsigned)thread_id, true, "RELEASE");
             }
 
-            if(VERBOSE == -100)
+            if(VERBOSE >= 100)
                 CheckCorrPT();
             // if (degrade_count > 2 || cpuTime()-global_begin > 0.7 *
             // RuntimeLimit)
@@ -8116,7 +8116,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     change_list[k] += 2;
                 }
 
-                if(VERBOSE == -300) {
+                if(VERBOSE >= 300) {
                     for(unsigned k = 0; k < change_list.size(); k++) {
                         cout << change_list[k];
                     }
@@ -8227,13 +8227,13 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
             }
 
-            if(VERBOSE > 0 || VERBOSE == -5)
+            if(VERBOSE > 0 || VERBOSE >= 5)
                 cout << cells[cur].type << " ";
 
             // check slack, max cap constraints
             bool restore_flag = false;
 
-            if(VERBOSE > 0 || VERBOSE == -5) {
+            if(VERBOSE > 0 || VERBOSE >= 5) {
                 for(unsigned view1 = 0; view1 < numViews; ++view1) {
                     cout << " (" << view1 << "/"
                          << GetCellSlack(cells[cur], view1) << "/"
@@ -8335,14 +8335,14 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     }
                 }
                 restore++;
-                if(VERBOSE > 0 || VERBOSE == -5)
+                if(VERBOSE > 0 || VERBOSE >= 5)
                     cout << " Restore" << endl;
                 entry tmpEntry(*it);
                 targets.erase(it);
                 // cout << "x";
             }
             else {
-                if(VERBOSE > 0 || VERBOSE == -5)
+                if(VERBOSE > 0 || VERBOSE >= 5)
                     cout << " Accept" << endl;
                 changed[cur] = true;
                 cells[cur].downsized = true;
@@ -8364,7 +8364,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     cout << endl;
                 }
 
-                if(VERBOSE > 0 || VERBOSE == -5)
+                if(VERBOSE > 0 || VERBOSE >= 5)
                     cout << " Accept"
                          << " " << cells[cur].type << endl;
                 accept++;
@@ -8431,7 +8431,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     }
                 }
                 else {
-                    if(VERBOSE > 0 || VERBOSE == -5)
+                    if(VERBOSE > 0 || VERBOSE >= 5)
                         ;
                     //    cout << endl;
                 }
@@ -8747,13 +8747,13 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     OneTimer(cells[cur], STA_MARGIN);
                     restore++;
                 }
-                if(VERBOSE > 0 || VERBOSE == -5)
+                if(VERBOSE > 0 || VERBOSE >= 5)
                     cout << " Restore" << endl;
                 entry tmpEntry(*it);
                 targets.erase(it);
             }
             else {
-                if(VERBOSE > 0 || VERBOSE == -5)
+                if(VERBOSE > 0 || VERBOSE >= 5)
                     cout << " Accept" << endl;
 
                 for(unsigned m = 0; m < it->ids.size(); ++m) {

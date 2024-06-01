@@ -664,7 +664,7 @@ void Sizer::CountPaths() {
             g_cells[i].FIfromPI = FIfromPI[i];
             g_cells[i].FOtoPO = FOtoPO[i];
 
-            if(VERBOSE == 1) {
+            if(VERBOSE >= 1) {
                 cout << g_cells[i].name
                      << " #FIs: " << NfromPI[g_cells[i].outpin] << "-"
                      << FIfromPI[i].size() << "-"
@@ -703,7 +703,7 @@ void Sizer::CountPaths() {
     FIfromPI.clear();
     FOtoPO.clear();
 
-    if(sensFunc == 14 && VERBOSE == -500) {
+    if(sensFunc == 14 && VERBOSE >= 500) {
         for(unsigned i = 0; i < numcells; i++) {
             cout << g_cells[i].name << " #FIs: " << g_cells[i].FIfromPI.size()
                  << " #FOs: " << g_cells[i].FOtoPO.size() << endl;

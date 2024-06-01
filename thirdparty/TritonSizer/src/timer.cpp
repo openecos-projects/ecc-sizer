@@ -59,23 +59,23 @@ void Sizer::CallTimer(unsigned view) {
     if(WIRE_METRIC != ND)
         CalcWire(view);
 
-    if(VERBOSE == 2)
+    if(VERBOSE >= 2)
         cout << "Calc Tran start" << endl;
     // calc slews of pins
     CalcTran(view);
-    if(VERBOSE == 2)
+    if(VERBOSE >= 2)
         cout << "Calc Tran end" << endl;
     // calc delays of timing arcs
-    if(VERBOSE == 2)
+    if(VERBOSE >= 2)
         cout << "Calc Delay start" << endl;
     CalcDelay(view);
-    if(VERBOSE == 2)
+    if(VERBOSE >= 2)
         cout << "Calc Delay end" << endl;
-    if(VERBOSE == 2)
+    if(VERBOSE >= 2)
         cout << "Calc Slack start" << endl;
     // calc slacks of pins
     CalcSlack(view);
-    if(VERBOSE == 2)
+    if(VERBOSE >= 2)
         cout << "Calc Slack done" << endl;
 #ifdef TIME_MON
     time_CallTimer += cpuTime() - begin;
@@ -84,7 +84,7 @@ void Sizer::CallTimer(unsigned view) {
 }
 
 double r_entry(const LibLUT &liblut, const double tran, const double cap) {
-    if(VERBOSE == 3)
+    if(VERBOSE >= 3)
         cout << "R ENTRY " << liblut.templ << " " << liblut.loadIndices.size()
              << " " << liblut.transitionIndices.size() << endl;
     if(liblut.loadIndices.empty() && liblut.transitionIndices.empty() &&
@@ -275,7 +275,7 @@ LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
     LibCellInfo *lib_cell_info = getLibCellInfo(cell, corner);
 
     if(lib_cell_info == NULL) {
-        if(VERBOSE == 3)
+        if(VERBOSE >= 3)
             cout << "sizing_prog : no lib cell " << cell.type << endl;
         return NULL;
     }
@@ -341,7 +341,7 @@ LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
     LibCellInfo *new_lib_cell_info =
         getLibCellInfo(cell.main_lib_cell_id, new_size, new_vt, corner);
     if(new_lib_cell_info != NULL) {
-        if(VERBOSE == 3)
+        if(VERBOSE >= 3)
             cout << "Sizing progression " << cell.name << " " << cell.type
                  << " " << steps << "/" << dir << " -> "
                  << new_lib_cell_info->name << "--" << new_size << "/" << new_vt
@@ -431,7 +431,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                 pins[view][curpin].ftran_ofs =
                     value_list[curpin].fall - pins[view][curpin].ftran;
 
-                if(VERBOSE == 2)
+                if(VERBOSE >= 2)
                     cout << "CORR PIN TRAN UPDATE "
                          << getFullPinName(pins[view][curpin]) << " "
                          << pins[view][curpin].rtran << "/"
@@ -487,7 +487,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
             pins[view][curpin].ftran_ofs =
                 value_list[curpin].fall - pins[view][curpin].ftran;
 
-            if(VERBOSE == 2)
+            if(VERBOSE >= 2)
                 cout << "CORR OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " "
                      << pins[view][curpin].rtran << "/"
@@ -532,7 +532,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                     value_list[fopin].rise - pins[view][fopin].rtran;
                 pins[view][fopin].ftran_ofs =
                     value_list[fopin].fall - pins[view][fopin].ftran;
-                if(VERBOSE == 2)
+                if(VERBOSE >= 2)
                     cout << "CORR PIN TRAN UPDATE "
                          << getFullPinName(pins[view][fopin]) << " "
                          << pins[view][fopin].rtran << "/"
@@ -555,7 +555,7 @@ void Sizer::CalcTran(unsigned view) {
     for(unsigned i = 0; i < PIs.size(); i++) {
         unsigned curpin = PIs[i];
 
-        if(VERBOSE == 2)
+        if(VERBOSE >= 2)
             cout << "PIN TRAN ORIGNAL " << getFullPinName(pins[view][curpin])
                  << " " << pins[view][curpin].rtran << "/"
                  << pins[view][curpin].ftran << " "
@@ -585,7 +585,7 @@ void Sizer::CalcTran(unsigned view) {
                         r_entry(arc->riseTransition, inrtran[mode][curpin],
                                 pins[view][curpin].ceff);
                 }
-                if(VERBOSE == 2)
+                if(VERBOSE >= 2)
                     cout << "PIN TRAN UPDATE "
                          << getFullPinName(pins[view][curpin]) << " "
                          << pins[view][curpin].rtran << "/"
@@ -613,7 +613,7 @@ void Sizer::CalcTran(unsigned view) {
             pins[view][fopin].rtran = wire_tran.rise;
             pins[view][fopin].ftran = wire_tran.fall;
 
-            if(VERBOSE == 2)
+            if(VERBOSE >= 2)
                 cout << "PIN TRAN UPDATE " << getFullPinName(pins[view][fopin])
                      << " " << pins[view][fopin].rtran << "/"
                      << pins[view][fopin].ftran << " "
@@ -639,7 +639,7 @@ void Sizer::CalcTran(unsigned view) {
             pins[view][curpin].ftran = ftran + pins[view][curpin].ftran_ofs;
             pins[view][curpin].rtran = rtran + pins[view][curpin].rtran_ofs;
 
-            if(VERBOSE == 2)
+            if(VERBOSE >= 2)
                 cout << "OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " " << rtran
                      << "/" << ftran << " "
@@ -670,7 +670,7 @@ void Sizer::CalcTran(unsigned view) {
                 pins[view][fopin].rtran = wire_tran.rise;
                 pins[view][fopin].ftran = wire_tran.fall;
 
-                if(VERBOSE == 2)
+                if(VERBOSE >= 2)
                     cout << "PIN TRAN UPDATE "
                          << getFullPinName(pins[view][fopin]) << " "
                          << pins[view][fopin].rtran << "/"
@@ -703,7 +703,7 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
     if(cur == NULL) {
         // add a loop for output pins
 
-        if(VERBOSE == 3) {
+        if(VERBOSE >= 3) {
             cout << "LOOKUP ST " << cell.name << " " << cell.type << endl;
             cout << "cell not found" << endl;
         }
@@ -725,7 +725,7 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
         }
     }
     else {
-        if(VERBOSE == 3) {
+        if(VERBOSE >= 3) {
             cout << "LOOKUP ST -- lib cell " << cell.name << " " << cell.type
                  << " " << cur->name << endl;
         }
@@ -735,7 +735,7 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
             unsigned curoutpin = cell.outpins[i];
             unsigned outpinidx = pins[view][curoutpin].lib_pin * 100;
 
-            if(VERBOSE == 3) {
+            if(VERBOSE >= 3) {
                 cout << "OUTPIN " << pins[view][curoutpin].name << "/"
                      << curoutpin << " "
                      << cells[pins[view][curoutpin].owner].type << endl;
@@ -750,7 +750,7 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                 if(isFF && !lib_pin_info.isClock)
                     continue;
 
-                if(VERBOSE == 3) {
+                if(VERBOSE >= 3) {
                     cout << "LOOKUP ST " << cell.name << " " << cell.type << " "
                          << pins[view][curpin].name << " "
                          << pins[view][curpin].lib_pin << endl;
@@ -803,7 +803,7 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                     }
                 }
 
-                if(VERBOSE == 2) {
+                if(VERBOSE >= 2) {
                     cout << cell.name << "/" << pins[view][curpin].name << "("
                          << pins[view][curpin].rtran << "/"
                          << pins[view][curpin].ftran << ") "
@@ -3531,7 +3531,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++)
             loadCap += pins[view][nets[corner][curnet].outpins[j]].cap;
 
-        if(VERBOSE == 2)
+        if(VERBOSE >= 2)
             cout << fipin << " " << getFullPinName(pins[view][fipin]) << " "
                  << pins[view][fipin].totcap << "-->"
                  << nets[corner][curnet].cap + loadCap << endl;
@@ -3551,7 +3551,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         fwpins.push_back(cell.outpins[j]);
         // cout << "FWD PIN PUSH " <<
         // getFullPinName(pins[view][cell.outpins[j]]) << endl;
-        if(VERBOSE == 2)
+        if(VERBOSE >= 2)
             cout << "OUTPUT PIN " << j << " " << cell.outpins[j] << " "
                  << getFullPinName(pins[view][cell.outpins[j]]) << endl;
     }
@@ -3571,18 +3571,18 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     while(!fwpins.empty()) {
         unsigned fipin = fwpins.front();
 
-        if(VERBOSE == 2)
+        if(VERBOSE >= 2)
             cout << "--- UPDATE PIN TIMING START "
                  << getFullPinName(pins[view][fipin]) << endl;
 
         bool change = updatePinTiming(pins[view][fipin], margin, view);
 
-        if(VERBOSE == 2)
+        if(VERBOSE >= 2)
             cout << "--- UPDATE PIN TIMING END "
                  << getFullPinName(pins[view][fipin]) << endl;
         unsigned curnet = pins[view][fipin].net;
 
-        if(VERBOSE == 2)
+        if(VERBOSE >= 2)
             cout << "----- NET " << nets[corner][curnet].name << " "
                  << nets[corner][curnet].outpins.size() << endl;
 
@@ -3596,12 +3596,12 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
             for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
                 unsigned curpin = nets[corner][curnet].outpins[j];
                 unsigned curfo = pins[view][curpin].owner;
-                if(VERBOSE == 2)
+                if(VERBOSE >= 2)
                     cout << "------- CUR PIN "
                          << getFullPinName(pins[view][curpin]) << endl;
                 if(curfo == UINT_MAX) {  // PO
                     // bwpins.remove(curpin);
-                    if(VERBOSE == 2)
+                    if(VERBOSE >= 2)
                         cout << "REACH PO -- ADD BW PIN "
                              << getFullPinName(pins[view][curpin]) << endl;
                     bwpins.push_back(curpin);
@@ -3617,7 +3617,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                                 ->second.pins[pins[view][curpin].lib_pin]
                                 .isClock) {
                             // bwpins.remove(curpin);
-                            if(VERBOSE == 2)
+                            if(VERBOSE >= 2)
                                 cout << "REACH FF -- ADD BW PIN "
                                      << getFullPinName(pins[view][curpin])
                                      << endl;
@@ -3636,7 +3636,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                 }
                 for(unsigned k = 0; k < cells[curfo].outpins.size(); ++k) {
                     unsigned fopin = cells[curfo].outpins[k];
-                    if(VERBOSE == 2) {
+                    if(VERBOSE >= 2) {
                         cout << "ADD FW PIN FO "
                              << getFullPinName(pins[view][fopin]) << endl;
                     }
@@ -3653,7 +3653,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                 unsigned curpin = nets[corner][curnet].outpins[j];
                 unsigned curfo = pins[view][curpin].owner;
                 // bwpins.remove(curpin);
-                if(VERBOSE == 2)
+                if(VERBOSE >= 2)
                     cout << "ADD BW PIN NO CHANGE "
                          << getFullPinName(pins[view][curpin]) << endl;
 
@@ -3686,7 +3686,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     //        endpins.pop_front();
     //    }
 
-    if(VERBOSE == 2)
+    if(VERBOSE >= 2)
         cout << "BACKWARD START" << endl;
 
     for(unsigned i = 0; i < numnets; ++i) {
@@ -4437,10 +4437,10 @@ void Sizer::calc_res_vec(vector< SUB_NODE > &subNodeVec, NET &net) {
     if(subNodeVec.size() == 0)
         return;
 
-    if(VERBOSE == -220)
+    if(VERBOSE >= 220)
         cout << "calc res vec start" << endl;
     for(unsigned i = 0; i < subNodeVec.size() - 1; i++) {
-        if(VERBOSE == -220)
+        if(VERBOSE >= 220)
             cout << i << "/" << subNodeVec.size() << endl;
 
         vector< double > row;
@@ -4474,14 +4474,14 @@ void Sizer::calc_total_res(vector< SUB_NODE > &subNodeVec) {
 
     while(!dfsStack.empty()) {
         SUB_NODE *topNode = dfsStack.top();
-        // cout << "top " << topNode->id << endl;
+        cout << "top " << topNode->id << endl;
         bool hasToVisit = false;
         for(unsigned i = 0; i < topNode->adj.size(); i++) {
             if(!visited[topNode->adj[i]]) {
                 dfsStack.push(&subNodeVec[topNode->adj[i]]);
                 topNode->fanouts.push_back(topNode->adj[i]);
                 subNodeVec[topNode->adj[i]].fanin = topNode->id;
-                // cout << "push " << topNode->adj[i] << endl;
+                cout << "push " << topNode->adj[i] << endl;
                 visited[topNode->adj[i]] = true;
                 hasToVisit = true;
                 subNodeVec[topNode->adj[i]].totres +=
@@ -4521,11 +4521,11 @@ int Sizer::getNumRCStage(vector< SUB_NODE > &subNodeVec, unsigned sink) {
 
 double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
     double totres = 0.0;
-    if(VERBOSE == -220)
+    if(VERBOSE >= 220)
         cout << "get res " << m << " " << n << endl;
     SUB_NODE *curNode;
 
-    if(VERBOSE == -220)
+    if(VERBOSE >= 220)
         cout << "start -- " << m << endl;
     curNode = &subNodeVec[m];
     while(curNode->id != 0) {
@@ -4535,13 +4535,13 @@ double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
         }
         curNode->visited = true;
         curNode = &subNodeVec[curNode->fanin];
-        if(VERBOSE == -220) {
+        if(VERBOSE >= 220) {
             cout << "id " << curNode->id << endl;
             cout << "fanin " << curNode->fanin << endl;
         }
     }
 
-    if(VERBOSE == -220)
+    if(VERBOSE >= 220)
         cout << "start -- " << n << endl;
     curNode = &subNodeVec[n];
     while(curNode->id != 0) {
@@ -4549,13 +4549,13 @@ double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
             break;
         curNode->visited = true;
         curNode = &subNodeVec[curNode->fanin];
-        if(VERBOSE == -220) {
+        if(VERBOSE >= 220) {
             cout << "id " << curNode->id << endl;
             cout << "fanin " << curNode->fanin << endl;
         }
     }
 
-    if(VERBOSE == -220)
+    if(VERBOSE >= 220)
         cout << "res: " << curNode->totres << endl;
     totres = curNode->totres;
 
@@ -4688,14 +4688,14 @@ void Sizer::calc_net_moment(vector< SUB_NODE > &subNodeVec,
 timing_lookup Sizer::get_wire_delay(unsigned netID, unsigned sinkPinID,
                                     unsigned view) {
     unsigned corner = mmmcViewList[view].corner;
-    if(VERBOSE == -222) {
+    if(VERBOSE >= 222) {
         cout << "get wire delay " << netID << " " << sinkPinID << " " << view
              << " " << endl;
     }
     timing_lookup wire_delay;
     wire_delay.rise = wire_delay.fall = 0;
 
-    if(VERBOSE == -222) {
+    if(VERBOSE >= 222) {
         cout << "spef pin " << pins[view][sinkPinID].spef_pin << " "
              << nets[corner][netID].subNodeVec.size() << endl;
     }
@@ -4715,7 +4715,7 @@ timing_lookup Sizer::get_wire_delay(unsigned netID, unsigned sinkPinID,
 timing_lookup Sizer::get_wire_tran(unsigned netID, unsigned sinkPinID,
                                    double in_rtran, double in_ftran,
                                    unsigned view) {
-    if(VERBOSE == -222) {
+    if(VERBOSE >= 222) {
         cout << "get wire tran " << netID << " " << sinkPinID << " " << in_rtran
              << " " << in_ftran << " " << view << endl;
     }
@@ -5148,7 +5148,7 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
                 double rslk_old = 0;
                 double fslk_old = 0;
 
-                if(VERBOSE == 1) {
+                if(VERBOSE >= 1) {
                     rslk_old = pins[view][i].rslk;
                     fslk_old = pins[view][i].fslk;
                 }
@@ -5189,7 +5189,7 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
                     pins[view][i].fslk = DBL_MAX;
                 }
 
-                if(VERBOSE == 1) {
+                if(VERBOSE >= 1) {
                     // pessimistic
                     if(rslk_old < 0 && pins[view][i].rslk > 0) {
                         pin_slack tmp(i, rslk_old - pins[view][i].rslk);
@@ -5234,7 +5234,7 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
         }
 
         ///////
-        if(VERBOSE == 1) {
+        if(VERBOSE >= 1) {
             unsigned max_num_report = 100;
             unsigned iter;
             iter = 0;

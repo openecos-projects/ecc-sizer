@@ -344,12 +344,12 @@ void Circuit::assignLibPinId() {
         // dont_touch cell
         master = g_cells[i].type;
         cellInst = g_cells[i].name;
-        if(VERBOSE == 1)
+        if(VERBOSE >= 1)
             cout << "INST " << i << " " << cellInst << " " << master << endl;
         for(int j = 0; j < _sizer->dontTouchCell.size(); j++) {
             if(_sizer->dontTouchCell[j] == master) {
                 g_cells[i].isDontTouch = true;
-                if(VERBOSE == 1)
+                if(VERBOSE >= 1)
                     cout << "LIST DONT TOUCH " << g_cells[i].name << " "
                          << g_cells[i].type << endl;
             }
@@ -358,7 +358,7 @@ void Circuit::assignLibPinId() {
         for(int j = 0; j < _sizer->dontTouchInst.size(); j++) {
             if(_sizer->dontTouchInst[j] == cellInst) {
                 g_cells[i].isDontTouch = true;
-                if(VERBOSE == 1)
+                if(VERBOSE >= 1)
                     cout << "LIST DONT TOUCH " << g_cells[i].name << " "
                          << g_cells[i].type << endl;
             }
@@ -456,7 +456,7 @@ void Circuit::assignLibPinId() {
                                 break;
                             }
                         }
-                        if(VERBOSE == 1)
+                        if(VERBOSE >= 1)
                             cout << "CLOCK CELL DONT TOUCH "
                                  << g_cells[g_pins[pin_index].owner].name << " "
                                  << g_cells[g_pins[pin_index].owner].type << " "
@@ -491,13 +491,13 @@ void Circuit::assignLibPinId() {
             if(lib_cell_info->footprint == "0" ||
                lib_cell_info->footprint == "1") {
                 g_cells[i].isDontTouch = true;
-                if(VERBOSE == 1)
+                if(VERBOSE >= 1)
                     cout << "TIE DONT TOUCH " << g_cells[i].name << " "
                          << g_cells[i].type << endl;
             }
         }
         else {
-            if(VERBOSE == 1)
+            if(VERBOSE >= 1)
                 cout << "BLACKBOX INST " << i << " " << cellInst << " "
                      << master << endl;
             // treat blackboxes
@@ -801,7 +801,7 @@ void Circuit::Print_Stats() {
 
 void Circuit::sdc_converter(string filename) {
     char Commands[250];
-    sprintf         (Commands, "%s %s", SDC_CONVERT_TCL, filename.c_str());
+    sprintf(Commands, "%s %s", SDC_CONVERT_TCL, filename.c_str());
     cout << Commands << endl;
     ;
     system(Commands);
@@ -847,7 +847,8 @@ void Circuit::sdc_parser(string filename, unsigned mode) {
 
     //     if(valid) {
     //         if(VERBOSE >= 1)
-    //             cout << "Driver Info " << portName << " " << driverSize << " "
+    //             cout << "Driver Info " << portName << " " << driverSize << "
+    //             "
     //                  << inputTransitionRise << " " << inputTransitionFall
     //                  << endl;
 
@@ -857,12 +858,14 @@ void Circuit::sdc_parser(string filename, unsigned mode) {
 
     //         // JLTimingArc: add driverOutPin info
     //         std::map< unsigned, LibPinInfo >::iterator it;
-    //         for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it) {
+    //         for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
+    //         {
     //             if((it->second).isInput == true) {
     //                 driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
     //             }
     //             if((it->second).isOutput == true) {
-    //                 driverOutPin = lib_cell.lib_pin2id_map[(it->second).name];
+    //                 driverOutPin =
+    //                 lib_cell.lib_pin2id_map[(it->second).name];
     //             }
     //         }
 
@@ -871,9 +874,11 @@ void Circuit::sdc_parser(string filename, unsigned mode) {
     //         _sizer->drivers[mode].insert(
     //             std::pair< unsigned, string >(pin2id[portName], driverSize));
     //         _sizer->driverInPins[mode].insert(
-    //             std::pair< unsigned, unsigned >(pin2id[portName], driverInPin));
+    //             std::pair< unsigned, unsigned >(pin2id[portName],
+    //             driverInPin));
     //         // JLTimingArc: add driverOutPin info
-    //         _sizer->driverOutPins[mode].insert(std::pair< unsigned, unsigned >(
+    //         _sizer->driverOutPins[mode].insert(std::pair< unsigned, unsigned
+    //         >(
     //             pin2id[portName], driverOutPin));
     //         _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
     //             pin2id[portName], inputTransitionRise));
@@ -1828,7 +1833,7 @@ bool Circuit::read_clock(string& clockName, string& clockPort, double& period) {
 
         valid = read_line_as_tokens(is, tokens);
     }
- 
+
     // Skip the next comment line to prepare for the next stage
     // bool valid2 = read_line_as_tokens (is, tokens) ;
     // assert (valid2) ;
@@ -2898,19 +2903,12 @@ void Circuit::init_opensta(sta::Sta* _sta) {
 
     // read_parasitics
     bool parasitics = _sta->readSpef(
-        spefFileName.c_str(), 
-        _sta->currentInstance(), 
-        MinMaxAll::max(), 
-        false,
-        true,
-        false ,0.0, 
-        ReduceParasiticsTo::pi_elmore, 
-        false, 
-        true, 
-        false);
+        spefFileName.c_str(), _sta->currentInstance(), MinMaxAll::max(), false,
+        true, false, 0.0, ReduceParasiticsTo::pi_elmore, false, true, false);
     cout << "read_parasitics done : " << parasitics << endl;
 }
 
+// 最慢
 void Circuit::readDesign_opensta(sta::Sta* _sta) {
     string netlistFileName = _sizer->verilogFile;
     string sdcFileName = _sizer->sdcFile;
@@ -2939,10 +2937,13 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
     // read in the gates
     InstanceChildIterator* inst_it =
         network->childIterator(network->topInstance());
-
+    int iter_i = 0;
     while(inst_it->hasNext()) {
         Instance* inst = inst_it->next();
-
+        if(iter_i % 1000 == 0) {
+            printf("Read %d / %d Instances\n", iter_i, gateNum);
+        }
+        iter_i++;
         string strCellName = network->libertyCell(inst)->name();
 
         // NEW CELL
@@ -2993,16 +2994,21 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
     }
 
     // NET ITERATION
-
+    // 最慢
     string pattern_str = "*";
     Instance* top_inst = network->topInstance();
     NetSeq* nets = new NetSeq;
     PatternMatch pattern(pattern_str.c_str());
     network->findNetsHierMatching(top_inst, &pattern, nets);
-
+    int netsNum = nets->size();
     NetSeq::Iterator nets_iter(nets);
+    iter_i = 0;
     while(nets_iter.hasNext()) {
         Net* net = nets_iter.next();
+        if(iter_i % 1000 == 0) {
+            printf("Read %d / %d Nets\n", iter_i, netsNum);
+        }
+        iter_i++;
 
         string netName = network->pathName(net);
 
@@ -3018,10 +3024,10 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
             continue;
         }
 
-        if(network->netCount() == 0) {
-            // logFile << "0 term net: " << netName <<" found : ignore."<< endl;
-            continue;
-        }
+        // if(network->netCount() == 0) {
+        //     // logFile << "0 term net: " << netName <<" found : ignore."<< endl;
+        //     continue;
+        // }
 
         // NEW NET
         NET tmpNet;
@@ -3033,8 +3039,9 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
         // NET -- PINS
         // here are the gates connected to the net
         NetPinIterator* instTerms_iter = network->pinIterator(net);
-
+        int net_pin_num = 0;
         while(instTerms_iter->hasNext()) {
+            net_pin_num++;
             Pin* instGatePin = instTerms_iter->next();
             Instance* instGate = network->instance(instGatePin);
 
@@ -3087,6 +3094,7 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
 
         }  // NET -- INST PINS
 
+        // printf("Net %s has %d pins\n", netName.c_str(), net_pin_num);
         // PI/PO
         // InstancePinIterator
         // *top_level_pins_iter=network->pinIterator(network->topInstance());
@@ -3175,10 +3183,11 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
 
         while(connPinIter->hasNext()) {
             Pin* connPin = connPinIter->next();
-            
+
             string pin_name = _sta->network()->name(connPin);
             PortDirection* dir = _sta->network()->direction(connPin);
-            if(pin_name == "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON"){
+            if(pin_name ==
+               "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
                 puts("debug debug");
             }
             if(strcmp(pin_name.c_str(), string("SE").c_str()) == 0 ||
@@ -3190,7 +3199,7 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
             SUB_NODE sn;
 
             Parasitic* para = parasitics->findParasiticNetwork(connPin, ap);
-            if(para == nullptr){
+            if(para == nullptr) {
                 continue;
             }
             ConcreteParasitic* conc_para =
