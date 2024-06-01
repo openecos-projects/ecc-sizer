@@ -37,6 +37,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <cassert>
 #include <sstream>
 #include "sizer.h"
 
@@ -4475,6 +4476,7 @@ void Sizer::calc_total_res(vector< SUB_NODE > &subNodeVec) {
     while(!dfsStack.empty()) {
         SUB_NODE *topNode = dfsStack.top();
         cout << "top " << topNode->id << endl;
+        assert(topNode->id >= 0);
         bool hasToVisit = false;
         for(unsigned i = 0; i < topNode->adj.size(); i++) {
             if(!visited[topNode->adj[i]]) {
@@ -4525,25 +4527,28 @@ double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
         cout << "get res " << m << " " << n << endl;
     SUB_NODE *curNode;
 
-    if(VERBOSE >= 220)
-        cout << "start -- " << m << endl;
-    curNode = &subNodeVec[m];
-    while(curNode->id != 0) {
-        if(curNode->visited) {
-            cout << "WARNING: there is a loop in RC tree" << endl;
-            return 0.0;
-        }
-        curNode->visited = true;
-        curNode = &subNodeVec[curNode->fanin];
-        if(VERBOSE >= 220) {
-            cout << "id " << curNode->id << endl;
-            cout << "fanin " << curNode->fanin << endl;
-        }
-    }
+    // if(VERBOSE >= 220)
+    //     cout << "start -- " << m << endl;
+    // curNode = &subNodeVec[m];
+    // while(curNode->id != 0) {
+    //     if(curNode->visited) {
+    //         cout << "WARNING: there is a loop in RC tree" << endl;
+    //         return 0.0;
+    //     }
+    //     curNode->visited = true;
+    //     curNode = &subNodeVec[curNode->fanin];
+    //     if(VERBOSE >= 220) {
+    //         cout << "id " << curNode->id << endl;
+    //         cout << "fanin " << curNode->fanin << endl;
+    //     }
+    // }
 
     if(VERBOSE >= 220)
         cout << "start -- " << n << endl;
     curNode = &subNodeVec[n];
+    if(subNodeVec[0].id == 0){
+        return subNodeVec[0].totres;
+    }
     while(curNode->id != 0) {
         if(curNode->visited)
             break;

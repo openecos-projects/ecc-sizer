@@ -344,8 +344,8 @@ void Circuit::assignLibPinId() {
         // dont_touch cell
         master = g_cells[i].type;
         cellInst = g_cells[i].name;
-        if(VERBOSE >= 1)
-            cout << "INST " << i << " " << cellInst << " " << master << endl;
+        // if(VERBOSE >= 200)
+        //     cout << "INST " << i << " " << cellInst << " " << master << endl;
         for(int j = 0; j < _sizer->dontTouchCell.size(); j++) {
             if(_sizer->dontTouchCell[j] == master) {
                 g_cells[i].isDontTouch = true;
@@ -3025,8 +3025,8 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
         }
 
         // if(network->netCount() == 0) {
-        //     // logFile << "0 term net: " << netName <<" found : ignore."<< endl;
-        //     continue;
+        //     // logFile << "0 term net: " << netName <<" found : ignore."<<
+        //     endl; continue;
         // }
 
         // NEW NET
@@ -3198,8 +3198,12 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
 
             SUB_NODE sn;
 
-            Parasitic* para = parasitics->findParasiticNetwork(connPin, ap);
+            Parasitic* para = parasitics->findParasiticNetwork(connPin, ap); //对应net上的Parasitic
             if(para == nullptr) {
+                printf(
+                    "Error, Net don't have Parasitic. Net name :%s, pin name: "
+                    "%s, \n",
+                    netNameStr.c_str(), pin_name.c_str());
                 continue;
             }
             ConcreteParasitic* conc_para =
@@ -3217,9 +3221,9 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
                 subNodeVecPtr->at(0).pinId = pin2id[pin_name];
                 g_pins[pin2id[pin_name]].spef_pin = 0;
                 node2id[pin_name] = 0;
-                // Output
             }
             else {
+                // Output
                 sn.isSink = true;
                 sn.id = node_index++;
                 readSpefChangePinName(pin_name);
