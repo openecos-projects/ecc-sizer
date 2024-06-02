@@ -5537,7 +5537,7 @@ void Sizer::Parallel_Sizer_Launcher() {
             string find_timing = T[view]->doOneCmd("find_timing");
         }
         double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
-        double tns = T[view]->getTNS();
+        double tns = T[view]->getTNS(clk_name[worst_corner]);
 
         double leak = 0.0;
         double tot = 0.0;

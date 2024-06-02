@@ -1810,15 +1810,17 @@ bool Circuit::read_clock(string& clockName, string& clockPort, double& period) {
     double uncertainty = 0.0;
 
     while(valid) {
-        if(tokens.size() == 7 && tokens[0] == "create_clock" &&
+        if(tokens.size() == 10 && tokens[0] == "create_clock" &&
            tokens[1] == "-name") {
             clockName = tokens[2];
 
             assert(tokens[3] == "-period");
             period = std::atof(tokens[4].c_str());
+            assert(tokens[5] == "-waveform");
+            // FIXME:
 
-            assert(tokens[5] == "get_ports");
-            clockPort = tokens[6];
+            assert(tokens[8] == "get_ports");
+            clockPort = tokens[9];
         }
 
         if(tokens.size() == 5 && tokens[0] == "set_clock_uncertainty") {

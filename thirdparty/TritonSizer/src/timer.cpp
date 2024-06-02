@@ -4475,7 +4475,7 @@ void Sizer::calc_total_res(vector< SUB_NODE > &subNodeVec) {
 
     while(!dfsStack.empty()) {
         SUB_NODE *topNode = dfsStack.top();
-        cout << "top " << topNode->id << endl;
+        // cout << "top " << topNode->id << endl;
         assert(topNode->id >= 0);
         bool hasToVisit = false;
         for(unsigned i = 0; i < topNode->adj.size(); i++) {
@@ -4483,7 +4483,7 @@ void Sizer::calc_total_res(vector< SUB_NODE > &subNodeVec) {
                 dfsStack.push(&subNodeVec[topNode->adj[i]]);
                 topNode->fanouts.push_back(topNode->adj[i]);
                 subNodeVec[topNode->adj[i]].fanin = topNode->id;
-                cout << "push " << topNode->adj[i] << endl;
+                // cout << "push " << topNode->adj[i] << endl;
                 visited[topNode->adj[i]] = true;
                 hasToVisit = true;
                 subNodeVec[topNode->adj[i]].totres +=
