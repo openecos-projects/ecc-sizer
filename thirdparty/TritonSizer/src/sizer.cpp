@@ -199,7 +199,7 @@ int RATIO2 = 30;
 #ifdef ALPHA_BIN
 bool BACKGROUND = true;
 #else
-bool BACKGROUND = false;
+bool BACKGROUND = true;
 #endif
 int LEAKOPT_OPTION = 0;
 
@@ -1984,10 +1984,10 @@ void Sizer::exeOSServerOne(int port, unsigned view) {
     }
 
     if(ptScriptFile == "" || !fin.is_open()) {
-        //fout << "package ifneeded tbcload 1.7 [list load [file join . "
-        //        "libtbcload1.7.so]]"
-        //     << endl;
-        //fout << "source ./sizer.tbc" << endl;
+        // fout << "package ifneeded tbcload 1.7 [list load [file join . "
+        //         "libtbcload1.7.so]]"
+        //      << endl;
+        // fout << "source ./sizer.tbc" << endl;
         fout << "source ./sizer_os.tcl" << endl;
         fout << "set design  \"" << benchname << "\"" << endl;
         fout << "set lib_path \". " << dbLibPath << "\"" << endl;
@@ -2074,14 +2074,15 @@ void Sizer::exeOSServerOne(int port, unsigned view) {
 
     string var = "OPENSTA_EXECUTABLE";
     const char *val = ::getenv(var.c_str());
-    if(val != 0)
-        cout << var << ": " << val << endl;
-    else
-        val = "sta";
 
     string launchFile = "launch_os." + ostr.str() + ".cmd";
     fout.open(launchFile.c_str());
-
+    if(val != 0)
+        cout << var << ": " << val << endl;
+    else {
+        fout << "OPENSTA_EXECUTABLE=$(pwd)/sta" << endl;
+        val = "${OPENSTA_EXECUTABLE}";
+    }
     if(ptLaunchScriptFile != "") {
         fin.open(ptLaunchScriptFile.c_str());
     }
@@ -6635,8 +6636,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                  << " : " << power << endl;
 
             if(all_feasible && power < best_power_local) {
-                cout << "(" << thread_id << ") Local best power is updated "
-                                            "(inside of power opt loop) "
+                cout << "(" << thread_id
+                     << ") Local best power is updated "
+                        "(inside of power opt loop) "
                      << power << "/" << best_power_local << endl;
                 best_power_local = power;
                 best_alpha_local = local_alpha;
@@ -6821,8 +6823,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                      << power << "/" << best_power_local << endl;
             }
             else
-                cout << "(" << thread_id << ") Local best failed power is "
-                                            "updated (in the kick loop) "
+                cout << "(" << thread_id
+                     << ") Local best failed power is "
+                        "updated (in the kick loop) "
                      << power << "/" << best_failed_power_local << endl;
             // degrade_count = 0;
             kick_ratio = kick_ratio * 0.9;

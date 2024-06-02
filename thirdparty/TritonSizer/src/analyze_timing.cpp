@@ -630,6 +630,9 @@ bool designTiming::writeMaxTranConst(string infile, string outfile) {
     else if(program == ETS) {
         _tclInputString = "DoOneCommand \"EtsWritePinMaxTranConst " + infile +
                           " " + outfile + "\"";
+    }else{
+        _tclInputString = "DoOneCommand \"OSWritePinMaxTranConst " + infile +
+                          " " + outfile + "\"";
     }
     // cout << _tclInputString << endl;
     _tclExpression = (char *)_tclInputString.c_str();
