@@ -90,7 +90,7 @@ proc checkServer {} {
 proc OSGetPinSlack { pin_name } {
     if { [get_ports -quiet $pin_name] == "" } {
         set pin [get_pins $pin_name]
-        if { [get_property -object_type pin $pin is_clock_pin] == "true" } {
+        if { [get_property -object_type pin $pin is_register_clock] == "true" } {
             #return "INFINITY INFINITY"
             return "0 0"
         }
@@ -264,6 +264,21 @@ proc OSGetTNS { } {
     close $report_file
     set tns [expr -1*$tns]
     return $tns
+}
+# TODO:
+proc gate_delay {cellInPin cellOutPin} {
+    # Here we would have some logic to determine the delay based on the cellInPin and cellOutPin.
+    # This is a mock implementation. In a real scenario, this could involve complex calculations,
+    # database lookups, or calls to other tools or libraries.
+
+    # Mock delay values
+    set rise_delay 0.05
+    set fall_delay 0.07
+
+    # You would replace the above mock values with actual computation or retrieval logic.
+
+    # Output the delays in the format expected by sscanf in the C++ code
+    puts "$rise_delay $fall_delay"
 }
 
 proc OSLoadDesign { } {

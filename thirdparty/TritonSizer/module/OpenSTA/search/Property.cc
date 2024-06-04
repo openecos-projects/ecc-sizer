@@ -646,7 +646,10 @@ getProperty(const Pin *pin,
     return pinSlackProperty(pin, TransRiseFall::fall(), MinMax::min(), sta);
   else if (stringEqual(property, "min_rise_slack"))
     return pinSlackProperty(pin, TransRiseFall::rise(), MinMax::min(), sta);
-
+  else if (stringEqual(property, "is_register_clock")) {
+    const LibertyPort *port = network->libertyPort(pin);
+    return PropertyValue(port && port->isRegClk());
+  }
   else if (stringEqual(property, "actual_fall_transition_max"))
     return pinSlewProperty(pin, TransRiseFall::fall(), MinMax::max(), sta);
   else if (stringEqual(property, "actual_rise_transition_max"))
