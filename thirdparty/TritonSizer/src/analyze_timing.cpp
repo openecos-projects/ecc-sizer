@@ -308,7 +308,7 @@ double designTiming::getTNS(string _clkName) {
         _tclInputString = "DoOneCommand \"EtsGetTNS " + _clkName + "\"";
     }
     else if(program == OS) {
-        _tclInputString = "DoOneCommand \"OSGetTNS " + _clkName + "\"";
+        _tclInputString = "DoOneCommand \"OSGetTNS\"";
     }
     _tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -705,6 +705,8 @@ void designTiming::getPinToggleRate(double &toggleRate, string pinName) {
     }
     else {
         _tclInputString = "DoOneCommand \"OSGetPinToggleRate " + pinName + "\"";
+        toggleRate = 0;
+        return;
     }
     // cout << _tclInputString << endl;
     _tclExpression = (char *)_tclInputString.c_str();

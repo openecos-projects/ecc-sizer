@@ -676,7 +676,7 @@ target_compile_features(OpenSTA
 ###########################################################
 
 # compatibility with configure
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${STA_HOME}/app)
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${STA_HOME}/app)
 
 # Note executable and lib name cannot be the same because
 # on osx something is case insensitive. Using STA for the

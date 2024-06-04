@@ -239,13 +239,25 @@ proc OSGetTNS { } {
 
     report_checks -group_count 999999 -slack_max 0 > tmp2.rpt
     #set tns [total_negative_slack]
-
+    puts "TNS calcaultion done."
     set report_file [open tmp2.rpt "r"] 
     set tns 0
     set file_data [split [read $report_file] \n]
+    # foreach line $file_data {
+    #     if {[string match "*slack (VIO*" $line]} {
+    #         puts $line
+    #         set tns [expr [lindex [split $line " "] end] + $tns]
+    #     }
+    # }
     foreach line $file_data {
         if {[string match "*slack (VIO*" $line]} {
-            set tns [expr [lindex [split $line " "] end] + $tns]
+            if {[regexp {([-]?\d+\.?\d*)} $line match value]} {
+                if {[string match *VIOLATED* $line]} {
+                    puts "Warning: VIOLATED detected in line: $line"
+                }
+                # 将提取的值累加到 tns 中
+                set tns [expr $tns + $value]
+            }
         }
     }
 
@@ -393,12 +405,15 @@ proc OSWritePinToggleRate { infile outfile } {
     set ofp [open $outfile "w"]
     while { [gets $ifp line] >= 0 } {
         set pin_name $line
+        # sta_warn "get_ports starting"
+        # puts $pin_name
         if { [get_ports -quiet $pin_name] == "" } {
             set pin [get_pin $pin_name]
         } else {
             set pin [get_ports $pin_name]
         }
-          set toggle_rate 0
+        # sta_warn "Runing done get_ports"
+        set toggle_rate 0
 
         puts $ofp "$pin_name $toggle_rate"
     }

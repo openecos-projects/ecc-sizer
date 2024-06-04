@@ -40,8 +40,15 @@
 #include "sizer.h"
 #include <stdlib.h>
 #include <algorithm>
+#include <cstdio>
 #include <sstream>
 #include "utils.h"
+#include <iostream>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 #define TIMER_RUNS_BACKGROUND
 
 #define GLOBAL 0
@@ -142,7 +149,7 @@ int GWTW_DIV = 4;
 int GWTW_NUM_START = 4;
 
 bool DATA_PIN_ONLY = true;
-bool NO_LOG = true;
+bool NO_LOG = false;
 bool CORR_DYN = false;
 int MAX_THREAD = 16;
 int PTPORT = 7020;
@@ -436,7 +443,42 @@ CorrPTMetric str2CorrPTMetric(const string &str) {
     }
     return out;
 }
-
+ 
+int get_available_port(int start_port) {
+    int port = start_port;
+    int sockfd;
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
+ 
+    while (port <= 65535) {
+        // 创建socket
+        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sockfd < 0) {
+            std::cerr << "Socket creation failed" << std::endl;
+            return -1;
+        }
+ 
+        // 设置地址和端口
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = INADDR_ANY;
+        address.sin_port = htons(port);
+ 
+        // 绑定端口
+        if (bind(sockfd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+            // 如果端口已被占用，尝试下一个端口
+            close(sockfd);
+            ++port;
+            continue;
+        }
+ 
+        std::cout << "Available port found: " << port << std::endl;
+        close(sockfd);
+        return port;
+    }
+ 
+    return -1; // No available port found
+}
+ 
 int getTokenI(string line, string option) {
     int token;
     size_t sizeStr, startPos, endPos;
@@ -1202,6 +1244,10 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     string clientTcl = "ptclient." + ostr.str() + ".tcl";
     // make ptclient tcl
     ofstream fout(clientTcl.c_str());
+    if(!fout){
+        printf("Error: Open file failed");
+        exit(0);
+    }
     fout << "proc GetData {} {" << endl;
     fout << "  global chan" << endl;
     fout << "  if {![eof $chan]} {" << endl;
@@ -1247,6 +1293,9 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     }
     cout << endl;
     cout << "Timer server contact ... done " << endl;
+    char curr_path[1024];
+    getcwd(curr_path, 1024);
+    printf("Current working directory: %s\n", curr_path);
     if(NO_LOG) {
         sprintf(Commands, "\\rm -f launch_pt.%d.cmd", port);
         system(Commands);
@@ -5528,7 +5577,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     }
 
     double temp_best_tns = DBL_MAX;
-
+    printf("Start get initial values\n");
     for(unsigned view = 0; view < numViews; ++view) {
         GetSwitchPowerCoef(view);
         GetMaxTranConst(view);
@@ -9342,6 +9391,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
 
         if(line.find("-ptport ") != string::npos) {
             PTPORT = getTokenI(line, "-ptport ");
+            PTPORT = get_available_port(PTPORT);
         }
 
         if(line.find("-soceport ") != string::npos) {

@@ -68,7 +68,7 @@ public:
   PathAnalysisPt *findPathAnalysisPt(PathAPIndex path_index) const;
   PathAnalysisPtSeq &pathAnalysisPts();
   const PathAnalysisPtSeq &pathAnalysisPts() const;
-
+  CornerSeq &corners() { return corners_; }
 protected:
   void makeAnalysisPts();
   void updateCornerParasiticAnalysisPts();
@@ -81,7 +81,7 @@ protected:
 			   bool swap_clk_min_max,
 			   DcalcAnalysisPt *dcalc_ap_min,
 			   DcalcAnalysisPt *dcalc_ap_max);
-  CornerSeq &corners() { return corners_; }
+
 
 private:
   CornerMap corner_map_;

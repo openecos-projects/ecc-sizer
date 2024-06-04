@@ -36,4 +36,5 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build)
 # add_subdirectory(thirdparty/OpenROAD)
 
 # Road 3
+set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/TritonSizer/module/OpenSTA/install-sp)
 add_subdirectory(thirdparty/TritonSizer)
