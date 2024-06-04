@@ -66,7 +66,7 @@ void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]);
 typedef unsigned cell_sizes;
 
 enum cell_vtypes { s = 0, m, f, default_vtype };
-
+// typedef unsigned cell_vtypes;
 using namespace std;
 
 struct LibCellInfo;

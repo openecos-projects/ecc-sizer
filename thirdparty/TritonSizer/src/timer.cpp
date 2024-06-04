@@ -340,7 +340,7 @@ LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
     }
 
     LibCellInfo *new_lib_cell_info =
-        getLibCellInfo(cell.main_lib_cell_id, new_size, new_vt, corner);
+        getLibCellInfo(cell.main_lib_cell_id, new_size, static_cast<cell_vtypes>(new_vt), corner);
     if(new_lib_cell_info != NULL) {
         if(VERBOSE >= 3)
             cout << "Sizing progression " << cell.name << " " << cell.type

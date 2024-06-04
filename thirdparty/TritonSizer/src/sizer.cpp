@@ -705,13 +705,13 @@ bool Sizer::cell_change(CELL &cell, CellSol cell_sol, bool update_cap) {
     }
 
     LibCellInfo *new_lib_cell_info = getLibCellInfo(
-        cell.main_lib_cell_id, cell_sol.c_size, cell_sol.c_vtype);
+        cell.main_lib_cell_id, cell_sol.c_size, static_cast<cell_vtypes>(cell_sol.c_vtype));
 
     if(new_lib_cell_info != NULL) {
         cell.isChanged = true;
         cell.type = new_lib_cell_info->name;
         cell.c_size = cell_sol.c_size;
-        cell.c_vtype = cell_sol.c_vtype;
+        cell.c_vtype = static_cast<cell_vtypes>(cell_sol.c_vtype);
         if(update_cap) {
             for(unsigned i = 0; i < cell.inpins.size(); i++) {
                 for(unsigned j = 0; j < numViews; ++j) {
@@ -862,11 +862,11 @@ bool Sizer::cell_retype(CELL &cell, int dir, bool pt_corr, bool update_cap) {
     }
     else {
         LibCellInfo *new_lib_cell_info =
-            getLibCellInfo(cell.main_lib_cell_id, cell.c_size, new_vt, corner);
+            getLibCellInfo(cell.main_lib_cell_id, cell.c_size, static_cast<cell_vtypes>(new_vt), corner);
         if(new_lib_cell_info != NULL) {
             cell.isChanged = true;
             cell.type = new_lib_cell_info->name;
-            cell.c_vtype = new_vt;
+            cell.c_vtype = static_cast<cell_vtypes>(new_vt);
 
             if(update_cap) {
                 for(unsigned j = 0; j < numViews; ++j) {
@@ -991,13 +991,13 @@ bool Sizer::cell_change(CELL &cell, cell_sizes size, cell_vtypes vt,
     }
 
     LibCellInfo *new_lib_cell_info = getLibCellInfo(
-        cell.main_lib_cell_id, cell_sol.c_size, cell_sol.c_vtype);
+        cell.main_lib_cell_id, cell_sol.c_size, static_cast<cell_vtypes>(cell_sol.c_vtype));
 
     if(new_lib_cell_info != NULL) {
         cell.isChanged = true;
         cell.type = new_lib_cell_info->name;
         cell.c_size = cell_sol.c_size;
-        cell.c_vtype = cell_sol.c_vtype;
+        cell.c_vtype = static_cast<cell_vtypes>(cell_sol.c_vtype);
         if(update_cap) {
             for(unsigned j = 0; j < numViews; ++j) {
                 for(unsigned i = 0; i < cell.inpins.size(); i++)
