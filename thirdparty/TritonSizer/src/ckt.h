@@ -44,6 +44,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iomanip>
+#include "Sta.hh"
 #include "sizer.h"
 
 #define NUM_VTS 3
@@ -59,6 +60,12 @@ extern int Sta_Init(Tcl_Interp* interp);
 // to import TCL functions
 namespace sta {
 extern const char* tcl_inits[];
+
+inline std::string evalTclString(const string& cmd) {
+    Sta* sta = Sta::sta();
+    Tcl_Eval(sta->tclInterp(), cmd.c_str());
+    return string(Tcl_GetStringResult(sta->tclInterp()));
+};
 }
 
 void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]);
@@ -830,7 +837,8 @@ class Circuit {
     void init_opensta(sta::Sta* _sta);
     void readSpef_opensta(sta::Sta* _sta);
     void readSpefChangePinName(string& pin_name);
-
+    sta::Sta* _sta = nullptr;
+    Tcl_Interp *sta_interp = nullptr;
    private:
     std::ifstream is;
     Sizer* _sizer;

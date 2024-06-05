@@ -95,6 +95,7 @@ string debug_net = "";
 bool NO_FOOTPRINT = false;
 bool STM28 = false;
 bool C40 = false;
+bool ASAP7 = true;
 bool TIMING_RECOVERY = false;
 bool OLD_SIZER = false;
 bool ALL_MOVE = false;
@@ -1059,6 +1060,7 @@ void Sizer::Parser() {
 
     _ckt = new Circuit(this);
     _ckt->Parser(directory + benchname);
+    _sta = _ckt->_sta;
     cout << endl
          << "Hard Runtime Limit   : " << RuntimeLimit / 3600 << " hours"
          << endl;
@@ -9735,6 +9737,10 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-stm28") != string::npos) {
             NO_FOOTPRINT = true;
             STM28 = true;
+        }
+        if(line.find("-asap7") != string::npos) {
+            NO_FOOTPRINT = true;
+            ASAP7 = true;
         }
         if(line.find("-tsmc16ff") != string::npos) {
             NO_FOOTPRINT = true;

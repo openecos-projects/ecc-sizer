@@ -189,6 +189,7 @@ extern bool CHECK_ALL_VIEW;
 extern string debug_net;
 extern bool STM28;
 extern bool C40;
+extern bool ASAP7;
 extern bool NO_FOOTPRINT;
 extern bool TIMING_RECOVERY;
 extern bool PEEPHOLE;
@@ -621,6 +622,9 @@ class Sizer {
     void UpdateCapsFromCells();
 
    public:
+
+    sta::Sta* _sta;
+    Tcl_Interp *sta_interp = nullptr;
     // multithreading
     pthread_mutex_t mutex1;
     pthread_t *threads;

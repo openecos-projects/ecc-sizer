@@ -1,7 +1,10 @@
 #include "sizer.h"
 #include "ckt.h"
+#include <tcl8.6/tcl.h>
+#include <tcl8.6/tclDecls.h>
 #include <cassert>
 #include <cstdio>
+#include <iostream>
 
 #define NUM_VTS 3
 #define NUM_SIZES 10
@@ -126,9 +129,19 @@ void Circuit::Parser(string benchmark) {
     }
 
     cout << "Load design... " << _sizer->benchname << endl;
-    sta::Sta* _sta = new sta::Sta;
+    _sta = new sta::Sta;
     init_opensta(_sta);
     readDesign_opensta(_sta);
+    // if(!_sizer->mmmcOn) {
+    //     cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
+    //     sdc_parser(_sizer->sdcFile);
+    // }
+    // else {
+    //     for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
+    //         cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] << endl;
+    //         sdc_parser(_sizer->mmmcSdcList[mode], mode);
+    //     }
+    // }
     assert(_sta);
     for(unsigned i = 0; i < g_pins.size(); ++i) {
         string cell_name = "NA";
@@ -165,16 +178,7 @@ void Circuit::Parser(string benchmark) {
             cout << "CHECK MAP " << it->first << "---" << it->second << endl;
     }
 
-    if(!_sizer->mmmcOn) {
-        cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
-        sdc_parser(_sizer->sdcFile);
-    }
-    else {
-        for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
-            cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] << endl;
-            sdc_parser(_sizer->mmmcSdcList[mode], mode);
-        }
-    }
+
 
     _sizer->RuntimeLimit = 3600 * (3 + ceil(g_cells.size() / 40000.));
 
@@ -812,80 +816,79 @@ void Circuit::sdc_converter(string filename) {
 void Circuit::sdc_parser(string filename, unsigned mode) {
     char sdc_filename[250];
 
-    // sprintf(sdc_filename, "%s%s", filename.c_str(), SDC_FILE_POSTFIX);
-    // cout << "SDC " << sdc_filename << endl;
+    sprintf(sdc_filename, "%s%s", filename.c_str(), SDC_FILE_POSTFIX);
+    cout << "SDC " << sdc_filename << endl;
 
-    // sdc_converter(filename);
+    sdc_converter(filename);
     is.open(filename);
     bool valid = read_clock(_sizer->clk_name[mode], _sizer->clk_port[mode],
                             _sizer->clk_period[mode]);
-    // assert(valid);
+    assert(valid);
 
-    // do {
-    //     string portName;
-    //     double delay = 0.0;
-    //     valid = true;
-    //     if(valid) {
-    //         if(VERBOSE >= 1)
-    //             cout << "Input port " << portName << " has delay " << delay
-    //                  << endl;
-    //         _sizer->indelays[mode][portName] = delay;
-    //     }
-    // } while(valid);
+    do {
+        string portName;
+        double delay = 0.0;
+        valid = true;
+        if(valid) {
+            if(VERBOSE >= 1)
+                cout << "Input port " << portName << " has delay " << delay
+                     << endl;
+            _sizer->indelays[mode][portName] = delay;
+        }
+    } while(valid);
 
-    // do {
-    //     string portName;
-    //     string driverSize;
-    //     string driverPin;
-    //     unsigned driverInPin;
-    //     unsigned driverOutPin;
-    //     double inputTransitionFall;
-    //     double inputTransitionRise;
+    do {
+        string portName;
+        string driverSize;
+        string driverPin;
+        unsigned driverInPin;
+        unsigned driverOutPin;
+        double inputTransitionFall;
+        double inputTransitionRise;
 
-    //     valid = read_driver_info(portName, driverSize, driverPin,
-    //                              inputTransitionFall, inputTransitionRise);
+        valid = read_driver_info(portName, driverSize, driverPin,
+                                 inputTransitionFall, inputTransitionRise);
 
-    //     if(valid) {
-    //         if(VERBOSE >= 1)
-    //             cout << "Driver Info " << portName << " " << driverSize << "
-    //             "
-    //                  << inputTransitionRise << " " << inputTransitionFall
-    //                  << endl;
+        if(valid) {
+            if(VERBOSE >= 1)
+                cout << "Driver Info " << portName << " " << driverSize << " "
+                     << inputTransitionRise << " " << inputTransitionFall
+                     << endl;
 
-    //         unsigned corner = 0;
-    //         LibCellInfo& lib_cell =
-    //             _sizer->libs[corner].find(driverSize)->second;
+            unsigned corner = 0;
+            LibCellInfo& lib_cell =
+                _sizer->libs[corner].find(driverSize)->second;
 
-    //         // JLTimingArc: add driverOutPin info
-    //         std::map< unsigned, LibPinInfo >::iterator it;
-    //         for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
-    //         {
-    //             if((it->second).isInput == true) {
-    //                 driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
-    //             }
-    //             if((it->second).isOutput == true) {
-    //                 driverOutPin =
-    //                 lib_cell.lib_pin2id_map[(it->second).name];
-    //             }
-    //         }
+            // JLTimingArc: add driverOutPin info
+            std::map< unsigned, LibPinInfo >::iterator it;
+            for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
+            {
+                if((it->second).isInput == true) {
+                    driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
+                }
+                if((it->second).isOutput == true) {
+                    driverOutPin =
+                    lib_cell.lib_pin2id_map[(it->second).name];
+                }
+            }
 
-    //         // driverInPin = g_pins[pin2id[portName]].lib_pin;
-    //         // always driverSize = inverter, driverPin=o
-    //         _sizer->drivers[mode].insert(
-    //             std::pair< unsigned, string >(pin2id[portName], driverSize));
-    //         _sizer->driverInPins[mode].insert(
-    //             std::pair< unsigned, unsigned >(pin2id[portName],
-    //             driverInPin));
-    //         // JLTimingArc: add driverOutPin info
-    //         _sizer->driverOutPins[mode].insert(std::pair< unsigned, unsigned
-    //         >(
-    //             pin2id[portName], driverOutPin));
-    //         _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
-    //             pin2id[portName], inputTransitionRise));
-    //         _sizer->inftran[mode].insert(std::pair< unsigned, double >(
-    //             pin2id[portName], inputTransitionFall));
-    //     }
-    // } while(valid);
+            // driverInPin = g_pins[pin2id[portName]].lib_pin;
+            // always driverSize = inverter, driverPin=o
+            _sizer->drivers[mode].insert(
+                std::pair< unsigned, string >(pin2id[portName], driverSize));
+            _sizer->driverInPins[mode].insert(
+                std::pair< unsigned, unsigned >(pin2id[portName],
+                driverInPin));
+            // JLTimingArc: add driverOutPin info
+            _sizer->driverOutPins[mode].insert(std::pair< unsigned, unsigned
+            >(
+                pin2id[portName], driverOutPin));
+            _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
+                pin2id[portName], inputTransitionRise));
+            _sizer->inftran[mode].insert(std::pair< unsigned, double >(
+                pin2id[portName], inputTransitionFall));
+        }
+    } while(valid);
 
     // do {
     //     string portName;
@@ -899,17 +902,17 @@ void Circuit::sdc_parser(string filename, unsigned mode) {
     //     }
     // } while(valid);
 
-    // do {
-    //     string portName;
-    //     double load;
-    //     valid = read_output_load(portName, load);
-    //     if(valid) {
-    //         if(VERBOSE >= 1)
-    //             cout << "Output port " << portName << " has load " << load
-    //                  << endl;
-    //         g_pins[pin2id[portName]].cap = load;
-    //     }
-    // } while(valid);
+    do {
+        string portName;
+        double load;
+        valid = read_output_load(portName, load);
+        if(valid) {
+            if(VERBOSE >= 1)
+                cout << "Output port " << portName << " has load " << load
+                     << endl;
+            g_pins[pin2id[portName]].cap = load;
+        }
+    } while(valid);
 
     is.close();
 }
@@ -2443,6 +2446,14 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
                 }
                 else
                     cell.footprint = "NA";
+                if(ASAP7) {
+                    string temp = cell.name;
+                    size_t start = temp.find_first_of("x");
+                    temp.erase(start, temp.length() - start);
+                    cell.footprint = temp;
+                    // cout << "footprint " << cell.name << " " <<
+                    //         cell.footprint << endl;
+                }
                 if(STM28) {
                     string temp = cell.name;
                     string delimiter = "_";
@@ -2848,27 +2859,34 @@ void Circuit::init_opensta(sta::Sta* _sta) {
     string cornerName = "0";
 
     // Tcl Interpreter settings
-    //    Tcl_Interp *interp = Tcl_CreateInterp();
+    
+    sta_interp = Tcl_CreateInterp();
+    Tcl_Init(sta_interp);
+    //   // Define swig commands.
+    // sta_swig_init(sta_interp);
 
     // define swig commands
-    //  Sta_Init(interp);
-
-    // Tcl_Eval(interp, "set ::env(TCL_INIT_DIR)
-    // /home/tool/tcl/tcl8.4.20/lib/tcl8.4");
-
-    // load encoded TCL functions
-    // evalTclInitForLibrary(interp, tcl_inits);
-
-    // initialize TCL commands
-    // Tcl_Eval(interp, "sta::show_splash");
-    // Tcl_Eval(interp, "sta::define_sta_cmds");
-    // Tcl_Eval(interp, "namespace import sta::*");
-
-    // initialize
+    Sta_Init(sta_interp);
     initSta();
     sta::Sta::setSta(_sta);
     _sta->makeComponents();
-    //_sta->setTclInterp(interp);
+    _sta->setTclInterp(sta_interp);
+    
+    // load encoded TCL functions
+    evalTclInitForLibrary(sta_interp, tcl_inits);
+    
+    // initialize TCL commands
+    Tcl_Eval(sta_interp, "sta::show_splash");
+    Tcl_Eval(sta_interp, "sta::define_sta_cmds");
+    Tcl_Eval(sta_interp, "namespace import sta::*");
+    // string sta_init_str = "source -verbose [file join $env(HOME) .sta]";
+    // Tcl_Eval(sta_interp, sta_init_str.c_str());
+    // std::cout << Tcl_GetStringResult(sta_interp) << std::endl;
+    // initialize
+
+
+    
+    
     cout << "STA CREATED" << endl;
 
     // define_corners
@@ -2908,6 +2926,12 @@ void Circuit::init_opensta(sta::Sta* _sta) {
         spefFileName.c_str(), _sta->currentInstance(), MinMaxAll::max(), false,
         true, false, 0.0, ReduceParasiticsTo::pi_elmore, false, true, false);
     cout << "read_parasitics done : " << parasitics << endl;
+
+    string sdc_cmd = "read_sdc " + sdcFileName;
+    std::cout<< std::string(evalTclString(sdc_cmd)) << std::endl;    
+    std::cout<< "read_sdc done !!!" << std::endl;
+    string setrc_cmd = "source " + libPath + "/../setRC.tcl";
+    std::cout<< std::string(evalTclString(setrc_cmd)) << std::endl;
 }
 
 // 最慢
@@ -3145,6 +3169,9 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
         }
 
     }  // NET ITERATION END
+
+    //SDC Copy runing
+    //TODO:
 }
 
 void Circuit::readSpef_opensta(sta::Sta* _sta) {
@@ -3335,8 +3362,10 @@ void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]) {
         length += strlen(init);
     }
     char* unencoded = new char[length / 3 + 1];
-    char* u = unencoded;
+    int line = 0;
+    char* u = unencoded;    
     for(const char** e = inits; *e; e++) {
+        // printf("%d\n", line);
         const char* init = *e;
         size_t init_length = strlen(init);
         for(const char* s = init; s < &init[init_length]; s += 3) {
@@ -3344,16 +3373,12 @@ void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]) {
             char ch = atoi(code);
             *u++ = ch;
         }
+        line++;
     }
     *u = '\0';
-    if(Tcl_Eval(interp, unencoded) != TCL_OK) {
-        // Get a backtrace for the error.
-        Tcl_Eval(interp, "$errorInfo");
-        const char* tcl_err = Tcl_GetStringResult(interp);
-        fprintf(stderr, "Error: TCL init script: %s.\n", tcl_err);
-        fprintf(stderr,
-                "       Try deleting app/TclInitVar.cc and rebuilding.\n");
-        exit(0);
-    }
+    if (Tcl_Eval(interp, unencoded)!= TCL_OK) {
+        printf("%s\n", unencoded);
+        printf("TCL init script: %s.\n", Tcl_GetStringResult(interp));
+    };
     delete[] unencoded;
 }

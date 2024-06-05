@@ -1,6 +1,5 @@
 
 set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -fomit-frame-pointer -funroll-all-loops -m64 -fprefetch-loop-arrays -ffast-math -fPIC -Wno-deprecated -g -gstrict-dwarf -Wunused -fpermissive")
 
 # Please set your environment
 set(TCLLIB "-L ../module/tcl/unix/install-sp/lib -ltcl")
