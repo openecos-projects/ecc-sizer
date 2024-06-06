@@ -7,7 +7,7 @@ if { $argc < 1 } {
 
 set input [lindex $argv 0]
 source ./SDC/write_sdc.tcl
-exec ./SDC/parse_sdc.tcl $input > tmp
+exec ./SDC/parse_sdc.tcl $input
 
 write_sdc tmp ${input}.sizer
 exec rm tmp

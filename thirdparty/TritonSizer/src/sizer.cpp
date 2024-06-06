@@ -42,6 +42,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <sstream>
+#include "ckt.h"
 #include "utils.h"
 #include <iostream>
 #include <sys/types.h>
@@ -2140,7 +2141,7 @@ void Sizer::exeOSServerOne(int port, unsigned view) {
     if(ptLaunchScriptFile != "") {
         fin.open(ptLaunchScriptFile.c_str());
     }
-
+    sta::evalTclString("source sizer_os.tcl");
     if(ptLaunchScriptFile == "" || !fin.is_open()) {
         if(ptLogSave) {
             if(BACKGROUND)

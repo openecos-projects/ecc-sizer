@@ -273,7 +273,7 @@ proc gate_delay {cellInPin cellOutPin} {
 
     # Mock delay values
 
-    report_dcalc -max -digits 3 -from cellInPin -to cellOutPin > tmp3.rpt
+    report_dcalc -max -digits 3 -from $cellInPin -to $cellOutPin > tmp3.rpt
 
     set report_file [open tmp3.rpt "r"]
     set file_data [split [read $report_file] \n]
@@ -311,7 +311,7 @@ proc gate_delay {cellInPin cellOutPin} {
         }
        }
     }
-    return "$rise_delay $fall_delay"
+    return my_array
 }
 
 proc OSLoadDesign { } {

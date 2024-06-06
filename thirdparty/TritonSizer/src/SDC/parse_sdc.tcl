@@ -35,6 +35,9 @@ proc callback_simple_example {command parsing_result} {
 
     # Switch on command type
     switch -- $command {
+        current_design {
+            return ""
+        }
         create_clock {
             if { [info exists res(-name)] } {
                 puts "set clock \"$command -name $res(-name) -period $res(-period) \\\[get_ports $res(port_pin_list)\\\]\""

@@ -132,16 +132,16 @@ void Circuit::Parser(string benchmark) {
     _sta = new sta::Sta;
     init_opensta(_sta);
     readDesign_opensta(_sta);
-    // if(!_sizer->mmmcOn) {
-    //     cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
-    //     sdc_parser(_sizer->sdcFile);
-    // }
-    // else {
-    //     for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
-    //         cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] << endl;
-    //         sdc_parser(_sizer->mmmcSdcList[mode], mode);
-    //     }
-    // }
+    if(!_sizer->mmmcOn) {
+        cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
+        sdc_parser(_sizer->sdcFile);
+    }
+    else {
+        for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
+            cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] << endl;
+            sdc_parser(_sizer->mmmcSdcList[mode], mode);
+        }
+    }
     assert(_sta);
     for(unsigned i = 0; i < g_pins.size(); ++i) {
         string cell_name = "NA";
@@ -177,8 +177,6 @@ void Circuit::Parser(string benchmark) {
         if(VERBOSE > 1)
             cout << "CHECK MAP " << it->first << "---" << it->second << endl;
     }
-
-
 
     _sizer->RuntimeLimit = 3600 * (3 + ceil(g_cells.size() / 40000.));
 
@@ -820,104 +818,45 @@ void Circuit::sdc_converter(string filename) {
 void Circuit::sdc_parser(string filename, unsigned mode) {
     char sdc_filename[250];
 
-    sprintf(sdc_filename, "%s%s", filename.c_str(), SDC_FILE_POSTFIX);
+    sprintf(sdc_filename, "%s", filename.c_str());
     cout << "SDC " << sdc_filename << endl;
 
-    sdc_converter(filename);
+    // sdc_converter(filename);
     is.open(filename);
     bool valid = read_clock(_sizer->clk_name[mode], _sizer->clk_port[mode],
                             _sizer->clk_period[mode]);
-    assert(valid);
+    // assert(valid);
 
-    do {
-        string portName;
-        double delay = 0.0;
-        valid = true;
-        if(valid) {
-            if(VERBOSE >= 1)
-                cout << "Input port " << portName << " has delay " << delay
-                     << endl;
-            _sizer->indelays[mode][portName] = delay;
-        }
-    } while(valid);
+    //TODO:
+    // _sizer->indelays[mode][portName] = delay;
 
-    do {
-        string portName;
-        string driverSize;
-        string driverPin;
-        unsigned driverInPin;
-        unsigned driverOutPin;
-        double inputTransitionFall;
-        double inputTransitionRise;
+    // cout << "Driver Info " << portName << " " << driverSize << " "
+    //         << inputTransitionRise << " " << inputTransitionFall
+    //         << endl;
 
-        valid = read_driver_info(portName, driverSize, driverPin,
-                                 inputTransitionFall, inputTransitionRise);
+    // unsigned corner = 0;
+    // LibCellInfo& lib_cell =
+    //     _sizer->libs[corner].find(driverSize)->second;
 
-        if(valid) {
-            if(VERBOSE >= 1)
-                cout << "Driver Info " << portName << " " << driverSize << " "
-                     << inputTransitionRise << " " << inputTransitionFall
-                     << endl;
-
-            unsigned corner = 0;
-            LibCellInfo& lib_cell =
-                _sizer->libs[corner].find(driverSize)->second;
-
-            // JLTimingArc: add driverOutPin info
-            std::map< unsigned, LibPinInfo >::iterator it;
-            for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
-            {
-                if((it->second).isInput == true) {
-                    driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
-                }
-                if((it->second).isOutput == true) {
-                    driverOutPin =
-                    lib_cell.lib_pin2id_map[(it->second).name];
-                }
-            }
-
-            // driverInPin = g_pins[pin2id[portName]].lib_pin;
-            // always driverSize = inverter, driverPin=o
-            _sizer->drivers[mode].insert(
-                std::pair< unsigned, string >(pin2id[portName], driverSize));
-            _sizer->driverInPins[mode].insert(
-                std::pair< unsigned, unsigned >(pin2id[portName],
-                driverInPin));
-            // JLTimingArc: add driverOutPin info
-            _sizer->driverOutPins[mode].insert(std::pair< unsigned, unsigned
-            >(
-                pin2id[portName], driverOutPin));
-            _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
-                pin2id[portName], inputTransitionRise));
-            _sizer->inftran[mode].insert(std::pair< unsigned, double >(
-                pin2id[portName], inputTransitionFall));
-        }
-    } while(valid);
-
-    // do {
-    //     string portName;
-    //     double delay;
-    //     valid = read_output_delay(portName, delay);
-    //     if(valid) {
-    //         if(VERBOSE >= 1)
-    //             cout << "Output port " << portName << " has delay " << delay
-    //                  << endl;
-    //         _sizer->outdelays[mode][portName] = delay;
+    // //         // JLTimingArc: add driverOutPin info
+    // std::map< unsigned, LibPinInfo >::iterator it;
+    // for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
+    // {
+    //     if((it->second).isInput == true) {
+    //         driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
     //     }
-    // } while(valid);
+    //     if((it->second).isOutput == true) {
+    //         driverOutPin =
+    //         lib_cell.lib_pin2id_map[(it->second).name];
+    //     }
+    // }
 
-    do {
-        string portName;
-        double load;
-        valid = read_output_load(portName, load);
-        if(valid) {
-            if(VERBOSE >= 1)
-                cout << "Output port " << portName << " has load " << load
-                     << endl;
-            g_pins[pin2id[portName]].cap = load;
-        }
-    } while(valid);
-
+    // _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
+    //     pin2id[portName], inputTransitionRise));
+    // _sizer->inftran[mode].insert(std::pair< unsigned, double >(
+    //     pin2id[portName], inputTransitionFall));
+    // _sizer->outdelays[mode][portName] = delay;
+    // g_pins[pin2id[portName]].cap = load;
     is.close();
 }
 
@@ -1818,16 +1757,16 @@ bool Circuit::read_clock(string& clockName, string& clockPort, double& period) {
 
     while(valid) {
         if(tokens.size() == 10 && tokens[0] == "create_clock" &&
-           tokens[1] == "-name") {
-            clockName = tokens[2];
+           tokens[3] == "-name") {
+            clockName = tokens[4];
 
-            assert(tokens[3] == "-period");
-            period = std::atof(tokens[4].c_str());
-            assert(tokens[5] == "-waveform");
+            assert(tokens[5] == "-period");
+            period = std::atof(tokens[6].c_str());
+            assert(tokens[7] == "-waveform");
             // FIXME:
 
-            assert(tokens[8] == "get_ports");
-            clockPort = tokens[9];
+            assert(tokens[1] == "get_ports");
+            clockPort = tokens[2];
         }
 
         if(tokens.size() == 5 && tokens[0] == "set_clock_uncertainty") {
@@ -1836,10 +1775,16 @@ bool Circuit::read_clock(string& clockName, string& clockPort, double& period) {
 
         if(tokens.size() == 2 && tokens[0] == "input" &&
            tokens[1] == "delays") {
-            period = period - uncertainty;
-            break;
+            // period = period - uncertainty;
         }
-
+        if(tokens.size() == 3 && tokens[0] == "set_ideal_network" &&
+           tokens[1] == "get_ports") {
+            // period = period - uncertainty;
+        }
+        if(tokens.size() == 3 && tokens[0] == "set_input_transition" &&
+           tokens[2] == "all_inputs") {
+            // period = period - uncertainty;
+        }
         valid = read_line_as_tokens(is, tokens);
     }
 
@@ -2863,7 +2808,7 @@ void Circuit::init_opensta(sta::Sta* _sta) {
     string cornerName = "0";
 
     // Tcl Interpreter settings
-    
+
     sta_interp = Tcl_CreateInterp();
     Tcl_Init(sta_interp);
     //   // Define swig commands.
@@ -2875,10 +2820,10 @@ void Circuit::init_opensta(sta::Sta* _sta) {
     sta::Sta::setSta(_sta);
     _sta->makeComponents();
     _sta->setTclInterp(sta_interp);
-    
+
     // load encoded TCL functions
     evalTclInitForLibrary(sta_interp, tcl_inits);
-    
+
     // initialize TCL commands
     Tcl_Eval(sta_interp, "sta::show_splash");
     Tcl_Eval(sta_interp, "sta::define_sta_cmds");
@@ -2888,9 +2833,6 @@ void Circuit::init_opensta(sta::Sta* _sta) {
     // std::cout << Tcl_GetStringResult(sta_interp) << std::endl;
     // initialize
 
-
-    
-    
     cout << "STA CREATED" << endl;
 
     // define_corners
@@ -2932,10 +2874,10 @@ void Circuit::init_opensta(sta::Sta* _sta) {
     cout << "read_parasitics done : " << parasitics << endl;
 
     string sdc_cmd = "read_sdc " + sdcFileName;
-    std::cout<< std::string(evalTclString(sdc_cmd)) << std::endl;    
-    std::cout<< "read_sdc done !!!" << std::endl;
+    std::cout << std::string(evalTclString(sdc_cmd)) << std::endl;
+    std::cout << "read_sdc done !!!" << std::endl;
     string setrc_cmd = "source " + libPath + "/../setRC.tcl";
-    std::cout<< std::string(evalTclString(setrc_cmd)) << std::endl;
+    std::cout << std::string(evalTclString(setrc_cmd)) << std::endl;
 }
 
 // 最慢
@@ -3174,25 +3116,25 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
 
     }  // NET ITERATION END
 
-    //SDC Copy runing
-    //TODO:
-    // int mode = 0;
-    // _sizer->clk_name[mode] = ;
-    // _sizer->clk_period[mode] = ;
-    // _sizer->clk_port[mode] = ;
-    // for (auto portName : _sizer->clk_port[mode]) {
-    //     _sizer->indelays[mode][portName] = 0.0;
-    // }
-    // for(auto portName : ){
-    //     string portName = ;
-    //     string driverSize = ;
-    //     string driverPin;
-    //     unsigned driverInPin;
-    //     unsigned driverOutPin;
-    //     double inputTransitionFall;
-    //     double inputTransitionRise;
-    //     LibCellInfo& lib_cell =
-    //                 _sizer->libs[corner].find(driverSize)->second;
+    // SDC Copy runing
+    // TODO:
+    //  int mode = 0;
+    //  _sizer->clk_name[mode] = ;
+    //  _sizer->clk_period[mode] = ;
+    //  _sizer->clk_port[mode] = ;
+    //  for (auto portName : _sizer->clk_port[mode]) {
+    //      _sizer->indelays[mode][portName] = 0.0;
+    //  }
+    //  for(auto portName : ){
+    //      string portName = ;
+    //      string driverSize = ;
+    //      string driverPin;
+    //      unsigned driverInPin;
+    //      unsigned driverOutPin;
+    //      double inputTransitionFall;
+    //      double inputTransitionRise;
+    //      LibCellInfo& lib_cell =
+    //                  _sizer->libs[corner].find(driverSize)->second;
 
     //     // JLTimingArc: add driverOutPin info
     //     std::map< unsigned, LibPinInfo >::iterator it;
@@ -3287,7 +3229,8 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
 
             SUB_NODE sn;
 
-            Parasitic* para = parasitics->findParasiticNetwork(connPin, ap); //对应net上的Parasitic
+            Parasitic* para = parasitics->findParasiticNetwork(
+                connPin, ap);  //对应net上的Parasitic
             if(para == nullptr) {
                 printf(
                     "Error, Net don't have Parasitic. Net name :%s, pin name: "
@@ -3423,7 +3366,7 @@ void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]) {
     }
     char* unencoded = new char[length / 3 + 1];
     int line = 0;
-    char* u = unencoded;    
+    char* u = unencoded;
     for(const char** e = inits; *e; e++) {
         // printf("%d\n", line);
         const char* init = *e;
@@ -3436,7 +3379,7 @@ void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]) {
         line++;
     }
     *u = '\0';
-    if (Tcl_Eval(interp, unencoded)!= TCL_OK) {
+    if(Tcl_Eval(interp, unencoded) != TCL_OK) {
         printf("%s\n", unencoded);
         printf("TCL init script: %s.\n", Tcl_GetStringResult(interp));
     };
