@@ -101,25 +101,25 @@ void designTiming::closeServerContact() {
     pt_time += cpuTime() - begin;
 }
 
-void designTiming::getCellDelay(double &delay, string &riseFall,
-                                string cellInPin, string cellOutPin) {
-    _tclInputString =
-        "DoOneCommand \"gate_delay " + cellInPin + " " + cellOutPin + "\"";
-    // cout << _tclInputString << endl;
-    _tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    Tcl_Eval(_interpreter, _tclExpression);
+// void designTiming::getCellDelay(double &delay, string &riseFall,
+//                                 string cellInPin, string cellOutPin) {
+//     _tclInputString =
+//         "DoOneCommand \"gate_delay " + cellInPin + " " + cellOutPin + "\"";
+//     // cout << _tclInputString << endl;
+//     _tclExpression = (char *)_tclInputString.c_str();
+//     double begin = cpuTime();
+//     Tcl_Eval(_interpreter, _tclExpression);
 
-    pt_time += cpuTime() - begin;
-    _tclAnswer = _interpreter->result;
-    float temp1;
-    char temp2[128];
-    sscanf(_tclAnswer, "%f%s", &temp1, &temp2);
-    delay = temp1;
-    riseFall = temp2;
+//     pt_time += cpuTime() - begin;
+//     _tclAnswer = _interpreter->result;
+//     float temp1;
+//     char temp2[128];
+//     sscanf(_tclAnswer, "%f%s", &temp1, &temp2);
+//     delay = temp1;
+//     riseFall = temp2;
 
-    // cout << delay << " " << riseFall << " " << endl;
-}
+//     // cout << delay << " " << riseFall << " " << endl;
+// }
 
 void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
                                 string cellInPin, string cellOutPin) {

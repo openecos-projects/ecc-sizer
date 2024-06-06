@@ -3176,6 +3176,62 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
 
     //SDC Copy runing
     //TODO:
+    // int mode = 0;
+    // _sizer->clk_name[mode] = ;
+    // _sizer->clk_period[mode] = ;
+    // _sizer->clk_port[mode] = ;
+    // for (auto portName : _sizer->clk_port[mode]) {
+    //     _sizer->indelays[mode][portName] = 0.0;
+    // }
+    // for(auto portName : ){
+    //     string portName = ;
+    //     string driverSize = ;
+    //     string driverPin;
+    //     unsigned driverInPin;
+    //     unsigned driverOutPin;
+    //     double inputTransitionFall;
+    //     double inputTransitionRise;
+    //     LibCellInfo& lib_cell =
+    //                 _sizer->libs[corner].find(driverSize)->second;
+
+    //     // JLTimingArc: add driverOutPin info
+    //     std::map< unsigned, LibPinInfo >::iterator it;
+    //     for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
+    //     {
+    //         if((it->second).isInput == true) {
+    //             driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
+    //         }
+    //         if((it->second).isOutput == true) {
+    //             driverOutPin =
+    //             lib_cell.lib_pin2id_map[(it->second).name];
+    //         }
+    //     }
+    //      _sizer->drivers[mode].insert(
+    //             std::pair< unsigned, string >(pin2id[portName], driverSize));
+    //     _sizer->driverInPins[mode].insert(
+    //         std::pair< unsigned, unsigned >(pin2id[portName],
+    //         driverInPin));
+    //     // JLTimingArc: add driverOutPin info
+    //     _sizer->driverOutPins[mode].insert(std::pair< unsigned, unsigned
+    //     >(
+    //         pin2id[portName], driverOutPin));
+    //     _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
+    //         pin2id[portName], inputTransitionRise));
+    //     _sizer->inftran[mode].insert(std::pair< unsigned, double >(
+    //         pin2id[portName], inputTransitionFall));
+    // }
+
+    // do {
+    //     string portName;
+    //     double load;
+    //     valid = read_output_load(portName, load);
+    //     if(valid) {
+    //         if(VERBOSE >= 1)
+    //             cout << "Output port " << portName << " has load " << load
+    //                  << endl;
+    //         g_pins[pin2id[portName]].cap = load;
+    //     }
+    // } while(valid);
 }
 
 void Circuit::readSpef_opensta(sta::Sta* _sta) {

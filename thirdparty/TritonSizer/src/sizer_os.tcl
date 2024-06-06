@@ -272,13 +272,46 @@ proc gate_delay {cellInPin cellOutPin} {
     # database lookups, or calls to other tools or libraries.
 
     # Mock delay values
-    set rise_delay 0.05
-    set fall_delay 0.07
 
-    # You would replace the above mock values with actual computation or retrieval logic.
+    report_dcalc -max -digits 3 -from cellInPin -to cellOutPin > tmp3.rpt
 
-    # Output the delays in the format expected by sscanf in the C++ code
-    puts "$rise_delay $fall_delay"
+    set report_file [open tmp3.rpt "r"]
+    set file_data [split [read $report_file] \n]
+
+    set is_rise 1
+
+    array set my_array {}
+
+    foreach line $file_data {
+       if {[string match "*->*" $line]} {
+        set length [string length $line]
+        set last_char [string range $line [expr $length - 1] $length]
+        #puts $last_char
+        if {$last_char eq "v"} {
+            set is_rise 0
+        } else {
+            set is_rise 1
+        }
+       } elseif {[string match "*Delay*" $line]} {
+        if {[regexp {([-]?\d+\.?\d*)} $line match value]} {
+            if {$is_rise} {
+                if {![info exists my_array(rise_delay)]} {
+                    set my_array(rise_delay) $value
+                } else {
+                    set my_array(rise_delay1) $value
+                }
+
+            } else {
+                if {![info exists my_array(fall_delay)]} {
+                    set my_array(fall_delay) $value
+                } else {
+                    set my_array(fall_delay1) $value
+                }
+            }
+        }
+       }
+    }
+    return "$rise_delay $fall_delay"
 }
 
 proc OSLoadDesign { } {

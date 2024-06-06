@@ -141,8 +141,8 @@ class designTiming {
     double getFallArrival(string PinName);
     void getNetDelay(double &delay, string sourcePinName, string sinkPinName);
     void getInputSlew(double &riseSlew, double &fallSlew, string pinName);
-    void getCellDelay(double &delay, string &riseFall, string cellInPin,
-                      string cellOutPin);
+    // void getCellDelay(double &delay, string &riseFall, string cellInPin,
+    //                   string cellOutPin);
     void getCellDelay(double &rise_delay, double &fall_delay, string cellInPin,
                       string cellOutPin);
     void getFFDelay(double &rdelay, double &fdelay, string cellOutPin);

@@ -2279,20 +2279,24 @@ void Sizer::getCellDelaySlew (CELL &cell, vector <timing_lookup> &cell_delays, v
             TranF = T[view]->getFallTran(inPinName);
             TranR = T[view]->getRiseTran(inPinName);
             string riseFall;
-            T[view]->getCellDelay(cell_delay.rise, riseFall, inPinName, outPinName); 
+            // FIXME:
+            // T[view]->getCellDelay(cell_delay.rise, riseFall, inPinName, outPinName); 
             cell_delay.fall = cell_delay.rise;
 
         } else {
             string riseFall;
-            T[view]->getCellDelay(cell_delay.rise, riseFall, inPinName, outPinName); 
+            double _rise_delay = DBL_MAX;
+            double _fall_delay = DBL_MAX;
+            
+            T[view]->getCellDelay(_rise_delay, _fall_delay, inPinName, outPinName); 
             cell_delay.rise = pins[view][cell.inpins[j]].rdelay[0];
             cell_delay.fall = pins[view][cell.inpins[j]].fdelay[0];
-            if (riseFall == "rise" ) {
+            if (_rise_delay != DBL_MAX ) {
                 //cout << "rise " << cell_delay.rise << " " << cell_delay.fall << endl;
-                cell_delay.fall = cell_delay.rise;
-            } else if (riseFall == "fall" ) {
+                cell_delay.rise = _rise_delay;
+            } else if (_fall_delay != DBL_MAX ) {
                 //cout << "fall " << cell_delay.rise << " " << cell_delay.fall << endl;
-                cell_delay.rise = cell_delay.fall;
+                cell_delay.fall = _fall_delay;
             }
 
             TranF = pins[view][cell.inpins[j]].ftran;
