@@ -253,7 +253,7 @@ proc OSGetTNS { } {
         if {[string match "*slack (VIO*" $line]} {
             if {[regexp {([-]?\d+\.?\d*)} $line match value]} {
                 if {[string match *VIOLATED* $line]} {
-                    puts "Warning: VIOLATED detected in line: $line"
+                    # puts "Warning: VIOLATED detected in line: $line"
                 }
                 # 将提取的值累加到 tns 中
                 set tns [expr $tns + $value]

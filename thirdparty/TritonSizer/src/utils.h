@@ -39,12 +39,20 @@
 
 #ifndef __UTILS_H__
 #define __UTILS_H__
-
-#include "sizer.h"
-#include "ckt.h"
+#include <string>
+#include <iostream>
+#include <sys/param.h>
+#include <sys/time.h>
+#include <sys/utsname.h>
+// #include "ckt.h"
+struct CELL;
+typedef unsigned cell_sizes;
+enum cell_vtypes { s = 0, m, f, default_vtype };
+// #include "sizer.h"
+// #include "ckt.h"
 #define DBL_MAX 1.7976931348623158e+308 /* max value */
 
-inline cell_sizes getSizes(string size) {
+inline cell_sizes getSizes(std::string size) {
     if(size == "01") {
         return 1;
     }
@@ -89,7 +97,7 @@ inline cell_vtypes getVtypes(char type) {
         return m;
     }
     else {
-        cout << "ERROR\n";
+        std::cout << "ERROR\n";
         return default_vtype;
     }
 }
@@ -111,38 +119,14 @@ inline char getCellVtype(cell_vtypes vtype) {
     }
 }
 
-inline bool isff(const CELL &cell) {
-    return cell.isFF;
-}
-inline cell_vtypes r_type(const CELL &cell) {
-    return cell.c_vtype;
-}
+bool isff(const CELL &cell);
+cell_vtypes r_type(const CELL &cell);
+int r_size(const CELL &cell);
 
-inline int r_size(const CELL &cell) {
-    /*
-    int deci = getCellSize(cell.c_size);
-    if (deci == 3) return 3;
-    else return (deci/10)*16+deci%10;
-    */
-
-    // TODO get size information from lib cell name
-    return cell.c_size;
-}
-
-inline bool isEqual(double a, double b) {
-    if(std::isinf(a) && std::isinf(b))
-        return true;
-    if(std::isinf(a) && b == DBL_MAX)
-        return true;
-    if(a == DBL_MAX && std::isinf(b))
-        return true;
-    double SMALL_NUM = 0.00001;
-    return (abs(a - b) < SMALL_NUM);
-}
-
+bool isEqual(double a, double b);
 double cpuTime(void);
 void printMemoryUsage(void);
-void LaunchPTBackground(string root, string benchname);
+void LaunchPTBackground(std::string root, std::string benchname);
 void KillPTBackground();
 
 #endif

@@ -55,6 +55,7 @@
 #include <string>
 #include "Sta.hh"
 #include "utils.h"
+#include "sizer.h"
 
 designTiming::designTiming() {
     program = PT;
@@ -69,7 +70,7 @@ designTiming::~designTiming() {
 
 void designTiming::testTCL() {
     _interpreter = Tcl_CreateInterp();
-    _tclInputString = "puts \"TCL TEST\"";
+    _tclInputString = "puts \"TCL TEST";
     //_tclExpression = (char *)_tclInputString.c_str();
     Tcl_Eval(_interpreter, _tclExpression);
 }
@@ -259,10 +260,10 @@ double designTiming::getWorstSlack(string _clkName) {
 
 double designTiming::getTotPower() {
     if(program == PT) {
-        _tclInputString = "PtTotalPower\"";
+        _tclInputString = "PtTotalPower";
     }
     else if(program == ETS) {
-        _tclInputString = "EtsTotalPower\"";
+        _tclInputString = "EtsTotalPower";
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     // cout << _tclInputString << endl;
@@ -279,10 +280,10 @@ double designTiming::getTotPower() {
 
 double designTiming::getLeakPower() {
     if(program == PT) {
-        _tclInputString = "PtLeakPower\"";
+        _tclInputString = "PtLeakPower";
     }
     else if(program == ETS) {
-        _tclInputString = "EtsLeakPower\"";
+        _tclInputString = "EtsLeakPower";
     }
     else {
         return 0;
@@ -307,7 +308,7 @@ double designTiming::getTNS(string _clkName) {
         _tclInputString = "EtsGetTNS " + _clkName;
     }
     else if(program == OS) {
-        _tclInputString = "OSGetTNS\"";
+        _tclInputString = "OSGetTNS";
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -322,13 +323,13 @@ double designTiming::getTNS(string _clkName) {
 
 void designTiming::getTranVio(double &tot, double &max, int &num) {
     if(program == PT) {
-        _tclInputString = "PtGetTranVio \"";
+        _tclInputString = "PtGetTranVio ";
     }
     else if(program == ETS) {
-        _tclInputString = "EtsGetTranVio \"";
+        _tclInputString = "EtsGetTranVio ";
     }
     else if(program == OS) {
-        _tclInputString = "OSGetTranVio \"";
+        _tclInputString = "OSGetTranVio ";
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -430,7 +431,7 @@ double designTiming::getCellSlack(string CellName) {
 
 bool designTiming::loadDesign(string benchname) {
     _tclInputString =
-        "redirect pt.loadDesign.log {source pt." + benchname + ".tcl}\"";
+        "redirect pt.loadDesign.log {source pt." + benchname + ".tcl}";
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -447,7 +448,7 @@ bool designTiming::loadDesign(string benchname) {
 
 bool designTiming::updateSize(string filename) {
     //_tclInputString = "redirect pt.updateSize.log {source " +
-    // filename+"}\"";
+    // filename+"}";
     _tclInputString = "source " + filename;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -487,7 +488,7 @@ bool designTiming::checkSize(string filename) {
 }
 
 bool designTiming::checkServer() {
-    _tclInputString = "checkServer\"";
+    _tclInputString = "checkServer";
     // cout << "checkServer\" " << this << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -940,7 +941,7 @@ string designTiming::getLibCell(string CellName) {
 }
 
 void designTiming::Exit() {
-    _tclInputString = "exitServer\"";
+    _tclInputString = "exitServer";
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
     sta::evalTclString(_tclInputString);

@@ -38,6 +38,38 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "utils.h"
+#include <fstream>
+#include "sizer.h"
+#include "ckt.h"
+using namespace std;
+
+bool isff(const CELL &cell) {
+    return cell.isFF;
+}
+cell_vtypes r_type(const CELL &cell) {
+    return cell.c_vtype;
+}
+int r_size(const CELL &cell) {
+    /*
+    int deci = getCellSize(cell.c_size);
+    if (deci == 3) return 3;
+    else return (deci/10)*16+deci%10;
+    */
+
+    // TODO get size information from lib cell name
+    return cell.c_size;
+}
+
+bool isEqual(double a, double b) {
+    if(std::isinf(a) && std::isinf(b))
+        return true;
+    if(std::isinf(a) && b == DBL_MAX)
+        return true;
+    if(a == DBL_MAX && std::isinf(b))
+        return true;
+    double SMALL_NUM = 0.00001;
+    return (abs(a - b) < SMALL_NUM);
+}
 
 double cpuTime(void) {
     struct timeval cputime;

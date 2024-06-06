@@ -42,10 +42,36 @@
 
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <iomanip>
 #include "Sta.hh"
-#include "sizer.h"
+// #include "sizer.h"
+#include "tcl.h"
+#include "utils.h"
+#include <queue>
+#include <pthread.h>
+#include <signal.h>
+#include <sys/param.h>
+#include <sys/time.h>
+#include <sys/utsname.h>
+#include <unistd.h>
+#include <cassert>
+#include <cctype>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <list>
+#include <map>
+#include <queue>
+#include <set>
+#include <stack>
+#include <string>
+#include <vector>
 
 #define NUM_VTS 3
 #define NUM_SIZES 10
@@ -63,16 +89,16 @@ extern const char* tcl_inits[];
 
 inline std::string evalTclString(const string& cmd) {
     Sta* sta = Sta::sta();
-    Tcl_Eval(sta->tclInterp(), cmd.c_str());
+    if(Tcl_Eval(sta->tclInterp(), cmd.c_str()) != TCL_OK){
+        printf("Command Error: %s\n", Tcl_GetStringResult(sta->tclInterp()));
+    }
     return string(Tcl_GetStringResult(sta->tclInterp()));
 };
 }
 
 void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]);
 
-typedef unsigned cell_sizes;
 
-enum cell_vtypes { s = 0, m, f, default_vtype };
 // typedef unsigned cell_vtypes;
 using namespace std;
 
