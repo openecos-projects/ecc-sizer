@@ -1207,7 +1207,10 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     std::ostringstream ostr;
 
     if(useOpenSTA) {
-        exeOSServer(serverName, port, view);
+        sta::evalTclString("source sizer_os.tcl");
+        designTiming *PT = new designTiming(OS);
+        return PT;
+        // exeOSServer(serverName, port, view);
     }
     else if(!useETS) {
         exePTServer(serverName, port, view);
@@ -2141,7 +2144,6 @@ void Sizer::exeOSServerOne(int port, unsigned view) {
     if(ptLaunchScriptFile != "") {
         fin.open(ptLaunchScriptFile.c_str());
     }
-    sta::evalTclString("source sizer_os.tcl");
     if(ptLaunchScriptFile == "" || !fin.is_open()) {
         if(ptLogSave) {
             if(BACKGROUND)
@@ -2165,8 +2167,8 @@ void Sizer::exeOSServerOne(int port, unsigned view) {
 
     // Execute PrimeTime
     char Commands[250];
-    sprintf(Commands, "chmod +x launch_os.%d.cmd", port);
-    system(Commands);
+    // sprintf(Commands, "chmod +x launch_os.%d.cmd", port);
+    // system(Commands);
 
     if(!BACKGROUND) {
         sprintf(Commands,
@@ -2176,7 +2178,7 @@ void Sizer::exeOSServerOne(int port, unsigned view) {
     else {
         sprintf(Commands, "./launch_os.%d.cmd &", port);
     }
-    system(Commands);
+    // system(Commands);
 }
 
 void Sizer::exePTServer(string &serverName, int &port, unsigned view) {
