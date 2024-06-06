@@ -1069,7 +1069,10 @@ void Sizer::Parser() {
     _ckt->numpins = _ckt->g_pins.size();
     _ckt->numcells = _ckt->g_cells.size();
     _ckt->numnets = _ckt->g_nets[0].size();
-
+    this->numcells = _ckt->numcells;
+    this->numpins = _ckt->numpins;
+    this->numnets = _ckt->numnets;
+    
     for(unsigned i = 0; i < _ckt->numcells; i++) {
         CELL cell = _ckt->g_cells[i];
         g_cells.push_back(cell);

@@ -611,6 +611,7 @@ map< string, unsigned > Circuit::generateLibCellTable() {
     return check_map;
 }
 
+// may have a bug
 // pankit 01/22/2013
 void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
                                  unsigned corner) {
@@ -619,26 +620,29 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
     list< LibCellInfo* >& candidate_list =
         _sizer->func_lib_cell_list[corner][type];
 
+    // 如果有多个高vt呢,根据leakage顺序进行排序。
     // list size first
     for(std::list< LibCellInfo* >::iterator it = candidate_list.begin();
         it != candidate_list.end(); it++) {
         // slowest vt first
-        if((*it)->c_vtype != 0) {
-            continue;
-        }
+        // if((*it)->c_vtype != 0) {
+        //     continue;
+        // }
 
         vector< LibCellInfo* > lib_size_table;
 
         (*it)->c_size = lib_cell_table.lib_vt_size_table.size();
         lib_size_table.push_back((*it));
         // lib_size_table.resize(sizeof(LibCellInfo*)*_sizer->numVt);
-        lib_size_table.resize(_sizer->numVt);
+        // lib_size_table.resize(_sizer->numVt); // ?
 
         lib_cell_table.lib_vt_size_table.push_back(lib_size_table);
     }
     // cout << "-------------------" << endl;
 
     // add vt
+    assert(lib_cell_table.lib_vt_size_table.size() > 0);
+#if 0
     for(unsigned i = 0; i < lib_cell_table.lib_vt_size_table.size(); ++i) {
         LibCellInfo* lib_cell = lib_cell_table.lib_vt_size_table[i][0];
 
@@ -724,7 +728,7 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
             lib_cell_table.lib_vt_size_table[i][vt] = (*it);
         }
     }
-
+#endif
     // test
     if(VERBOSE >= 1) {
         cout << "LIB CELL TABLE " << type
@@ -987,7 +991,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
                 }
             }
             else {
-                cell.c_vtype = m;
+                cell.c_vtype = s;
             }
             cells.push_back(cell);
 
