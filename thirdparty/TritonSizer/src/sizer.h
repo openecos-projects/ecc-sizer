@@ -415,7 +415,7 @@ class Sizer {
     static __thread double best_alpha_local;
     static __thread double local_alpha;
 
-    static __thread CELL *cells;
+    CELL *cells = nullptr;
     //    static __thread CELL *best_cells_local;
     //    static __thread CELL *best_failed_cells_local;
     static __thread PIN **pins;
@@ -1077,7 +1077,7 @@ class Sizer {
     double GetCellDelay(CELL &cell, unsigned view = 0);
     double GetCellLoad(CELL &cell, unsigned view = 0);
     double GetFICellSlack(CELL &cell, unsigned view = 0);
-
+    // CELL *cells = nullptr;
     // graphop.cpp
     void CountNPaths(unsigned view = 0);
     void CountPaths();

@@ -357,6 +357,91 @@ proc OSLoadDesign { } {
   #update_power
 }
 
+proc set_layer_rc {args} {
+  sta::parse_key_args "set_layer_rc" args \
+    keys {-layer -via -capacitance -resistance -corner}\
+    flags {}
+
+  if { [info exists keys(-layer)] && [info exists keys(-via)] } {
+    utl::error "ORD" 201 "Use -layer or -via but not both."
+  }
+
+  set corners [sta::parse_corner_or_all keys]
+  set tech [ord::get_db_tech]
+  if { [info exists keys(-layer)] } {
+    set layer_name $keys(-layer)
+    set layer [$tech findLayer $layer_name]
+    if { $layer == "NULL" } {
+      utl::error "ORD" 202 "layer $layer_name not found."
+    }
+
+    if { [$layer getRoutingLevel] == 0 } {
+      utl::error "ORD" 203 "$layer_name is not a routing layer."
+    }
+
+    if { ![info exists keys(-capacitance)] && ![info exists keys(-resistance)] } {
+      utl::error "ORD" 204 "missing -capacitance or -resistance argument."
+    }
+
+    set cap 0.0
+    if { [info exists keys(-capacitance)] } {
+      set cap $keys(-capacitance)
+      sta::check_positive_float "-capacitance" $cap
+      # F/m
+      set cap [expr [sta::capacitance_ui_sta $cap] / [sta::distance_ui_sta 1.0]]
+    }
+
+    set res 0.0
+    if { [info exists keys(-resistance)] } {
+      set res $keys(-resistance)
+      sta::check_positive_float "-resistance" $res
+      # ohm/m
+      set res [expr [sta::resistance_ui_sta $res] / [sta::distance_ui_sta 1.0]]
+    }
+
+    if { $corners == "NULL" } {
+      set corners [sta::corners]
+      # Only update the db layers if -corner not specified.
+      rsz::set_dblayer_wire_rc $layer $res $cap
+    }
+
+    foreach corner $corners {
+      rsz::set_layer_rc_cmd $layer $corner $res $cap
+    }
+
+  } elseif { [info exists keys(-via)] } {
+    set layer_name $keys(-via)
+    set layer [$tech findLayer $layer_name]
+    if { $layer == "NULL" } {
+      utl::error "ORD" 205 "via $layer_name not found."
+    }
+
+    if { [info exists keys(-capacitance)] } {
+      utl::warn "ORD" 206 "-capacitance not supported for vias."
+    }
+
+    if { [info exists keys(-resistance)] } {
+      set res $keys(-resistance)
+      sta::check_positive_float "-resistance" $res
+      set res [sta::resistance_ui_sta $res]
+
+      if { $corners == "NULL" } {
+        set corners [sta::corners]
+        # Only update the db layers if -corner not specified.
+        rsz::set_dbvia_wire_r $layer $res
+      }
+
+      foreach corner $corners {
+        rsz::set_layer_rc_cmd $layer $corner $res 0.0
+      }
+    } else {
+      utl::error "ORD" 208 "no -resistance specified for via."
+    }
+  } else {
+    utl::error "ORD" 209 "missing -layer or -via argument."
+  }
+}
+
 proc OSGetTranVio { } {
 
 

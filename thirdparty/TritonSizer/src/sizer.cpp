@@ -255,7 +255,7 @@ __thread double Sizer::best_failed_power_local;
 
 __thread PIN **Sizer::pins;
 __thread NET **Sizer::nets;
-__thread CELL *Sizer::cells;
+
 //__thread CELL * Sizer::best_cells_local;
 //__thread CELL * Sizer::best_failed_cells_local;
 __thread designTiming **Sizer::T;
@@ -2392,7 +2392,7 @@ void Sizer::SizeOut(bool success) {
     ofstream outsz(filename.c_str());
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
-        if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
+        if(lib_cell_info != NULL) { //&& lib_cell_info->name != init_sizes[i]
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
             // cout << cells[i].name << " "<<lib_cell_info->name<<endl;
         }

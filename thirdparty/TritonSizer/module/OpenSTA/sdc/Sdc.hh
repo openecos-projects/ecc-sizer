@@ -1032,7 +1032,7 @@ public:
   void ensureClkHpinDisables();
   bool bidirectDrvrSlewFromLoad(const Pin *pin) const;
 
-protected:
+// protected:
   void initVariables();
   void clearCycleAcctings();
   void removeLibertyAnnotations();

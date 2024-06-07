@@ -5,7 +5,9 @@
 #include <cassert>
 #include <cstdio>
 #include <iostream>
-
+#include "ConcreteNetwork.hh"
+#include "PortExtCap.hh"
+#include "InputDrive.hh"
 #define NUM_VTS 3
 #define NUM_SIZES 10
 #define SDC_FILE_POSTFIX ".sizer"
@@ -132,16 +134,16 @@ void Circuit::Parser(string benchmark) {
     _sta = new sta::Sta;
     init_opensta(_sta);
     readDesign_opensta(_sta);
-    if(!_sizer->mmmcOn) {
-        cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
-        sdc_parser(_sizer->sdcFile);
-    }
-    else {
-        for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
-            cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] << endl;
-            sdc_parser(_sizer->mmmcSdcList[mode], mode);
-        }
-    }
+    // if(!_sizer->mmmcOn) {
+    //     cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
+    //     sdc_parser(_sizer->sdcFile);
+    // }
+    // else {
+    //     for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
+    //         cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] << endl;
+    //         sdc_parser(_sizer->mmmcSdcList[mode], mode);
+    //     }
+    // }
     assert(_sta);
     for(unsigned i = 0; i < g_pins.size(); ++i) {
         string cell_name = "NA";
@@ -827,8 +829,8 @@ void Circuit::sdc_parser(string filename, unsigned mode) {
                             _sizer->clk_period[mode]);
     // assert(valid);
 
-    //TODO:
-    // _sizer->indelays[mode][portName] = delay;
+    // TODO:
+    //  _sizer->indelays[mode][portName] = delay;
 
     // cout << "Driver Info " << portName << " " << driverSize << " "
     //         << inputTransitionRise << " " << inputTransitionFall
@@ -3118,62 +3120,94 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
 
     // SDC Copy runing
     // TODO:
-    //  int mode = 0;
-    //  _sizer->clk_name[mode] = ;
-    //  _sizer->clk_period[mode] = ;
-    //  _sizer->clk_port[mode] = ;
-    //  for (auto portName : _sizer->clk_port[mode]) {
-    //      _sizer->indelays[mode][portName] = 0.0;
-    //  }
-    //  for(auto portName : ){
-    //      string portName = ;
-    //      string driverSize = ;
-    //      string driverPin;
-    //      unsigned driverInPin;
-    //      unsigned driverOutPin;
-    //      double inputTransitionFall;
-    //      double inputTransitionRise;
-    //      LibCellInfo& lib_cell =
-    //                  _sizer->libs[corner].find(driverSize)->second;
+    int mode = 0;
+    auto* sdc = _sta->sdc();
+    auto* clock = sdc->clocks()->at(mode);
+    _sizer->clk_name[mode] = clock->name();
+    _sizer->clk_period[mode] = clock->period() / _sizer->time_unit;
 
-    //     // JLTimingArc: add driverOutPin info
-    //     std::map< unsigned, LibPinInfo >::iterator it;
-    //     for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
-    //     {
-    //         if((it->second).isInput == true) {
-    //             driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
-    //         }
-    //         if((it->second).isOutput == true) {
-    //             driverOutPin =
-    //             lib_cell.lib_pin2id_map[(it->second).name];
-    //         }
-    //     }
-    //      _sizer->drivers[mode].insert(
-    //             std::pair< unsigned, string >(pin2id[portName], driverSize));
-    //     _sizer->driverInPins[mode].insert(
-    //         std::pair< unsigned, unsigned >(pin2id[portName],
-    //         driverInPin));
-    //     // JLTimingArc: add driverOutPin info
-    //     _sizer->driverOutPins[mode].insert(std::pair< unsigned, unsigned
-    //     >(
-    //         pin2id[portName], driverOutPin));
-    //     _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
-    //         pin2id[portName], inputTransitionRise));
-    //     _sizer->inftran[mode].insert(std::pair< unsigned, double >(
-    //         pin2id[portName], inputTransitionFall));
-    // }
+    auto* clk_pin = *(clock->pins()->begin());
+    auto* concrete_pin = reinterpret_cast< const sta::ConcretePin* >(clk_pin);
+    std::string clock_port_name = concrete_pin->name();
+    _sizer->clk_port[mode] = clock_port_name;
 
-    // do {
-    //     string portName;
-    //     double load;
-    //     valid = read_output_load(portName, load);
-    //     if(valid) {
-    //         if(VERBOSE >= 1)
-    //             cout << "Output port " << portName << " has load " << load
-    //                  << endl;
-    //         g_pins[pin2id[portName]].cap = load;
-    //     }
-    // } while(valid);
+    float slew = 0.0;
+    bool is_exist = false;
+    clock->slew(TransRiseFall::rise(), MinMax::max(), slew, is_exist);
+    slew = slew / _sizer->time_unit;
+    _sizer->inrtran[mode].insert(
+        std::pair< unsigned, double >(pin2id[clock_port_name], slew));
+
+    clock->slew(TransRiseFall::fall(), MinMax::max(), slew, is_exist);
+    _sizer->inftran[mode].insert(
+        std::pair< unsigned, double >(pin2id[clock_port_name], slew));
+
+    auto* input_delay_iterator = sdc->inputDelayIterator();
+    while(input_delay_iterator->hasNext()) {
+        auto* input_delay = input_delay_iterator->next();
+        string port_name =
+            reinterpret_cast< const sta::ConcretePin* >(input_delay->pin())
+                ->name();
+        auto delays = input_delay->delays();
+
+        // do not care min delay
+        auto max_rise_delay =
+            delays->value(TransRiseFall::rise(), MinMax::max());
+        auto max_fall_delay =
+            delays->value(TransRiseFall::fall(), MinMax::max());
+
+        _sizer->indelays[mode].insert(
+            pair< string, double >(port_name, max_rise_delay));
+        _sizer->indelays[mode].insert(
+            pair< string, double >(port_name, max_fall_delay));
+    }
+
+    auto* out_delay_iterator = sdc->outputDelayIterator();
+    while(out_delay_iterator->hasNext()) {
+        auto* output_delay = out_delay_iterator->next();
+        string port_name =
+            reinterpret_cast< const sta::ConcretePin* >(output_delay->pin())
+                ->name();
+        auto delays = output_delay->delays();
+
+        // do not care min delay
+        auto max_rise_delay =
+            delays->value(TransRiseFall::rise(), MinMax::max());
+        auto max_fall_delay =
+            delays->value(TransRiseFall::fall(), MinMax::max());
+
+        _sizer->outdelays[mode].insert(
+            pair< string, double >(port_name, max_rise_delay));
+        _sizer->outdelays[mode].insert(
+            pair< string, double >(port_name, max_fall_delay));
+    }
+
+    auto* port_cap_map = sdc->port_cap_map_;
+    for(auto [port, cap] : *port_cap_map) {
+        std::string port_name =
+            reinterpret_cast< const sta::ConcretePort* >(port)->name();
+        double load =
+            cap->wireCap()->value(TransRiseFall::rise(), MinMax::max());
+        g_pins[pin2id[port_name]].cap = load;
+    }
+
+    auto& input_slew_map = sdc->input_drive_map_;
+
+    for(auto [port, drive] : input_slew_map) {
+        std::string port_name =
+            reinterpret_cast< const sta::ConcretePort* >(port)->name();
+        float slew = 0.0;
+        bool is_exist = false;
+        drive->slew(TransRiseFall::rise(), MinMax::max(), slew, is_exist);
+        slew /= _sizer->time_unit;
+        _sizer->inrtran[mode].insert(
+            std::pair< unsigned, double >(pin2id[port_name], slew));
+
+        drive->slew(TransRiseFall::fall(), MinMax::max(), slew, is_exist);
+        slew /= _sizer->time_unit;
+        _sizer->inftran[mode].insert(
+            std::pair< unsigned, double >(pin2id[port_name], slew));
+    }
 }
 
 void Circuit::readSpef_opensta(sta::Sta* _sta) {
