@@ -553,7 +553,7 @@ void designTiming::getPinMinSlack(double &riseSlack, double &fallSlack,
 
 void designTiming::getPinTran(double &riseTran, double &fallTran,
                               string pinName) {
-    _tclInputString = "PtGetPinTran " + pinName;
+    _tclInputString = "OSGetPinTran " + pinName;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();

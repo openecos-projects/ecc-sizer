@@ -1169,7 +1169,7 @@ void Sizer::Parser() {
     //    }
     //}
 
-    InitNets(); // calculate network cap for net delay
+    InitNets();  // calculate network cap for net delay
 
     // write pin list file for PT correlation
     // if ( CORR_PT_FILE ) {
@@ -6066,8 +6066,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
     for(unsigned i = 0; i < numViews; ++i) {
         pins[i] = new PIN[numpins];
-        for(unsigned j = 0; j < numpins; j++)
+        for(unsigned j = 0; j < numpins; j++) {
             pins[i][j] = g_pins[i][j];
+            assert(pins[i][j].cap < 1e31);
+        }
     }
 
     nets = new NET *[numCorners];

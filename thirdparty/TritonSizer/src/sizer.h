@@ -675,9 +675,9 @@ class Sizer {
     vector< double > power_clk_period;
 
     vector< map< unsigned, double > > inrtran, inftran;
-    vector< map< unsigned, string > > drivers;
-    vector< map< unsigned, unsigned > > driverInPins;
-    vector< map< unsigned, unsigned > > driverOutPins;
+    // vector< map< unsigned, string > > drivers;
+    // vector< map< unsigned, unsigned > > driverInPins;
+    // vector< map< unsigned, unsigned > > driverOutPins;
     vector< map< string, double > > indelays;
     vector< map< string, double > > outdelays;
 

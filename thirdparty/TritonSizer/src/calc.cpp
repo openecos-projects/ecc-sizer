@@ -37,6 +37,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <cassert>
 #include <cmath>
 #include <fstream>
 #include "sizer.h"
@@ -427,7 +428,8 @@ void Sizer::UpdateCapsFromCells() {
                     pins[view][input_j].cap =
                         lib_cell_info->pins[pins[view][input_j].lib_pin]
                             .capacitance;
-                // pin 作为输入引脚时的电容
+                    assert(pins[view][input_j].cap < 1e31);
+                    // pin 作为输入引脚时的电容
                 }
                 // cout << "CAP CHECK: " << view << " " <<
                 // getFullPinName(pins[view][cells[i].inpins[j]]) << " "  <<
@@ -458,6 +460,9 @@ double Sizer::CalcCapViolation(unsigned view) {
 
             for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++) {
                 loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
+                if(loadCap > 2 * 1e31) {
+                    cout << "TOT CAP CHECK: " << view << " " << endl;
+                }
             }
 
             cap_viol += max(0.0, (nets[corner][outnet].cap + loadCap - maxCap));
@@ -465,6 +470,9 @@ double Sizer::CalcCapViolation(unsigned view) {
                 cap_violation_cnt++;
             cap_violation_wst = max(
                 cap_violation_wst, nets[corner][outnet].cap + loadCap - maxCap);
+            if(cap_violation_wst > 2 * 1e31) {
+                cout << "TOT CAP CHECK: " << view << " " << endl;
+            }
             pins[view][cells[i].outpins[k]].totcap =
                 nets[corner][outnet].cap + loadCap;
             // cout << "TOT CAP CHECK: " << view << " " <<
@@ -472,9 +480,10 @@ double Sizer::CalcCapViolation(unsigned view) {
             // pins[view][cells[i].outpins[k]].totcap << endl;
         }
     }
-
+#ifdef DRIVER_CELL
     for(unsigned i = 0; i < PIs.size(); i++) {
-        LibCellInfo& driver = libs[corner][drivers[mode][PIs[i]]]; //drivers have a bug
+        LibCellInfo& driver =
+            libs[corner][drivers[mode][PIs[i]]];  // drivers have a bug
         double maxCap =
             driver.pins[driver.lib_pin2id_map[driver.output]].maxCapacitance;
         unsigned outnet = pins[view][PIs[i]].net;
@@ -496,6 +505,7 @@ double Sizer::CalcCapViolation(unsigned view) {
         // getFullPinName(pins[view][PIs[i]]) << " "  <<
         // pins[view][PIs[i]].totcap << endl;
     }
+#endif
     // has a bug cap_violation_wst
     printf("CAP VIOLATION cnt %d, cap_violation_wst %f\n", cap_violation_cnt,
            cap_violation_wst);

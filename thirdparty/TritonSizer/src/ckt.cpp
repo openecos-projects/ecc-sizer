@@ -57,7 +57,6 @@ void Circuit::InitData() {
         double _power_clk_period;
 
         map< unsigned, double > _inrtran, _inftran;
-        map< unsigned, string > _drivers;
         map< unsigned, unsigned > _driverInPins;
         map< unsigned, unsigned > _driverOutPins;
         map< string, double > _indelays;
@@ -71,9 +70,12 @@ void Circuit::InitData() {
 
         _sizer->inrtran.push_back(_inrtran);
         _sizer->inftran.push_back(_inftran);
+#ifdef DRIVER_CELL
+        map< unsigned, string > _drivers;
         _sizer->drivers.push_back(_drivers);
         _sizer->driverInPins.push_back(_driverInPins);
         _sizer->driverOutPins.push_back(_driverOutPins);
+#endif
         _sizer->indelays.push_back(_indelays);
         _sizer->outdelays.push_back(_outdelays);
     }
@@ -150,6 +152,7 @@ void Circuit::Parser(string benchmark) {
         if(g_pins[i].owner != UINT_MAX) {
             cell_name = g_cells[g_pins[i].owner].name;
         }
+        assert(g_pins[i].cap < 1e31);
         if(VERBOSE > 4)
             cout << "PINS --- " << i << " " << cell_name << "/"
                  << g_pins[i].name << " " << g_pins[i].lib_pin << endl;
@@ -160,12 +163,16 @@ void Circuit::Parser(string benchmark) {
         for(unsigned mode = 0; mode < _sizer->numModes; ++mode) {
             for(unsigned i = 0; i < PIs.size(); ++i) {
                 assert(g_pins[PIs[i]].name != "");
-                assert(_sizer->drivers[mode][PIs[i]] != "");
-                cout << PIs[i] << " " << g_pins[PIs[i]].name << " "
-                     << _sizer->drivers[mode][PIs[i]] << " "
-                     << _sizer->driverInPins[mode][PIs[i]] << " "
-                     << _sizer->inrtran[mode][PIs[i]] << " "
-                     << _sizer->inftran[mode][PIs[i]] << endl;
+                // assert(_sizer->drivers[mode][PIs[i]] != "");
+                cout << PIs[i] << " " << g_pins[PIs[i]].name << " ";
+#ifdef DRIVER_CELL
+                << _sizer->drivers[mode][PIs[i]] << " "
+                << _sizer->driverInPins[mode][PIs[i]]
+                << " "
+#endif
+                    cout
+                << _sizer->inrtran[mode][PIs[i]] << " "
+                << _sizer->inftran[mode][PIs[i]] << endl;
             }
         }
     }
@@ -325,7 +332,7 @@ void Circuit::assignLibPinId() {
                lib_cell_info->lib_pin2id_map.end()) {
                 pin->lib_pin = temp_iter->second;
                 pin->cap = lib_cell_info->pins[pin->lib_pin].capacitance;
-
+                assert(pin->cap < 1e31);
                 // cout << "LIBPIN " << cell.name << "--" << pin->name <<"/" <<
                 // pin->lib_pin << endl;
                 // cout << lib_cell_info->pins[pin->lib_pin] ;
@@ -2987,7 +2994,10 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
         iter_i++;
 
         string netName = network->pathName(net);
-
+        if(netName.substr(0, 11) == "UNCONNECTED") {
+            // con("debug debug!!");
+            continue;
+        }
         if(strcmp(netName.c_str(), string("SE").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SI").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SO").c_str()) == 0 ||
@@ -3188,7 +3198,8 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
         std::string port_name =
             reinterpret_cast< const sta::ConcretePort* >(port)->name();
         double load =
-            cap->wireCap()->value(TransRiseFall::rise(), MinMax::max());
+            cap->pinCap()->value(TransRiseFall::rise(), MinMax::max());
+        assert(load < 1e31);
         g_pins[pin2id[port_name]].cap = load;
     }
 
@@ -3197,10 +3208,17 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
     for(auto [port, drive] : input_slew_map) {
         std::string port_name =
             reinterpret_cast< const sta::ConcretePort* >(port)->name();
-        std::string driverSize =
-            drive->driveCell(TransRiseFall::rise(), MinMax::max())
-                ->cell()
-                ->name();
+#ifdef DRIVER_CELL
+        std::string driverSize;
+        if(!drive->hasDriveCell(TransRiseFall::rise(), MinMax::max())) {
+            continue;
+        }
+        else {
+            std::string driverSize =
+                drive->driveCell(TransRiseFall::rise(), MinMax::max())
+                    ->cell()
+                    ->name();
+        }
         unsigned driverInPin = g_pins[pin2id[port_name]].lib_pin;
         unsigned driverOutPin = g_pins[pin2id[port_name]].lib_pin;
         LibCellInfo& lib_cell = _sizer->libs[mode].find(driverSize)->second;
@@ -3222,6 +3240,7 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
         // JLTimingArc: add driverOutPin info
         _sizer->driverOutPins[mode].insert(
             std::pair< unsigned, unsigned >(pin2id[port_name], driverOutPin));
+#endif
         float slew = 0.0;
         bool is_exist = false;
         drive->slew(TransRiseFall::rise(), MinMax::max(), slew, is_exist);
@@ -3277,10 +3296,10 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
 
             string pin_name = _sta->network()->name(connPin);
             PortDirection* dir = _sta->network()->direction(connPin);
-            if(pin_name ==
-               "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
-                puts("debug debug");
-            }
+            // if(pin_name ==
+            //    "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
+            //     puts("debug debug");
+            // }
             if(strcmp(pin_name.c_str(), string("SE").c_str()) == 0 ||
                strcmp(pin_name.c_str(), string("SI").c_str()) == 0 ||
                strcmp(pin_name.c_str(), string("SO").c_str()) == 0 ||
@@ -3288,24 +3307,6 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
                 continue;
 
             SUB_NODE sn;
-
-            Parasitic* para = parasitics->findParasiticNetwork(
-                connPin, ap);  //对应net上的Parasitic
-            if(para == nullptr) {
-                printf(
-                    "Error, Net don't have Parasitic. Net name :%s, pin name: "
-                    "%s, \n",
-                    netNameStr.c_str(), pin_name.c_str());
-                continue;
-            }
-            ConcreteParasitic* conc_para =
-                static_cast< ConcreteParasitic* >(para);
-            sta::ConcreteParasiticNetwork* conc_net_para =
-                static_cast< sta::ConcreteParasiticNetwork* >(conc_para);
-            sta::ConcreteParasiticSubNodeMap* sub_nodes =
-                conc_net_para->subNodes();
-            sta::ConcreteParasiticSubNodeMap::Iterator sub_nodes_iter(
-                sub_nodes);
 
             // Input
             if(dir->isInput()) {
@@ -3327,7 +3328,23 @@ void Circuit::readSpef_opensta(sta::Sta* _sta) {
 
                 subNodeVecPtr->push_back(sn);
             }
-
+            Parasitic* para = parasitics->findParasiticNetwork(
+                connPin, ap);  //对应net上的Parasitic
+            if(para == nullptr) {
+                printf(
+                    "Error, Net don't have Parasitic. Net name :%s, pin name: "
+                    "%s, \n",
+                    netNameStr.c_str(), pin_name.c_str());
+                continue;
+            }
+            ConcreteParasitic* conc_para =
+                static_cast< ConcreteParasitic* >(para);
+            sta::ConcreteParasiticNetwork* conc_net_para =
+                static_cast< sta::ConcreteParasiticNetwork* >(conc_para);
+            sta::ConcreteParasiticSubNodeMap* sub_nodes =
+                conc_net_para->subNodes();
+            sta::ConcreteParasiticSubNodeMap::Iterator sub_nodes_iter(
+                sub_nodes);
             ParasiticNode* para_node = parasitics->findNode(para, connPin);
 
             // RES

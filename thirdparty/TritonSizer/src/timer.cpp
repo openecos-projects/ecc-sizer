@@ -340,7 +340,8 @@ LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
     }
 
     LibCellInfo *new_lib_cell_info =
-        getLibCellInfo(cell.main_lib_cell_id, new_size, static_cast<cell_vtypes>(new_vt), corner);
+        getLibCellInfo(cell.main_lib_cell_id, new_size,
+                       static_cast< cell_vtypes >(new_vt), corner);
     if(new_lib_cell_info != NULL) {
         if(VERBOSE >= 3)
             cout << "Sizing progression " << cell.name << " " << cell.type
@@ -390,7 +391,11 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
             pins[view][curpin].ftran_ofs = 0.0;
             pins[view][curpin].rtran_ofs = 0.0;
         }
-
+        pins[view][curpin].rtran = value_list[curpin].rise;
+        pins[view][curpin].ftran = value_list[curpin].fall;
+        pins[view][curpin].ftran_ofs = 0.0;
+        pins[view][curpin].rtran_ofs = 0.0;
+#ifdef DRIVER_CELL
         LibCellInfo *cur = &(libs[corner].find(drivers[mode][curpin])->second);
 
         if(cur == NULL) {
@@ -445,7 +450,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                 pins[view][curpin].ftran = value_list[curpin].fall;
             }
         }
-
+#endif
         unsigned curnet = pins[view][curpin].net;
         for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
             unsigned fopin = nets[corner][curnet].outpins[j];
@@ -562,7 +567,18 @@ void Sizer::CalcTran(unsigned view) {
                  << pins[view][curpin].ftran << " "
                  << " " << pins[view][curpin].rtran_ofs << "/"
                  << pins[view][curpin].ftran_ofs << " " << endl;
-
+        double rtran_1, ftran_1;
+        auto pin = pins[view][curpin];
+        if(!pin.bb_checked_tran) {
+            T[view]->getPinTran(rtran_1, ftran_1, getFullPinName(pin));
+            pin.ftran = rtran_1;
+            pin.rtran = ftran_1;
+            pin.bb_checked_tran = true;
+        }else{
+            rtran_1 = pin.rtran;
+            ftran_1 = pin.ftran;
+        }
+#ifdef DRIVER_CELL
         LibCellInfo *cur = &(libs[corner].find(drivers[mode][curpin])->second);
 
         if(pins[view][curpin].name != clk_port[mode] && cur != NULL) {
@@ -598,7 +614,7 @@ void Sizer::CalcTran(unsigned view) {
                 pins[view][curpin].ftran += pins[view][curpin].ftran_ofs;
             }
         }
-
+#endif
         unsigned curnet = pins[view][curpin].net;
         for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
             unsigned fopin = nets[corner][curnet].outpins[j];
@@ -1978,6 +1994,18 @@ int Sizer::EstDeltaSlack(CELL &cell, int steps, int dir, double *rslk,
             if(pins[view][fipin].owner == UINT_MAX) {
                 if(pins[view][fipin].name == clk_port[mode])
                     continue;
+                // double r_tran = 0.0, f_tran = 0.0;
+                auto pin = pins[view][fipin];
+                if(!pin.bb_checked_tran) {
+                    T[view]->getPinTran(rtran_1, ftran_1, getFullPinName(pin));
+                    pin.ftran = rtran_1;
+                    pin.rtran = ftran_1;
+                    pin.bb_checked_tran = true;
+                }else{
+                    rtran_1 = pin.rtran;
+                    ftran_1 = pin.ftran;
+                }
+#ifdef DRIVER_CELL
                 LibCellInfo *cur =
                     &(libs[corner]
                           .find(drivers[mode][pins[view][fipin].id])
@@ -2004,7 +2032,7 @@ int Sizer::EstDeltaSlack(CELL &cell, int steps, int dir, double *rslk,
                                       inftran[mode][pins[view][fipin].id],
                                       pins[view][fipin].ceff + delta_cap);
                 }
-
+#endif
                 if(WIRE_METRIC != ND) {
                     pins[view][cell.inpins[j]].cap += delta_cap;
                     calc_one_net_delay(curnet, WIRE_METRIC, view);
@@ -3802,6 +3830,14 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
     if(cur == UINT_MAX) {  // PI
         if(pins[view][pin.id].isPI &&
            !(pins[view][pin.id].name == clk_port[mode])) {
+            double r_tran = 0.0, f_tran = 0.0;
+            if(!pin.bb_checked_tran) {
+                T[view]->getPinTran(r_tran, f_tran, getFullPinName(pin));
+                pin.ftran = r_tran;
+                pin.rtran = f_tran;
+                pin.bb_checked_tran = true;
+            }
+#ifdef DRIVER_CELL
             LibCellInfo *cur_cell =
                 &(libs[corner].find(drivers[mode][pin.id])->second);
 
@@ -3849,7 +3885,7 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
                     }
                 }
             }
-
+#endif
             for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
                 unsigned fopin = nets[corner][curnet].outpins[j];
 
@@ -4546,7 +4582,7 @@ double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
     if(VERBOSE >= 220)
         cout << "start -- " << n << endl;
     curNode = &subNodeVec[n];
-    if(subNodeVec[0].id == 0){
+    if(subNodeVec[0].id == 0) {
         return subNodeVec[0].totres;
     }
     while(curNode->id != 0) {
@@ -4812,13 +4848,13 @@ void Sizer::calc_net_delay(unsigned netID, DelayMetric DM, unsigned view) {
             for(i = 0; i < subNodeVec.size(); i++) {
                 if(subNodeVec[i].isSink) {
                     subNodeVec[i].delay =
-                        0.5 * (-subNodeVec[i].m1 +
-                               sqrt(4 * subNodeVec[i].m2 -
-                                    3 * pow(subNodeVec[i].m1, 2))) *
-                        log(1 -
-                            subNodeVec[i].m1 /
-                                sqrt(4 * subNodeVec[i].m2 -
-                                     3 * pow(subNodeVec[i].m1, 2)));
+                        0.5 *
+                        (-subNodeVec[i].m1 +
+                         sqrt(4 * subNodeVec[i].m2 -
+                              3 * pow(subNodeVec[i].m1, 2))) *
+                        log(1 - subNodeVec[i].m1 /
+                                    sqrt(4 * subNodeVec[i].m2 -
+                                         3 * pow(subNodeVec[i].m1, 2)));
                 }
             }
             break;

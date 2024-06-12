@@ -171,11 +171,9 @@ proc OSWorstSlack { clk_name } {
     
     set file_data [split [read $report_file] \n]
     foreach line $file_data {
-        if {[string match "*slack (MET)*" $line]} {
-            set path_slack [lindex [split $line " "] end]
-        } elseif {[string match "*slack (VIOLATED)*" $line]} {
-            set path_slack [lindex [split $line " "] end]
-        } 
+        if {[regexp {([\-0-9\.]+)\s+slack\s+\((MET|VIOLATED)\)} $line match slack_val status]} {
+            set path_slack $slack_val
+        }
     }
 
     close $report_file
