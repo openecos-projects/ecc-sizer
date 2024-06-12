@@ -395,34 +395,33 @@ class Sizer {
     vector< vector< CellSol > > all_cells;
     vector< CELL > best_failed_cells;
 
-    static __thread double max_pt_err, l2_norm, average_error;
-    static __thread int leak_iter;
+    double max_pt_err, l2_norm, average_error;
+    int leak_iter;
 
-    static __thread double skew_violation_worst, worst_slack_worst;
-    static __thread double worst_slack;
-    static __thread double max_neg_rslk, max_neg_fslk;
-    static __thread double min_neg_rslk, min_neg_fslk;
-    static __thread double max_pos_rslk, max_pos_fslk;
+    double skew_violation_worst, worst_slack_worst;
+    double worst_slack;
+    double max_neg_rslk, max_neg_fslk;
+    double min_neg_rslk, min_neg_fslk;
+    double max_pos_rslk, max_pos_fslk;
 
-    static __thread double tot_violations, slew_violation, skew_violation,
-        cap_violation, slew_violation_wst, cap_violation_wst, tot_pslack;
-    static __thread unsigned slew_violation_cnt, skew_violation_cnt,
-        cap_violation_cnt;
-    static __thread double power;
-    static __thread double best_power_local;
-    static __thread double best_failed_power_local;
-    static __thread double toler;
-    static __thread double best_alpha_local;
-    static __thread double local_alpha;
+    double tot_violations, slew_violation, skew_violation, cap_violation,
+        slew_violation_wst, cap_violation_wst, tot_pslack;
+    unsigned slew_violation_cnt, skew_violation_cnt, cap_violation_cnt;
+    double power;
+    double best_power_local;
+    double best_failed_power_local;
+    double toler;
+    double best_alpha_local;
+    double local_alpha;
 
     CELL *cells = nullptr;
-    //    static __thread CELL *best_cells_local;
-    //    static __thread CELL *best_failed_cells_local;
-    static __thread PIN **pins;
-    static __thread NET **nets;
+    //     CELL *best_cells_local;
+    //     CELL *best_failed_cells_local;
+    PIN **pins;
+    NET **nets;
 
    public:
-    static __thread designTiming **T;
+    designTiming **T;
 
    private:
     bool cell_move(CELL &cell, cell_sizes org_size, cell_vtypes org_vt,
@@ -622,8 +621,7 @@ class Sizer {
     void UpdateCapsFromCells();
 
    public:
-
-    sta::Sta* _sta;
+    sta::Sta *_sta;
     Tcl_Interp *sta_interp = nullptr;
     // multithreading
     pthread_mutex_t mutex1;

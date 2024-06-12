@@ -40,6 +40,7 @@
 #include "sizer.h"
 #include <stdlib.h>
 #include <algorithm>
+#include <cassert>
 #include <cstdio>
 #include <sstream>
 #include "ckt.h"
@@ -221,44 +222,44 @@ GTRMetric GTR_METRIC2 = SF8;
 CorrPTMetric CORR_PT_METRIC = SLK;
 
 // static declaration of thread-local variables //
-__thread double Sizer::max_pt_err;
-__thread double Sizer::average_error;
-__thread double Sizer::l2_norm;
-__thread int Sizer::leak_iter;
+// double Sizer::max_pt_err;
+// double Sizer::average_error;
+// double Sizer::l2_norm;
+// int Sizer::leak_iter;
 
-__thread double Sizer::skew_violation_worst;
-__thread double Sizer::worst_slack_worst;
-__thread double Sizer::worst_slack;
-__thread double Sizer::max_neg_rslk;
-__thread double Sizer::max_neg_fslk;
-__thread double Sizer::min_neg_rslk;
-__thread double Sizer::min_neg_fslk;
-__thread double Sizer::max_pos_rslk;
-__thread double Sizer::max_pos_fslk;
+// double Sizer::skew_violation_worst;
+// double Sizer::worst_slack_worst;
+// double Sizer::worst_slack;
+// double Sizer::max_neg_rslk;
+// double Sizer::max_neg_fslk;
+// double Sizer::min_neg_rslk;
+// double Sizer::min_neg_fslk;
+// double Sizer::max_pos_rslk;
+// double Sizer::max_pos_fslk;
 
-__thread double Sizer::tot_pslack;
-__thread double Sizer::tot_violations;
-__thread double Sizer::slew_violation;
-__thread double Sizer::skew_violation;
-__thread double Sizer::cap_violation;
-__thread unsigned Sizer::slew_violation_cnt;
-__thread unsigned Sizer::skew_violation_cnt;
-__thread unsigned Sizer::cap_violation_cnt;
-__thread double Sizer::slew_violation_wst;
-__thread double Sizer::cap_violation_wst;
-__thread double Sizer::power;
-__thread double Sizer::best_power_local;
-__thread double Sizer::best_alpha_local;
-__thread double Sizer::local_alpha;
-__thread double Sizer::toler;
-__thread double Sizer::best_failed_power_local;
+// double Sizer::tot_pslack;
+// double Sizer::tot_violations;
+// double Sizer::slew_violation;
+// double Sizer::skew_violation;
+// double Sizer::cap_violation;
+// unsigned Sizer::slew_violation_cnt;
+// unsigned Sizer::skew_violation_cnt;
+// unsigned Sizer::cap_violation_cnt;
+// double Sizer::slew_violation_wst;
+// double Sizer::cap_violation_wst;
+// double Sizer::power;
+// double Sizer::best_power_local;
+// double Sizer::best_alpha_local;
+// double Sizer::local_alpha;
+// double Sizer::toler;
+// double Sizer::best_failed_power_local;
 
-__thread PIN **Sizer::pins;
-__thread NET **Sizer::nets;
+// PIN **Sizer::pins;
+// NET **Sizer::nets;
 
-//__thread CELL * Sizer::best_cells_local;
-//__thread CELL * Sizer::best_failed_cells_local;
-__thread designTiming **Sizer::T;
+// CELL * Sizer::best_cells_local;
+// CELL * Sizer::best_failed_cells_local;
+// designTiming **Sizer::T;
 
 extern int test_timer(string root, string benchmark, string sizes);
 extern double r_entry(const LibLUT &liblut, const double tran,
@@ -445,42 +446,42 @@ CorrPTMetric str2CorrPTMetric(const string &str) {
     }
     return out;
 }
- 
+
 int get_available_port(int start_port) {
     int port = start_port;
     int sockfd;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
- 
-    while (port <= 65535) {
+
+    while(port <= 65535) {
         // 创建socket
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sockfd < 0) {
+        if(sockfd < 0) {
             std::cerr << "Socket creation failed" << std::endl;
             return -1;
         }
- 
+
         // 设置地址和端口
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = INADDR_ANY;
         address.sin_port = htons(port);
- 
+
         // 绑定端口
-        if (bind(sockfd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        if(bind(sockfd, (struct sockaddr *)&address, sizeof(address)) < 0) {
             // 如果端口已被占用，尝试下一个端口
             close(sockfd);
             ++port;
             continue;
         }
- 
+
         std::cout << "Available port found: " << port << std::endl;
         close(sockfd);
         return port;
     }
- 
-    return -1; // No available port found
+
+    return -1;  // No available port found
 }
- 
+
 int getTokenI(string line, string option) {
     int token;
     size_t sizeStr, startPos, endPos;
@@ -679,6 +680,7 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
 }
 
 LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
+    assert(cell.type != "");
     map< string, LibCellInfo >::iterator temp_iter =
         libs[corner].find(cell.type);
 
@@ -692,7 +694,7 @@ LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
 
 LibCellInfo *Sizer::getLibCellInfo(string type, unsigned corner) {
     map< string, LibCellInfo >::iterator temp_iter = libs[corner].find(type);
-
+    assert(type != "");
     if(libs[corner].count(type)) {
         return &(temp_iter->second);
     }
@@ -706,14 +708,15 @@ bool Sizer::cell_change(CELL &cell, CellSol cell_sol, bool update_cap) {
         return false;
     }
 
-    LibCellInfo *new_lib_cell_info = getLibCellInfo(
-        cell.main_lib_cell_id, cell_sol.c_size, static_cast<cell_vtypes>(cell_sol.c_vtype));
+    LibCellInfo *new_lib_cell_info =
+        getLibCellInfo(cell.main_lib_cell_id, cell_sol.c_size,
+                       static_cast< cell_vtypes >(cell_sol.c_vtype));
 
     if(new_lib_cell_info != NULL) {
         cell.isChanged = true;
         cell.type = new_lib_cell_info->name;
         cell.c_size = cell_sol.c_size;
-        cell.c_vtype = static_cast<cell_vtypes>(cell_sol.c_vtype);
+        cell.c_vtype = static_cast< cell_vtypes >(cell_sol.c_vtype);
         if(update_cap) {
             for(unsigned i = 0; i < cell.inpins.size(); i++) {
                 for(unsigned j = 0; j < numViews; ++j) {
@@ -864,11 +867,12 @@ bool Sizer::cell_retype(CELL &cell, int dir, bool pt_corr, bool update_cap) {
     }
     else {
         LibCellInfo *new_lib_cell_info =
-            getLibCellInfo(cell.main_lib_cell_id, cell.c_size, static_cast<cell_vtypes>(new_vt), corner);
+            getLibCellInfo(cell.main_lib_cell_id, cell.c_size,
+                           static_cast< cell_vtypes >(new_vt), corner);
         if(new_lib_cell_info != NULL) {
             cell.isChanged = true;
             cell.type = new_lib_cell_info->name;
-            cell.c_vtype = static_cast<cell_vtypes>(new_vt);
+            cell.c_vtype = static_cast< cell_vtypes >(new_vt);
 
             if(update_cap) {
                 for(unsigned j = 0; j < numViews; ++j) {
@@ -992,14 +996,15 @@ bool Sizer::cell_change(CELL &cell, cell_sizes size, cell_vtypes vt,
         return false;
     }
 
-    LibCellInfo *new_lib_cell_info = getLibCellInfo(
-        cell.main_lib_cell_id, cell_sol.c_size, static_cast<cell_vtypes>(cell_sol.c_vtype));
+    LibCellInfo *new_lib_cell_info =
+        getLibCellInfo(cell.main_lib_cell_id, cell_sol.c_size,
+                       static_cast< cell_vtypes >(cell_sol.c_vtype));
 
     if(new_lib_cell_info != NULL) {
         cell.isChanged = true;
         cell.type = new_lib_cell_info->name;
         cell.c_size = cell_sol.c_size;
-        cell.c_vtype = static_cast<cell_vtypes>(cell_sol.c_vtype);
+        cell.c_vtype = static_cast< cell_vtypes >(cell_sol.c_vtype);
         if(update_cap) {
             for(unsigned j = 0; j < numViews; ++j) {
                 for(unsigned i = 0; i < cell.inpins.size(); i++)
@@ -1073,7 +1078,7 @@ void Sizer::Parser() {
     this->numcells = _ckt->numcells;
     this->numpins = _ckt->numpins;
     this->numnets = _ckt->numnets;
-    
+
     for(unsigned i = 0; i < _ckt->numcells; i++) {
         CELL cell = _ckt->g_cells[i];
         g_cells.push_back(cell);
@@ -1164,7 +1169,7 @@ void Sizer::Parser() {
     //    }
     //}
 
-    InitNets();
+    InitNets(); // calculate network cap for net delay
 
     // write pin list file for PT correlation
     // if ( CORR_PT_FILE ) {
@@ -1253,7 +1258,7 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     string clientTcl = "ptclient." + ostr.str() + ".tcl";
     // make ptclient tcl
     ofstream fout(clientTcl.c_str());
-    if(!fout){
+    if(!fout) {
         printf("Error: Open file failed");
         exit(0);
     }
@@ -2392,7 +2397,7 @@ void Sizer::SizeOut(bool success) {
     ofstream outsz(filename.c_str());
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
-        if(lib_cell_info != NULL) { //&& lib_cell_info->name != init_sizes[i]
+        if(lib_cell_info != NULL) {  //&& lib_cell_info->name != init_sizes[i]
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
             // cout << cells[i].name << " "<<lib_cell_info->name<<endl;
         }

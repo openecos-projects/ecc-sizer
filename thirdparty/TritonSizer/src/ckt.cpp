@@ -140,8 +140,8 @@ void Circuit::Parser(string benchmark) {
     // }
     // else {
     //     for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
-    //         cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] << endl;
-    //         sdc_parser(_sizer->mmmcSdcList[mode], mode);
+    //         cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] <<
+    //         endl; sdc_parser(_sizer->mmmcSdcList[mode], mode);
     //     }
     // }
     assert(_sta);
@@ -159,6 +159,8 @@ void Circuit::Parser(string benchmark) {
         cout << "PI TEST----" << endl;
         for(unsigned mode = 0; mode < _sizer->numModes; ++mode) {
             for(unsigned i = 0; i < PIs.size(); ++i) {
+                assert(g_pins[PIs[i]].name != "");
+                assert(_sizer->drivers[mode][PIs[i]] != "");
                 cout << PIs[i] << " " << g_pins[PIs[i]].name << " "
                      << _sizer->drivers[mode][PIs[i]] << " "
                      << _sizer->driverInPins[mode][PIs[i]] << " "
@@ -2878,8 +2880,8 @@ void Circuit::init_opensta(sta::Sta* _sta) {
     string sdc_cmd = "read_sdc " + sdcFileName;
     std::cout << std::string(evalTclString(sdc_cmd)) << std::endl;
     std::cout << "read_sdc done !!!" << std::endl;
-    string setrc_cmd = "source " + libPath + "/../setRC.tcl";
-    std::cout << std::string(evalTclString(setrc_cmd)) << std::endl;
+    // string setrc_cmd = "source " + libPath + "/../setRC.tcl";
+    // std::cout << std::string(evalTclString(setrc_cmd)) << std::endl;
 }
 
 // 最慢
@@ -3149,7 +3151,6 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
             reinterpret_cast< const sta::ConcretePin* >(input_delay->pin())
                 ->name();
         auto delays = input_delay->delays();
-
         // do not care min delay
         auto max_rise_delay =
             delays->value(TransRiseFall::rise(), MinMax::max());
@@ -3196,6 +3197,31 @@ void Circuit::readDesign_opensta(sta::Sta* _sta) {
     for(auto [port, drive] : input_slew_map) {
         std::string port_name =
             reinterpret_cast< const sta::ConcretePort* >(port)->name();
+        std::string driverSize =
+            drive->driveCell(TransRiseFall::rise(), MinMax::max())
+                ->cell()
+                ->name();
+        unsigned driverInPin = g_pins[pin2id[port_name]].lib_pin;
+        unsigned driverOutPin = g_pins[pin2id[port_name]].lib_pin;
+        LibCellInfo& lib_cell = _sizer->libs[mode].find(driverSize)->second;
+
+        // JLTimingArc: add driverOutPin info
+        std::map< unsigned, LibPinInfo >::iterator it;
+        for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it) {
+            if((it->second).isInput == true) {
+                driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
+            }
+            if((it->second).isOutput == true) {
+                driverOutPin = lib_cell.lib_pin2id_map[(it->second).name];
+            }
+        }
+        _sizer->drivers[mode].insert(
+            std::pair< unsigned, string >(pin2id[port_name], driverSize));
+        _sizer->driverInPins[mode].insert(
+            std::pair< unsigned, unsigned >(pin2id[port_name], driverInPin));
+        // JLTimingArc: add driverOutPin info
+        _sizer->driverOutPins[mode].insert(
+            std::pair< unsigned, unsigned >(pin2id[port_name], driverOutPin));
         float slew = 0.0;
         bool is_exist = false;
         drive->slew(TransRiseFall::rise(), MinMax::max(), slew, is_exist);
