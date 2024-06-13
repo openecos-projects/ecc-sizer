@@ -528,7 +528,7 @@ message(STATUS "TCL lib: ${TCL_LIB}")
 get_filename_component(TCL_LIB_DIR "${TCL_LIB}" PATH)
 get_filename_component(TCL_LIB_PARENT1 "${TCL_LIB_DIR}" PATH)
 get_filename_component(TCL_LIB_PARENT2 "${TCL_LIB_PARENT1}" PATH)
-
+message(STATUS "TCL header: ${TCL_HEADER}")
 # Locate tcl.h
 if (NOT TCL_HEADER)
   find_file(TCL_HEADER tcl.h
@@ -537,7 +537,11 @@ if (NOT TCL_HEADER)
     NO_DEFAULT_PATH
     )
 endif()
-message(STATUS "TCL header: ${TCL_HEADER}")
+
+if(${TCL_HEADER} STREQUAL "TCL_HEADER-NOTFOUND")
+  set(TCL_HEADER /usr/include/tcl8.6/tcl.h)
+endif()
+
 get_filename_component(TCL_HEADER_DIR "${TCL_HEADER}" PATH)
 
 ################################################################
