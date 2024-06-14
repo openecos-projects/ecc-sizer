@@ -29,7 +29,7 @@
 
 import sys
 
-# openraod_path = '/home/zhaoxueyan/code/gpu_gate_sizing/thirdparty/OpenROAD/build/src/'
+# openraod_path = '/home/zxy/my_code/gpu_gate_sizing/thirdparty/OpenROAD/build/src/'
 # sys.path.append(openraod_path)
 
 import openroad as ord

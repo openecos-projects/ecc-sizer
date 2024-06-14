@@ -104,12 +104,16 @@ if __name__ == "__main__":
   parser.add_argument("--file_path", type = Path, default="./file", action = "store")
   parser.add_argument("--design_name", type = str, default="NaN", action = "store")
   parser.add_argument("--dump_def", default = False, action = "store_true")
+  parser.add_argument("--lefPath", type = str, default = "./lef", action = "store")
+  parser.add_argument("--libPath", type = str, default = "./libPath", action = "store")
+  parser.add_argument("--designPath",type = str, default = "./designPath", action = "store")
   pyargs = parser.parse_args()
   
   sys.path.append("../example/")
   from OpenROAD_helper import load_design
 
-  tech, design = load_design(pyargs.design_name, False)
+  tech, design = load_design(pyargs.lefPath, pyargs.libPath, pyargs.designPath,
+                             pyargs.design_name, False)
   timing = Timing(design)
   
   ICCAD_evaluation(pyargs.file_path, design, timing)
