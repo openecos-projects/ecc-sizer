@@ -38,3 +38,4 @@ build
 benchmark/*
 bin
 __pycache__
+.clangd

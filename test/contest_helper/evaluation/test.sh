@@ -1,6 +1,6 @@
 #/bin/bash
 
-OPENROAD_EXE=/home/zxy/my_code/gpu_gate_sizing/bin/openroad
+OPENROAD_EXE=/home/zxy/my_code/gpu_gate_sizing/build/openroad
 FILE_PATH=/home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/NV_NVDLA_partition_m/NV_NVDLA_partition_m.size
 DESIGN_NAME=NV_NVDLA_partition_m
 LEF_PATH=/home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/platform/ASAP7/lef/
