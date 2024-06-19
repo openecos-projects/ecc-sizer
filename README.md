@@ -27,3 +27,4 @@ CMakeLists 中ROAD 2
 
 - DEBUG
 - 使用 gperftools 进行 profiling。
+- 使用 OpenROAD 调用global routing，输出SPEF，其余流程不变。

@@ -30,6 +30,7 @@ import openroad as ord
 from openroad import Tech, Design
 import os, odb
 from pathlib import Path
+from collections import defaultdict
 
 def load_design(design_name, verilog = False):
   tech = Tech()
@@ -46,7 +47,7 @@ def load_design(design_name, verilog = False):
   for lefFile in lefFiles:
     tech.readLef(lefFile.as_posix())
   design = Design(tech)
-  
+
   # Read design files
   if verilog:
     verilogFile = "%s/%s.v"%(designDir.as_posix(), design_name)
@@ -57,22 +58,25 @@ def load_design(design_name, verilog = False):
     design.readDef(defFile)
 
   # Read the SDC file, SPEF file, and set the clocks
-  spefFile = "%s/%s.spef"%(designDir.as_posix(), design_name)
-  design.evalTclString("read_spef %s"%spefFile)
   sdcFile = "%s/%s.sdc"%(designDir.as_posix(), design_name)
   design.evalTclString("read_sdc %s"%sdcFile)
   design.evalTclString("source ../../platform/ASAP7/setRC.tcl")
   
   # Global connect
   VDDNet = design.getBlock().findNet("VDD")
+  if VDDNet is None:
+    VDDNet = odb.dbNet_create(design.getBlock(), "VDD")
   VDDNet.setSpecial()
   VDDNet.setSigType("POWER")
   VSSNet = design.getBlock().findNet("VSS")
+  if VSSNet is None:
+    VSSNet = odb.dbNet_create(design.getBlock(), "VSS")
   VSSNet.setSpecial()
   VSSNet.setSigType("GROUND")
   design.getBlock().addGlobalConnect(None, ".*", "VDD", VDDNet, True)
   design.getBlock().addGlobalConnect(None, ".*", "VSS", VSSNet, True)
   design.getBlock().globalConnect()
+
   return tech, design
 
 #################################################
@@ -91,4 +95,19 @@ def get_output_load_pin_cap(pin, corner, timing):
   else:
     return -1
 
+############################
+# Get a dict of equivcells #
+############################
+def build_libcell_dict(filename):
+  id_to_names = defaultdict(list)
+  with open(filename, "r") as file:
+    for line in file:
+      line = line.split(",")
+      id_to_names[line[1][:-1]].append(line[0])
+  
+  libcell_dict = dict()
+  for id, names in id_to_names.items():
+    for name in names:
+      libcell_dict[name] = names
 
+  return libcell_dict  
