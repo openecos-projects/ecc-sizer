@@ -80,6 +80,7 @@ def ICCAD_evaluation(filePath: str, design: Design, timing: Timing, equivcell_di
       print("Run Global Routing...")
       grt.globalRoute(False)
       design.evalTclString("estimate_parasitics -global_routing")
+            
       # Start Evaluation
       WNS, maxSlew, maxCap, totalLeakagePower = 0, 0, 0, 0
       # Penalties are subject to change
