@@ -762,6 +762,7 @@ class Sizer {
     string suffixLVT;
     string suffixHVT;
     string suffix;
+    string lefPath;
     int numVt;
 
     ////////////////////////////////////////////////////

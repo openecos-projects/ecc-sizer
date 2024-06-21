@@ -24,6 +24,7 @@
 #include "sta/Sta.hh"
 #include "ConcreteParasitics.hh"
 #include "ConcreteParasiticsPvt.hh"
+#include <filesystem>
 using namespace std;
 using namespace sta;
 
@@ -2901,17 +2902,25 @@ void Circuit::init_opensta() {
 #else
     _ord_tech = new ord::Tech();
     for(auto lib_file : _sizer->libLibs) {
-        _ord_tech->readLiberty(lib_file);
+        string lib_file_name = libPath + "/" + lib_file;
+        _ord_tech->readLiberty(lib_file_name);
     }
-    for(auto lef_file : _sizer->lefFiles) {
-        _ord_tech->readLef(lef_file);
+    for(auto lef_file : std::filesystem::directory_iterator(_sizer->lefPath)) {
+        if(std::string(lef_file.path()).find("asap7_tech") != string::npos) {
+            _ord_tech->readLef(lef_file.path());
+        }
+    }
+    for(auto lef_file : std::filesystem::directory_iterator(_sizer->lefPath)) {
+        if(std::string(lef_file.path()).find("asap7_tech") == string::npos) {
+            _ord_tech->readLef(lef_file.path());
+        }
     }
     _ord_design = new ord::Design(_ord_tech);
     _ord_design->readDef(_sizer->defFile);
     // std::string spefFile = design_dir + design_name + ".spef";
     // _ord_design->evalTclString("read_spef " + spefFile);
-    _ord_design->evalTclString(_sizer->sdcFile);
-    _ord_design->evalTclString("source " + libPath + "../setRC.tcl");
+    _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
+    _ord_design->evalTclString("source " + libPath + "/../setRC.tcl");
 
     // Global connect
     auto VDDNet = _ord_design->getBlock()->findNet("VDD");
@@ -2931,10 +2940,13 @@ void Circuit::init_opensta() {
     auto block = _ord_design->getBlock();
     _sta = ord::OpenRoad::openRoad()->getSta();
     // Legalization
-    auto site = _ord_design->getBlock()->getRows().begin()->getSite(); //->getBlock()->getRows()[0].getSite()
+    auto site = _ord_design->getBlock()
+                    ->getRows()
+                    .begin()
+                    ->getSite();  //->getBlock()->getRows()[0].getSite()
     auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
-    printf("Legalizing...");
+    printf("Legalizing...\n");
     _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
                                                 false);
     // Global Route and Estimate Global Route RC
@@ -2952,7 +2964,7 @@ void Circuit::init_opensta() {
     grt->setMaxLayerForClock(clk_high_layer);
     grt->setAdjustment(0.5);
     grt->setVerbose(false);
-    printf("Run Global Routing...");
+    printf("Run Global Routing...\n");
     grt->globalRoute(false);
     _ord_design->evalTclString("estimate_parasitics -global_routing");
 #endif

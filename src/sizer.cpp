@@ -9132,6 +9132,8 @@ void Sizer::readEnvFile(string envFileStr) {
             numCorners = getTokenI(line, "-num_corners ");
         if(line.find("-lef ") != string::npos)
             lefFiles.push_back(getTokenS(line, "-lef "));
+        if(line.find("-lefPath ") != string::npos)
+            lefPath = getTokenS(line, "-lefPath ");
         if(line.find("-suffix_nvt ") != string::npos) {
             suffixNVT = getTokenS(line, "-suffix_nvt ");
         }
