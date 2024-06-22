@@ -3219,10 +3219,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     auto* clock = sdc->clocks()->at(mode);
     _sizer->clk_name[mode] = clock->name();
     _sizer->clk_period[mode] = clock->period() / _sizer->time_unit;
-
     auto* clk_pin = *(clock->pins().begin());
-    auto* concrete_pin = reinterpret_cast< const sta::ConcretePin* >(clk_pin);
-    std::string clock_port_name = concrete_pin->name();
+    std::string clock_port_name = this->_sta->network()->portName(clk_pin);
     _sizer->clk_port[mode] = clock_port_name;
 
     float slew = 0.0;
@@ -3239,9 +3237,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     // auto* input_delay_iterator = ;
     while(input_delay_iterator != sdc->inputDelays().end()) {
         auto* input_delay = *input_delay_iterator;
-        string port_name =
-            reinterpret_cast< const sta::ConcretePin* >(input_delay->pin())
-                ->name();
+        string port_name = _sta->network()->portName(input_delay->pin());
         auto delays = input_delay->delays();
         // do not care min delay
         auto max_rise_delay =
@@ -3259,9 +3255,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     auto out_delay_iterator = sdc->outputDelays().begin();
     while(out_delay_iterator != sdc->outputDelays().end()) {
         auto* output_delay = *out_delay_iterator;
-        string port_name =
-            reinterpret_cast< const sta::ConcretePin* >(output_delay->pin())
-                ->name();
+        string port_name = _sta->network()->portName(output_delay->pin());
         auto delays = output_delay->delays();
 
         // do not care min delay

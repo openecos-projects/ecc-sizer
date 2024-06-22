@@ -1216,8 +1216,8 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     std::ostringstream ostr;
 
     if(useOpenSTA) {
-        sta::evalTclString("source sizer_os.tcl");
-        designTiming *PT = new designTiming(OS);
+        _ckt->_ord_design->evalTclString("source sizer_os.tcl");
+        designTiming *PT = new designTiming(OS, this);
         return PT;
         // exeOSServer(serverName, port, view);
     }
@@ -1230,13 +1230,13 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
 
     designTiming *PT;
     if(useOpenSTA) {
-        PT = new designTiming(OS);
+        PT = new designTiming(OS, this);
     }
     else if(!useETS) {
         PT = new designTiming;
     }
     else {
-        PT = new designTiming(ETS);
+        PT = new designTiming(ETS, this);
     }
 
     if(serverName == "") {

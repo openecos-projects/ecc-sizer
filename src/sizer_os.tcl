@@ -97,8 +97,8 @@ proc OSGetPinSlack { pin_name } {
     } else {
         set pin [get_ports $pin_name]
     }
-    set rise_slack [get_property -object_type pin $pin max_rise_slack]
-    set fall_slack [get_property -object_type pin $pin max_fall_slack]
+    set rise_slack [get_property -object_type pin $pin slack_max_rise]
+    set fall_slack [get_property -object_type pin $pin slack_max_fall]
     set large_num 100000000000.0
     if { $rise_slack == "INFINITY" } {
         set rise_slack $large_num 
@@ -122,12 +122,12 @@ proc OSWritePinSlack { infile outfile } {
         set pin_name $line
         if { [get_pins $pin_name] != "" } {
             set pin [get_pins $pin_name]
-            set rise_slack [get_property -object_type pin $pin max_rise_slack]
-            set fall_slack [get_property -object_type pin $pin max_fall_slack]
+            set rise_slack [get_property -object_type pin $pin slack_max_rise]
+            set fall_slack [get_property -object_type pin $pin slack_max_fall]
         } elseif { [get_ports $pin_name] != "" } {
             set pin [get_ports $pin_name]
-            set rise_slack [get_property -object_type port $pin max_rise_slack]
-            set fall_slack [get_property -object_type port $pin max_fall_slack]
+            set rise_slack [get_property -object_type port $pin slack_max_rise]
+            set fall_slack [get_property -object_type port $pin slack_max_fall]
 
         } else {
             set rise_slack 0
@@ -150,7 +150,7 @@ proc OSGetRiseTransition { pin_name } {
     } else {
         set pin [get_ports $pin_name]
     }
-		set riseTrans [get_property $pin actual_rise_transition_max]
+		set riseTrans [get_property $pin slew_max_rise]
 		return $riseTrans
 }
 
@@ -160,7 +160,7 @@ proc OSGetFallTransition { pin_name } {
     } else {
         set pin [get_ports $pin_name]
     }
-		set fallTrans [get_attribute $pin actual_fall_transition_max]
+		set fallTrans [get_attribute $pin slew_max_fall]
 		return $fallTrans
 }
 
@@ -359,7 +359,7 @@ proc OSLoadDesign { } {
 proc OSGetTranVio { } {
 
 
-    report_check_types -max_transition -all_violators -no_line_splits -digits 5 > tmp.[pid] 
+    report_check_types -max_slew -no_line_splits -digits 5 > tmp.[pid] 
 
     #redirect $pt_tmp_dir/tmp.[pid] {report_constraint -all_violators -nosplit -significant_digits 5 -max_transition}
 
@@ -419,8 +419,8 @@ proc OSGetPinTran { pin_name } {
     } else {
         set pin [get_ports $pin_name]
     }
-    set riseTrans [get_property -quiet $pin actual_rise_transition_max]
-    set fallTrans [get_property -quiet $pin actual_fall_transition_max]
+    set riseTrans [get_property -quiet $pin slew_max_rise]
+    set fallTrans [get_property -quiet $pin slew_max_fall]
     
     return "$riseTrans $fallTrans"
 }
@@ -431,7 +431,7 @@ proc OSGetRiseSlack { pin_name } {
     } else {
         set pin [get_ports $pin_name]
     }
-		set riseSlack [get_property -quiet $pin max_rise_slack]
+		set riseSlack [get_property -quiet $pin slack_max_rise]
 		return $riseSlack
 }
 
@@ -441,7 +441,7 @@ proc OSGetFallSlack { pin_name } {
     } else {
         set pin [get_ports $pin_name]
     }
-		set riseSlack [get_property -quiet $pin max_rise_slack]
+		set riseSlack [get_property -quiet $pin slack_max_rise]
 		return $riseSlack
 }
 
@@ -486,8 +486,8 @@ proc OSWritePinMaxTranConst { infile outfile } {
         } else {
             set pin [get_ports $pin_name]
         }
-            set riseTrans [get_property -quiet $pin actual_rise_transition_max]
-            set fallTrans [get_property -quiet $pin actual_fall_transition_max]
+            set riseTrans [get_property -quiet $pin slew_max_rise]
+            set fallTrans [get_property -quiet $pin slew_max_fall]
 
             if {$riseTrans > $fallTrans} {
                 set max_tran $riseTrans

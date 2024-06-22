@@ -70,6 +70,7 @@
 #include "sta/TimingModel.hh"
 #include "sta/Units.hh"
 // #include "utl/Logger.h"
+class Sizer;
 
 using namespace std;
 
@@ -79,7 +80,7 @@ class designTiming {
    public:
     // constructor
     designTiming();
-    designTiming(ServerProg program);
+    designTiming(ServerProg program, Sizer *sizer);
     // destructor
     ~designTiming();
 
@@ -141,7 +142,7 @@ class designTiming {
     string _convertToString(double x);
     double _convertToDouble(const string &s);
     int _convertToInt(const string &s);
-
+    Sizer *_sizer;
     Tcl_Interp *_interpreter;
     int _errorCode;
     char *_tclExpression;

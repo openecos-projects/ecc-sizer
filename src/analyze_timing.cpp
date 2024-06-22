@@ -63,7 +63,8 @@ designTiming::designTiming() {
     program = PT;
     pt_time = 0.0;
 }
-designTiming::designTiming(ServerProg _program) {
+designTiming::designTiming(ServerProg _program,Sizer* sizer) {
+    _sizer = sizer;
     program = _program;
     pt_time = 0.0;
 }
@@ -112,7 +113,7 @@ void designTiming::closeServerContact() {
 //     // cout << _tclInputString << endl;
 //     //_tclExpression = (char *)_tclInputString.c_str();
 //     double begin = cpuTime();
-//     sta::evalTclString( _tclExpression);
+//     _sizer->_ckt->_ord_design->evalTclString( _tclExpression);
 
 //     pt_time += cpuTime() - begin;
 //     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -131,7 +132,7 @@ void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -150,7 +151,7 @@ void designTiming::getFFDelay(double &rdelay, double &fdelay,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     pt_time += cpuTime() - begin;
@@ -167,7 +168,7 @@ void designTiming::getNetDelay(double &delay, string sourcePinName,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
 
     pt_time += cpuTime() - begin;
@@ -182,9 +183,8 @@ void designTiming::getInputSlew(double &riseSlew, double &fallSlew,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
-
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     float temp1;
     float temp2;
@@ -229,7 +229,7 @@ double designTiming::getWorstSlackHold(string _clkName) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     pt_time += cpuTime() - begin;
@@ -251,7 +251,7 @@ double designTiming::getWorstSlack(string _clkName) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     pt_time += cpuTime() - begin;
@@ -270,7 +270,7 @@ double designTiming::getTotPower() {
     //_tclExpression = (char *)_tclInputString.c_str();
     // cout << _tclInputString << endl;
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     // cout << _tclAnswer << endl;
@@ -293,7 +293,7 @@ double designTiming::getLeakPower() {
     //_tclExpression = (char *)_tclInputString.c_str();
     // cout << _tclInputString << endl;
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     pt_time += cpuTime() - begin;
@@ -314,7 +314,7 @@ double designTiming::getTNS(string _clkName) {
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     pt_time += cpuTime() - begin;
@@ -335,7 +335,7 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -357,7 +357,7 @@ double designTiming::getTNSHold(string _clkName) {
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     pt_time += cpuTime() - begin;
@@ -378,7 +378,7 @@ bool designTiming::sizeCell(string cellInstance, string cellMaster) {
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -402,7 +402,7 @@ bool designTiming::writeECOChange(string filename) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -421,7 +421,7 @@ double designTiming::getCellSlack(string CellName) {
         }
         //_tclExpression = (char *)_tclInputString.c_str();
         double begin = cpuTime();
-        sta::evalTclString(_tclInputString);
+        _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
         pt_time += cpuTime() - begin;
 
         string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -437,7 +437,7 @@ bool designTiming::loadDesign(string benchname) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -455,7 +455,7 @@ bool designTiming::updateSize(string filename) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -478,7 +478,7 @@ bool designTiming::checkSize(string filename) {
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -494,7 +494,7 @@ bool designTiming::checkServer() {
     // cout << "checkServer\" " << this << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -518,7 +518,7 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
     //_tclExpression = (char *)_tclInputString.c_str();
 
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -541,7 +541,7 @@ void designTiming::getPinMinSlack(double &riseSlack, double &fallSlack,
     //_tclExpression = (char *)_tclInputString.c_str();
 
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -559,7 +559,7 @@ void designTiming::getPinTran(double &riseTran, double &fallTran,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -584,7 +584,7 @@ bool designTiming::writePinSlack(string infile, string outfile) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
 
@@ -604,7 +604,7 @@ bool designTiming::writePinMinSlack(string infile, string outfile) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
 
@@ -627,7 +627,7 @@ bool designTiming::writeMaxTranConst(string infile, string outfile) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     if(_answerStr == "1")
@@ -652,7 +652,7 @@ bool designTiming::writePinToggleRate(string infile, string outfile,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     if(_answerStr == "1")
@@ -674,7 +674,7 @@ bool designTiming::writePinToggleRate(string infile, string outfile) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     if(_answerStr == "1")
@@ -697,7 +697,7 @@ void designTiming::getPinToggleRate(double &toggleRate, string pinName) {
     //_tclExpression = (char *)_tclInputString.c_str();
 
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -716,7 +716,7 @@ bool designTiming::writePinTran(string infile, string outfile) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     if(_answerStr == "1")
@@ -738,7 +738,7 @@ bool designTiming::writePinAll(string infile, string outfile) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     if(_answerStr == "1")
@@ -753,7 +753,7 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -775,7 +775,7 @@ double designTiming::getRiseSlack(string PinName) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -794,7 +794,7 @@ double designTiming::getFallSlack(string PinName) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -812,7 +812,7 @@ double designTiming::getRiseTran(string PinName) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -831,7 +831,7 @@ double designTiming::getFallTran(string PinName) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -844,7 +844,7 @@ double designTiming::getRiseArrival(string PinName) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -856,7 +856,7 @@ double designTiming::getFallArrival(string PinName) {
     _tclInputString = "PtGetFallArrival " + PinName;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -873,7 +873,7 @@ double designTiming::getCeff(string PinName) {
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -890,7 +890,7 @@ bool designTiming::writePinCeff(string infile, string outfile) {
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -919,7 +919,7 @@ bool designTiming::runECO(unsigned mode) {
     _tclInputString = "" + cmd;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -934,7 +934,7 @@ string designTiming::getLibCell(string CellName) {
     _tclInputString = "PtGetLibCell " + CellName;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -946,7 +946,7 @@ void designTiming::Exit() {
     _tclInputString = "exitServer";
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -958,7 +958,7 @@ string designTiming::doOneCmd(string command) {
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    sta::evalTclString(_tclInputString);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));

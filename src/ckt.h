@@ -91,13 +91,6 @@ extern int Sta_Init(Tcl_Interp* interp);
 namespace sta {
 extern const char* tcl_inits[];
 
-inline std::string evalTclString(const string& cmd) {
-    Sta* sta = Sta::sta();
-    if(Tcl_Eval(sta->tclInterp(), cmd.c_str()) != TCL_OK){
-        printf("Command Error: %s\n", Tcl_GetStringResult(sta->tclInterp()));
-    }
-    return string(Tcl_GetStringResult(sta->tclInterp()));
-};
 }
 
 void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]);
@@ -855,7 +848,7 @@ class Circuit {
 
     void InitData();
     bool isDontUse(string master);
-
+    ord::Design* _ord_design;
    protected:
     void verilog_parser(string filename);
     void sdc_converter(string filename);
@@ -873,7 +866,7 @@ class Circuit {
     std::ifstream is;
     Sizer* _sizer;
     ord::Timing* _ord_timing;
-    ord::Design* _ord_design;
+
     ord::Tech* _ord_tech;
     /////////////////////////////////   
     //
