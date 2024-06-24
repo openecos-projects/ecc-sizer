@@ -14,7 +14,8 @@ set(CMAKE_VERBOSE_MAKEFILEON ON)
 
 # -fstandalone-debug
 # set(CMAKE_BUILD_TYPE Debug) -O0 -Og -fstandalone-debug
-set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -fstandalone-debug") # -Wl --start-group
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -Wall -Wextra -fstandalone-debug") # -Wl --start-group
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -g -Wall -Wextra -fstandalone-debug")
 add_compile_options("-D_GLIBCXX_USE_CXX11_ABI=1")
 set(OpenROAD_DIR ${CMAKE_SOURCE_DIR}/thirdparty/OpenROAD)
 set(iEDA_DIR ${CMAKE_SOURCE_DIR}/thirdparty/iEDA)
@@ -31,6 +32,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build)
 # Road 1
 # add_subdirectory(thirdparty/usizer)
 # add_subdirectory(thirdparty/iEDA)
+
+# set(USE_SYSTEM_ABC ON)
+set(ENABLE_TESTS OFF)
 
 # Road 2
 add_subdirectory(src)

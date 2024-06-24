@@ -16,7 +16,7 @@
 #include "odb/db.h"
 #include "dpl/Opendp.h"
 #include "grt/GlobalRouter.h"
-
+#include "db_sta/dbSta.hh"
 #define NUM_VTS 3
 #define NUM_SIZES 10
 #define SDC_FILE_POSTFIX ".sizer"
@@ -146,7 +146,9 @@ void Circuit::Parser(string benchmark) {
     cout << "Load design... " << _sizer->benchname << endl;
     // _sta = new sta::Sta;
     init_opensta();
+    _sta->parasitics()->haveParasitics();
     readDesign_opensta(_sta);
+    _sta->parasitics()->haveParasitics();
     // if(!_sizer->mmmcOn) {
     //     cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
     //     sdc_parser(_sizer->sdcFile);
@@ -3360,6 +3362,12 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         std::vector< SUB_NODE >::iterator subNodeIter;
 
         Net* net = _sta->network()->findNet(netNameStr.c_str());
+        Parasitic* net_parasitic = parasitics->findParasiticNetwork(net, ap);
+        if(net_parasitic == nullptr) {
+            printf("net %s don't have parasitic\n", netNameStr.c_str());
+            continue;
+        }
+        assert(net_parasitic);
         NetConnectedPinIterator* connPinIter =
             _sta->network()->connectedPinIterator(net);
 
@@ -3368,7 +3376,6 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         sn.id = 0;
         sn.pinId = -1;
         subNodeVecPtr->push_back(sn);
-
         while(connPinIter->hasNext()) {
             auto connPin = connPinIter->next();
 
@@ -3406,29 +3413,22 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
                 subNodeVecPtr->push_back(sn);
             }
-            Parasitic* para = parasitics->findParasiticNetwork(
-                connPin, ap);  // 对应net上的Parasitic
-            if(para == nullptr) {
-                printf(
-                    "Error, Net don't have Parasitic. Net name :%s, pin name: "
-                    "%s, \n",
-                    netNameStr.c_str(), pin_name.c_str());
-                continue;
-            }
+
             ConcreteParasitic* conc_para =
-                static_cast< ConcreteParasitic* >(para);
+                static_cast< ConcreteParasitic* >(net_parasitic);
             sta::ConcreteParasiticNetwork* conc_net_para =
                 static_cast< sta::ConcreteParasiticNetwork* >(conc_para);
-
-            ParasiticNode* para_node =
+            sta::ParasiticNode* para_node =
                 conc_net_para->findParasiticNode(connPin);
-            auto paraDevIter = conc_net_para->resistors().begin();
-            while(paraDevIter != conc_net_para->resistors().end()) {
-                ParasiticResistor* paraDev = *paraDevIter;
+            sta::ConcreteParasiticNode* conc_node =
+                static_cast< sta::ConcreteParasiticNode* >(para_node);
 
+            for(auto* paraDev : conc_net_para->resistors()) {
                 ParasiticNode* other_node =
                     parasitics->otherNode(paraDev, para_node);
-
+                if(other_node == nullptr) {
+                    continue;
+                }
                 string fromNodeNameStr = parasitics->name(para_node);
                 string toNodeNameStr = parasitics->name(other_node);
                 readSpefChangePinName(fromNodeNameStr);
@@ -3471,7 +3471,6 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                     subNodeVecPtr->at(index1).res.push_back(value);
                     subNodeVecPtr->at(index2).res.push_back(value);
                 }
-                paraDevIter++;
             }
 
             sta::ConcreteParasiticSubNodeMap* sub_nodes =
