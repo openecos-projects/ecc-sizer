@@ -1467,7 +1467,7 @@ void Sizer::UpdatePTSizes(unsigned option) {
     ostr.str("");
     ostr << option;
 
-    //    cout << "Update PT sizes... " <<endl;
+    cout << "Update PT sizes... " <<endl;
     string filename = benchname + "_" + ostr.str() + "_sizes.tcl";
     ofstream outsz(filename.c_str());
     int count = 0;

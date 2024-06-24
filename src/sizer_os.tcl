@@ -112,6 +112,31 @@ proc OSGetPinSlack { pin_name } {
     return $slack
 }
 
+proc OSGetPinArrival { pin_name } {
+    if { [get_ports -quiet $pin_name] == "" } {
+        set pin [get_pins $pin_name]
+        if { [get_property -object_type pin $pin is_register_clock] == "true" } {
+            #return "INFINITY INFINITY"
+            return "0 0"
+        }
+    } else {
+        set pin [get_ports $pin_name]
+    }
+    set rise_att [get_property -object_type pin $pin arrival_max_rise]
+    set fall_att [get_property -object_type pin $pin arrival_max_fall]
+    set large_num 100000000000.0
+    if { $rise_att == "INFINITY" } {
+        set rise_att $large_num 
+    }
+    if { $fall_att == "INFINITY" } {
+        set fall_att $large_num 
+    }
+    
+    set att [lindex [list $rise_att $fall_att]]
+    
+    return $att
+}
+
 proc OSWritePinSlack { infile outfile } {
     
     set ifp [open $infile "r"]

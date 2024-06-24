@@ -47,6 +47,7 @@
 #include "analyze_timing.h"
 #include <stdlib.h>
 #include <sys/time.h>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -63,7 +64,7 @@ designTiming::designTiming() {
     program = PT;
     pt_time = 0.0;
 }
-designTiming::designTiming(ServerProg _program,Sizer* sizer) {
+designTiming::designTiming(ServerProg _program, Sizer *sizer) {
     _sizer = sizer;
     program = _program;
     pt_time = 0.0;
@@ -267,6 +268,10 @@ double designTiming::getTotPower() {
     else if(program == ETS) {
         _tclInputString = "EtsTotalPower";
     }
+    else {
+        printf("error: no getLeakPower !");
+        exit(0);
+    }
     //_tclExpression = (char *)_tclInputString.c_str();
     // cout << _tclInputString << endl;
     double begin = cpuTime();
@@ -288,7 +293,8 @@ double designTiming::getLeakPower() {
         _tclInputString = "EtsLeakPower";
     }
     else {
-        return 0;
+        printf("error: no getLeakPower !");
+        exit(0);
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     // cout << _tclInputString << endl;
@@ -355,6 +361,10 @@ double designTiming::getTNSHold(string _clkName) {
     else if(program == ETS) {
         _tclInputString = "EtsGetTNSHold " + _clkName;
     }
+    else {
+        printf("error: no getTNSHold !");
+        exit(0);
+    }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
@@ -399,6 +409,11 @@ bool designTiming::writeECOChange(string filename) {
     else if(program == ETS) {
         _tclInputString = "write_eco -format ets -output " + filename;
     }
+    else {
+        printf("error: no writeECOChange !");
+        exit(0);
+    }
+
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -418,6 +433,10 @@ double designTiming::getCellSlack(string CellName) {
     else {
         if(program == PT || program == ETS) {
             _tclInputString = "PtCellSlack " + CellName;
+        }
+        else {
+            printf("error: no getCellSlack !");
+            exit(0);
         }
         //_tclExpression = (char *)_tclInputString.c_str();
         double begin = cpuTime();
@@ -525,6 +544,12 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
     float temp1;
     float temp2;
     sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
+    if(temp1 >= 100000000000.0 - 1e-5) {
+        temp1 = std::numeric_limits< float >::infinity();
+    }
+    if(temp2 >= 100000000000.0 - 1e-5) {
+        temp2 = std::numeric_limits< float >::infinity();
+    }
     riseSlack = temp1;
     fallSlack = temp2;
 }
@@ -536,6 +561,10 @@ void designTiming::getPinMinSlack(double &riseSlack, double &fallSlack,
     }
     else if(program == ETS) {
         _tclInputString = "EtsGetPinMinSlack " + pinName;
+    }
+    else {
+        printf("error: no getPinMinSlack !");
+        exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -600,6 +629,10 @@ bool designTiming::writePinMinSlack(string infile, string outfile) {
     }
     else if(program == ETS) {
         _tclInputString = "EtsWritePinMinSlack " + infile + " " + outfile;
+    }
+    else {
+        printf("error: no writePinMinSlack !");
+        exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -713,6 +746,10 @@ bool designTiming::writePinTran(string infile, string outfile) {
     else if(program == ETS) {
         _tclInputString = "PtWritePinTran " + infile + " " + outfile;
     }
+    else {
+        printf("error: no writePinTran !");
+        exit(0);
+    }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -747,9 +784,10 @@ bool designTiming::writePinAll(string infile, string outfile) {
         return false;
 }
 
+// FIXEME:
 void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
                                  string pinName) {
-    _tclInputString = "PtGetPinArrival " + pinName;
+    _tclInputString = "OSGetPinArrival " + pinName;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -871,6 +909,10 @@ double designTiming::getCeff(string PinName) {
     else if(program == ETS) {
         _tclInputString = "EtsGetCeff " + PinName;
     }
+    else {
+        printf("error: no getCeff !");
+        exit(0);
+    }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
@@ -887,6 +929,10 @@ bool designTiming::writePinCeff(string infile, string outfile) {
     }
     else if(program == ETS) {
         _tclInputString = "EtsWritePinCeff " + infile + " " + outfile;
+    }
+    else {
+        printf("error: no writePinCeff !");
+        exit(0);
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();

@@ -849,6 +849,8 @@ class Circuit {
     void InitData();
     bool isDontUse(string master);
     ord::Design* _ord_design;
+    ord::Timing* _ord_timing;
+    ord::Tech* _ord_tech;
    protected:
     void verilog_parser(string filename);
     void sdc_converter(string filename);
@@ -865,9 +867,6 @@ class Circuit {
    private:
     std::ifstream is;
     Sizer* _sizer;
-    ord::Timing* _ord_timing;
-
-    ord::Tech* _ord_tech;
     /////////////////////////////////   
     //
     // circuit information
