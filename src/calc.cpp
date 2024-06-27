@@ -200,7 +200,7 @@ double Sizer::CalcPTErrors(double& avg_err, double& l2_norm, unsigned view) {
     avg_err = total_err / (2 * numpins);
     return max_err;
 }
-
+// FIXME: has bug
 double Sizer::CalcSlewViolation(unsigned view) {
     unsigned corner = mmmcViewList[view].corner;
     double slew_viol = 0.;
@@ -506,15 +506,7 @@ double Sizer::CalcCapViolation(unsigned view) {
 double Sizer::CalcPower(unsigned thread, bool rpt_power, unsigned view) {
     unsigned corner = mmmcViewList[view].corner;
     double totPower = 0.;
-
-    if(!rpt_power || T == NULL || useOpenSTA) {
-        for(unsigned i = 0; i < numcells; i++) {
-            LibCellInfo* lib_cell_info = getLibCellInfo(cells[i], corner);
-            if(lib_cell_info)
-                totPower += lib_cell_info->leakagePower;
-        }
-    }
-    else if(ALPHA == 0.0) {
+    if(ALPHA == 0.0) {
         totPower = T[view]->getLeakPower();
     }
     else {

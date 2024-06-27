@@ -342,6 +342,30 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
     }
     else if(program == OS) {
         _tclInputString = "OSGetTranVio ";
+        auto design = _sizer->_ckt->_ord_design;
+        for(auto pin_ : design->getBlock()->getITerms()) {
+            if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+               pin_->getNet()->getSigType() != "GROUND" &&
+               pin_->getNet()->getSigType() != "CLOCK") {
+                double now_slew = _sizer->_ckt->_ord_timing->getPinSlew(pin_);
+                double slew_limit = 0;
+                for(auto mterm : pin_->getInst()->getMaster()->getMTerms()) {
+                    if((pin_->getInst()->getName() + "/" + mterm->getName()) ==
+                       pin_->getName()) {
+                        slew_limit =
+                            _sizer->_ckt->_ord_timing->getMaxSlewLimit(mterm);
+                    }
+                }
+                double slew_diff =
+                    std::max((now_slew - slew_limit) / _sizer->time_unit, 0.0);
+                tot += slew_diff;
+                if(slew_diff > 0) {
+                    num++;
+                }
+                max = std::max(max, slew_diff);
+            }
+        }
+        return ;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();

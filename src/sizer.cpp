@@ -5633,7 +5633,6 @@ void Sizer::Parallel_Sizer_Launcher() {
              << endl;
         cout << "[view " << view << "] Initial Tran           : " << tran_tot
              << " ps " << tran_num << " " << tran_max << " ps" << endl;
-        CalcStats();
         if(ISO_TIME) {
             if(viewSlackMargin[view] == 0.0) {
                 if(wns < 0) {
