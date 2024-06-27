@@ -263,6 +263,8 @@ double Sizer::CalcSlewViolation(unsigned view) {
             max(slew_violation_wst,
                 pins[view][curpin].ftran - pins[view][curpin].max_tran);
     }
+    printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
+        slew_violation_wst);
     return slew_viol;
 }
 

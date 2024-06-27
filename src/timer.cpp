@@ -560,7 +560,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
         }
     }
 }
-
+// is there a bug ?
 // calculate transition time
 void Sizer::CalcTran(unsigned view) {
     unsigned corner = mmmcViewList[view].corner;
