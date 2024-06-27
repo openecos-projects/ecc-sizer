@@ -4,7 +4,9 @@
 #include <tcl8.6/tclDecls.h>
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
+#include <set>
 #include "sta/ConcreteNetwork.hh"
 #include "sta/PortExtCap.hh"
 #include "sta/InputDrive.hh"
@@ -17,6 +19,7 @@
 #include "dpl/Opendp.h"
 #include "grt/GlobalRouter.h"
 #include "db_sta/dbSta.hh"
+#include "utils.h"
 #define NUM_VTS 3
 #define NUM_SIZES 10
 #define SDC_FILE_POSTFIX ".sizer"
@@ -241,19 +244,30 @@ void Circuit::Parser(string benchmark) {
         // reset to min size / vt
         cout << "Reset to minimum size / vt ... " << endl;
         for(unsigned i = 0; i < g_cells.size(); ++i) {
-            LibCellInfo* new_lib_cell_info =
-                _sizer->getLibCellInfo(g_cells[i].main_lib_cell_id, 0, s);
-            if(new_lib_cell_info != NULL) {
-                g_cells[i].type = new_lib_cell_info->name;
-                g_cells[i].c_size = 0;
-                g_cells[i].c_vtype = s;
-                // cout << g_cells[i].name << " " << g_cells[i].type << " " <<
-                // r_size(g_cells[i]) << " " << r_type(g_cells[i]) << endl;
-                for(unsigned j = 0; j < g_cells[i].inpins.size(); j++)
-                    g_pins[g_cells[i].inpins[j]].cap =
-                        new_lib_cell_info
-                            ->pins[g_pins[g_cells[i].inpins[j]].lib_pin]
-                            .capacitance;
+            for(unsigned vt = 0; vt < _sizer->numVt; vt++) {
+                LibCellInfo* new_lib_cell_info =
+                    _sizer->getLibCellInfo(g_cells[i].main_lib_cell_id, 0,
+                                           static_cast< cell_vtypes >(vt));
+                if(new_lib_cell_info != NULL) {
+                    if(g_cells[i].name == "FE_RC_3110_0") {
+                        printf("debug debug");
+                    }
+                    if(new_lib_cell_info->name == "O2A1O1Ixp5_ASAP7_75t_R") {
+                        printf("debug debug");
+                    }
+                    g_cells[i].type = new_lib_cell_info->name;
+                    g_cells[i].c_size = 0;
+                    g_cells[i].c_vtype = static_cast< cell_vtypes >(vt);
+                    // cout << g_cells[i].name << " " << g_cells[i].type << " "
+                    // << r_size(g_cells[i]) << " " << r_type(g_cells[i]) <<
+                    // endl;
+                    for(unsigned j = 0; j < g_cells[i].inpins.size(); j++)
+                        g_pins[g_cells[i].inpins[j]].cap =
+                            new_lib_cell_info
+                                ->pins[g_pins[g_cells[i].inpins[j]].lib_pin]
+                                .capacitance;
+                    break;
+                }
             }
         }
     }
@@ -282,7 +296,7 @@ void Circuit::Parser(string benchmark) {
         }
         for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
             g_nets[corner][i].cap =
-                g_nets[corner][i].cap * 1e-12 / _sizer->cap_unit;
+                g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
 
             if(VERBOSE > 4)
                 cout << "CORNER " << corner << " NETS --- " << i << " "
@@ -292,7 +306,8 @@ void Circuit::Parser(string benchmark) {
             std::vector< SUB_NODE >::iterator subNodeIter;
             for(subNodeIter = subNodeVecPtr->begin();
                 subNodeIter != subNodeVecPtr->end(); ++subNodeIter) {
-                subNodeIter->cap = subNodeIter->cap * 1e-12 / _sizer->cap_unit;
+                subNodeIter->cap =
+                    subNodeIter->cap;  // * 1e-12 / _sizer->cap_unit
                 for(unsigned int j = 0; j < subNodeIter->adj.size(); ++j) {
                     subNodeIter->res[j] =
                         subNodeIter->res[j] / _sizer->res_unit;
@@ -550,6 +565,8 @@ void Circuit::assignMaxTrans() {
             LibCellInfo* lib_cell = _sizer->getLibCellInfo(*cell, i);
 
             if(lib_cell == NULL) {
+                printf("Error : cannot find lib cell info for %s\n",
+                       cell->name.c_str());
                 cell->max_tran.push_back(_sizer->maxTran[i]);
             }
             else {
@@ -644,26 +661,73 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
 
     // 如果有多个高vt呢,根据leakage顺序进行排序。
     // list size first
-    for(std::list< LibCellInfo* >::iterator it = candidate_list.begin();
-        it != candidate_list.end(); it++) {
+    std::set< string > lib_cell_size_set;
+    for(auto candidate_cell_info : candidate_list) {
         // slowest vt first
         // if((*it)->c_vtype != 0) {
         //     continue;
         // }
-
-        vector< LibCellInfo* > lib_size_table;
-
-        (*it)->c_size = lib_cell_table.lib_vt_size_table.size();
-        lib_size_table.push_back((*it));
-        // lib_size_table.resize(sizeof(LibCellInfo*)*_sizer->numVt);
-        // lib_size_table.resize(_sizer->numVt); // ?
-
-        lib_cell_table.lib_vt_size_table.push_back(lib_size_table);
+        int vt = 0;
+        string newCellName = candidate_cell_info->name;
+        if(_sizer->numVt == 3) {
+            if(newCellName.find(_sizer->suffixHVT.c_str()) !=
+               std::string::npos) {
+                size_t start = newCellName.find(_sizer->suffixHVT.c_str());
+                newCellName.erase(start, _sizer->suffixHVT.size());
+                vt = 0;
+            }
+            else if(newCellName.find(_sizer->suffixNVT.c_str()) !=
+                    std::string::npos) {
+                size_t start = newCellName.find(_sizer->suffixNVT.c_str());
+                newCellName.erase(start, _sizer->suffixNVT.size());
+                vt = 1;
+            }
+            else if(newCellName.find(_sizer->suffixLVT.c_str()) !=
+                    std::string::npos) {
+                size_t start = newCellName.find(_sizer->suffixLVT.c_str());
+                newCellName.erase(start, _sizer->suffixLVT.size());
+                vt = 2;
+            }
+            else {
+                printf("Error: Cell name has bug!\n");
+                exit(0);
+            }
+        }
+        else if(_sizer->numVt == 2) {
+            if(newCellName.find(_sizer->suffixHVT.c_str()) !=
+               std::string::npos) {
+                size_t start = newCellName.find(_sizer->suffixHVT.c_str());
+                newCellName.erase(start, _sizer->suffixHVT.size());
+                vt = 0;
+            }
+            else if(newCellName.find(_sizer->suffixNVT.c_str()) !=
+                    std::string::npos) {
+                size_t start = newCellName.find(_sizer->suffixNVT.c_str());
+                newCellName.erase(start, _sizer->suffixNVT.size());
+                vt = 1;
+            }
+            else {
+                printf("Error: Cell name has bug!\n");
+                exit(0);
+            }
+        }
+        int c_size = lib_cell_table.lib_vt_size_table.size();
+        if(!lib_cell_size_set.count(newCellName)) {
+            lib_cell_size_set.insert(newCellName);
+            vector< LibCellInfo* > lib_size_table;
+            candidate_cell_info->c_size = c_size;
+            lib_size_table.resize(_sizer->numVt);
+            lib_size_table[vt] = candidate_cell_info;
+            lib_cell_table.lib_vt_size_table.push_back(lib_size_table);
+        }
+        else {
+            lib_cell_table.lib_vt_size_table[c_size][vt] = candidate_cell_info;
+        }
     }
     // cout << "-------------------" << endl;
 
     // add vt
-    assert(lib_cell_table.lib_vt_size_table.size() > 0);
+    // assert(lib_cell_table.lib_vt_size_table.size() > 0);
 #if 0
     for(unsigned i = 0; i < lib_cell_table.lib_vt_size_table.size(); ++i) {
         LibCellInfo* lib_cell = lib_cell_table.lib_vt_size_table[i][0];
@@ -899,11 +963,16 @@ void Circuit::lib_parser(string filename, unsigned corner) {
     cout << "Library name = " << lib.name << endl;
 
     read_head_info(is, lib, corner);
-
+    bool ignore_cell = lib.name.find("sram") != std::string::npos;
+    double tmp_trans = lib.max_transition;
+    tmp_trans = tmp_trans * lib.time_unit / 1e-9;
+    // if(_sizer->maxTran[corner] == 0.0 || _sizer->maxTran[corner] < tmp_trans)
+    // {
+    //     _sizer->maxTran[corner] = tmp_trans;
+    // }
     if(_sizer->maxTran[corner] == 0.0) {
-        _sizer->maxTran[corner] = 0.5;
+        _sizer->maxTran[corner] = 0.32;
     }
-
     is.seekg(0, is.beg);
 
     vector< string > tokens;
@@ -929,7 +998,11 @@ void Circuit::lib_parser(string filename, unsigned corner) {
             cell.libname = lib.name;
             cell.name = tokens[1];
             string cellName = cell.name;
-            cell.dontUse = isDontUse(cell.name);
+            cell.dontUse = ignore_cell || isDontUse(cell.name);
+            if(ignore_cell) {
+                _sizer->dontUseCell.push_back(cell.name);
+            }
+            cell.max_tran = tmp_trans;
             // cout << "Reading cell " << cell.name << endl;
             _begin_read_cell_info(is, cell, lib);
 
@@ -970,8 +1043,8 @@ void Circuit::lib_parser(string filename, unsigned corner) {
     _sizer->sw_adj =
         lib.sw_power_unit * lib.volt * lib.volt / lib.time_unit / 2e-3;
     _sizer->res_unit = 1e3;
-    _sizer->cap_unit = lib.cap_unit;
-    _sizer->time_unit = lib.time_unit;
+    _sizer->cap_unit = 1e-12;
+    _sizer->time_unit = 1e-9;
 
     LibCellInfo cur_cell;
 
@@ -1058,10 +1131,6 @@ void Circuit::read_head_info(istream& is, LibInfo& lib, unsigned corner) {
                  << lib.max_transition * lib.time_unit << endl;
             // if ( _sizer->maxTran == 0.0 || _sizer->maxTran >
             // lib.max_transition ) {
-            if(_sizer->maxTran[corner] == 0.0 ||
-               _sizer->maxTran[corner] < lib.max_transition) {
-                _sizer->maxTran[corner] = lib.max_transition;
-            }
             ++cnt;
         }
 
@@ -1411,7 +1480,7 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
     }
     else if(type == "timing") {
         // Normalize the timing unit to ns
-        // ratio = lib.time_unit / 1e-9;
+        ratio = lib.time_unit / 1e-9;
     }
 
     if(lut.transitionIndices.empty() || lut.loadIndices.empty()) {
@@ -2219,10 +2288,12 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
             }
         }
         else if(tokens.size() == 2 && tokens[0] == "capacitance") {
-            pin.capacitance = std::atof(tokens[1].c_str());
+            pin.capacitance =
+                std::atof(tokens[1].c_str()) * lib.cap_unit / 1e-12;
         }
         else if(tokens.size() == 2 && tokens[0] == "max_capacitance") {
-            pin.maxCapacitance = std::atof(tokens[1].c_str());
+            pin.maxCapacitance =
+                std::atof(tokens[1].c_str()) * lib.cap_unit / 1e-12;
         }
         else if(tokens[0] == "internal_power" && pin.isOutput && !pin.isInput) {
             LibPowerInfo tmplib;
@@ -2410,6 +2481,9 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
             }
             if(cell.footprint == "" || NO_FOOTPRINT) {
                 cell.footprint = cell.name;
+                if(cell.name == "O2A1O1Ixp5_ASAP7_75t_R") {
+                    printf("debug debug!!!!");
+                }
                 if(VERBOSE > 1)
                     cout << "GET FOOTPRINT FOR " << cell.footprint << endl;
                 size_t start = cell.footprint.find_first_of("_");
@@ -3220,7 +3294,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     auto* sdc = _sta->sdc();
     auto* clock = sdc->clocks()->at(mode);
     _sizer->clk_name[mode] = clock->name();
-    _sizer->clk_period[mode] = clock->period() / _sizer->time_unit;
+    _sizer->clk_period[mode] = clock->period() / _sizer->time_unit;  // ?
     auto* clk_pin = *(clock->pins().begin());
     std::string clock_port_name = this->_sta->network()->portName(clk_pin);
     _sizer->clk_port[mode] = clock_port_name;
@@ -3228,11 +3302,12 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     float slew = 0.0;
     bool is_exist = false;
     clock->slew(sta::RiseFall::rise(), MinMax::max(), slew, is_exist);
-    slew = slew / _sizer->time_unit;
+    slew = slew / _sizer->time_unit;  //?
     _sizer->inrtran[mode].insert(
         std::pair< unsigned, double >(pin2id[clock_port_name], slew));
 
     clock->slew(sta::RiseFall::fall(), MinMax::max(), slew, is_exist);
+    slew = slew / _sizer->time_unit;
     _sizer->inftran[mode].insert(
         std::pair< unsigned, double >(pin2id[clock_port_name], slew));
     auto input_delay_iterator = sdc->inputDelays().begin();
@@ -3246,7 +3321,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             delays->value(sta::RiseFall::rise(), MinMax::max());
         auto max_fall_delay =
             delays->value(sta::RiseFall::fall(), MinMax::max());
-
+        max_fall_delay /= _sizer->time_unit;
+        max_rise_delay /= _sizer->time_unit;
         _sizer->indelays[mode].insert(
             pair< string, double >(port_name, max_rise_delay));
         _sizer->indelays[mode].insert(
@@ -3265,7 +3341,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             delays->value(sta::RiseFall::rise(), MinMax::max());
         auto max_fall_delay =
             delays->value(sta::RiseFall::fall(), MinMax::max());
-
+        max_fall_delay /= _sizer->time_unit;
+        max_rise_delay /= _sizer->time_unit;
         _sizer->outdelays[mode].insert(
             pair< string, double >(port_name, max_rise_delay));
         _sizer->outdelays[mode].insert(
@@ -3280,6 +3357,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         double load =
             cap->pinCap()->value(sta::RiseFall::rise(), MinMax::max());
         assert(load < 1e31);
+        load /= _sizer->cap_unit;  // ?FIXME:
         g_pins[pin2id[port_name]].cap = load;
     }
 
@@ -3324,12 +3402,12 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         float slew = 0.0;
         bool is_exist = false;
         drive->slew(sta::RiseFall::rise(), sta::MinMax::max(), slew, is_exist);
-        slew /= _sizer->time_unit;
+        slew /= _sizer->time_unit;  //?
         _sizer->inrtran[mode].insert(
             std::pair< unsigned, double >(pin2id[port_name], slew));
 
         drive->slew(sta::RiseFall::fall(), sta::MinMax::max(), slew, is_exist);
-        slew /= _sizer->time_unit;
+        slew /= _sizer->time_unit;  //?
         _sizer->inftran[mode].insert(
             std::pair< unsigned, double >(pin2id[port_name], slew));
     }
@@ -3484,7 +3562,8 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 string fromNodeNameStr = node->name(_sta->network());
                 std::map< string, int >::const_iterator node2IdIter1 =
                     node2id.find(fromNodeNameStr);
-                float value_cap = node->capacitance();
+                float value_cap =
+                    node->capacitance() / _sizer->cap_unit;  // FIXME:?
 
                 if(node2IdIter1 != node2id.end()) {
                     subNodeVecPtr->at(node2IdIter1->second).cap = value_cap;

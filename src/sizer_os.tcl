@@ -511,22 +511,10 @@ proc OSWritePinMaxTranConst { infile outfile } {
         } else {
             set pin [get_ports $pin_name]
         }
-            set riseTrans [get_property -quiet $pin slew_max_rise]
-            set fallTrans [get_property -quiet $pin slew_max_fall]
-
-            if {$riseTrans > $fallTrans} {
-                set max_tran $riseTrans
-            } else {
-		        set max_tran $fallTrans
-            }
-        if {$max_tran == ""} {
-          set max_tran 9999
-        }
-        puts $ofp "$pin_name $max_tran"
+        set t_slew_limit [get_property -quiet $pin slew_limit]
+        puts $ofp "$pin_name $t_slew_limit"
     }
     close $ofp
-    close $ifp
-    
     return 1
 }
 

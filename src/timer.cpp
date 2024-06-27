@@ -54,12 +54,18 @@ void Sizer::CallTimer(unsigned view) {
 #ifdef TIME_MON
     double begin = cpuTime();
 #endif
-
+    if(VERBOSE >= 2)
+        cout << "Calc Ceff start" << endl;
     CalcCeff(view);
-
+    if(VERBOSE >= 2)
+        cout << "Calc Tran end" << endl;
     // calc wire delay
+    if(VERBOSE >= 2)
+        cout << "Calc Wire start" << endl;
     if(WIRE_METRIC != ND)
         CalcWire(view);
+    if(VERBOSE >= 2)
+        cout << "Calc Wire end" << endl;
 
     if(VERBOSE >= 2)
         cout << "Calc Tran start" << endl;
@@ -494,7 +500,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
             pins[view][curpin].ftran_ofs =
                 value_list[curpin].fall - pins[view][curpin].ftran;
 
-            if(VERBOSE >= 2)
+            if(VERBOSE >= 4)
                 cout << "CORR OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " "
                      << pins[view][curpin].rtran << "/"
@@ -539,7 +545,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                     value_list[fopin].rise - pins[view][fopin].rtran;
                 pins[view][fopin].ftran_ofs =
                     value_list[fopin].fall - pins[view][fopin].ftran;
-                if(VERBOSE >= 2)
+                if(VERBOSE >= 4)
                     cout << "CORR PIN TRAN UPDATE "
                          << getFullPinName(pins[view][fopin]) << " "
                          << pins[view][fopin].rtran << "/"
@@ -562,7 +568,7 @@ void Sizer::CalcTran(unsigned view) {
     for(unsigned i = 0; i < PIs.size(); i++) {
         unsigned curpin = PIs[i];
 
-        if(VERBOSE >= 2)
+        if(VERBOSE >= 4)
             cout << "PIN TRAN ORIGNAL " << getFullPinName(pins[view][curpin])
                  << " " << pins[view][curpin].rtran << "/"
                  << pins[view][curpin].ftran << " " << " "
@@ -632,7 +638,7 @@ void Sizer::CalcTran(unsigned view) {
             pins[view][fopin].rtran = wire_tran.rise;
             pins[view][fopin].ftran = wire_tran.fall;
 
-            if(VERBOSE >= 2)
+            if(VERBOSE >= 4)
                 cout << "PIN TRAN UPDATE " << getFullPinName(pins[view][fopin])
                      << " " << pins[view][fopin].rtran << "/"
                      << pins[view][fopin].ftran << " " << " "
@@ -658,7 +664,7 @@ void Sizer::CalcTran(unsigned view) {
             pins[view][curpin].ftran = ftran + pins[view][curpin].ftran_ofs;
             pins[view][curpin].rtran = rtran + pins[view][curpin].rtran_ofs;
 
-            if(VERBOSE >= 2)
+            if(VERBOSE >= 4)
                 cout << "OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " " << rtran
                      << "/" << ftran << " " << " "
@@ -689,7 +695,7 @@ void Sizer::CalcTran(unsigned view) {
                 pins[view][fopin].rtran = wire_tran.rise;
                 pins[view][fopin].ftran = wire_tran.fall;
 
-                if(VERBOSE >= 2)
+                if(VERBOSE >= 4)
                     cout << "PIN TRAN UPDATE "
                          << getFullPinName(pins[view][fopin]) << " "
                          << pins[view][fopin].rtran << "/"
@@ -822,7 +828,7 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                     }
                 }
 
-                if(VERBOSE >= 2) {
+                if(VERBOSE >= 4) {
                     cout << cell.name << "/" << pins[view][curpin].name << "("
                          << pins[view][curpin].rtran << "/"
                          << pins[view][curpin].ftran << ") "
@@ -1246,7 +1252,7 @@ void Sizer::CalcSlack(unsigned view) {
                                     pins[view][cells[cur].inpins[k]].fdelay[j] +
                                         pins[view][cells[cur].inpins[k]].fAAT);
                             }
-                            if(VERBOSE >= 2) {
+                            if(VERBOSE >= 4) {
                                 cout << "CALC_SLACK: UPDATE PIN AAT INPIN "
                                      << view << " "
                                      << getFullPinName(
@@ -2160,7 +2166,7 @@ double Sizer::CalSensMMMC(CELL &cell, int steps, int dir, int option,
 
             delta_power = pow(delta_power, gamma);
 
-            if(VERBOSE > 4)
+            if(VERBOSE > 2)
                 cout << "DELTA POWER cell " << cell.name << " " << cell.type
                      << " " << steps << "/" << dir << " " << delta_sw_power
                      << " " << delta_int << " " << delta_leak << " "
@@ -5209,7 +5215,7 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
                     pins[view][i].fslk = DBL_MAX;
                 }
 
-                if(VERBOSE >= 1) {
+                if(VERBOSE >= 3) {
                     // pessimistic
                     if(rslk_old < -1e-6 && pins[view][i].rslk > 0) {
                         if(getFullPinName(pins[view][(i)]) == "g46034/B2") {
@@ -5257,7 +5263,7 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
         }
 
         ///////
-        if(VERBOSE >= 1) {
+        if(VERBOSE >= 3) {
             unsigned max_num_report = 100;
             unsigned iter;
             iter = 0;
@@ -5459,7 +5465,7 @@ void Sizer::GetMaxTranConst(unsigned view) {
     unsigned mode = mmmcViewList[view].mode;
     string pt_in_file = benchname + ".pin_list";
     string pt_out_file = benchname + ".pt_pin_max_tran_const";
-
+#if 0
     T[view]->writeMaxTranConst(pt_in_file, pt_out_file);
     ifstream infile(pt_out_file.c_str());
     vector< double > temp;
@@ -5480,6 +5486,11 @@ void Sizer::GetMaxTranConst(unsigned view) {
         else {
             g_pins[view][i].max_tran = maxTran[corner];
         }
+    }
+#endif
+    for(unsigned i = 0; i < numpins; i++) {
+        unsigned corner = mmmcViewList[view].corner;
+        g_pins[view][i].max_tran = maxTran[corner];
     }
 }
 

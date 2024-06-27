@@ -79,7 +79,7 @@
 
 // global variables
 bool ISO_TIME = false;
-bool MINIMUM = false;
+bool MINIMUM = true;
 bool CORR_AAT = false;
 double SLEW_GB = 10.0;
 unsigned MAX_TRIALS = 3000;
@@ -3411,7 +3411,7 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
 
     cout << sizeout << "[" << view << "] WNS from Timer     : " << wns << endl;
     cout << sizeout << "[" << view
-         << "] TNS                : " << skew_violation << " ns" << endl;
+         << "] TNS                : " << skew_violation << " ps" << endl;
     cout << sizeout << "[" << view << "] Leakage Power      : " << current_leak
          << " (" << (current_leak / init_leak[view] - 1) * 100.0 << " % )"
          << endl;
@@ -3436,7 +3436,7 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
          << " fF,  #: " << cap_violation_cnt << " max: " << cap_violation_wst
          << endl;
     cout << sizeout << " Slew. Vio.     : " << tran_tot
-         << " ns,  #: " << tran_num << ", max: " << tran_max << endl;
+         << " ps,  #: " << tran_num << ", max: " << tran_max << endl;
 
     SizeOut(c, sizeout);
     SizeChangeOut(c, sizeout);
@@ -5589,7 +5589,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 
     T = PTimer[0];
 
-    if(GTR_IN) {
+    if(MINIMUM || GTR_IN) {
         InitPTSizes();
     }
 
@@ -5625,15 +5625,15 @@ void Sizer::Parallel_Sizer_Launcher() {
         T[view]->getTranVio(tran_tot, tran_max, tran_num);
 
         cout << "[view " << view << "] Initial WNS from Timer    : " << wns
-             << " ns" << endl;
+             << " ps" << endl;
         cout << "[view " << view << "] Initial TNS            : " << tns
-             << " ns" << endl;
+             << " ps" << endl;
         cout << "[view " << view << "] Initial Leakage Power    : " << leak
              << endl;
         cout << "[view " << view << "] Initial Total Power    : " << tot
              << endl;
         cout << "[view " << view << "] Initial Tran           : " << tran_tot
-             << " ns " << tran_num << " " << tran_max << " ns" << endl;
+             << " ps " << tran_num << " " << tran_max << " ps" << endl;
 
         if(ISO_TIME) {
             if(viewSlackMargin[view] == 0.0) {
@@ -6143,7 +6143,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
              << T[view]->getWorstSlack(clk_name[worst_corner]) << endl;
         UpdateCapsFromCells();
         CallTimer(view);
-        T[view]->checkServer();
+        // T[view]->checkServer();
         // CalcStats((unsigned)thread_id, true, "Initial", view);
         CorrelatePT((unsigned)thread_id, view);
         CalcStats((unsigned)thread_id, true, "Initial after corr", view);
@@ -6614,11 +6614,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     cout << "[view " << view
                          << "] After timing recovery WNS from Timer    : "
-                         << wns << " ns (init: " << init_wns[view] << ")"
+                         << wns << " ps (init: " << init_wns[view] << ")"
                          << endl;
                     cout << "[view " << view
                          << "] After timing recovery TNS            : " << tns
-                         << " ns (init: " << init_tns[view] << ")" << endl;
+                         << " ps (init: " << init_tns[view] << ")" << endl;
                     cout << "[view " << view
                          << "] After timing recovery Leakage Power    : "
                          << leak << endl;
@@ -6628,8 +6628,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     cout << "[view " << view
                          << "] After timing recovery Tran           : "
-                         << tran_tot << " ns " << tran_num << " " << tran_max
-                         << " ns" << endl;
+                         << tran_tot << " ps " << tran_num << " " << tran_max
+                         << " ps" << endl;
 
                     unsigned swap_count = 0;
                     unsigned uptype_swap_count = 0;
