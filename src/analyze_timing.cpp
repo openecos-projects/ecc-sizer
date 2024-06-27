@@ -269,8 +269,7 @@ double designTiming::getTotPower() {
         _tclInputString = "EtsTotalPower";
     }
     else {
-        printf("error: no getLeakPower !");
-        exit(0);
+        return getLeakPower();
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     // cout << _tclInputString << endl;
@@ -293,8 +292,13 @@ double designTiming::getLeakPower() {
         _tclInputString = "EtsLeakPower";
     }
     else {
-        printf("error: no getLeakPower !");
-        exit(0);
+        double totalLeakagePower = 0.0;
+        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+        for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
+            totalLeakagePower +=
+                _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+        }
+        return totalLeakagePower;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     // cout << _tclInputString << endl;

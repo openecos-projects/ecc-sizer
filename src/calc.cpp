@@ -78,7 +78,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     }
 
     // TODO
-    // cap_violation=CalcCapViolation();
+    cap_violation = CalcCapViolation();
     l2_norm = 0.0;
     average_error = 0.0;
     // max_pt_err = CalcPTErrors(average_error, l2_norm);
@@ -134,17 +134,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
         }
         else {
             double int_leak_power = 0.0;
-            if(!useOpenSTA) {
-                int_leak_power = T[view]->getLeakPower();
-            }
-            else {
-                for(unsigned i = 0; i < numcells; i++) {
-                    LibCellInfo* lib_cell_info =
-                        getLibCellInfo(cells[i], corner);
-                    if(lib_cell_info)
-                        int_leak_power += lib_cell_info->leakagePower;
-                }
-            }
+            int_leak_power = T[view]->getLeakPower();
             if(HOLD_CHECK)
                 cout << stage << " THREAD" << thread_id
                      << " Violations(total/TNS/WNS/WNSMin/slew/cap/power/leak/"
@@ -460,9 +450,10 @@ double Sizer::CalcCapViolation(unsigned view) {
 
             for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++) {
                 loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
-                if(loadCap > 2 * 1e31) {
-                    cout << "TOT CAP CHECK: " << view << " " << endl;
-                }
+                assert(pins[view][nets[corner][outnet].outpins[j]].cap < 1e31);
+                // if(loadCap > 2 * 1e31) {
+                //     cout << "TOT CAP CHECK: " << view << " " << endl;
+                // }
             }
 
             cap_viol += max(0.0, (nets[corner][outnet].cap + loadCap - maxCap));

@@ -42,6 +42,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include "ckt.h"
 #include "ord/ordMain.hh"
@@ -79,7 +80,7 @@
 
 // global variables
 bool ISO_TIME = false;
-bool MINIMUM = true;
+bool MINIMUM = false;
 bool CORR_AAT = false;
 double SLEW_GB = 10.0;
 unsigned MAX_TRIALS = 3000;
@@ -1221,6 +1222,11 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
         return PT;
         // exeOSServer(serverName, port, view);
     }
+    else {
+        printf("Error: OpenSTA is not enabled\n");
+        exit(0);
+    }
+#if 0
     else if(!useETS) {
         exePTServer(serverName, port, view);
     }
@@ -1324,6 +1330,7 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     }
 
     return PT;
+#endif
 }
 
 void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
@@ -1467,7 +1474,7 @@ void Sizer::UpdatePTSizes(unsigned option) {
     ostr.str("");
     ostr << option;
 
-    cout << "Update PT sizes... " <<endl;
+    cout << "Update PT sizes... " << endl;
     string filename = benchname + "_" + ostr.str() + "_sizes.tcl";
     ofstream outsz(filename.c_str());
     int count = 0;
@@ -5607,17 +5614,9 @@ void Sizer::Parallel_Sizer_Launcher() {
 
         double leak = 0.0;
         double tot = 0.0;
-        if(useOpenSTA) {
-            for(unsigned i = 0; i < numcells; ++i) {
-                LibCellInfo *new_lib_cell_info = getLibCellInfo(g_cells[i]);
-                leak += new_lib_cell_info->leakagePower;
-            }
-            tot = leak;
-        }
-        else {
-            leak = T[view]->getLeakPower();
-            tot = T[view]->getTotPower();
-        }
+
+        leak = T[view]->getLeakPower();
+        tot = T[view]->getTotPower();
 
         double tran_tot, tran_max;
         tran_tot = tran_max = 0.0;
@@ -5634,7 +5633,7 @@ void Sizer::Parallel_Sizer_Launcher() {
              << endl;
         cout << "[view " << view << "] Initial Tran           : " << tran_tot
              << " ps " << tran_num << " " << tran_max << " ps" << endl;
-
+        CalcStats();
         if(ISO_TIME) {
             if(viewSlackMargin[view] == 0.0) {
                 if(wns < 0) {
@@ -6324,9 +6323,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns"
-                 << "/" << worst_slack << "ns"
-                 << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns" << "/"
+                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -6594,18 +6592,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     double leak = 0.0;
                     double tot = 0.0;
-                    if(useOpenSTA) {
-                        for(unsigned i = 0; i < numcells; ++i) {
-                            LibCellInfo *new_lib_cell_info =
-                                getLibCellInfo(cells[i]);
-                            leak += new_lib_cell_info->leakagePower;
-                        }
-                        tot = leak;
-                    }
-                    else {
-                        leak = T[view]->getLeakPower();
-                        tot = T[view]->getTotPower();
-                    }
+
+                    leak = T[view]->getLeakPower();
+                    tot = T[view]->getTotPower();
 
                     double tran_tot, tran_max;
                     tran_tot = tran_max = 0.0;
@@ -6721,18 +6710,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     double leak = 0.0;
                     double tot = 0.0;
-                    if(useOpenSTA) {
-                        for(unsigned i = 0; i < numcells; ++i) {
-                            LibCellInfo *new_lib_cell_info =
-                                getLibCellInfo(cells[i]);
-                            leak += new_lib_cell_info->leakagePower;
-                        }
-                        tot = leak;
-                    }
-                    else {
-                        leak = T[view]->getLeakPower();
-                        tot = T[view]->getTotPower();
-                    }
+                    leak = T[view]->getLeakPower();
+                    tot = T[view]->getTotPower();
 
                     double tran_tot, tran_max;
                     tran_tot = tran_max = 0.0;
@@ -8323,8 +8302,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " "
-                             << " " << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
+                             << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -8436,8 +8415,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept"
-                         << " " << cells[cur].type << endl;
+                    cout << " Accept" << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -8564,18 +8542,9 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
                             double leak = 0.0;
                             double tot = 0.0;
-                            if(useOpenSTA) {
-                                for(unsigned i = 0; i < numcells; ++i) {
-                                    LibCellInfo *new_lib_cell_info =
-                                        getLibCellInfo(cells[i]);
-                                    leak += new_lib_cell_info->leakagePower;
-                                }
-                                tot = leak;
-                            }
-                            else {
-                                leak = T[view]->getLeakPower();
-                                tot = T[view]->getTotPower();
-                            }
+
+                            leak = T[view]->getLeakPower();
+                            tot = T[view]->getTotPower();
 
                             double tran_tot, tran_max;
                             tran_tot = tran_max = 0.0;
@@ -10048,14 +10017,12 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -10324,8 +10291,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " "
-             << "#Modes " << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
+             << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;

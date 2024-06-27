@@ -249,12 +249,12 @@ void Circuit::Parser(string benchmark) {
                     _sizer->getLibCellInfo(g_cells[i].main_lib_cell_id, 0,
                                            static_cast< cell_vtypes >(vt));
                 if(new_lib_cell_info != NULL) {
-                    if(g_cells[i].name == "FE_RC_3110_0") {
-                        printf("debug debug");
-                    }
-                    if(new_lib_cell_info->name == "O2A1O1Ixp5_ASAP7_75t_R") {
-                        printf("debug debug");
-                    }
+                    // if(g_cells[i].name == "FE_RC_3110_0") {
+                    //     printf("debug debug");
+                    // }
+                    // if(new_lib_cell_info->name == "O2A1O1Ixp5_ASAP7_75t_R") {
+                    //     printf("debug debug");
+                    // }
                     g_cells[i].type = new_lib_cell_info->name;
                     g_cells[i].c_size = 0;
                     g_cells[i].c_vtype = static_cast< cell_vtypes >(vt);
@@ -1043,7 +1043,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
     _sizer->sw_adj =
         lib.sw_power_unit * lib.volt * lib.volt / lib.time_unit / 2e-3;
     _sizer->res_unit = 1e3;
-    _sizer->cap_unit = 1e-12;
+    _sizer->cap_unit = 1e-15;
     _sizer->time_unit = 1e-9;
 
     LibCellInfo cur_cell;
@@ -2289,11 +2289,11 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
         }
         else if(tokens.size() == 2 && tokens[0] == "capacitance") {
             pin.capacitance =
-                std::atof(tokens[1].c_str()) * lib.cap_unit / 1e-12;
+                std::atof(tokens[1].c_str()) * lib.cap_unit / 1e-15;
         }
         else if(tokens.size() == 2 && tokens[0] == "max_capacitance") {
             pin.maxCapacitance =
-                std::atof(tokens[1].c_str()) * lib.cap_unit / 1e-12;
+                std::atof(tokens[1].c_str()) * lib.cap_unit / 1e-15;
         }
         else if(tokens[0] == "internal_power" && pin.isOutput && !pin.isInput) {
             LibPowerInfo tmplib;
@@ -2470,15 +2470,6 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
         check += read_line_as_tokens_chk(is, tokens);
         if(check == 0) {
             finishedReading = true;
-            // assign leakage power
-            if(!leak_flag) {
-                if(leak_cnt != 0 && lib.leak_power_unit != 0)
-                    // cell.leakagePower = leak / leak_cnt * lib.leak_power_unit
-                    // / 1e-3;
-                    cell.leakagePower = leak / leak_cnt;
-                else
-                    cell.leakagePower = 0.0;
-            }
             if(cell.footprint == "" || NO_FOOTPRINT) {
                 cell.footprint = cell.name;
                 if(cell.name == "O2A1O1Ixp5_ASAP7_75t_R") {
@@ -2540,9 +2531,9 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
 
         if(tokens.size() == 2 && tokens[0] == "cell_leakage_power") {
             // Normalize the leakage power to mW
-            // cell.leakagePower = atof(tokens[1].c_str()) * lib.leak_power_unit
-            // / 1e-3;
-            cell.leakagePower = atof(tokens[1].c_str());
+            cell.leakagePower =
+                atof(tokens[1].c_str()) * lib.leak_power_unit / 1e-6;
+            // cell.leakagePower = atof(tokens[1].c_str());
             leak_flag = true;
         }
         else if(tokens.size() == 1 && tokens[0] == "leakage_power") {
@@ -2588,6 +2579,13 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
                 tokens[1] == "true") {
             cell.dontUse = true;
         }
+    }
+    // assign leakage power
+    if(!leak_flag) {
+        if(leak_cnt != 0 && lib.leak_power_unit != 0)
+            cell.leakagePower = leak / leak_cnt * lib.leak_power_unit / 1e-3;
+        else
+            cell.leakagePower = 0.0;
     }
     std::map< unsigned, LibTimingInfo >::iterator timeItr;
     for(timeItr = cell.timingArcs.begin(); timeItr != cell.timingArcs.end();
@@ -3424,15 +3422,14 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
     cnst_min_max = MinMaxAll::max()->asMinMax();
     ap = _corner->findParasiticAnalysisPt(cnst_min_max);
 
-    double totcap = 0.0;
     int corner = 0;
 
     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
         string netNameStr = g_nets[corner][i].name;
-
-        g_nets[corner][net2id[netNameStr]].cap = totcap;
-        vector< SUB_NODE >* subNodeVecPtr =
-            &g_nets[corner][net2id[netNameStr]].subNodeVec;
+        assert(net2id[netNameStr] == i);
+        double totcap = 0.0;
+        // g_nets[corner][i].cap = totcap;
+        vector< SUB_NODE >* subNodeVecPtr = &g_nets[corner][i].subNodeVec;
         string name;
         string attr;
 
@@ -3445,6 +3442,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             printf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;
         }
+        // printf("net %s has parasitic\n", netNameStr.c_str());
         assert(net_parasitic);
         NetConnectedPinIterator* connPinIter =
             _sta->network()->connectedPinIterator(net);
@@ -3454,6 +3452,10 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         sn.id = 0;
         sn.pinId = -1;
         subNodeVecPtr->push_back(sn);
+        ConcreteParasitic* conc_para =
+            static_cast< ConcreteParasitic* >(net_parasitic);
+        sta::ConcreteParasiticNetwork* conc_net_para =
+            static_cast< sta::ConcreteParasiticNetwork* >(conc_para);
         while(connPinIter->hasNext()) {
             auto connPin = connPinIter->next();
 
@@ -3474,8 +3476,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             // Input
             if(dir->isInput()) {
                 readSpefChangePinName(pin_name);
-                subNodeVecPtr->at(0).pinId = pin2id[pin_name];
-                g_pins[pin2id[pin_name]].spef_pin = 0;
+                int p_id = pin2id[pin_name];
+                subNodeVecPtr->at(0).pinId = p_id;
+                g_pins[p_id].spef_pin = 0;
                 node2id[pin_name] = 0;
             }
             else {
@@ -3491,95 +3494,100 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
                 subNodeVecPtr->push_back(sn);
             }
+            // printf("node str %s\n", pin_name.c_str());
+        }
+        sta::ConcreteParasiticSubNodeMap* sub_nodes = conc_net_para->subNodes();
+        auto sub_nodes_iter = sub_nodes->begin();
 
-            ConcreteParasitic* conc_para =
-                static_cast< ConcreteParasitic* >(net_parasitic);
-            sta::ConcreteParasiticNetwork* conc_net_para =
-                static_cast< sta::ConcreteParasiticNetwork* >(conc_para);
-            sta::ParasiticNode* para_node =
-                conc_net_para->findParasiticNode(connPin);
-            sta::ConcreteParasiticNode* conc_node =
-                static_cast< sta::ConcreteParasiticNode* >(para_node);
+        // CAP
+        while(sub_nodes_iter != sub_nodes->end()) {
+            ConcreteParasiticNode* node = sub_nodes_iter->second;
 
-            for(auto* paraDev : conc_net_para->resistors()) {
-                ParasiticNode* other_node =
-                    parasitics->otherNode(paraDev, para_node);
-                if(other_node == nullptr) {
-                    continue;
-                }
-                string fromNodeNameStr = parasitics->name(para_node);
-                string toNodeNameStr = parasitics->name(other_node);
-                readSpefChangePinName(fromNodeNameStr);
-                readSpefChangePinName(toNodeNameStr);
-                std::map< string, int >::const_iterator node2IdIter1 =
-                    node2id.find(fromNodeNameStr);
-                std::map< string, int >::const_iterator node2IdIter2 =
-                    node2id.find(toNodeNameStr);
-                unsigned index1, index2;
-
-                float value = parasitics->value(paraDev);
-
-                // RES
-                // if (parasitics->isResistor(paraDev)) {
+            string fromNodeNameStr = node->name(_sta->network());
+            readSpefChangePinName(fromNodeNameStr);
+            // printf("node str %s\n", fromNodeNameStr.c_str());
+            std::map< string, int >::const_iterator node2IdIter1 =
+                node2id.find(fromNodeNameStr);
+            float value_cap =
+                node->capacitance() / _sizer->cap_unit;  // FIXME:?
+            // totcap += value_cap;
+            if(node2IdIter1 != node2id.end()) {
+                subNodeVecPtr->at(node2IdIter1->second).cap = value_cap;
+            }
+            else {
                 SUB_NODE sn;
-                sn.cap = 0.0;
+                sn.cap = value_cap;
                 sn.id = node_index++;
-
-                if(node2id.find(fromNodeNameStr) == node2id.end()) {
-                    node2id[fromNodeNameStr] = sn.id;
-                    subNodeVecPtr->push_back(sn);
-                    index1 = sn.id;
-                }
-                else {
-                    index1 = node2IdIter1->second;
-                }
-                if(node2id.find(toNodeNameStr) == node2id.end()) {
-                    node2id[toNodeNameStr] = sn.id;
-                    subNodeVecPtr->push_back(sn);
-                    index2 = sn.id;
-                }
-                else {
-                    index2 = node2IdIter2->second;
-                }
-
-                if(index1 < subNodeVecPtr->size() &&
-                   index2 < subNodeVecPtr->size()) {
-                    subNodeVecPtr->at(index1).adj.push_back(index2);
-                    subNodeVecPtr->at(index2).adj.push_back(index1);
-                    subNodeVecPtr->at(index1).res.push_back(value);
-                    subNodeVecPtr->at(index2).res.push_back(value);
-                }
+                node2id[fromNodeNameStr] = sn.id;
+                subNodeVecPtr->push_back(sn);
             }
-
-            sta::ConcreteParasiticSubNodeMap* sub_nodes =
-                conc_net_para->subNodes();
-            auto sub_nodes_iter = sub_nodes->begin();
-
-            // CAP
-            while(sub_nodes_iter != sub_nodes->end()) {
-                ConcreteParasiticNode* node = sub_nodes_iter->second;
-
-                string fromNodeNameStr = node->name(_sta->network());
-                std::map< string, int >::const_iterator node2IdIter1 =
-                    node2id.find(fromNodeNameStr);
-                float value_cap =
-                    node->capacitance() / _sizer->cap_unit;  // FIXME:?
-
-                if(node2IdIter1 != node2id.end()) {
-                    subNodeVecPtr->at(node2IdIter1->second).cap = value_cap;
-                }
-                else {
-                    SUB_NODE sn;
-                    sn.cap = value_cap;
-                    sn.id = node_index++;
-                    node2id[fromNodeNameStr] = sn.id;
-                    subNodeVecPtr->push_back(sn);
-                }
-                sub_nodes_iter++;
-            }
+            sub_nodes_iter++;
         }
 
-        g_nets[corner][net2id[netNameStr]].cap = totcap;
+        // conc_net_para->findParasiticNode(connPin);
+        // sta::ConcreteParasiticNode* conc_node =
+        //     static_cast< sta::ConcreteParasiticNode* >(para_node);
+
+        for(auto* pDev : conc_net_para->resistors()) {
+            ConcreteParasiticResistor* paraDev =
+                static_cast< ConcreteParasiticResistor* >(pDev);
+            sta::ParasiticNode* para_node = paraDev->node1();
+            sta::ParasiticNode* other_node = paraDev->node2();
+            string fromNodeNameStr = parasitics->name(para_node);
+            string toNodeNameStr = parasitics->name(other_node);
+            readSpefChangePinName(fromNodeNameStr);
+            readSpefChangePinName(toNodeNameStr);
+            std::map< string, int >::const_iterator node2IdIter1 =
+                node2id.find(fromNodeNameStr);
+            std::map< string, int >::const_iterator node2IdIter2 =
+                node2id.find(toNodeNameStr);
+            unsigned index1, index2;
+
+            float value = parasitics->value(paraDev);
+
+            // RES
+            // RES
+            // if (parasitics->isResistor(paraDev)) {
+            // RES
+            // if (parasitics->isResistor(paraDev)) {
+            SUB_NODE sn;
+            sn.cap = 0.0;
+            sn.id = node_index++;
+            // assert();
+            assert(node2id.find(toNodeNameStr) != node2id.end());
+            assert(node2id.find(toNodeNameStr) != node2id.end());
+            // if(node2id.find(fromNodeNameStr) == node2id.end() ||
+            //    node2id.find(toNodeNameStr) == node2id.end()) {
+            //     printf("from %s to %s\n", fromNodeNameStr.c_str(),
+            //            toNodeNameStr.c_str());
+            // }
+            if(node2id.find(fromNodeNameStr) == node2id.end()) {
+                node2id[fromNodeNameStr] = sn.id;
+                subNodeVecPtr->push_back(sn);
+                index1 = sn.id;
+            }
+            else {
+                index1 = node2IdIter1->second;
+            }
+            if(node2id.find(toNodeNameStr) == node2id.end()) {
+                node2id[toNodeNameStr] = sn.id;
+                subNodeVecPtr->push_back(sn);
+                index2 = sn.id;
+            }
+            else {
+                index2 = node2IdIter2->second;
+            }
+
+            if(index1 < subNodeVecPtr->size() &&
+               index2 < subNodeVecPtr->size()) {
+                subNodeVecPtr->at(index1).adj.push_back(index2);
+                subNodeVecPtr->at(index2).adj.push_back(index1);
+                subNodeVecPtr->at(index1).res.push_back(value);
+                subNodeVecPtr->at(index2).res.push_back(value);
+            }
+        }
+        double t_cap = conc_net_para->capacitance() / _sizer->cap_unit;
+        g_nets[corner][i].cap = t_cap;  // FIXME:
     }
 }
 

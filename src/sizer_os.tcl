@@ -423,7 +423,7 @@ proc OSWritePinAll { infile outfile } {
     set ofp [open $outfile "w"]
     while { [gets $ifp line] >= 0 } {
         set pin_name $line
-        set ceff "0 0"
+        set ceff [OSGetPinArrival $pin_name]
         set slack [OSGetPinSlack $pin_name]
         set tran [OSGetPinTran $pin_name]
 

@@ -548,6 +548,7 @@ class Sizer {
                          vector< vector< double > > &commonRes,
                          bool recompute_moment = true, unsigned view = 0);
     void calc_res_vec(vector< SUB_NODE > &subNodeVec, NET &net);
+    // double calc_fanout_cap(vector< SUB_NODE > &subNodeVec, SUB_NODE* subNode);
     void calc_net_m1(vector< SUB_NODE > &subNodeVec);
     void calc_net_m2(vector< SUB_NODE > &subNodeVec);
     void init_wire(vector< SUB_NODE > &subNodeVec, unsigned sinkPinID);

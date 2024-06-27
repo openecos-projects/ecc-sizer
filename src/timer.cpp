@@ -4500,15 +4500,15 @@ void Sizer::calc_total_res(vector< SUB_NODE > &subNodeVec) {
         assert(topNode->id >= 0);
         bool hasToVisit = false;
         for(unsigned i = 0; i < topNode->adj.size(); i++) {
-            if(!visited[topNode->adj[i]]) {
-                dfsStack.push(&subNodeVec[topNode->adj[i]]);
-                topNode->fanouts.push_back(topNode->adj[i]);
-                subNodeVec[topNode->adj[i]].fanin = topNode->id;
-                // cout << "push " << topNode->adj[i] << endl;
-                visited[topNode->adj[i]] = true;
+            int to_id = topNode->adj[i];
+            if(!visited[to_id]) {
+                dfsStack.push(&subNodeVec[to_id]);
+                topNode->fanouts.push_back(to_id);
+                subNodeVec[to_id].fanin = topNode->id;
+                // cout << "push " << to_id << endl;
+                visited[to_id] = true;
                 hasToVisit = true;
-                subNodeVec[topNode->adj[i]].totres +=
-                    topNode->res[i] + topNode->totres;
+                subNodeVec[to_id].totres += topNode->res[i] + topNode->totres;
             }
         }
         if(topNode->fanouts.size() > 1) {
@@ -4520,12 +4520,66 @@ void Sizer::calc_total_res(vector< SUB_NODE > &subNodeVec) {
             dfsStack.pop();
         }
     }
+    // printf("Cal total res end!!\n");
+    // for(unsigned i = 0; i < subNodeVec.size(); i++) {
+    //     cout << "CAL TOTAL RES " << i << "/" << subNodeVec[i].totres << "/"
+    //          << endl;
+    // }
+}
+#if 0
+double Sizer::calc_fanout_cap(vector< SUB_NODE > &subNodeVec, SUB_NODE* subNode) {
+    stack< SUB_NODE * > dfsStack;
+    vector< bool > visited;
+
+    long branches = 0;
+
+    if(subNode->fanouts.size() == 0){
+        return subNode->cap;
+    }
+
     for(unsigned i = 0; i < subNodeVec.size(); i++) {
-        // cout << "CAL TOTAL RES " << i << "/"
-        //    << subNodeVec[i].totres << "/"
-        //    << endl;
+        subNodeVec[i].totres = 0.0;
+        visited.push_back(false);
+    }
+
+    dfsStack.push(&subNodeVec[0]);
+    visited[0] = true;
+
+    subNodeVec[0].fanin = 0;
+
+    while(!dfsStack.empty()) {
+        SUB_NODE *topNode = dfsStack.top();
+        // cout << "top " << topNode->id << endl;
+        assert(topNode->id >= 0);
+        bool hasToVisit = false;
+        for(unsigned i = 0; i < topNode->adj.size(); i++) {
+            int to_id = topNode->adj[i];
+            if(!visited[to_id]) {
+                dfsStack.push(&subNodeVec[to_id]);
+                topNode->fanouts.push_back(to_id);
+                subNodeVec[to_id].fanin = topNode->id;
+                // cout << "push " << to_id << endl;
+                visited[to_id] = true;
+                hasToVisit = true;
+                subNodeVec[to_id].totres += topNode->res[i] + topNode->totres;
+            }
+        }
+        if(topNode->fanouts.size() > 1) {
+            branches++;
+            topNode->is_branch = false;
+        }
+
+        if(!hasToVisit) {
+            dfsStack.pop();
+        }
+    }
+    printf("Cal total res end!!\n");
+    for(unsigned i = 0; i < subNodeVec.size(); i++) {
+        cout << "CAL TOTAL RES " << i << "/" << subNodeVec[i].totres << "/"
+             << endl;
     }
 }
+#endif
 
 // Calculate total resistance of the portion of the unique path
 int Sizer::getNumRCStage(vector< SUB_NODE > &subNodeVec, unsigned sink) {
@@ -5133,20 +5187,14 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         tran_list.push_back(tran);
 
         timing_lookup aat;
-        if(useOpenSTA) {
+        if(aat_rise == "100000000000.0")
             aat.rise = DBL_MAX;
+        else
+            aat.rise = atof(aat_rise.c_str());
+        if(aat_fall == "100000000000.0")
             aat.fall = DBL_MAX;
-        }
-        else {
-            if(aat_rise == "100000000000.0")
-                aat.rise = DBL_MAX;
-            else
-                aat.rise = atof(aat_rise.c_str());
-            if(aat_fall == "100000000000.0")
-                aat.fall = DBL_MAX;
-            else
-                aat.fall = atof(aat_fall.c_str());
-        }
+        else
+            aat.fall = atof(aat_fall.c_str());
         aat_list.push_back(aat);
     }
 
