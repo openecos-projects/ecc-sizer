@@ -396,14 +396,8 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
     unsigned mode = mmmcViewList[view].mode;
     for(unsigned i = 0; i < PIs.size(); i++) {
         unsigned curpin = PIs[i];
-        if(pins[view][curpin].name == clk_port[mode]) {
-            pins[view][curpin].rtran = value_list[curpin].rise;
-            pins[view][curpin].ftran = value_list[curpin].fall;
-            pins[view][curpin].ftran_ofs = 0.0;
-            pins[view][curpin].rtran_ofs = 0.0;
-        }
-        pins[view][curpin].rtran = value_list[curpin].rise;
-        pins[view][curpin].ftran = value_list[curpin].fall;
+        pins[view][curpin].rtran = inrtran[view][curpin];
+        pins[view][curpin].ftran = inftran[view][curpin];
         pins[view][curpin].ftran_ofs = 0.0;
         pins[view][curpin].rtran_ofs = 0.0;
 #ifdef DRIVER_CELL
@@ -5172,7 +5166,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
            (i_term->getNet()->getSigType() == "POWER" &&
             i_term->getNet()->getSigType() == "GROUND" &&
             i_term->getNet()->getSigType() == "CLOCK")) {
-            // printf("i_term %s is pg or colck\n", i_term->getName().c_str());
+            printf("i_term %s is pg or colck\n", i_term->getName().c_str());
             continue;
         }
         slack_rise = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Rise,
@@ -5187,6 +5181,9 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
                                                     ord::Timing::Max);
         pin_name = i_term->getName();
+        if(pin_name == "123") {
+            printf("debug debug!!!\n");
+        }
         int pin_id = pin2id[pin_name];
         slack_rise = slack_rise == FLT_MAX ? DBL_MAX : slack_rise;
         slack_fall = slack_fall == FLT_MAX ? DBL_MAX : slack_fall;

@@ -38,7 +38,10 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <cassert>
+#include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include "sizer.h"
 
@@ -208,6 +211,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
     double slew_viol = 0.;
     slew_violation_cnt = 0;
     slew_violation_wst = 0;
+    // ofstream ofs("slew_violation.txt");
     for(unsigned i = 0; i < numcells; i++) {
         for(unsigned j = 0; j < cells[i].inpins.size(); j++) {
             unsigned curpin = cells[i].inpins[j];
@@ -215,27 +219,37 @@ double Sizer::CalcSlewViolation(unsigned view) {
             if(curpin == UINT_MAX) {
                 continue;
             }
-            if(pins[view][curpin].name == "CLK") {
+            if(pins[view][curpin].name == "CLK" ||
+               pins[view][curpin].name == "SET" ||
+               pins[view][curpin].owner == UINT_MAX) {
                 continue;
                 // printf("Pin name %s\n", pins[view][curpin].name.c_str());
             }
+
+            if(pins[view][curpin].max_tran == 0) {
+                printf("Pin name %s max_tran %f\n",
+                       pins[view][curpin].name.c_str(),
+                       pins[view][curpin].max_tran);
+            }
             slew_viol += max(
                 pins[view][curpin].rtran - pins[view][curpin].max_tran, 0.0);
-            slew_viol += max(
-                pins[view][curpin].ftran - pins[view][curpin].max_tran, 0.0);
+            // slew_viol += max(
+            //     pins[view][curpin].ftran - pins[view][curpin].max_tran, 0.0);
 
             if(VERBOSE >= 4) {
                 if(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
-                   pins[view][curpin].max_tran)
-                    cout << cells[i].name << " max tran vio: "
+                   pins[view][curpin].max_tran) {
+                    cout << getFullPinName(pins[view][curpin])
+                         << " max tran vio: "
                          << max(pins[view][curpin].rtran,
                                 pins[view][curpin].ftran)
                          << " " << pins[view][curpin].max_tran << endl;
+                }
             }
             if(pins[view][curpin].ftran > pins[view][curpin].max_tran)
                 slew_violation_cnt++;
-            if(pins[view][curpin].rtran > pins[view][curpin].max_tran)
-                slew_violation_cnt++;
+            // if(pins[view][curpin].rtran > pins[view][curpin].max_tran)
+            //     slew_violation_cnt++;
             slew_violation_wst =
                 max(slew_violation_wst,
                     pins[view][curpin].rtran - pins[view][curpin].max_tran);
@@ -278,7 +292,8 @@ double Sizer::CalcSlewViolation(unsigned view) {
 
 double Sizer::CalcSlackViolation(unsigned view) {
     // worst_slack = worst timing slack; could be positive
-    // max_neg_{r,f}slk = worst negative timing slack; could be only negative
+    // max_neg_{r,f}slk = worst negative timing slack; could be only
+    // negative
     unsigned corner = mmmcViewList[view].corner;
     double slack_viol = 0.;
     worst_slack = DBL_MAX;
@@ -322,7 +337,8 @@ double Sizer::CalcSlackViolation(unsigned view) {
                 min(pins[view][curpin].rslk, pins[view][curpin].fslk);
 
             if(slack < 0.0) {
-                // cout << "TNS UPDATE " << getFullPinName(pins[view][curpin])
+                // cout << "TNS UPDATE " <<
+                // getFullPinName(pins[view][curpin])
                 // << " " << slack << endl;
                 slack_viol += slack;
             }
@@ -361,8 +377,8 @@ double Sizer::CalcSlackViolation(unsigned view) {
 
         double slack = min(pins[view][curpin].rslk, pins[view][curpin].fslk);
         if(slack < 0.0) {
-            // cout << "TNS UPDATE " << getFullPinName(pins[view][curpin]) << "
-            // " << slack << endl;
+            // cout << "TNS UPDATE " << getFullPinName(pins[view][curpin])
+            // << " " << slack << endl;
             slack_viol += slack;
         }
         else {

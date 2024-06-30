@@ -645,7 +645,8 @@ class Sizer {
     // vector< map< unsigned, string > > drivers;
     // vector< map< unsigned, unsigned > > driverInPins;
     // vector< map< unsigned, unsigned > > driverOutPins;
-    vector< map< string, double > > indelays;
+    vector< map< unsigned, double > > infdelays;
+    vector< map< unsigned, double > > inrdelays;
     vector< map< string, double > > outdelays;
 
     //////////////////////////

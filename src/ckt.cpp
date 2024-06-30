@@ -73,7 +73,8 @@ void Circuit::InitData() {
         map< unsigned, double > _inrtran, _inftran;
         map< unsigned, unsigned > _driverInPins;
         map< unsigned, unsigned > _driverOutPins;
-        map< string, double > _indelays;
+        map< unsigned, double > _infdelays;
+        map< unsigned, double > _inrdelays;
         map< string, double > _outdelays;
 
         _sizer->clk_name.push_back(_clk_name);
@@ -90,7 +91,8 @@ void Circuit::InitData() {
         _sizer->driverInPins.push_back(_driverInPins);
         _sizer->driverOutPins.push_back(_driverOutPins);
 #endif
-        _sizer->indelays.push_back(_indelays);
+        _sizer->infdelays.push_back(_infdelays);
+        _sizer->inrdelays.push_back(_inrdelays);
         _sizer->outdelays.push_back(_outdelays);
     }
 
@@ -3313,10 +3315,10 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             delays->value(sta::RiseFall::fall(), MinMax::max());
         max_fall_delay /= _sizer->time_unit;
         max_rise_delay /= _sizer->time_unit;
-        _sizer->indelays[mode].insert(
-            pair< string, double >(port_name, max_rise_delay));
-        _sizer->indelays[mode].insert(
-            pair< string, double >(port_name, max_fall_delay));
+        _sizer->inrdelays[mode].insert(
+            pair< unsigned, double >(pin2id[port_name], max_rise_delay));
+        _sizer->infdelays[mode].insert(
+            pair< unsigned, double >(pin2id[port_name], max_fall_delay));
         input_delay_iterator++;
     }
 

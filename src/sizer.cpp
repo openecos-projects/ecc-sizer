@@ -1151,7 +1151,13 @@ void Sizer::Parser() {
         if(VERBOSE > 0)
             cout << "PI -- " << getFullPinName(g_pins[0][PIs[i]]) << endl;
     }
-
+    for(unsigned mode = 0; mode < this->numModes; ++mode) {
+        for(unsigned i = 0; i < PIs.size(); ++i) {
+            int pin_id = PIs[i];
+            this->g_pins[mode][pin_id].rAAT = this->inrdelays[mode][pin_id];
+            this->g_pins[mode][pin_id].fAAT = this->infdelays[mode][pin_id];
+        }
+    }
     cell2id = _ckt->cell2id;
     net2id = _ckt->net2id;
     pin2id = _ckt->pin2id;
