@@ -23,13 +23,16 @@
 -dont_touch_cell TIEH
 -sf 1
 -sft 5
+-maxTr 0.32
 -kick_ratio 1.0
--kick_max_iter 1
+-kick_max_iter 3
 -opt_effort 2
 -fix_slew
-# -fix_global
+-fix_cap
+-fix_global
+-minimum
 -trial_rate 0.3
 -slack_margin 0
--verbose 1
+-verbose 2
 -asap7
 # -dont_use_list 

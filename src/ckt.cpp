@@ -249,23 +249,15 @@ void Circuit::Parser(string benchmark) {
                     _sizer->getLibCellInfo(g_cells[i].main_lib_cell_id, 0,
                                            static_cast< cell_vtypes >(vt));
                 if(new_lib_cell_info != NULL) {
-                    // if(g_cells[i].name == "FE_RC_3110_0") {
-                    //     printf("debug debug");
-                    // }
-                    // if(new_lib_cell_info->name == "O2A1O1Ixp5_ASAP7_75t_R") {
-                    //     printf("debug debug");
-                    // }
                     g_cells[i].type = new_lib_cell_info->name;
                     g_cells[i].c_size = 0;
                     g_cells[i].c_vtype = static_cast< cell_vtypes >(vt);
-                    // cout << g_cells[i].name << " " << g_cells[i].type << " "
-                    // << r_size(g_cells[i]) << " " << r_type(g_cells[i]) <<
-                    // endl;
-                    for(unsigned j = 0; j < g_cells[i].inpins.size(); j++)
+                    for(unsigned j = 0; j < g_cells[i].inpins.size(); j++) {
                         g_pins[g_cells[i].inpins[j]].cap =
                             new_lib_cell_info
                                 ->pins[g_pins[g_cells[i].inpins[j]].lib_pin]
                                 .capacitance;
+                    }
                     break;
                 }
             }

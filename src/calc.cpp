@@ -50,13 +50,15 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     unsigned corner = mmmcViewList[view].corner;
     slew_violation = CalcSlewViolation(view);
     double tran_tot, tran_max;
-    tran_tot = tran_max = 0.0;
     int tran_num = 0;
     if(!FIX_SLEW) {
+        tran_tot = tran_max = 0.0;
         T[view]->getTranVio(tran_tot, tran_max, tran_num);
+        slew_violation_cnt = tran_num;
+        slew_violation_wst = tran_max;
+        slew_violation = tran_tot;
     }
 
-    slew_violation = tran_tot;
     skew_violation = CalcSlackViolation(view);
     viewTNS[view] = skew_violation;
     viewWNS[view] = min(max_neg_rslk, max_neg_fslk) + viewSlackMargin[view];
@@ -213,6 +215,10 @@ double Sizer::CalcSlewViolation(unsigned view) {
             if(curpin == UINT_MAX) {
                 continue;
             }
+            if(pins[view][curpin].name == "CLK") {
+                continue;
+                // printf("Pin name %s\n", pins[view][curpin].name.c_str());
+            }
             slew_viol += max(
                 pins[view][curpin].rtran - pins[view][curpin].max_tran, 0.0);
             slew_viol += max(
@@ -238,6 +244,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
                     pins[view][curpin].ftran - pins[view][curpin].max_tran);
         }
     }
+#if 0
     for(unsigned i = 0; i < POs.size(); i++) {
         unsigned curpin = POs[i];
         if(curpin == UINT_MAX) {
@@ -263,8 +270,9 @@ double Sizer::CalcSlewViolation(unsigned view) {
             max(slew_violation_wst,
                 pins[view][curpin].ftran - pins[view][curpin].max_tran);
     }
+#endif
     printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
-        slew_violation_wst);
+           slew_violation_wst);
     return slew_viol;
 }
 
@@ -335,7 +343,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
             }
             max_pos_rslk = max(max_pos_rslk, pins[view][curpin].rslk);
             max_pos_fslk = max(max_pos_fslk, pins[view][curpin].fslk);
-            if(VERBOSE >= 2) {
+            if(VERBOSE >= 4) {
                 cout << "TIMING END POINT CHECK: "
                      << getFullPinName(pins[view][curpin]) << " "
                      << pins[view][curpin].rslk << "/"

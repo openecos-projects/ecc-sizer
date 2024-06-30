@@ -95,7 +95,6 @@ extern const char* tcl_inits[];
 
 void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]);
 
-
 // typedef unsigned cell_vtypes;
 using namespace std;
 
@@ -412,12 +411,12 @@ struct CELL {
     bool isFF : 1;
     bool isClockCell : 1;
     bool isDontTouch : 1;
+    bool isChanged = false;
     unsigned depth;
     vector< double > max_tran;
     bool touched;
     bool downsized;
 
-    bool isChanged;
     int main_lib_cell_id;
     cell_vtypes c_vtype;
     cell_sizes c_size;
@@ -500,7 +499,7 @@ struct CELL {
         downsized = assign.downsized;
         isClockCell = assign.isClockCell;
         isDontTouch = assign.isDontTouch;
-        isChanged = true;
+        isChanged = assign.isChanged;
         main_lib_cell_id = assign.main_lib_cell_id;
         c_vtype = assign.c_vtype;
         c_size = assign.c_size;
@@ -851,6 +850,7 @@ class Circuit {
     ord::Design* _ord_design;
     ord::Timing* _ord_timing;
     ord::Tech* _ord_tech;
+
    protected:
     void verilog_parser(string filename);
     void sdc_converter(string filename);
@@ -863,14 +863,14 @@ class Circuit {
     void readSpef_opensta(sta::dbSta* _sta);
     void readSpefChangePinName(string& pin_name);
     sta::dbSta* _sta = nullptr;
-    Tcl_Interp *sta_interp = nullptr;
-    std::map<string, int> cellName2EquaivaID;
-    std::vector<std::vector<string>> EquaivaID2cellNames;
-    
+    Tcl_Interp* sta_interp = nullptr;
+    std::map< string, int > cellName2EquaivaID;
+    std::vector< std::vector< string > > EquaivaID2cellNames;
+
    private:
     std::ifstream is;
     Sizer* _sizer;
-    /////////////////////////////////   
+    /////////////////////////////////
     //
     // circuit information
     //

@@ -689,7 +689,7 @@ LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
     map< string, LibCellInfo >::iterator temp_iter =
         libs[corner].find(cell.type);
 
-    if(libs[corner].count(cell.type)) {
+    if(temp_iter != libs[corner].end()) {
         return &(temp_iter->second);
     }
     else {
@@ -828,7 +828,7 @@ bool Sizer::cell_retype(CELL &cell, int dir, bool pt_corr, bool update_cap) {
         return false;
 
     cell_vtypes vtype = cell.c_vtype;
-
+    printf("retype %s\n", cell.name.c_str());
     if(dir == 0)
         return (cell.c_vtype == (numVt - 1));
 
@@ -2896,7 +2896,10 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
                     ++change;
                 }
                 else if(r_type(cells[cur]) != (numVt - 1)) {
-                    cell_retype(cells[cur], 1);
+                    bool ok = cell_retype(cells[cur], 1);
+                    if(!ok) {
+                        break;
+                    }
                     ++change;
                 }
                 else {
@@ -2931,6 +2934,7 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
     return change;
 }
 
+// FIXME: This function invoke calc_stats for each cell. This is not efficient.
 unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
     unsigned change = 0;
     unsigned thread_id = 0;
@@ -6137,12 +6141,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
     pthread_mutex_unlock(&mutex1);
 
     for(unsigned view = 0; view < numViews; ++view) {
-        cout << "WORST SLACK (" << thread_id << "-" << view << ") "
-             << T[view]->getWorstSlack(clk_name[worst_corner]) << endl;
+        // cout << "WORST SLACK (" << thread_id << "-" << view << ") "
+        //      << T[view]->getWorstSlack(clk_name[worst_corner]) << endl;
         UpdateCapsFromCells();
         CallTimer(view);
-        // T[view]->checkServer();
-        // CalcStats((unsigned)thread_id, true, "Initial", view);
         CorrelatePT((unsigned)thread_id, view);
         CalcStats((unsigned)thread_id, true, "Initial after corr", view);
     }
@@ -6223,11 +6225,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
             peephole_opt = true;
         }
 
-        for(unsigned view = 0; view < numViews; ++view) {
-            CallTimer(view);
-            CorrelatePT((unsigned)thread_id, view);
-            CalcStats((unsigned)thread_id, true, "KICK_MOVE", view);
-        }
+        // for(unsigned view = 0; view < numViews; ++view) {
+        //     CallTimer(view);
+        //     CorrelatePT((unsigned)thread_id, view);
+        //     CalcStats((unsigned)thread_id, true, "KICK_MOVE", view);
+        // }
 
         if(stuck_count == ALPHA_STUCK) {
             local_alpha = local_alpha * 1.1;
@@ -6269,13 +6271,15 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     kick_cnt = IncrSlackRandom(kick_ratio, kick_slack * 2);
                 }
             }
+            if(kick_cnt > 0) {
+                for(unsigned view = 0; view < numViews; ++view) {
+                    CallTimer(view);
+                    CorrelatePT((unsigned)thread_id, view);
+                    CalcStats((unsigned)thread_id, true, "AFTER_KICK", view);
+                }
+            }
         }
 
-        for(unsigned view = 0; view < numViews; ++view) {
-            CallTimer(view);
-            CorrelatePT((unsigned)thread_id, view);
-            CalcStats((unsigned)thread_id, true, "AFTER_KICK", view);
-        }
         // int leak_iter = 0;
         int max_iter = optEffort;
         if(FAST)
@@ -6341,12 +6345,12 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                 worst_slack_worst = DBL_MAX;
                 skew_violation_worst = DBL_MAX;
-                for(unsigned view = 0; view < numViews; ++view) {
-                    CallTimer(view);
-                    CorrelatePT((unsigned)thread_id, view);
-                    CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT",
-                              view);
-                }
+                // for(unsigned view = 0; view < numViews; ++view) {
+                //     CallTimer(view);
+                //     CorrelatePT((unsigned)thread_id, view);
+                //     CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT",
+                //               view);
+                // }
                 CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT");
 
                 accept = ReducePowerLegal(
@@ -6355,14 +6359,13 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 tot_accept += accept;
 
                 leak_iter++;
-
-                for(unsigned view = 0; view < numViews; ++view) {
-                    CallTimer(view);
-                    CorrelatePT((unsigned)thread_id, view);
-                    CalcStats((unsigned)thread_id, true, "IN_PWROPT_LOOP",
-                              view);
-                }
                 if(accept == 0) {
+                    for(unsigned view = 0; view < numViews; ++view) {
+                        CallTimer(view);
+                        CorrelatePT((unsigned)thread_id, view);
+                        CalcStats((unsigned)thread_id, true, "IN_PWROPT_LOOP",
+                                  view);
+                    }
                     break;
                 }
                 if(TRIAL_MOVE && tot_accept > TRIAL_MOVE_NUM) {
@@ -6377,7 +6380,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             unsigned max_time_recovery_iter = 3;
             unsigned time_recovery_iter = 0;
-
+            // Timing recovery
             while(!all_feasible) {
                 if(max_time_recovery_iter < time_recovery_iter) {
                     break;
@@ -6388,9 +6391,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     cells[j].touched = false;
 
                 for(unsigned view = 0; view < numViews; ++view) {
-                    CallTimer(view);
-                    CorrelatePT((unsigned)thread_id, view);
-                    CalcStats((unsigned)thread_id, true, "AFTER_PWROPT", view);
+                    // CallTimer(view);
+                    // CorrelatePT((unsigned)thread_id, view);
+                    // CalcStats((unsigned)thread_id, true, "AFTER_PWROPT",
+                    // view);
 
                     ///// check fanout cells of critical cells
                     if(TABU) {

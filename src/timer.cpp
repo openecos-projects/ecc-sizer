@@ -40,8 +40,11 @@
 #include <cassert>
 #include <cstdio>
 #include <sstream>
+#include "ckt.h"
+#include "ord/Timing.h"
 #include "sizer.h"
-
+#include <limits>
+#include "float.h"
 #define __DEBUG
 #define TIME_MON
 #define SLEW_THRESHOLD 4
@@ -87,6 +90,7 @@ void Sizer::CallTimer(unsigned view) {
         cout << "Calc Slack done" << endl;
 #ifdef TIME_MON
     time_CallTimer += cpuTime() - begin;
+    printf("call timer time: %f s\n", cpuTime() - begin);
     count_CallTimer++;
 #endif
 }
@@ -5142,64 +5146,110 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
                         vector< timing_lookup > &ceff_list,
                         vector< timing_lookup > &tran_list,
                         vector< timing_lookup > &aat_list) {
-    stringstream ostr;
-    ostr.str("");
-    ostr << option << "_" << view;
+    // stringstream ostr;
+    // ostr.str("");
+    // ostr << option << "_" << view;
 
-    string org_pin_file = benchname + ".pin_list";
-    string pt_in_file = benchname + "_" + ostr.str() + ".pin_list";
-    string pt_out_file = benchname + "_" + ostr.str() + ".all.timing";
+    // string org_pin_file = benchname + ".pin_list";
+    // string pt_in_file = benchname + "_" + ostr.str() + ".pin_list";
+    // string pt_out_file = benchname + "_" + ostr.str() + ".all.timing";
 
-    string cmd;
-    cmd = "cp -f " + org_pin_file + " " + pt_in_file;
-    system(cmd.c_str());
-    cout << "copy pin file done! " << option << endl;
+    // string cmd;
+    // cmd = "cp -f " + org_pin_file + " " + pt_in_file;
+    // system(cmd.c_str());
+    // cout << "copy pin file done! " << option << endl;
 
-    T[view]->writePinAll(org_pin_file, pt_out_file);
+    // ifstream infile(pt_out_file.c_str());
+    slack_list.resize(numpins);
+    ceff_list.resize(numpins);
+    tran_list.resize(numpins);
+    aat_list.resize(numpins);
+    string pin_name;
+    double slack_rise, slack_fall, tran_rise, tran_fall, aat_rise, aat_fall;
+    auto _design = _ckt->_ord_design;
+    for(auto i_term : _design->getBlock()->getITerms()) {
+        if(i_term->getNet() == nullptr ||
+           (i_term->getNet()->getSigType() == "POWER" &&
+            i_term->getNet()->getSigType() == "GROUND" &&
+            i_term->getNet()->getSigType() == "CLOCK")) {
+            // printf("i_term %s is pg or colck\n", i_term->getName().c_str());
+            continue;
+        }
+        slack_rise = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Rise,
+                                                    ord::Timing::Max);
+        slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
+                                                    ord::Timing::Max);
+        tran_rise = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Max);
+        tran_fall = tran_rise;  //_ckt->_ord_timing->getPinSlew(i_term,
+                                // ord::Timing::Max);
+        aat_rise = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Rise,
+                                                    ord::Timing::Max);
+        aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
+                                                    ord::Timing::Max);
+        pin_name = i_term->getName();
+        int pin_id = pin2id[pin_name];
+        slack_rise = slack_rise == FLT_MAX ? DBL_MAX : slack_rise;
+        slack_fall = slack_fall == FLT_MAX ? DBL_MAX : slack_fall;
+        tran_rise = tran_rise == FLT_MAX ? DBL_MAX : tran_rise;
+        tran_fall = tran_fall == FLT_MAX ? DBL_MAX : tran_fall;
+        aat_rise = aat_rise == FLT_MAX ? DBL_MAX : aat_rise;
+        aat_fall = aat_fall == FLT_MAX ? DBL_MAX : aat_fall;
 
-    ifstream infile(pt_out_file.c_str());
-
-    string pin_name, slack_rise, slack_fall, tran_rise, tran_fall, aat_rise,
-        aat_fall;
-
-    while(infile >> pin_name >> slack_rise >> slack_fall >> tran_rise >>
-          tran_fall >> aat_rise >> aat_fall) {
         timing_lookup slack;
-        if(slack_rise == "100000000000.0")
-            slack.rise = DBL_MAX;
-        else
-            slack.rise = atof(slack_rise.c_str());
-        if(slack_fall == "100000000000.0")
-            slack.fall = DBL_MAX;
-        else
-            slack.fall = atof(slack_fall.c_str());
-        slack_list.push_back(slack);
+        slack.rise = slack_rise / this->time_unit;
+        slack.fall = slack_fall / this->time_unit;
+
+        slack_list[pin_id] = slack;
 
         timing_lookup tran;
-        if(tran_rise == "100000000000.0")
-            tran.rise = DBL_MAX;
-        else
-            tran.rise = atof(tran_rise.c_str());
-        if(tran_fall == "100000000000.0")
-            tran.fall = DBL_MAX;
-        else
-            tran.fall = atof(tran_fall.c_str());
-        tran_list.push_back(tran);
+        tran.rise = tran_rise / this->time_unit;
+        tran.fall = tran_fall / this->time_unit;
+
+        tran_list[pin_id] = tran;
 
         timing_lookup aat;
-        if(aat_rise == "100000000000.0")
-            aat.rise = DBL_MAX;
-        else
-            aat.rise = atof(aat_rise.c_str());
-        if(aat_fall == "100000000000.0")
-            aat.fall = DBL_MAX;
-        else
-            aat.fall = atof(aat_fall.c_str());
-        aat_list.push_back(aat);
+        aat.fall = aat_fall / this->time_unit;
+        aat.rise = aat_rise / this->time_unit;
+        aat_list[pin_id] = aat;
     }
 
-    infile.close();
+    for(auto i_term : _design->getBlock()->getBTerms()) {
+        if(i_term->getNet()->getSigType() == "POWER" &&
+           i_term->getNet()->getSigType() == "GROUND" &&
+           i_term->getNet()->getSigType() == "CLOCK") {
+            continue;
+        }
+        slack_rise = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Rise,
+                                                    ord::Timing::Max);
+        slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
+                                                    ord::Timing::Max);
+        tran_rise = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Max);
+        tran_fall = tran_rise;  //_ckt->_ord_timing->getPinSlew(i_term,
+                                // ord::Timing::Max);
+        aat_rise = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Rise,
+                                                    ord::Timing::Max);
+        aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
+                                                    ord::Timing::Max);
+        pin_name = i_term->getName();
+        int pin_id = pin2id[pin_name];
 
+        timing_lookup slack;
+        slack.rise = slack_rise / this->time_unit;
+        slack.fall = slack_fall / this->time_unit;
+
+        slack_list[pin_id] = slack;
+
+        timing_lookup tran;
+        tran.rise = tran_rise / this->time_unit;
+        tran.fall = tran_fall / this->time_unit;
+
+        tran_list[pin_id] = tran;
+
+        timing_lookup aat;
+        aat.fall = aat_fall / this->time_unit;
+        aat.rise = aat_rise / this->time_unit;
+        aat_list[pin_id] = aat;
+    }
     if(slack_list.size() != numpins) {
         // cout << "ERROR -- # slack values does not match with # pins." <<
         // endl;
@@ -5478,7 +5528,7 @@ void Sizer::CorrelatePT(unsigned option, unsigned view) {
     vector< timing_lookup > ceff_list;
     vector< timing_lookup > tran_list;
     vector< timing_lookup > aat_list;
-
+    double begin = cpuTime();
     UpdatePTSizes(option);
     GetPTValues(option, view, slack_list, ceff_list, tran_list, aat_list);
 
@@ -5498,6 +5548,7 @@ void Sizer::CorrelatePT(unsigned option, unsigned view) {
     CorrPT(option, SLK, view, slack_list);
     if(GetGB(view) != 0)
         CalcSlack(view);
+    printf("call CorrelatePT time: %f s\n", cpuTime() - begin);
 }
 
 bool Sizer::IsTranVio(PIN &pin) {
@@ -5536,9 +5587,24 @@ void Sizer::GetMaxTranConst(unsigned view) {
         }
     }
 #endif
-    for(unsigned i = 0; i < numpins; i++) {
-        unsigned corner = mmmcViewList[view].corner;
-        g_pins[view][i].max_tran = maxTran[corner];
+    auto design = this->_ckt->_ord_design;
+    for(auto pin_ : design->getBlock()->getITerms()) {
+        if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+           pin_->getNet()->getSigType() != "GROUND" &&
+           pin_->getNet()->getSigType() != "CLOCK") {
+            auto mterm = pin_->getMTerm();
+            double slew_limit = this->_ckt->_ord_timing->getMaxSlewLimit(mterm);
+            slew_limit /= this->time_unit;
+            string full_pin_name =
+                pin_->getInst()->getName() + "/" + mterm->getName();
+            int pin_id = pin2id[full_pin_name];
+            g_pins[view][pin_id].max_tran = slew_limit;
+            if(fabs(slew_limit - 0.32) > 1e-6) {
+                printf("Pin %s max_tran %f\n", full_pin_name.c_str(),
+                       slew_limit);
+            }
+            // tot += slew_diff;
+        }
     }
 }
 
