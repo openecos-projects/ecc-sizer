@@ -179,8 +179,8 @@ int PTNUM = 1;
 int PRFT_PTNUM = 1;
 int VERBOSE = 0;
 bool USE_PT = true;
-bool CORR_PT = true;
-// bool     CORR_PT = false;
+// bool CORR_PT = true;
+bool CORR_PT = false;
 bool CORR_PT_FILE = true;
 // bool     CORR_PT_FILE = false;
 bool PT_FULL_UPDATE = false;
@@ -1143,6 +1143,7 @@ void Sizer::Parser() {
     }
     for(unsigned i = 0; i < _ckt->POs.size(); ++i) {
         POs.push_back(_ckt->POs[i]);
+        _pos_set.insert(_ckt->POs[i]);
         if(VERBOSE > 0)
             cout << "PO -- " << getFullPinName(g_pins[0][POs[i]]) << endl;
     }
@@ -2688,7 +2689,8 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                         continue;
                     }
 
-                    if(getLibCellInfo(cells[curfo], corner) == NULL) {
+                    if(getLibCellInfo(cells[curfo], corner) == NULL ||
+                       isff(cells[curfo])) {
                         continue;
                     }
 
@@ -2875,10 +2877,11 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
         if(lib_cell_info == NULL) {
             continue;
         }
-
+        if(isff(cells[cur])) {
+            continue;
+        }
         for(unsigned k = 0; k < cells[cur].outpins.size(); ++k) {
             double maxCap = 0.0;
-
             maxCap =
                 lib_cell_info->pins[pins[view][cells[cur].outpins[k]].lib_pin]
                     .maxCapacitance;
@@ -2957,7 +2960,9 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
         }
         if(cells[cur].isDontTouch)
             continue;
-
+        if(isff(cells[cur])) {
+            continue;
+        }
         if(getLibCellInfo(cells[cur], corner) == NULL) {
             continue;
         }
@@ -3000,12 +3005,12 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 if(cells[focell].isDontTouch)
                     continue;
 
-                CalcStats((unsigned)thread_id, false, "", view, false);
+                // CalcStats((unsigned)thread_id, false, "", view, false);
                 prev_tns = viewTNS[view];
 
                 if(cell_resize(cells[focell], -1)) {
                     OneTimer(cells[focell], STA_MARGIN, view);
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
                     change++;
                     if(cur_tns > prev_tns) {
@@ -3031,13 +3036,13 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 string prev_type = cells[cur].type;
 
                 if(!isMax(cells[cur])) {
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     prev_tns = viewTNS[view];
 
                     bool change_size = cell_resize(cells[cur], 1);
 
                     OneTimer(cells[cur], STA_MARGIN, view);
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
                     double delta_tran = 0.0;
@@ -3078,13 +3083,13 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 }
 
                 if(r_type(cells[cur]) != (numVt - 1)) {
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     prev_tns = viewTNS[view];
 
                     bool change_type = cell_retype(cells[cur], 1);
 
                     OneTimer(cells[cur], STA_MARGIN, view);
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
                     double delta_tran = 0.0;
@@ -3212,13 +3217,13 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 string prev_type = cells[ficell].type;
 
                 if(!isMax(cells[ficell])) {
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     prev_tns = viewTNS[view];
 
                     bool change_size = cell_resize(cells[ficell], 1);
 
                     OneTimer(cells[ficell], STA_MARGIN, view);
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
                     double delta_tran = 0.0;
@@ -3257,13 +3262,13 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 }
 
                 if(r_type(cells[ficell]) != (numVt - 1)) {
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     prev_tns = viewTNS[view];
 
                     bool change_type = cell_retype(cells[ficell], 1);
 
                     OneTimer(cells[ficell], STA_MARGIN, view);
-                    CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
                     double delta_tran = 0.0;
@@ -3517,9 +3522,13 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 continue;
             if(cells[i].isDontTouch)
                 continue;
-
+            if(isff(cells[i])) {
+                continue;
+            }
             bool attack = false;
-
+            if(i % 100 == 0) {
+                printf("Attack %d/%d\n", i, numcells);
+            }
             for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
                 if(pins[view][cells[i].outpins[j]].rslk < toler ||
                    pins[view][cells[i].outpins[j]].fslk < toler) {
@@ -3721,9 +3730,14 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
         CalcStats((unsigned)thread_id, false, "After Initial TIMING_RECOVERY",
                   view);
         double prev_tns, new_tns = 0.0;
-
+        int num = targets.size();
+        int iter = 0;
         for(set< entry >::iterator it = targets.begin(); it != targets.end();
             it++) {
+            if(iter % 100 == 0) {
+                printf("Attack targets %d/%d\n", iter, num);
+            }
+            iter++;
             if(update_cnt > (numcells * CORR_RATIO) && CORR_PT) {
                 CallTimer(view);
                 CorrelatePT((unsigned)thread_id, view);
@@ -5616,9 +5630,9 @@ void Sizer::Parallel_Sizer_Launcher() {
         GetSwitchPowerCoef(view);
         GetMaxTranConst(view);
 
-        if(useOpenSTA) {
-            string find_timing = T[view]->doOneCmd("find_timing");
-        }
+        // if(useOpenSTA) {
+        //     string find_timing = T[view]->doOneCmd("find_timing");
+        // }
         double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
         double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -6156,7 +6170,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     }
 
     cout << "THREAD " << thread_id << " BEFORE KICKOPT" << endl;
-    CalcStats((unsigned)thread_id, true, "OPT");
+    // CalcStats((unsigned)thread_id, true, "OPT");
     if(VERBOSE >= 3) {
         cout << "Initial TNS from Sizer     : " << skew_violation << " ns"
              << endl;
@@ -6301,7 +6315,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
         }
 
         bool all_feasible = false;
-
+        // timing x 3 + legal power reduction x1 each loop, controlled by
+        // max_trial
         while(iter < max_trial) {
             iter++;
 
@@ -6322,14 +6337,14 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 toler = POWER_OPT_GB;
             }
             else {
-                if((ISO_TNS != 0 || ISO_TIME) && i == kick_max_iteration - 1) {
+                if(i == kick_max_iteration - 1) {
                     toler = -0.005;
                 }
             }
 
-            for(unsigned view = 0; view < numViews; ++view) {
-                CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT", view);
-            }
+            // for(unsigned view = 0; view < numViews; ++view) {
+            //     CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT", view);
+            // }
 
             cout << i << "-" << iter << "-" << leak_iter
                  << "th iteration, tolerance = " << toler << "ns" << "/"
@@ -6340,58 +6355,16 @@ void Sizer::Post_PowerOpt(int thread_id) {
             cout << "TEST " << ISO_TNS << " " << ISO_TIME << " "
                  << skew_violation_worst << endl;
 
-            while(
-                !TIMING_RECOVERY &&
-                (((ISO_TNS != 0 || ISO_TIME) && skew_violation_worst == 0.0) ||
-                 (!(ISO_TNS != 0 || ISO_TIME) && toler <= worst_slack_worst))) {
-                cout << "REDUCE LEAK ITER " << init_wns_worst << " " << toler
-                     << " " << TOLERANCE << " " << TOLER_STOP << " "
-                     << leak_iter << " " << worst_slack_worst << " "
-                     << skew_violation_worst << endl;
-
-                worst_slack_worst = DBL_MAX;
-                skew_violation_worst = DBL_MAX;
-                // for(unsigned view = 0; view < numViews; ++view) {
-                //     CallTimer(view);
-                //     CorrelatePT((unsigned)thread_id, view);
-                //     CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT",
-                //               view);
-                // }
-                CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT");
-
-                accept = ReducePowerLegal(
-                    thread_id, localSFlist[thread_id], leak_iter, local_alpha,
-                    toler, peephole_opt, updated_local, best_cells_local);
-                tot_accept += accept;
-
-                leak_iter++;
-                if(accept == 0) {
-                    for(unsigned view = 0; view < numViews; ++view) {
-                        CallTimer(view);
-                        CorrelatePT((unsigned)thread_id, view);
-                        CalcStats((unsigned)thread_id, true, "IN_PWROPT_LOOP",
-                                  view);
-                    }
-                    break;
-                }
-                if(TRIAL_MOVE && tot_accept > TRIAL_MOVE_NUM) {
-                    break;
-                }
-                if(slew_violation != 0) {
-                    break;
-                }
-            }
-
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 3;
-            unsigned time_recovery_iter = 0;
+            unsigned max_time_recovery_iter = 1;
             // Timing recovery
-            while(!all_feasible) {
-                if(max_time_recovery_iter < time_recovery_iter) {
+            for(unsigned time_recovery_iter = 0;
+                time_recovery_iter < max_time_recovery_iter;
+                time_recovery_iter++) {
+                if(all_feasible) {
                     break;
                 }
-                time_recovery_iter++;
 
                 for(unsigned j = 0; j < numcells; j++)
                     cells[j].touched = false;
@@ -6416,9 +6389,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                     }
 
-                    if(slew_violation != 0.0 ||
-                       ((ISO_TNS != 0 || ISO_TIME) && skew_violation != 0.0) ||
-                       (!(ISO_TNS != 0 || ISO_TIME) && worst_slack < 0.0)) {
+                    if(slew_violation != 0.0 || (skew_violation != 0.0) ||
+                       worst_slack < 0.0) {
                         double begin = cpuTime();
                         unsigned same_ss_count = 0;
                         unsigned swap_cnt = 0;
@@ -6427,7 +6399,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         unsigned change = 0;
                         unsigned all_change = 0;
 
-                        for(unsigned i = 0; i < 30; i++) {
+                        for(unsigned i = 0; i < 1; i++) {
                             change = 0;
                             all_change = 0;
 
@@ -6439,19 +6411,16 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                 if(change > 0) {
                                     CallTimer(view);
                                     CorrelatePT((unsigned)thread_id, view);
+                                    CalcStats((unsigned)thread_id, true,
+                                              "AFTER_INIT_PATH", view);
                                 }
-
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_INIT_PATH", view);
                             }
 
-                            if(!(ISO_TNS != 0 || ISO_TIME) &&
-                               toler <= worst_slack && slew_violation == 0.0) {
+                            if(toler <= worst_slack && slew_violation == 0.0) {
                                 break;
                             }
 
-                            if((ISO_TNS != 0 || ISO_TIME) &&
-                               skew_violation == 0.0 && slew_violation == 0.0) {
+                            if(skew_violation == 0.0 && slew_violation == 0.0) {
                                 break;
                             }
 
@@ -6461,19 +6430,16 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                 if(change > 0) {
                                     CallTimer(view);
                                     CorrelatePT((unsigned)thread_id, view);
+                                    CalcStats((unsigned)thread_id, true,
+                                              "AFTER_FIX_CAP", view);
                                 }
-
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_FIX_CAP", view);
                             }
 
-                            if(!(ISO_TNS != 0 || ISO_TIME) &&
-                               toler <= worst_slack && slew_violation == 0.0) {
+                            if(toler <= worst_slack && slew_violation == 0.0) {
                                 break;
                             }
 
-                            if((ISO_TNS != 0 || ISO_TIME) &&
-                               skew_violation == 0.0 && slew_violation == 0.0) {
+                            if(skew_violation == 0.0 && slew_violation == 0.0) {
                                 break;
                             }
 
@@ -6484,18 +6450,16 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                 if(change > 0) {
                                     CallTimer(view);
                                     CorrelatePT((unsigned)thread_id, view);
+                                    CalcStats((unsigned)thread_id, true,
+                                              "AFTER_FIX_SLEW", view);
                                 }
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_FIX_SLEW", view);
                             }
 
-                            if(!(ISO_TNS != 0 || ISO_TIME) &&
-                               toler <= worst_slack && slew_violation == 0.0) {
+                            if(toler <= worst_slack && slew_violation == 0.0) {
                                 break;
                             }
 
-                            if((ISO_TNS != 0 || ISO_TIME) &&
-                               skew_violation == 0.0 && slew_violation == 0.0) {
+                            if(skew_violation == 0.0 && slew_violation == 0.0) {
                                 break;
                             }
 
@@ -6510,16 +6474,16 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                             all_change += change;
                             change = 0;
-                            change +=
-                                Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
-                                       thread_id, TIMING_OPT_GB, view);
+                            // change +=
+                            //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
+                            //            thread_id, TIMING_OPT_GB, view);
 
                             if(change > 0) {
                                 CallTimer(view);
                                 CorrelatePT((unsigned)thread_id, view);
+                                CalcStats((unsigned)thread_id, true,
+                                          "AFTER_TIM_REC", view);
                             }
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_TIM_REC", view);
 
                             double wns;
                             wns = min(max_neg_rslk, max_neg_fslk);
@@ -6603,7 +6567,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     double tot = 0.0;
 
                     leak = T[view]->getLeakPower();
-                    tot = T[view]->getTotPower();
+                    tot = leak;
 
                     double tran_tot, tran_max;
                     tran_tot = tran_max = 0.0;
@@ -6684,8 +6648,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     CalcStats((unsigned)thread_id, true, "AFTER_TIME_RECOVERY",
                               view);
 
-                    if(((ISO_TNS != 0 || ISO_TIME) && skew_violation != 0.0) ||
-                       (!(ISO_TNS != 0 || ISO_TIME) && worst_slack < 0.0)) {
+                    if((skew_violation != 0.0) || (worst_slack < 0.0)) {
                         all_feasible = false;
                     }
                 }
@@ -6697,10 +6660,44 @@ void Sizer::Post_PowerOpt(int thread_id) {
             CallTimer();
             CorrelatePT((unsigned)thread_id);
             CalcStats((unsigned)thread_id, true, "AFTER_PWROPT");
+
+            // POWER reduce loop
+            if((skew_violation_worst == 0.0) || (toler <= worst_slack_worst)) {
+                cout << "REDUCE LEAK ITER " << init_wns_worst << " " << toler
+                     << " " << TOLERANCE << " " << TOLER_STOP << " "
+                     << leak_iter << " " << worst_slack_worst << " "
+                     << skew_violation_worst << endl;
+
+                worst_slack_worst = DBL_MAX;
+                skew_violation_worst = DBL_MAX;
+                // for(unsigned view = 0; view < numViews; ++view) {
+                //     CallTimer(view);
+                //     CorrelatePT((unsigned)thread_id, view);
+                //     CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT",
+                //               view);
+                // }
+                CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT");
+
+                accept = ReducePowerLegal(
+                    thread_id, localSFlist[thread_id], leak_iter, local_alpha,
+                    toler, peephole_opt, updated_local, best_cells_local);
+                tot_accept += accept;
+
+                leak_iter++;
+                if(accept == 0) {
+                    for(unsigned view = 0; view < numViews; ++view) {
+                        CallTimer(view);
+                        CorrelatePT((unsigned)thread_id, view);
+                        CalcStats((unsigned)thread_id, true, "IN_PWROPT_LOOP",
+                                  view);
+                    }
+                }
+            }
             cout << "(" << thread_id
                  << ") Power after power reduction iteration " << leak_iter + 1
                  << " : " << power << endl;
 
+            // save and report
             if(all_feasible && power < best_power_local) {
                 cout << "(" << thread_id
                      << ") Local best power is updated "
@@ -6710,6 +6707,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 best_alpha_local = local_alpha;
                 string temp = (string)opt_str + "_feasible";
                 SizeOut(temp);
+                // report results
                 for(unsigned view = 0; view < numViews; ++view) {
                     if(useOpenSTA) {
                         string find_timing = T[view]->doOneCmd("find_timing");

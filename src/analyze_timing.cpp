@@ -358,10 +358,10 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
                         (now_slew - slew_limit) / _sizer->time_unit, 0.0);
                     tot += slew_diff;
                     if(slew_diff > 0) {
-                        cout
-                            << pin_->getName()
-                            << " max tran vio: " << now_slew / _sizer->time_unit
-                            << " " << slew_limit / _sizer->time_unit << endl;
+                        // cout
+                        //     << pin_->getName()
+                        //     << " max tran vio: " << now_slew / _sizer->time_unit
+                        //     << " " << slew_limit / _sizer->time_unit << endl;
                         num++;
                     }
                     max = std::max(max, slew_diff);
@@ -502,6 +502,8 @@ bool designTiming::loadDesign(string benchname) {
 bool designTiming::updateSize(string filename) {
     //_tclInputString = "redirect pt.updateSize.log {source " +
     // filename+"}";
+
+    _sizer->_sta->networkChanged();
     _tclInputString = "source " + filename;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -631,6 +633,24 @@ void designTiming::getPinTran(double &riseTran, double &fallTran,
     fallTran = temp2;
     // cout << pinName << " " << riseSlack << " " << fallSlack << endl;
 }
+
+// void designTiming::getPinCap(double &riseTran, double &fallTran,
+//                               string pinName) {
+//     _tclInputString = "OSGetPinTran " + pinName;
+//     // cout << _tclInputString << endl;
+//     //_tclExpression = (char *)_tclInputString.c_str();
+//     double begin = cpuTime();
+//     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+//     pt_time += cpuTime() - begin;
+
+//     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+//     float temp1;
+//     float temp2;
+//     sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
+//     riseTran = temp1;
+//     fallTran = temp2;
+//     // cout << pinName << " " << riseSlack << " " << fallSlack << endl;
+// }
 
 bool designTiming::writePinSlack(string infile, string outfile) {
     if(program == PT) {

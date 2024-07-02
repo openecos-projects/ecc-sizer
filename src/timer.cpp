@@ -628,7 +628,11 @@ void Sizer::CalcTran(unsigned view) {
             if(fopin == UINT_MAX) {
                 continue;
             }
-
+            string pin_name = getFullPinName(pins[view][fopin]);
+            if(pin_name ==
+               "g45186/Y") {
+                printf("debug debug!!");
+            }
             timing_lookup wire_tran =
                 get_wire_tran(curnet, fopin, pins[view][curpin].rtran,
                               pins[view][curpin].ftran, view);
@@ -650,7 +654,9 @@ void Sizer::CalcTran(unsigned view) {
 
     for(unsigned i = 0; i < topolist.size(); i++) {
         double rtran = 0.0, ftran = 0.0;
-
+        if(cells[topolist[i]].name == "g45186"){
+            printf("debug debug!!");
+        }
         //  multi-output support -- currently Sizer is using offsets (ftran_ofs,
         //  rtran_ofs)
         LookupST(cells[topolist[i]], 0, &rtran, &ftran, 0, 0.0, view);
@@ -661,7 +667,11 @@ void Sizer::CalcTran(unsigned view) {
 
             pins[view][curpin].ftran = ftran + pins[view][curpin].ftran_ofs;
             pins[view][curpin].rtran = rtran + pins[view][curpin].rtran_ofs;
-
+            string pin_name = getFullPinName(pins[view][curpin]);
+            if(pin_name ==
+               "g45186/Y") {
+                printf("debug debug!!");
+            }
             if(VERBOSE >= 4)
                 cout << "OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " " << rtran
@@ -809,6 +819,9 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                 }
                 else {
                     if(arc->timingSense == 'n') {
+                        // T[view]->getPinTran(
+                        //     r_rtran, r_ftran,
+                        //     getFullPinName(pins[view][curpin]));
                         r_rtran = r_entry(
                             arc->riseTransition, pins[view][curpin].ftran,
                             pins[view][cell.outpins[i]].ceff + delta_cap);
@@ -4415,11 +4428,15 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
     }
 
     if(VERBOSE >= 2) {
+        if(pin.rRAT >= 9999) {
+            printf("debug debug!\n");
+        }
         cout << "UPDATE PIN SLACK - NEW " << getFullPinName(pin) << " ("
              << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/"
              << pin.fRAT << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")"
              << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " ("
              << pin.totcap << "," << pin.slk_gb << ")" << endl;
+
         if(fipin != UINT_MAX) {
             cout << "UPDATE FI PIN SLACK - NEW "
                  << getFullPinName(pins[view][fipin]) << " ("
@@ -4600,28 +4617,25 @@ double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
         cout << "get res " << m << " " << n << endl;
     SUB_NODE *curNode;
 
-    // if(VERBOSE >= 220)
-    //     cout << "start -- " << m << endl;
-    // curNode = &subNodeVec[m];
-    // while(curNode->id != 0) {
-    //     if(curNode->visited) {
-    //         cout << "WARNING: there is a loop in RC tree" << endl;
-    //         return 0.0;
-    //     }
-    //     curNode->visited = true;
-    //     curNode = &subNodeVec[curNode->fanin];
-    //     if(VERBOSE >= 220) {
-    //         cout << "id " << curNode->id << endl;
-    //         cout << "fanin " << curNode->fanin << endl;
-    //     }
-    // }
+    if(VERBOSE >= 220)
+        cout << "start -- " << m << endl;
+    curNode = &subNodeVec[m];
+    while(curNode->id != 0) {
+        if(curNode->visited) {
+            cout << "WARNING: there is a loop in RC tree" << endl;
+            return 0.0;
+        }
+        curNode->visited = true;
+        curNode = &subNodeVec[curNode->fanin];
+        if(VERBOSE >= 220) {
+            cout << "id " << curNode->id << endl;
+            cout << "fanin " << curNode->fanin << endl;
+        }
+    }
 
     if(VERBOSE >= 220)
         cout << "start -- " << n << endl;
     curNode = &subNodeVec[n];
-    if(subNodeVec[0].id == 0) {
-        return subNodeVec[0].totres;
-    }
     while(curNode->id != 0) {
         if(curNode->visited)
             break;
@@ -5166,7 +5180,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
            (i_term->getNet()->getSigType() == "POWER" &&
             i_term->getNet()->getSigType() == "GROUND" &&
             i_term->getNet()->getSigType() == "CLOCK")) {
-            printf("i_term %s is pg or colck\n", i_term->getName().c_str());
+            // printf("i_term %s is pg or colck\n", i_term->getName().c_str());
             continue;
         }
         slack_rise = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Rise,

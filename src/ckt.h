@@ -896,7 +896,7 @@ class Circuit {
     map< string, unsigned > cell2id;
     map< string, unsigned > pcell2id;
     map< string, unsigned > net2id;
-    map< string, unsigned > pin2id;
+    map< string, unsigned > pin2id; // from 0 to numpins-1
     map< string, int > node2id;
 
     vector< unsigned > topolist;

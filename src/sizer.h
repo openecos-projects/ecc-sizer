@@ -648,7 +648,7 @@ class Sizer {
     vector< map< unsigned, double > > infdelays;
     vector< map< unsigned, double > > inrdelays;
     vector< map< string, double > > outdelays;
-
+    set< int > _pos_set;
     //////////////////////////
 
     double STA_MARGIN;
