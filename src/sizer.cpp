@@ -55,6 +55,8 @@
 #include <arpa/inet.h>
 #include "ord/Design.h"
 #include "ord/Timing.h"
+#include <gperftools/profiler.h>
+#include <gperftools/heap-profiler.h>
 
 #define TIMER_RUNS_BACKGROUND
 
@@ -10234,6 +10236,8 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
+    ProfilerStart("cpu-profile.prof");
+
     for(int i = 1; i < argc; i++) {
         string input_option = string(argv[i]);
         if(input_option == "-env") {
@@ -10457,6 +10461,8 @@ int main(int argc, char **argv) {
 
     if(NO_LOG)
         _sizer.CleanIntFiles();
+
+    ProfilerStop();
 
     return 1;
 }
