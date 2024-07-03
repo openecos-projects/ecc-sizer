@@ -19,14 +19,11 @@ set(OPENDB_HDEAR_HOME "${OPENROAD_HOME}/odb/include/")
 set(OPENDP_HDEAR_HOME "${OPENROAD_HOME}/dpl/include/")
 set(FASTROUTE_HDEAR_HOME "${OPENROAD_HOME}/grt/include/")
 
-# Find gperftools profiler library
-find_library(PROFILER_LIB profiler PATHS /usr/local/lib /usr/lib)
-if(PROFILER_LIB)
-    message(STATUS "Found gperftools profiler library: ${PROFILER_LIB}")
-else()
-    message(FATAL_ERROR "gperftools profiler library not found")
-endif()
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
 
+find_package(PROFILER REQUIRED) 
+
+message(STATUS )
 set(dbSTA_HDEAR_HOME "${OPENROAD_HOME}/dbSta/include/")
 message(STATUS "OPENSTA_HDEAR_HOME: ${OPENSTA_HDEAR_HOME}")
 message(STATUS "OPENSTA_para_HDEAR_HOME: ${OPENSTA_para_HDEAR_HOME}")
@@ -63,7 +60,7 @@ target_link_libraries(TritonSizer
     grt_lib
     openroad
     odb
-    ${PROFILER_LIB}
+    ${LIBPROFILER_LIBRARY}
     # utl
 )
 
