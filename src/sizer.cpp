@@ -2432,13 +2432,18 @@ void Sizer::SizeOut(vector< CELL > &c, string option) {
          << endl;
     string filename = benchname + "." + option + ".sizes";
     ofstream outsz(filename.c_str());
+    int changed = 0;
     for(unsigned i = 0; i < c.size(); i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
         if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
+            changed++;
+        }
+        if(lib_cell_info != NULL) {
             outsz << c[i].name << " " << lib_cell_info->name << endl;
             // cout << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
+    printf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
@@ -2448,12 +2453,18 @@ void Sizer::SizeChangeOut(vector< CELL > &c, string option) {
          << benchname + "." + option + ".change.sizes" << endl;
     string filename = benchname + "." + option + ".change.sizes";
     ofstream outsz(filename.c_str());
+    int changed = 0;
     for(unsigned i = 0; i < c.size(); i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
         if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
+            changed++;
+        }
+        if(lib_cell_info != NULL) {
             outsz << c[i].name << " " << lib_cell_info->name << endl;
+            // cout << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
+    printf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
@@ -2463,12 +2474,18 @@ void Sizer::SizeOut(string option) {
          << endl;
     string filename = benchname + "." + option + ".sizes";
     ofstream outsz(filename.c_str());
+    int changed = 0;
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
         if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
+            changed++;
+        }
+        if(lib_cell_info != NULL) {
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
+            // cout << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
+    printf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
@@ -2478,12 +2495,18 @@ void Sizer::SizeTempOut(string option) {
          << endl;
     string filename = benchname + "." + option + ".sizes";
     ofstream outsz(filename.c_str());
+    int changed = 0;
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
         if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
+            changed++;
+        }
+        if(lib_cell_info != NULL) {
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
+            // cout << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
+    printf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
