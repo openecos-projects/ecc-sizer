@@ -356,8 +356,8 @@ class Sizer {
         best_failed_cells_poweropt;  // best solution within slack_margin2
     vector< CELL > second_best_cells_poweropt;
     vector< CELL > multi_start_cells_poweropt_1;
-    vector< CELL > multi_start_cells_poweropt_2;
-    vector< CELL > multi_start_cells_poweropt_3;
+    // vector< CELL > multi_start_cells_poweropt_2;
+    // vector< CELL > multi_start_cells_poweropt_3;
     vector< vector< CellSol > > all_cells;
     vector< CELL > best_failed_cells;
 

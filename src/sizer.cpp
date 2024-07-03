@@ -3407,10 +3407,7 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
     double current_tot = 0.0;
     if(useOpenSTA) {
         string find_timing = T[view]->doOneCmd("find_timing");
-        for(unsigned i = 0; i < numcells; ++i) {
-            LibCellInfo *new_lib_cell_info = getLibCellInfo(c[i]);
-            current_leak += new_lib_cell_info->leakagePower;
-        }
+        current_leak = T[view]->getLeakPower();
         current_tot = current_leak;
     }
     else {
@@ -4103,8 +4100,7 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
 
             double max_tran = max(pins[view][cells[cur].outpins[k]].rtran,
                                   pins[view][cells[cur].outpins[k]].ftran);
-            if(max_tran >
-               cells[cur].max_tran[corner] + viewMaxTranMargin[view]) {
+            if(max_tran > cells[cur].max_tran[corner]) {
                 restore_flag = true;
                 break;
             }
@@ -5739,13 +5735,13 @@ void Sizer::Parallel_Sizer_Launcher() {
             second_best_cells_poweropt[i] = g_cells[i];
 
         multi_start_cells_poweropt_1.resize(numcells);
-        multi_start_cells_poweropt_2.resize(numcells);
-        multi_start_cells_poweropt_3.resize(numcells);
+        // multi_start_cells_poweropt_2.resize(numcells);
+        // multi_start_cells_poweropt_3.resize(numcells);
 
         for(unsigned i = 0; i < numcells; i++) {
             multi_start_cells_poweropt_1[i] = g_cells[i];
-            multi_start_cells_poweropt_2[i] = g_cells[i];
-            multi_start_cells_poweropt_3[i] = g_cells[i];
+            // multi_start_cells_poweropt_2[i] = g_cells[i];
+            // multi_start_cells_poweropt_3[i] = g_cells[i];
         }
 
         cout << "MAXIMUM ITERATION = " << GWTW_MAX << endl;
@@ -5799,12 +5795,13 @@ void Sizer::Parallel_Sizer_Launcher() {
             }
             // poweropt + kickopt
             for(int j = 0; j < min(MAX_THREAD, PRFT_PTNUM); j++) {
-                pthread_create(&threads[j], NULL, (static_poweropt_driver),
-                               (void *)&thread_args[j]);
+                static_poweropt_driver((void *)&thread_args[j]);
+                // pthread_create(&threads[j], NULL, (),
+                //                ;
                 cout << "THREAD CREATE DONE!! " << j << endl;
             }
             for(int j = 0; j < min(MAX_THREAD, PRFT_PTNUM); j++) {
-                pthread_join(threads[j], NULL);
+                // pthread_join(threads[j], NULL);
                 cout << "THREAD JOIN DONE!! " << j << endl;
             }
             thread_args.clear();
@@ -5858,7 +5855,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                     cout << "COPY SOL FROM SECOND BEST DONE " << endl;
                 }
             }
-
+#if 0
             if(GWTW_MAX > 1) {
                 if(VERBOSE >= 1) {
                     cout << "GET NEXT START " << endl;
@@ -5866,33 +5863,36 @@ void Sizer::Parallel_Sizer_Launcher() {
                 for(unsigned i = 0; i < numcells; i++) {
                     if(g_cells[i].isDontTouch || g_cells[i].isClockCell) {
                         multi_start_cells_poweropt_1[i] = g_cells[i];
-                        multi_start_cells_poweropt_2[i] = g_cells[i];
-                        multi_start_cells_poweropt_3[i] = g_cells[i];
+                        // multi_start_cells_poweropt_2[i] = g_cells[i];
+                        // multi_start_cells_poweropt_3[i] = g_cells[i];
                         continue;
                     }
                     CellSol sol = GetCommonCell(i);
                     if(sol.c_size != -1 && sol.c_vtype != -1) {
                         cell_change(multi_start_cells_poweropt_1[i], sol,
                                     false);
-                        cell_change(multi_start_cells_poweropt_2[i], sol,
-                                    false);
-                        cell_change(multi_start_cells_poweropt_3[i], sol,
-                                    false);
+                        // cell_change(multi_start_cells_poweropt_2[i], sol,
+                        //             false);
+                        // cell_change(multi_start_cells_poweropt_3[i], sol,
+                        //             false);
                     }
                     else {
                         multi_start_cells_poweropt_1[i] = g_cells[i];
-                        multi_start_cells_poweropt_2[i] =
-                            best_cells_poweropt[i];
-                        multi_start_cells_poweropt_3[i] =
-                            best_cells_poweropt[i];
+                        // multi_start_cells_poweropt_2[i] =
+                        //     best_cells_poweropt[i];
+                        // multi_start_cells_poweropt_3[i] =
+                        //     best_cells_poweropt[i];
 
-                        cell_resize(multi_start_cells_poweropt_3[i], 1, false,
-                                    false);
-                        cell_retype(multi_start_cells_poweropt_3[i], 1, false,
-                                    false);
+                        // cell_resize(multi_start_cells_poweropt_3[i], 1,
+                        // false,
+                        //             false);
+                        // cell_retype(multi_start_cells_poweropt_3[i], 1,
+                        // false,
+                        //             false);
                     }
                 }
             }
+#endif
             if(VERBOSE >= 1) {
                 cout << "GET NEXT START END" << endl;
             }
@@ -5946,7 +5946,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         }
     }
 
-    ExitPTimer();
+    // ExitPTimer();
 }
 
 void Sizer::PostWNSOpt(string input, unsigned view) {
@@ -6117,31 +6117,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
     }
 
     for(unsigned i = 0; i < numcells; i++) {
-        if(start_index == 0) {
-            cells[i] = best_cells_poweropt[i];
-            best_cells_local[i] = best_cells_poweropt[i];
-            best_failed_cells_local[i] = best_cells_poweropt[i];
-        }
-        else if(start_index == 1) {
-            cells[i] = multi_start_cells_poweropt_1[i];
-            best_cells_local[i] = multi_start_cells_poweropt_1[i];
-            best_failed_cells_local[i] = multi_start_cells_poweropt_1[i];
-        }
-        else if(start_index == 2) {
-            cells[i] = multi_start_cells_poweropt_2[i];
-            best_cells_local[i] = multi_start_cells_poweropt_2[i];
-            best_failed_cells_local[i] = multi_start_cells_poweropt_2[i];
-        }
-        else if(start_index == 3) {
-            cells[i] = multi_start_cells_poweropt_3[i];
-            best_cells_local[i] = multi_start_cells_poweropt_3[i];
-            best_failed_cells_local[i] = multi_start_cells_poweropt_3[i];
-        }
-        else {
-            cells[i] = best_cells_poweropt[i];
-            best_cells_local[i] = best_cells_poweropt[i];
-            best_failed_cells_local[i] = best_cells_poweropt[i];
-        }
+        cells[i] = best_cells_poweropt[i];
+        best_cells_local[i] = best_cells_poweropt[i];
+        best_failed_cells_local[i] = best_cells_poweropt[i];
     }
 
     if(start_index == 0) {
