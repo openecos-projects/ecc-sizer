@@ -1,11 +1,12 @@
 #/bin/bash
 
-OPENROAD_EXE=/home/zxy/my_code/gpu_gate_sizing/bin/openroad
-FILE_PATH=/home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/NV_NVDLA_partition_m/NV_NVDLA_partition_m.size
+cwd=/home/zhaoxueyan/code/gpu_gate_sizing
+OPENROAD_EXE=${cwd}/bin/openroad
+FILE_PATH=${cwd}/results/NV_NVDLA_partition_m.0_infeasible-0702.sizes
 DESIGN_NAME=NV_NVDLA_partition_m
-LEF_PATH=/home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/platform/ASAP7/lef/
-LIB_PATH=/home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/platform/ASAP7/lib/
-DESIGN_PATH=/home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/
+LEF_PATH=${cwd}/benchmark/iccad24/platform/ASAP7/lef/
+LIB_PATH=${cwd}/benchmark/iccad24/platform/ASAP7/lib/
+DESIGN_PATH=${cwd}/benchmark/iccad24/design/
 
 ${OPENROAD_EXE} -python evaluation.py -exit --file_path ${FILE_PATH} \
                 --design_name ${DESIGN_NAME} --lefPath ${LEF_PATH} \
