@@ -2415,13 +2415,18 @@ void Sizer::SizeOut(bool success) {
     if(!success)
         filename = benchname + ".int.sizes";
     ofstream outsz(filename.c_str());
+    int changed = 0;
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+        if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
+            changed++;
+        }
         if(lib_cell_info != NULL) {  //&& lib_cell_info->name != init_sizes[i]
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
             // cout << cells[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
+    printf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
     time_SizeOut = cpuTime() - begin;
 }
@@ -6476,7 +6481,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             }
 
                             all_change += change;
-                            change = 0;
+                            // change = 0;
                             // change +=
                             //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
                             //            thread_id, TIMING_OPT_GB, view);
