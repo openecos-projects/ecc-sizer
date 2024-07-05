@@ -957,7 +957,8 @@ void Circuit::lib_parser(string filename, unsigned corner) {
     cout << "Library name = " << lib.name << endl;
 
     read_head_info(is, lib, corner);
-    bool ignore_cell = lib.name.find("sram") != std::string::npos || lib.name.find("SEQ") != std::string::npos;
+    bool ignore_cell = lib.name.find("sram") != std::string::npos ||
+                       lib.name.find("SEQ") != std::string::npos;
     double tmp_trans = lib.max_transition;
     tmp_trans = tmp_trans * lib.time_unit / 1e-9;
     // if(_sizer->maxTran[corner] == 0.0 || _sizer->maxTran[corner] < tmp_trans)
@@ -1034,8 +1035,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
     _sizer->LIBs.insert(pair< string, LibInfo >(lib.name, lib));
 
     // JLPWR
-    _sizer->sw_adj =
-        lib.sw_power_unit * lib.volt * lib.volt / lib.time_unit / 2e-3;
+    _sizer->sw_adj = 1e-6;
     _sizer->res_unit = 1e3;
     _sizer->cap_unit = 1e-15;
     _sizer->time_unit = 1e-9;

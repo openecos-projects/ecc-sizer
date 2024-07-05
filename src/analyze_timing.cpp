@@ -258,6 +258,7 @@ double designTiming::getWorstSlack(string _clkName) {
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     double _pathSlack = _convertToDouble(_answerStr);
+    _pathSlack = _pathSlack * 1e-12 / _sizer->time_unit;
     return (_pathSlack);
 }
 
@@ -298,6 +299,7 @@ double designTiming::getLeakPower() {
             totalLeakagePower +=
                 _sizer->_ckt->_ord_timing->staticPower(inst, corner);
         }
+        totalLeakagePower /= _sizer->sw_adj;
         return totalLeakagePower;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -330,6 +332,7 @@ double designTiming::getTNS(string _clkName) {
     pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     double _pathSlack = _convertToDouble(_answerStr);
+    _pathSlack = _pathSlack * 1e-12 / _sizer->time_unit;
     return (_pathSlack);
 }
 
@@ -360,7 +363,8 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
                     if(slew_diff > 0) {
                         // cout
                         //     << pin_->getName()
-                        //     << " max tran vio: " << now_slew / _sizer->time_unit
+                        //     << " max tran vio: " << now_slew /
+                        //     _sizer->time_unit
                         //     << " " << slew_limit / _sizer->time_unit << endl;
                         num++;
                     }
@@ -503,7 +507,7 @@ bool designTiming::updateSize(string filename) {
     //_tclInputString = "redirect pt.updateSize.log {source " +
     // filename+"}";
 
-    _sizer->_sta->networkChanged();
+    _sizer->_sta->networkChanged();  // FIXME: This has a bug
     _tclInputString = "source " + filename;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();

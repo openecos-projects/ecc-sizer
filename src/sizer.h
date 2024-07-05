@@ -319,6 +319,7 @@ class Sizer {
     double slack_margin2;
     double best_tns;
     double best_power;
+    double best_score;
     double best_failed_power;
     double second_best_power;
     double best_failed;
@@ -375,7 +376,7 @@ class Sizer {
     unsigned slew_violation_cnt, skew_violation_cnt, cap_violation_cnt;
     double power;
     double best_power_local;
-    double best_failed_power_local;
+    double best_score_local;
     double toler;
     double best_alpha_local;
     double local_alpha;
@@ -390,6 +391,9 @@ class Sizer {
     designTiming **T;
 
    private:
+    double tnsPenalty = 10, slewPenalty = 20, capPenalty = 20;
+
+    double calcScore(double leakage, double tns, double slew, double cap);
     bool cell_move(CELL &cell, cell_sizes org_size, cell_vtypes org_vt,
                    int move);
     bool cell_retype(CELL &cell, int dir, bool pt_corr = false,
@@ -548,7 +552,8 @@ class Sizer {
                          vector< vector< double > > &commonRes,
                          bool recompute_moment = true, unsigned view = 0);
     void calc_res_vec(vector< SUB_NODE > &subNodeVec, NET &net);
-    // double calc_fanout_cap(vector< SUB_NODE > &subNodeVec, SUB_NODE* subNode);
+    // double calc_fanout_cap(vector< SUB_NODE > &subNodeVec, SUB_NODE*
+    // subNode);
     void calc_net_m1(vector< SUB_NODE > &subNodeVec);
     void calc_net_m2(vector< SUB_NODE > &subNodeVec);
     void init_wire(vector< SUB_NODE > &subNodeVec, unsigned sinkPinID);
@@ -812,6 +817,7 @@ class Sizer {
         slack_margin2 = -0.00005;
         pthread_mutex_init(&mutex1, NULL);
         best_power = DBL_MAX;
+        best_score = DBL_MAX;
         second_best_power = DBL_MAX;
         best_failed_power = DBL_MAX;
         best_failed = DBL_MAX;

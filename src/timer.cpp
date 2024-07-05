@@ -629,8 +629,7 @@ void Sizer::CalcTran(unsigned view) {
                 continue;
             }
             string pin_name = getFullPinName(pins[view][fopin]);
-            if(pin_name ==
-               "g45186/Y") {
+            if(pin_name == "g45186/Y") {
                 printf("debug debug!!");
             }
             timing_lookup wire_tran =
@@ -654,7 +653,7 @@ void Sizer::CalcTran(unsigned view) {
 
     for(unsigned i = 0; i < topolist.size(); i++) {
         double rtran = 0.0, ftran = 0.0;
-        if(cells[topolist[i]].name == "g45186"){
+        if(cells[topolist[i]].name == "g45186") {
             printf("debug debug!!");
         }
         //  multi-output support -- currently Sizer is using offsets (ftran_ofs,
@@ -668,8 +667,7 @@ void Sizer::CalcTran(unsigned view) {
             pins[view][curpin].ftran = ftran + pins[view][curpin].ftran_ofs;
             pins[view][curpin].rtran = rtran + pins[view][curpin].rtran_ofs;
             string pin_name = getFullPinName(pins[view][curpin]);
-            if(pin_name ==
-               "g45186/Y") {
+            if(pin_name == "g45186/Y") {
                 printf("debug debug!!");
             }
             if(VERBOSE >= 4)

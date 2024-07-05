@@ -226,8 +226,8 @@ proc OSWorstHoldSlack { clk_name } {
 proc OSSizeCell {CellName cell_master} {
   set cell [get_cell $CellName]
   set LibCell [get_lib_cells -of_objects $cell]
-		set size_status [replace_cell $CellName $cell_master]
-		return $size_status
+  set size_status [replace_cell $CellName $cell_master]
+  return $size_status
 }
 
 proc OSSizeCellFile {infile} {

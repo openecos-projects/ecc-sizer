@@ -204,7 +204,7 @@ string CMD_FI = "";
 bool LEAKOPT = true;
 int DIFFICULTY = 0;
 int MAX_TRAN_CONST = 0;
-double CORR_RATIO = 0.01;
+double CORR_RATIO = 0.3;
 double PWR_CORR_RATIO = 0.01;
 bool GTRWPT_ONLY = false;
 double X_IN = 0.0;
@@ -259,7 +259,7 @@ CorrPTMetric CORR_PT_METRIC = SLK;
 // double Sizer::best_alpha_local;
 // double Sizer::local_alpha;
 // double Sizer::toler;
-// double Sizer::best_failed_power_local;
+// double Sizer::best_failed_wns_local;
 
 // PIN **Sizer::pins;
 // NET **Sizer::nets;
@@ -1046,6 +1046,11 @@ void Sizer::Clean() {
     sprintf(Commands, "\\rm -f socket*");
     system(Commands);
 }
+double Sizer::calcScore(double leakage, double tns, double slew, double cap) {
+    double score = leakage + tnsPenalty * fabs(tns) + slewPenalty * fabs(slew) +
+                   capPenalty * fabs(cap);
+    return score;
+}
 
 void Sizer::CleanIntFiles() {
     char Commands[250];
@@ -1488,13 +1493,17 @@ void Sizer::UpdatePTSizes(unsigned option) {
     ofstream outsz(filename.c_str());
     int count = 0;
     for(unsigned i = 0; i < numcells; i++) {
-        if(getLibCellInfo(cells[i]) == NULL)
+        LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+        if(lib_cell_info == NULL)
             continue;
         if(!PT_FULL_UPDATE && !cells[i].isChanged)
             continue;
+        // if(lib_cell_info->name != init_sizes[i]) {
+        //     count++;
+        // }
         // cout  << PT_FULL_UPDATE << " " << cells[i].name << " "<<
         // cells[i].isChanged << endl;
-        LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+        count++;
         if(useOpenSTA) {
             outsz << "OSSizeCell " << cells[i].name << " "
                   << lib_cell_info->name << endl;
@@ -1510,9 +1519,9 @@ void Sizer::UpdatePTSizes(unsigned option) {
         // cout  << cells[i].name << " " << cells[i].isChanged << " sized"<<
         // endl;
         cells[i].isChanged = false;
-        count++;
     }
     outsz.close();
+    printf("Update PT sizes changed count %d\n", count);
     if(count > 0) {
         for(unsigned view = 0; view < numViews; ++view) {
             T[view]->updateSize(filename);
@@ -5659,6 +5668,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         // if(useOpenSTA) {
         //     string find_timing = T[view]->doOneCmd("find_timing");
         // }
+        // UpdatePTSizes(view);
         double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
         double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -5666,7 +5676,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         double tot = 0.0;
 
         leak = T[view]->getLeakPower();
-        tot = T[view]->getTotPower();
+        tot = leak;
 
         double tran_tot, tran_max;
         tran_tot = tran_max = 0.0;
@@ -6171,15 +6181,18 @@ void Sizer::Post_PowerOpt(int thread_id) {
     for(unsigned view = 0; view < numViews; ++view) {
         // cout << "WORST SLACK (" << thread_id << "-" << view << ") "
         //      << T[view]->getWorstSlack(clk_name[worst_corner]) << endl;
+        // bool old_att = CORR_AAT;
+        // CORR_AAT = true;
         UpdateCapsFromCells();
         CallTimer(view);
         CorrelatePT((unsigned)thread_id, view);
         CalcStats((unsigned)thread_id, true, "Initial after corr", view);
+        // CORR_AAT = old_att;
     }
 
     cout << "THREAD " << thread_id << " BEFORE KICKOPT" << endl;
     // CalcStats((unsigned)thread_id, true, "OPT");
-    if(VERBOSE >= 3) {
+    if(VERBOSE >= 1) {
         cout << "Initial TNS from Sizer     : " << skew_violation << " ns"
              << endl;
     }
@@ -6194,15 +6207,15 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
     cout << "Worst slack among views : " << worst_slack_worst << endl;
 
+    best_score_local =
+        calcScore(power, skew_violation, slew_violation, cap_violation);
     if(worst_slack_worst >= 0.0) {
         // timing feasible
         best_power_local = power;
-        best_failed_power_local = DBL_MAX;
     }
     else {
         // timing infeasible
         best_power_local = DBL_MAX;
-        best_failed_power_local = power;
     }
     SizeOut((string)opt_str);
 
@@ -6377,288 +6390,281 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 for(unsigned j = 0; j < numcells; j++)
                     cells[j].touched = false;
 
-                for(unsigned view = 0; view < numViews; ++view) {
-                    // CallTimer(view);
-                    // CorrelatePT((unsigned)thread_id, view);
-                    // CalcStats((unsigned)thread_id, true, "AFTER_PWROPT",
-                    // view);
+                int view = 0;
+                // CallTimer(view);
+                // CorrelatePT((unsigned)thread_id, view);
+                // CalcStats((unsigned)thread_id, true, "AFTER_PWROPT",
+                // view);
 
-                    ///// check fanout cells of critical cells
-                    if(TABU) {
-                        for(unsigned j = 0; j < numcells; j++) {
-                            if(GetCellSlack(cells[j]) < 0.0) {
-                                for(unsigned k = 0; k < cells[j].fos.size();
-                                    ++k) {
-                                    if(cells[j].fos[k] != UINT_MAX) {
-                                        cells[cells[j].fos[k]].touched = true;
-                                    }
+                ///// check fanout cells of critical cells
+                if(TABU) {
+                    for(unsigned j = 0; j < numcells; j++) {
+                        if(GetCellSlack(cells[j]) < 0.0) {
+                            for(unsigned k = 0; k < cells[j].fos.size(); ++k) {
+                                if(cells[j].fos[k] != UINT_MAX) {
+                                    cells[cells[j].fos[k]].touched = true;
                                 }
                             }
                         }
                     }
+                }
 
-                    if(slew_violation != 0.0 || (skew_violation != 0.0) ||
-                       worst_slack < 0.0) {
-                        double begin = cpuTime();
-                        unsigned same_ss_count = 0;
-                        unsigned swap_cnt = 0;
-                        double prev_ss = skew_violation;
-                        double curr_ss = prev_ss;
-                        unsigned change = 0;
-                        unsigned all_change = 0;
+                if(slew_violation != 0.0 || (skew_violation != 0.0) ||
+                   worst_slack < 0.0) {
+                    double begin = cpuTime();
+                    unsigned same_ss_count = 0;
+                    unsigned swap_cnt = 0;
+                    double prev_ss = skew_violation;
+                    double curr_ss = prev_ss;
+                    unsigned change = 0;
+                    unsigned all_change = 0;
 
-                        for(unsigned i = 0; i < 1; i++) {
-                            change = 0;
-                            all_change = 0;
+                    for(unsigned i = 0; i < 1; i++) {
+                        change = 0;
+                        all_change = 0;
 
-                            if(INIT_WORST_PATH && init_wns[view] > 0) {
-                                if(viewVioCnt[view] < 30 &&
-                                   viewVioCnt[view] > 0) {
-                                    change += InitWNSPath(view, 1);
-                                }
-                                if(change > 0) {
-                                    CallTimer(view);
-                                    CorrelatePT((unsigned)thread_id, view);
-                                    CalcStats((unsigned)thread_id, true,
-                                              "AFTER_INIT_PATH", view);
-                                }
+                        if(INIT_WORST_PATH && init_wns[view] > 0) {
+                            if(viewVioCnt[view] < 30 && viewVioCnt[view] > 0) {
+                                change += InitWNSPath(view, 1);
                             }
-
-                            if(toler <= worst_slack && slew_violation == 0.0) {
-                                break;
-                            }
-
-                            if(skew_violation == 0.0 && slew_violation == 0.0) {
-                                break;
-                            }
-
-                            if(FIX_CAP) {
-                                change += FwdFixCapViolation(view);
-                                change += BwdFixCapViolation(view);
-                                if(change > 0) {
-                                    CallTimer(view);
-                                    CorrelatePT((unsigned)thread_id, view);
-                                    CalcStats((unsigned)thread_id, true,
-                                              "AFTER_FIX_CAP", view);
-                                }
-                            }
-
-                            if(toler <= worst_slack && slew_violation == 0.0) {
-                                break;
-                            }
-
-                            if(skew_violation == 0.0 && slew_violation == 0.0) {
-                                break;
-                            }
-
-                            all_change += change;
-                            change = 0;
-                            if(FIX_SLEW) {
-                                change += FwdFixSlewViolation(1.0, view);
-                                if(change > 0) {
-                                    CallTimer(view);
-                                    CorrelatePT((unsigned)thread_id, view);
-                                    CalcStats((unsigned)thread_id, true,
-                                              "AFTER_FIX_SLEW", view);
-                                }
-                            }
-
-                            if(toler <= worst_slack && slew_violation == 0.0) {
-                                break;
-                            }
-
-                            if(skew_violation == 0.0 && slew_violation == 0.0) {
-                                break;
-                            }
-
-                            if(sensFuncT == 8 || sensFuncT == 9)
-                                CountNPaths(view);
-
-                            if(FIX_GLOBAL) {
-                                change +=
-                                    Attack(i + 1, GLOBAL, 30, 1.0, local_alpha,
-                                           thread_id, TIMING_OPT_GB, view);
-                            }
-
-                            all_change += change;
-                            // change = 0;
-                            // change +=
-                            //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
-                            //            thread_id, TIMING_OPT_GB, view);
-
                             if(change > 0) {
                                 CallTimer(view);
                                 CorrelatePT((unsigned)thread_id, view);
                                 CalcStats((unsigned)thread_id, true,
-                                          "AFTER_TIM_REC", view);
-                            }
-
-                            double wns;
-                            wns = min(max_neg_rslk, max_neg_fslk);
-
-                            cout << "TIM_REC_LOOP " << thread_id
-                                 << " view/itr/wns/TNS/PWR/swap : " << view
-                                 << " " << i << " " << wns << " "
-                                 << skew_violation << " " << power << " "
-                                 << all_change << " " << same_ss_count << endl;
-
-                            prev_ss = curr_ss;
-                            curr_ss = skew_violation;
-
-                            same_ss_count =
-                                (prev_ss > curr_ss && all_change > 0)
-                                    ? 0
-                                    : same_ss_count + 1;  // slack degradation
-
-                            cout << "CURRENT BEST TNS " << cur_best_tns << " "
-                                 << curr_ss << endl;
-                            if(curr_ss != 0 && cur_best_tns > curr_ss) {
-                                cout << "UPDATE BEST TNS..." << endl;
-                                cur_best_tns = curr_ss;
-                                for(unsigned j = 0; j < numcells; j++)
-                                    int_best_cells[j] = cells[j];
-                                updated_int_best_cells = true;
-                            }
-
-                            if(same_ss_count > SAME_SS_LIMIT)
-                                break;
-                            if(curr_ss == 0) {
-                                break;
-                            }
-
-                            cout << "CURRENT WNS " << wns << " "
-                                 << slack_margin2 << " / " << power << " "
-                                 << best_failed_power_local << endl;
-
-                            // if ( view == 0 ) {
-                            if(wns > slack_margin2 &&
-                               power < best_failed_power_local) {
-                                cout << "(" << thread_id
-                                     << ") Local best failed power is updated "
-                                        "(inside of power opt loop) "
-                                     << power << "/" << best_power_local
-                                     << endl;
-                                best_failed_power_local = power;
-                                best_alpha_local = local_alpha;
-                                string temp =
-                                    (string)opt_str + "_best_infeasible";
-                                pthread_mutex_lock(&mutex1);
-                                SizeOut(temp);
-                                pthread_mutex_unlock(&mutex1);
-                                for(unsigned j = 0; j < numcells; ++j) {
-                                    best_failed_cells_local[j] = cells[j];
-                                }
-                                updated_failed_local = true;
-                            }
-                            //}
-                            if(all_change == 0) {
-                                break;
+                                          "AFTER_INIT_PATH", view);
                             }
                         }
 
-                        viewRuntime[view] += cpuTime() - begin;
-                        cout << "Runtime TimingRecovery so far for view "
-                             << view << " : " << viewRuntime[view] << " sec. ("
-                             << viewRuntime[view] / 60 << " min. )" << endl;
+                        if(toler <= worst_slack && slew_violation == 0.0) {
+                            break;
+                        }
+
+                        if(skew_violation == 0.0 && slew_violation == 0.0) {
+                            break;
+                        }
+
+                        if(FIX_CAP) {
+                            change += FwdFixCapViolation(view);
+                            change += BwdFixCapViolation(view);
+                            if(change > 0) {
+                                CallTimer(view);
+                                CorrelatePT((unsigned)thread_id, view);
+                                CalcStats((unsigned)thread_id, true,
+                                          "AFTER_FIX_CAP", view);
+                            }
+                        }
+
+                        if(toler <= worst_slack && slew_violation == 0.0) {
+                            break;
+                        }
+
+                        if(skew_violation == 0.0 && slew_violation == 0.0) {
+                            break;
+                        }
+
+                        all_change += change;
+                        change = 0;
+                        if(FIX_SLEW) {
+                            change += FwdFixSlewViolation(1.0, view);
+                            if(change > 0) {
+                                CallTimer(view);
+                                CorrelatePT((unsigned)thread_id, view);
+                                CalcStats((unsigned)thread_id, true,
+                                          "AFTER_FIX_SLEW", view);
+                            }
+                        }
+
+                        if(toler <= worst_slack && slew_violation == 0.0) {
+                            break;
+                        }
+
+                        if(skew_violation == 0.0 && slew_violation == 0.0) {
+                            break;
+                        }
+
+                        if(sensFuncT == 8 || sensFuncT == 9)
+                            CountNPaths(view);
+
+                        if(FIX_GLOBAL) {
+                            change +=
+                                Attack(i + 1, GLOBAL, 30, 1.0, local_alpha,
+                                       thread_id, TIMING_OPT_GB, view);
+                        }
+
+                        all_change += change;
+                        // change = 0;
+                        // change +=
+                        //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
+                        //            thread_id, TIMING_OPT_GB, view);
+
+                        if(change > 0) {
+                            CallTimer(view);
+                            CorrelatePT((unsigned)thread_id, view);
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_TIM_REC", view);
+                        }
+
+                        double wns;
+                        wns = min(max_neg_rslk, max_neg_fslk);
+
+                        cout << "TIM_REC_LOOP " << thread_id
+                             << " view/itr/wns/TNS/PWR/swap : " << view << " "
+                             << i << " " << wns << " " << skew_violation << " "
+                             << power << " " << all_change << " "
+                             << same_ss_count << endl;
+
+                        prev_ss = curr_ss;
+                        curr_ss = skew_violation;
+
+                        same_ss_count =
+                            (prev_ss > curr_ss && all_change > 0)
+                                ? 0
+                                : same_ss_count + 1;  // slack degradation
+
+                        cout << "CURRENT BEST TNS " << cur_best_tns << " "
+                             << curr_ss << endl;
+                        if(curr_ss != 0 && cur_best_tns > curr_ss) {
+                            cout << "UPDATE BEST TNS..." << endl;
+                            cur_best_tns = curr_ss;
+                            for(unsigned j = 0; j < numcells; j++)
+                                int_best_cells[j] = cells[j];
+                            updated_int_best_cells = true;
+                        }
+
+                        if(same_ss_count > SAME_SS_LIMIT)
+                            break;
+                        if(curr_ss == 0) {
+                            break;
+                        }
+                        double t_score_local =
+                            calcScore(power, skew_violation, slew_violation,
+                                      cap_violation);
+                        printf(
+                            "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
+                            "score: %f\n",
+                            skew_violation, slew_violation, cap_violation,
+                            power, t_score_local);
+
+                        if(t_score_local < best_score_local) {
+                            cout << "(" << thread_id
+                                 << ") Local best failed power is updated "
+                                    "(inside of power opt loop) "
+                                 << power << "/" << best_score_local << endl;
+                            best_score_local = power;
+                            best_alpha_local = local_alpha;
+                            string temp = (string)opt_str + "_best_infeasible";
+                            pthread_mutex_lock(&mutex1);
+                            SizeOut(temp);
+                            pthread_mutex_unlock(&mutex1);
+                            for(unsigned j = 0; j < numcells; ++j) {
+                                best_failed_cells_local[j] = cells[j];
+                            }
+                            updated_failed_local = true;
+                        }
+                        //}
+                        if(all_change == 0) {
+                            break;
+                        }
                     }
+
+                    viewRuntime[view] += cpuTime() - begin;
+                    cout << "Runtime TimingRecovery so far for view " << view
+                         << " : " << viewRuntime[view] << " sec. ("
+                         << viewRuntime[view] / 60 << " min. )" << endl;
                 }
 
                 all_feasible = true;
-                for(unsigned view = 0; view < numViews; ++view) {
-                    if(useOpenSTA) {
-                        string find_timing = T[view]->doOneCmd("find_timing");
+                // for(unsigned view = 0; view < numViews; ++view) {
+                if(useOpenSTA) {
+                    string find_timing = T[view]->doOneCmd("find_timing");
+                }
+                double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
+                double tns = T[view]->getTNS();
+
+                double leak = 0.0;
+                double tot = 0.0;
+
+                leak = T[view]->getLeakPower();
+                tot = leak;
+
+                double tran_tot, tran_max;
+                tran_tot = tran_max = 0.0;
+                int tran_num = 0;
+                T[view]->getTranVio(tran_tot, tran_max, tran_num);
+
+                cout << "[view " << view
+                     << "] After timing recovery WNS from Timer    : " << wns
+                     << " ps (init: " << init_wns[view] << ")" << endl;
+                cout << "[view " << view
+                     << "] After timing recovery TNS            : " << tns
+                     << " ps (init: " << init_tns[view] << ")" << endl;
+                cout << "[view " << view
+                     << "] After timing recovery Leakage Power    : " << leak
+                     << endl;
+                cout << "[view " << view
+                     << "] After timing recovery Total Power    : " << tot
+                     << endl;
+
+                cout << "[view " << view
+                     << "] After timing recovery Tran           : " << tran_tot
+                     << " ps " << tran_num << " " << tran_max << " ps" << endl;
+
+                unsigned swap_count = 0;
+                unsigned uptype_swap_count = 0;
+                unsigned downtype_swap_count = 0;
+                unsigned upsize_swap_count = 0;
+                unsigned downsize_swap_count = 0;
+                unsigned hvt_init_count = 0;
+                unsigned hvt_count = 0;
+                for(unsigned i = 0; i < numcells; ++i) {
+                    if(g_cells[i].c_vtype == s) {
+                        ++hvt_init_count;
                     }
-                    double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
-                    double tns = T[view]->getTNS();
+                }
 
-                    double leak = 0.0;
-                    double tot = 0.0;
+                for(unsigned i = 0; i < numcells; ++i) {
+                    if(g_cells[i].type != cells[i].type) {
+                        ++swap_count;
+                        if(cells[i].c_vtype > g_cells[i].c_vtype) {
+                            uptype_swap_count++;
+                        }
+                        else if(cells[i].c_vtype < g_cells[i].c_vtype) {
+                            downtype_swap_count++;
+                        }
 
-                    leak = T[view]->getLeakPower();
-                    tot = leak;
-
-                    double tran_tot, tran_max;
-                    tran_tot = tran_max = 0.0;
-                    int tran_num = 0;
-                    T[view]->getTranVio(tran_tot, tran_max, tran_num);
-
-                    cout << "[view " << view
-                         << "] After timing recovery WNS from Timer    : "
-                         << wns << " ps (init: " << init_wns[view] << ")"
-                         << endl;
-                    cout << "[view " << view
-                         << "] After timing recovery TNS            : " << tns
-                         << " ps (init: " << init_tns[view] << ")" << endl;
-                    cout << "[view " << view
-                         << "] After timing recovery Leakage Power    : "
-                         << leak << endl;
-                    cout << "[view " << view
-                         << "] After timing recovery Total Power    : " << tot
-                         << endl;
-
-                    cout << "[view " << view
-                         << "] After timing recovery Tran           : "
-                         << tran_tot << " ps " << tran_num << " " << tran_max
-                         << " ps" << endl;
-
-                    unsigned swap_count = 0;
-                    unsigned uptype_swap_count = 0;
-                    unsigned downtype_swap_count = 0;
-                    unsigned upsize_swap_count = 0;
-                    unsigned downsize_swap_count = 0;
-                    unsigned hvt_init_count = 0;
-                    unsigned hvt_count = 0;
-                    for(unsigned i = 0; i < numcells; ++i) {
-                        if(g_cells[i].c_vtype == s) {
-                            ++hvt_init_count;
+                        if(cells[i].c_size > g_cells[i].c_size) {
+                            upsize_swap_count++;
+                        }
+                        else if(cells[i].c_size < g_cells[i].c_size) {
+                            downsize_swap_count++;
                         }
                     }
-
-                    for(unsigned i = 0; i < numcells; ++i) {
-                        if(g_cells[i].type != cells[i].type) {
-                            ++swap_count;
-                            if(cells[i].c_vtype > g_cells[i].c_vtype) {
-                                uptype_swap_count++;
-                            }
-                            else if(cells[i].c_vtype < g_cells[i].c_vtype) {
-                                downtype_swap_count++;
-                            }
-
-                            if(cells[i].c_size > g_cells[i].c_size) {
-                                upsize_swap_count++;
-                            }
-                            else if(cells[i].c_size < g_cells[i].c_size) {
-                                downsize_swap_count++;
-                            }
-                        }
-                        if(cells[i].c_vtype == s) {
-                            ++hvt_count;
-                        }
+                    if(cells[i].c_vtype == s) {
+                        ++hvt_count;
                     }
+                }
 
-                    double hvt_ratio = (double)hvt_count / (double)numcells;
-                    double hvt_init_ratio =
-                        (double)hvt_init_count / (double)numcells;
+                double hvt_ratio = (double)hvt_count / (double)numcells;
+                double hvt_init_ratio =
+                    (double)hvt_init_count / (double)numcells;
 
-                    cout << "[view " << view
-                         << "] # Swap             : " << swap_count << "("
-                         << uptype_swap_count << "/" << downtype_swap_count
-                         << "/" << upsize_swap_count << "/"
-                         << downsize_swap_count << ")" << endl;
-                    cout << "[view " << view
-                         << "] % HVT cells        : " << hvt_ratio * 100.0
-                         << endl;
-                    cout << "[view " << view
-                         << "] % HVT cells (init) : " << hvt_init_ratio * 100.0
-                         << endl;
-                    CallTimer(view);
-                    CorrelatePT((unsigned)thread_id, view);
-                    CalcStats((unsigned)thread_id, true, "AFTER_TIME_RECOVERY",
-                              view);
+                cout << "[view " << view
+                     << "] # Swap             : " << swap_count << "("
+                     << uptype_swap_count << "/" << downtype_swap_count << "/"
+                     << upsize_swap_count << "/" << downsize_swap_count << ")"
+                     << endl;
+                cout << "[view " << view
+                     << "] % HVT cells        : " << hvt_ratio * 100.0 << endl;
+                cout << "[view " << view
+                     << "] % HVT cells (init) : " << hvt_init_ratio * 100.0
+                     << endl;
+                CallTimer(view);
+                CorrelatePT((unsigned)thread_id, view);
+                CalcStats((unsigned)thread_id, true, "AFTER_TIME_RECOVERY",
+                          view);
 
-                    if((skew_violation != 0.0) || (worst_slack < 0.0)) {
-                        all_feasible = false;
-                    }
+                if((skew_violation != 0.0) || (worst_slack < 0.0)) {
+                    all_feasible = false;
                 }
                 Profile();
             }
@@ -6735,10 +6741,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     cout << "[view " << view
                          << "] Local best power  WNS from Timer    : " << wns
-                         << " ns (init: " << init_wns[view] << ")" << endl;
+                         << " ps (init: " << init_wns[view] << ")" << endl;
                     cout << "[view " << view
                          << "] Local best power  TNS            : " << tns
-                         << " ns (init: " << init_tns[view] << ")" << endl;
+                         << " ps (init: " << init_tns[view] << ")" << endl;
                     cout << "[view " << view
                          << "] Local best power Leakage Power    : " << leak
                          << endl;
@@ -6748,7 +6754,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     cout << "[view " << view
                          << "] Local best power Tran           : " << tran_tot
-                         << " ns " << tran_num << " " << tran_max << " ns"
+                         << " ps " << tran_num << " " << tran_max << " ps"
                          << endl;
 
                     unsigned swap_count = 0;
@@ -6841,11 +6847,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
             updated_local = true;
         }
 
-        if(!all_feasible && power < best_failed_power_local) {
+        if(!all_feasible && best_score_local < best_score) {
             cout << "(" << thread_id
                  << ") Local best failed power is updated -- final power opt. "
-                 << power << "/" << best_failed_power_local << endl;
-            best_failed_power_local = power;
+                 << power << "/" << best_score_local << endl;
+            best_score = best_score_local;
             string temp = (string)opt_str + "_best_infeasible";
             pthread_mutex_lock(&mutex1);
             SizeOut(temp);
@@ -6855,7 +6861,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             updated_failed_local = true;
         }
-
+#if 0
         if(!all_feasible) {
             if(updated_local) {
                 for(unsigned j = 0; j < numcells; ++j) {
@@ -6874,10 +6880,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
             SizeOut(temp);
             pthread_mutex_unlock(&mutex1);
         }
-
+#endif
         cout << "(" << thread_id << ") Power after KICK iteration " << i + 1
              << " kick ratio " << kick_ratio << " : " << power << endl;
-
+        // local parameters update
         if(updated_local) {
             if(all_feasible) {
                 cout << "(" << thread_id
@@ -6888,7 +6894,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 cout << "(" << thread_id
                      << ") Local best failed power is "
                         "updated (in the kick loop) "
-                     << power << "/" << best_failed_power_local << endl;
+                     << power << "/" << best_score_local << endl;
             // degrade_count = 0;
             kick_ratio = kick_ratio * 0.9;
             kick_slack = kick_slack * 0.9;
@@ -7073,9 +7079,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
         }
 
-        if(best_failed_power_local < best_failed_power) {
+        if(best_score_local < best_score) {
             cout << "From (" << thread_id << ") BEST FAILED POWER "
-                 << best_failed_power_local << endl;
+                 << best_score << endl;
             best_failed_power = best_power_local;
             best_failed_cells_poweropt.resize(numcells);
             for(unsigned i = 0; i < numcells; i++) {
@@ -8568,11 +8574,11 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
                             cout << "[view " << view
                                  << "] Local best power  WNS from Timer    : "
-                                 << wns << " ns (init: " << init_wns[view]
+                                 << wns << " ps (init: " << init_wns[view]
                                  << ")" << endl;
                             cout << "[view " << view
                                  << "] Local best power  TNS            : "
-                                 << tns << " ns (init: " << init_tns[view]
+                                 << tns << " ps (init: " << init_tns[view]
                                  << ")" << endl;
                             cout << "[view " << view
                                  << "] Local best power Leakage Power    : "
@@ -8584,8 +8590,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
                             cout << "[view " << view
                                  << "] Local best power Tran           : "
-                                 << tran_tot << " ns " << tran_num << " "
-                                 << tran_max << " ns" << endl;
+                                 << tran_tot << " ps " << tran_num << " "
+                                 << tran_max << " ps" << endl;
 
                             unsigned swap_count = 0;
                             unsigned uptype_swap_count = 0;

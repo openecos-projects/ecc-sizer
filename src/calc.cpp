@@ -231,8 +231,9 @@ double Sizer::CalcSlewViolation(unsigned view) {
                        pins[view][curpin].name.c_str(),
                        pins[view][curpin].max_tran);
             }
-            slew_viol += max(
-                pins[view][curpin].rtran - pins[view][curpin].max_tran, 0.0);
+            double t_tran =
+                max(pins[view][curpin].rtran, pins[view][curpin].ftran);
+            slew_viol += max(t_tran - pins[view][curpin].max_tran, 0.0);
             // slew_viol += max(
             //     pins[view][curpin].ftran - pins[view][curpin].max_tran, 0.0);
 
