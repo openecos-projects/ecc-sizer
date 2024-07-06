@@ -593,9 +593,12 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
         if(lib_cell == NULL) {
             continue;
         }
-
         string main_cell_type = lib_cell->footprint;
         cell->c_size = lib_cell->c_size;
+        if(VERBOSE >= 1) {
+            printf("cell : %s, inital size : %d\n", cell->name.c_str(),
+                   cell->c_size);
+        }
 
         if((temp_it = check_map.find(main_cell_type)) != check_map.end()) {
             cell->main_lib_cell_id = (int)temp_it->second;
@@ -656,11 +659,13 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
     // 如果有多个高vt呢,根据leakage顺序进行排序。
     // list size first
     std::set< string > lib_cell_size_set;
+    printf("sort by leakage candidate_cell_info->name list: ");
     for(auto candidate_cell_info : candidate_list) {
         // slowest vt first
         // if((*it)->c_vtype != 0) {
         //     continue;
         // }
+        printf("%s ", candidate_cell_info->name.c_str());
         int vt = 0;
         string newCellName = candidate_cell_info->name;
         if(_sizer->numVt == 3) {
@@ -718,6 +723,7 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
             lib_cell_table.lib_vt_size_table[c_size][vt] = candidate_cell_info;
         }
     }
+    printf("\n");
     // cout << "-------------------" << endl;
 
     // add vt
@@ -993,9 +999,9 @@ void Circuit::lib_parser(string filename, unsigned corner) {
             cell.libname = lib.name;
             cell.name = tokens[1];
             string cellName = cell.name;
-            cell.dontUse = ignore_cell || isDontUse(cell.name);
+            cell.dontUse = isDontUse(cell.name);
             if(ignore_cell) {
-                _sizer->dontUseCell.push_back(cell.name);
+                _sizer->dontTouchCell.push_back(cell.name);
             }
             cell.max_tran = tmp_trans;
             // cout << "Reading cell " << cell.name << endl;
@@ -1072,13 +1078,27 @@ void Circuit::lib_parser(string filename, unsigned corner) {
             }
         }
     }
-
+#if 1
+    int t_corner = 0;
     std::map< string, list< LibCellInfo* > >::iterator it;
-    for(it = _sizer->func_lib_cell_list[corner].begin();
-        it != _sizer->func_lib_cell_list[corner].end(); ++it) {
-        (it->second).sort(compLeak);
+    for(it = _sizer->func_lib_cell_list[t_corner].begin();
+        it != _sizer->func_lib_cell_list[t_corner].end(); ++it) {
+        for(LibCellInfo* lib_cell_info : it->second) {
+            double partial_order = 0;
+            int partial_count = 0;
+            for(auto [id, pin] : lib_cell_info->pins) {
+                if(pin.isInput) {
+                    partial_order += pin.capacitance;
+                    partial_count++;
+                }
+            }
+            lib_cell_info->partial_order = partial_order / partial_count;
+        }
+        (it->second).sort([&](LibCellInfo* c1, LibCellInfo* c2) {
+            return c1->partial_order < c2->partial_order;
+        });
     }
-
+#endif
     is.close();
 }
 

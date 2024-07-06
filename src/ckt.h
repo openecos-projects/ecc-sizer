@@ -638,7 +638,7 @@ struct LibCellInfo {
     double le_rise;
     double Ron;
     double max_tran;
-
+    double partial_order;
     string output;
 
     map< string, unsigned > lib_pin2id_map;

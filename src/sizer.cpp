@@ -2768,7 +2768,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                                 delta_cap_size = 0.0;
                             }
 
-                            if(delta_cap_size <= 0) {
+                            if(delta_cap_size >= 0) {
                                 delta_impact_size = 0.0;
                             }
                             else {
@@ -2851,7 +2851,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 
                     OneTimer(cells[cur], STA_MARGIN, view);
 
-                    delta_target -= it->tie_break;
+                    delta_target += it->tie_break;
                     if(delta_target < 0) {
                         break;
                     }
@@ -2859,8 +2859,9 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 
                 double loadCap = 0.;
                 for(unsigned j = 0; j < nets[corner][outnet].outpins.size();
-                    j++)
+                    j++) {
                     loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
+                }
 
                 pins[view][cells[cur].outpins[k]].totcap =
                     nets[corner][outnet].cap + loadCap;

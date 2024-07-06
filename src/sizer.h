@@ -485,7 +485,7 @@ class Sizer {
     void InitNets();
 
     // timer.cpp
-    LibCellInfo *sizing_progression(CELL &cell, int factor, int dir,
+    LibCellInfo *sizing_progression(CELL &cell, int steps, int dir,
                                     unsigned corner = 0);
     void LookupST(CELL &cell, int factor, double *rtran, double *ftran, int dir,
                   double delta_cap, unsigned view = 0);

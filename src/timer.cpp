@@ -275,7 +275,7 @@ double Sizer::GetFICellSlack(CELL &cell, unsigned view) {
 
     return slack;
 }
-
+// has a bug?
 LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
                                        unsigned view) {
     unsigned corner = mmmcViewList[view].corner;
