@@ -5,8 +5,10 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <set>
+#include <string>
 #include "sta/ConcreteNetwork.hh"
 #include "sta/PortExtCap.hh"
 #include "sta/InputDrive.hh"
@@ -118,6 +120,33 @@ void Circuit::InitData() {
 
 void Circuit::Parser(string benchmark) {
     InitData();
+    ifstream infile;
+    infile.open(_sizer->libLibPath + "/../libcell_id.csv");
+    int maxx = 0;
+    if(infile.is_open()) {
+        string line;
+        while(getline(infile, line)) {
+            std::vector< std::string > tokens;
+            int nPos = line.find(',');
+            string cell_name = line.substr(0, nPos);
+            string cell_id_str = line.substr(nPos + 1);
+            int cell_id = std::stoi(cell_id_str);
+            _sizer->cellName2EquaivaID[cell_name] = cell_id;
+            maxx = std::max(maxx, cell_id);
+        }
+    }
+    else {
+        printf("Can't read lib_cell_id.csv\n");
+        assert(0);
+    }
+    _sizer->EquaivaID2cellNames.resize(maxx + 1);
+    for(auto it = _sizer->cellName2EquaivaID.begin();
+        it != _sizer->cellName2EquaivaID.end(); ++it) {
+        string cell_name = it->first;
+        unsigned cell_id = it->second;
+        _sizer->EquaivaID2cellNames[cell_id].push_back(cell_name);
+    }
+    infile.close();
     if(!_sizer->mmmcOn) {
         for(unsigned i = 0; i < _sizer->libLibs.size(); ++i) {
             cout << "Parsing lib...     " << _sizer->libLibs[i] << endl;
@@ -523,13 +552,13 @@ void Circuit::assignLibPinId() {
                 }
             }
 
-            if(lib_cell_info->footprint == "0" ||
-               lib_cell_info->footprint == "1") {
-                g_cells[i].isDontTouch = true;
-                if(VERBOSE >= 1)
-                    cout << "TIE DONT TOUCH " << g_cells[i].name << " "
-                         << g_cells[i].type << endl;
-            }
+            // if(lib_cell_info->footprint == "0" ||
+            //    lib_cell_info->footprint == "1") {
+            //     g_cells[i].isDontTouch = true;
+            //     if(VERBOSE >= 1)
+            //         cout << "TIE DONT TOUCH " << g_cells[i].name << " "
+            //              << g_cells[i].type << endl;
+            // }
         }
         else {
             if(VERBOSE >= 1)
@@ -596,8 +625,8 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
         string main_cell_type = lib_cell->footprint;
         cell->c_size = lib_cell->c_size;
         if(VERBOSE >= 1) {
-            printf("cell : %s, inital size : %d\n", cell->name.c_str(),
-                   cell->c_size);
+            printf("instance : %s, inital cell_name %s, inital size : %d\n",
+                   cell->name.c_str(), lib_cell->name.c_str(), cell->c_size);
         }
 
         if((temp_it = check_map.find(main_cell_type)) != check_map.end()) {
@@ -665,7 +694,8 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
         // if((*it)->c_vtype != 0) {
         //     continue;
         // }
-        printf("%s ", candidate_cell_info->name.c_str());
+        printf("%s/%f ", candidate_cell_info->name.c_str(),
+               candidate_cell_info->width);
         int vt = 0;
         string newCellName = candidate_cell_info->name;
         if(_sizer->numVt == 3) {
@@ -2486,9 +2516,6 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
             finishedReading = true;
             if(cell.footprint == "" || NO_FOOTPRINT) {
                 cell.footprint = cell.name;
-                if(cell.name == "O2A1O1Ixp5_ASAP7_75t_R") {
-                    printf("debug debug!!!!");
-                }
                 if(VERBOSE > 1)
                     cout << "GET FOOTPRINT FOR " << cell.footprint << endl;
                 size_t start = cell.footprint.find_first_of("_");
@@ -2500,9 +2527,8 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
                     cell.footprint = "NA";
                 if(ASAP7) {
                     string temp = cell.name;
-                    size_t start = temp.find_first_of("x");
-                    temp.erase(start, temp.length() - start);
-                    cell.footprint = temp;
+                    cell.footprint =
+                        to_string(_sizer->cellName2EquaivaID.at(cell.name));
                     // cout << "footprint " << cell.name << " " <<
                     //         cell.footprint << endl;
                 }

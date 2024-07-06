@@ -389,7 +389,8 @@ class Sizer {
 
    public:
     designTiming **T;
-
+    std::map< string, int > cellName2EquaivaID;
+    std::vector< std::vector< string > > EquaivaID2cellNames;
    private:
     double tnsPenalty = 10, slewPenalty = 20, capPenalty = 20;
 

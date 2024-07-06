@@ -864,9 +864,6 @@ class Circuit {
     void readSpefChangePinName(string& pin_name);
     sta::dbSta* _sta = nullptr;
     Tcl_Interp* sta_interp = nullptr;
-    std::map< string, int > cellName2EquaivaID;
-    std::vector< std::vector< string > > EquaivaID2cellNames;
-
    private:
     std::ifstream is;
     Sizer* _sizer;
