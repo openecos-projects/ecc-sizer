@@ -48,7 +48,7 @@ void Sizer::InitNets() {
         for(unsigned i = 0; i < numnets; i++) {
             vector< SUB_NODE > &snv = g_nets[j][i].subNodeVec;
 
-            if(snv.size() == 0)
+            if(snv.size() == 0 || g_nets[j][i].name == this->clk_name[0])
                 continue;
             calc_total_res(snv);
             calc_res_vec(snv, g_nets[j][i]);
