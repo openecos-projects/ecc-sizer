@@ -3475,7 +3475,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
         int node_index = 1;
         std::vector< SUB_NODE >::iterator subNodeIter;
-
+        if(netNameStr == _sizer->clk_name[0]) {
+            continue;
+        }
         Net* net = _sta->network()->findNet(netNameStr.c_str());
         Parasitic* net_parasitic = parasitics->findParasiticNetwork(net, ap);
         if(net_parasitic == nullptr) {
