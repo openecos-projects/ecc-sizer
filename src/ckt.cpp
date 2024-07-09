@@ -624,7 +624,7 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
         }
         string main_cell_type = lib_cell->footprint;
         cell->c_size = lib_cell->c_size;
-        if(VERBOSE >= 1) {
+        if(VERBOSE >= 4) {
             printf("instance : %s, inital cell_name %s, inital size : %d\n",
                    cell->name.c_str(), lib_cell->name.c_str(), cell->c_size);
         }

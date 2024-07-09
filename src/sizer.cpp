@@ -2703,19 +2703,17 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 
         for(unsigned k = 0; k < cells[cur].outpins.size(); ++k) {
             double maxCap = 0.0;
+            int out_pin_id = cells[cur].outpins[k];
 
-            maxCap =
-                lib_cell_info->pins[pins[view][cells[cur].outpins[k]].lib_pin]
-                    .maxCapacitance;
+            maxCap = lib_cell_info->pins[pins[view][out_pin_id].lib_pin]
+                         .maxCapacitance;
+            unsigned outnet = pins[view][out_pin_id].net;
 
-            unsigned outnet = pins[view][cells[cur].outpins[k]].net;
+            if(pins[view][out_pin_id].totcap > maxCap)
+                origins += (pins[view][out_pin_id].totcap - maxCap);
 
-            if(pins[view][cells[cur].outpins[k]].totcap > maxCap)
-                origins += (pins[view][cells[cur].outpins[k]].totcap - maxCap);
-
-            while(pins[view][cells[cur].outpins[k]].totcap > maxCap) {
-                double delta_target =
-                    pins[view][cells[cur].outpins[k]].totcap - maxCap;
+            while(pins[view][out_pin_id].totcap > maxCap) {
+                double delta_target = pins[view][out_pin_id].totcap - maxCap;
 
                 set< entry > targets;
 
@@ -2729,7 +2727,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                     }
 
                     if(getLibCellInfo(cells[curfo], corner) == NULL ||
-                       isff(cells[curfo])) {
+                       isff(cells[curfo]) || cells[curfo].isDontTouch) {
                         continue;
                     }
 
@@ -2890,11 +2888,14 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 #endif
         }
     }
-    cout << remains << " fF out of " << origins << " fF remains. " << endl;
+    printf("Fwd FixCap %d cells were changed\n", change);
+    cout << remains << " fF remains, origins " << origins << " fF . " << endl;
     cap_violation = remains;
     return change;
 }
 
+// increase the size of the cells to increase the maxCap, furthermore fix the
+// cap violation.
 unsigned Sizer::BwdFixCapViolation(unsigned view) {
     unsigned change = 0;
     cout << "Bwd fix cap violation .. for view " << view << " ";
@@ -2984,6 +2985,8 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
 }
 
 // FIXME: This function invoke calc_stats for each cell. This is not efficient.
+// It should be invoked only once for all cells.
+// FIXME: calcStats needs to be updated to handle one cell at a time.
 unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
     unsigned change = 0;
     unsigned thread_id = 0;
@@ -3080,8 +3083,9 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     prev_tns = viewTNS[view];
 
                     bool change_size = cell_resize(cells[cur], 1);
-
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                    if(change_size) {
+                        OneTimer(cells[cur], STA_MARGIN, view);
+                    }
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
@@ -3099,10 +3103,10 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     if(delta_tran > 0.0)
                         delta_tran = 0;
 
-                    if(change_size)
+                    if(change_size) {
                         cell_resize(cells[cur], -1);
-
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                        OneTimer(cells[cur], STA_MARGIN, view);
+                    }
 
                     double delta_sw_power, delta_leak, delta_int;
 
@@ -3261,8 +3265,9 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     prev_tns = viewTNS[view];
 
                     bool change_size = cell_resize(cells[ficell], 1);
-
-                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    if(change_size) {
+                        OneTimer(cells[ficell], STA_MARGIN, view);
+                    }
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
