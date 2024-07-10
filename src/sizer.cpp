@@ -3697,7 +3697,13 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 
             for(unsigned i = 0; i < numcells; i++) {
                 bool attack = false;
-
+                if(cells[i].isClockCell)
+                    continue;
+                if(cells[i].isDontTouch)
+                    continue;
+                if(isff(cells[i])) {
+                    continue;
+                }
                 for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
                     if(pins[view][cells[i].outpins[j]].rslk <
                            max_neg_rslk * RATIO * 0.01 ||
@@ -4025,7 +4031,10 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
                             continue;
                         if(isMin(cells[curfo]))
                             continue;  // min size
-
+                        if(cells[curfo].isClockCell)
+                            continue;
+                        if(cells[curfo].isDontTouch)
+                            continue;
                         entry tmpEntry;
                         tmpEntry.id = curfo;
                         tmpEntry.change = DNSIZE;
