@@ -54,6 +54,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include "ord/Timing.h"
 #include "sta/Sta.hh"
 #include "utils.h"
 #include "sizer.h"
@@ -295,6 +296,7 @@ double designTiming::getLeakPower() {
     else {
         double totalLeakagePower = 0.0;
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+// #progma omp parallel for
         for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
             totalLeakagePower +=
                 _sizer->_ckt->_ord_timing->staticPower(inst, corner);
@@ -369,6 +371,61 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
                         num++;
                     }
                     max = std::max(max, slew_diff);
+                }
+            }
+        }
+        // ofs.close();
+        return;
+    }
+    //_tclExpression = (char *)_tclInputString.c_str();
+    double begin = cpuTime();
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+
+    pt_time += cpuTime() - begin;
+    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+    float temp1;
+    float temp2;
+    int temp3;
+    sscanf(_tclAnswer.c_str(), "%f%f%d", &temp1, &temp2, &temp3);
+    tot = temp1;
+    max = temp2;
+    num = temp3;
+}
+
+void designTiming::getCapVio(double &tot, double &max, int &num) {
+    if(program == PT) {
+        _tclInputString = "PtGetCapVio ";
+    }
+    else if(program == ETS) {
+        _tclInputString = "EtsGetCapVio ";
+    }
+    else if(program == OS) {
+        _tclInputString = "OSGetCapVio ";
+        auto design = _sizer->_ckt->_ord_design;
+        // ofstream ofs("tran_vio1.txt");
+        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+        for(auto inst : design->getBlock()->getInsts()) {
+            for(auto pin_ : inst->getITerms()) {
+                if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+                   pin_->getNet()->getSigType() != "GROUND" &&
+                   pin_->getNet()->getSigType() != "CLOCK" && pin_->isOutputSignal()) {
+                    auto m_term = pin_->getMTerm();
+                    double now_cap =
+                        _sizer->_ckt->_ord_timing->getNetCap(pin_->getNet(), corner, ord::Timing::Max);
+                    double cap_limit =
+                        _sizer->_ckt->_ord_timing->getMaxCapLimit(m_term);
+                    double cap_diff = std::max(
+                        (now_cap - cap_limit) / _sizer->cap_unit, 0.0);
+                    tot += cap_diff;
+                    if(cap_diff > 0) {
+                        // cout
+                        //     << pin_->getName()
+                        //     << " max tran vio: " << now_slew /
+                        //     _sizer->time_unit
+                        //     << " " << slew_limit / _sizer->time_unit << endl;
+                        num++;
+                    }
+                    max = std::max(max, cap_diff);
                 }
             }
         }

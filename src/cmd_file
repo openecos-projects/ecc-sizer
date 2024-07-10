@@ -30,7 +30,7 @@
 -fix_slew
 -fix_cap
 -fix_global
--minimum
+# -minimum
 -trial_rate 0.3
 -slack_margin 0
 -verbose 1

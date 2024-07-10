@@ -1047,9 +1047,9 @@ void Sizer::Clean() {
     system(Commands);
 }
 double Sizer::calcScore(double leakage, double tns, double slew, double cap) {
-    double score = leakage + tnsPenalty * fabs(tns) + slewPenalty * fabs(slew) +
-                   capPenalty * fabs(cap);
-    return score;
+    double t_score = leakage + tnsPenalty * fabs(tns) +
+                     slewPenalty * fabs(slew) + capPenalty * fabs(cap);
+    return t_score;
 }
 
 void Sizer::CleanIntFiles() {
@@ -5607,7 +5607,7 @@ void *timer_thread(void *void_thread_args) {
 void *static_poweropt_driver(void *void_thread_args) {
     struct THREAD_ARGS *thread_args;
     thread_args = (struct THREAD_ARGS *)void_thread_args;
-    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    // pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
     // for timeout
     //
     // pthread_t t_timer;
@@ -5689,6 +5689,10 @@ void Sizer::Parallel_Sizer_Launcher() {
         int tran_num = 0;
         T[view]->getTranVio(tran_tot, tran_max, tran_num);
 
+        double cap_tot, cap_max;
+        cap_tot = cap_max = 0.0;
+        int cap_num = 0;
+        T[view]->getCapVio(cap_tot, cap_max, cap_num);
         cout << "[view " << view << "] Initial WNS from Timer    : " << wns
              << " ps" << endl;
         cout << "[view " << view << "] Initial TNS            : " << tns
@@ -5722,6 +5726,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         init_tns[view] = tns;
         init_leak[view] = leak;
         init_tot[view] = tot;
+        init_score[view] = calcScore(leak, tns, tran_tot, cap_tot);
         if(view == 0)
             best_tns = tns;
         if(init_wns_worst > init_wns[view]) {
@@ -5738,7 +5743,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     if(VAR_GB_TH > 0.0)
         VAR_GB_TH = -clk_period[worst_corner] * 0.1;
 
-    best_power = DBL_MAX;
+    best_score = DBL_MAX;
     second_best_power = DBL_MAX;
     // SetGB();
 
@@ -5766,13 +5771,13 @@ void Sizer::Parallel_Sizer_Launcher() {
         for(unsigned i = 0; i < numcells; i++)
             best_cells_poweropt[i] = g_cells[i];
 
-        best_failed_cells.resize(numcells);
-        for(unsigned i = 0; i < numcells; i++)
-            best_failed_cells[i] = g_cells[i];
+        // best_failed_cells.resize(numcells);
+        // for(unsigned i = 0; i < numcells; i++)
+        //     best_failed_cells[i] = g_cells[i];
 
-        best_failed_cells_poweropt.resize(numcells);
-        for(unsigned i = 0; i < numcells; i++)
-            best_failed_cells_poweropt[i] = g_cells[i];
+        // best_failed_cells_poweropt.resize(numcells);
+        // for(unsigned i = 0; i < numcells; i++)
+        //     best_failed_cells_poweropt[i] = g_cells[i];
 
         second_best_cells_poweropt.resize(numcells);
         for(unsigned i = 0; i < numcells; i++)
@@ -5851,12 +5856,12 @@ void Sizer::Parallel_Sizer_Launcher() {
             thread_args.clear();
 
             if(PRFT_ONLY) {
-                cout << "Best feasible power after POWEROPT on TOP = "
-                     << best_power << " uW " << endl;
+                cout << "Best feasible score after POWEROPT on TOP = "
+                     << best_score << " uW " << endl;
             }
             else {
-                cout << "Best feasible power after POWEROPT on TOP = "
-                     << best_power << " uW " << endl;
+                cout << "Best feasible score after POWEROPT on TOP = "
+                     << best_score << " uW " << endl;
             }
 
             double wns, power;
@@ -5864,11 +5869,11 @@ void Sizer::Parallel_Sizer_Launcher() {
             time_LeakOpt = cpuTime() - begin;
 
             if(VERBOSE >= 1) {
-                cout << "BEST POWER " << best_power << " " << second_best_power
+                cout << "BEST score " << best_score << " " << second_best_power
                      << endl;
             }
 
-            if(best_power != DBL_MAX) {
+            if(best_score != DBL_MAX) {
                 vector< CellSol > current_cells;
                 current_cells.resize(numcells);
                 for(unsigned i = 0; i < numcells; i++) {
@@ -5878,7 +5883,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                         (int)best_cells_poweropt[i].c_size;
                 }
                 all_cells.push_back(current_cells);
-                powerlist.push_back(best_power);
+                powerlist.push_back(best_score);
                 if(VERBOSE >= 1) {
                     cout << "COPY SOL FROM BEST DONE " << endl;
                 }
@@ -5961,7 +5966,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         else {
             init_power = init_tot[0];
         }
-
+#if 0
         double vio2, power2 = 0.0;
         double vio3, power3 = 0.0;
         ReportWithPT(best_failed_cells, "best_failed_final", vio2, power2, 0);
@@ -5982,7 +5987,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                                    power3, 0);
             }
         }
-
+#endif
         if(vio != 0 && vio <= -slack_margin) {
             cout << "WNS = " << vio << " SLACK MARGIN = " << slack_margin
                  << endl;
@@ -6095,18 +6100,10 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
         }
     }
 
-    if(skew_violation == 0.) {
-        feasible = true;
-        best_cells.resize(numcells);
-        for(unsigned i = 0; i < numcells; i++)
-            best_cells[i] = cells[i];
-    }
-    else {
-        feasible = false;
-        best_failed_cells.resize(numcells);
-        for(unsigned i = 0; i < numcells; i++)
-            best_failed_cells[i] = cells[i];
-    }
+    feasible = true;
+    best_cells.resize(numcells);
+    for(unsigned i = 0; i < numcells; i++)
+        best_cells[i] = cells[i];
 
     oneTMR = (cpuTime() - oneTMR);
     cout << "[PostWNSOpt] with correlation runtime: " << oneTMR << endl;
@@ -6114,21 +6111,16 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     size_str = input + "_wns_opt_final";
     SizeOut(size_str);
     double wns, power;
-    if(feasible) {
-        ReportWithPT(best_cells, "wns_opt_final", wns, power);
-    }
-    else {
-        ReportWithPT(best_failed_cells, "wns_opt_final_failed", wns, power);
-    }
+    ReportWithPT(best_cells, "wns_opt_final", wns, power);
 }
 
 // JL
 void Sizer::Post_PowerOpt(int thread_id) {
     cells = new CELL[numcells];
     vector< CELL > best_cells_local;
-    vector< CELL > best_failed_cells_local;
+    // vector< CELL > best_failed_cells_local;
     best_cells_local.resize(numcells);
-    best_failed_cells_local.resize(numcells);
+    // best_failed_cells_local.resize(numcells);
 
     pthread_mutex_lock(&mutex1);
 
@@ -6163,7 +6155,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     for(unsigned i = 0; i < numcells; i++) {
         cells[i] = best_cells_poweropt[i];
         best_cells_local[i] = best_cells_poweropt[i];
-        best_failed_cells_local[i] = best_cells_poweropt[i];
+        // best_failed_cells_local[i] = best_cells_poweropt[i];
     }
 
     if(start_index == 0) {
@@ -6215,14 +6207,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
     best_score_local =
         calcScore(power, skew_violation, slew_violation, cap_violation);
-    if(worst_slack_worst >= 0.0) {
-        // timing feasible
-        best_power_local = power;
-    }
-    else {
-        // timing infeasible
-        best_power_local = DBL_MAX;
-    }
     SizeOut((string)opt_str);
 
     pthread_mutex_lock(&mutex1);
@@ -6264,7 +6248,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
         kick_max_iteration = 1;
     }
     cout << "KICK MAX ITER: " << kick_max_iteration << endl;
-    double prev_best_power = best_power;
+    double prev_best_score = best_score;
     bool g_updated_local = false;
     bool g_updated_failed_local = false;
     for(unsigned i = 0; i < kick_max_iteration; i++) {
@@ -6542,28 +6526,28 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(curr_ss == 0) {
                             break;
                         }
-                        double t_score_local =
-                            calcScore(power, skew_violation, slew_violation,
-                                      cap_violation);
+                        // double t_score_local =
+                        //     calcScore(power, skew_violation, slew_violation,
+                        //               cap_violation);
                         printf(
                             "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
                             "score: %f\n",
                             skew_violation, slew_violation, cap_violation,
-                            power, t_score_local);
+                            power, score);
 
-                        if(t_score_local < best_score_local) {
+                        if(score < best_score_local) {
                             cout << "(" << thread_id
-                                 << ") Local best failed power is updated "
+                                 << ") Local best score is updated "
                                     "(inside of power opt loop) "
-                                 << power << "/" << best_score_local << endl;
-                            best_score_local = power;
+                                 << power << "/" << score << endl;
+                            best_score_local = score;
                             best_alpha_local = local_alpha;
                             string temp = (string)opt_str + "_best_infeasible";
                             pthread_mutex_lock(&mutex1);
                             SizeOut(temp);
                             pthread_mutex_unlock(&mutex1);
                             for(unsigned j = 0; j < numcells; ++j) {
-                                best_failed_cells_local[j] = cells[j];
+                                best_cells_local[j] = cells[j];
                             }
                             updated_failed_local = true;
                         }
@@ -6578,7 +6562,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                          << " : " << viewRuntime[view] << " sec. ("
                          << viewRuntime[view] / 60 << " min. )" << endl;
                 }
-
+#if 0
                 all_feasible = true;
                 // for(unsigned view = 0; view < numViews; ++view) {
                 if(useOpenSTA) {
@@ -6668,7 +6652,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 CorrelatePT((unsigned)thread_id, view);
                 CalcStats((unsigned)thread_id, true, "AFTER_TIME_RECOVERY",
                           view);
-
+#endif
                 if((skew_violation != 0.0) || (worst_slack < 0.0)) {
                     all_feasible = false;
                 }
@@ -6676,11 +6660,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             for(unsigned j = 0; j < numcells; j++)
                 cells[j].touched = false;
-
+#if 0
             CallTimer();
             CorrelatePT((unsigned)thread_id);
             CalcStats((unsigned)thread_id, true, "AFTER_PWROPT");
-
+#endif
             // POWER reduce loop
             if((skew_violation_worst == 0.0) || (toler <= worst_slack_worst)) {
                 cout << "REDUCE LEAK ITER " << init_wns_worst << " " << toler
@@ -6698,9 +6682,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 // }
                 CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT");
 
-                accept = ReducePowerLegal(
-                    thread_id, localSFlist[thread_id], leak_iter, local_alpha,
-                    toler, peephole_opt, updated_local, best_cells_local);
+                accept = ReducePowerLegal(thread_id, localSFlist[thread_id],
+                                          leak_iter, local_alpha, toler,
+                                          peephole_opt, updated_local, power,
+                                          best_cells_local);
                 tot_accept += accept;
 
                 leak_iter++;
@@ -6716,7 +6701,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             cout << "(" << thread_id
                  << ") Power after power reduction iteration " << leak_iter + 1
                  << " : " << power << endl;
-
+#if 0
             // save and report
             if(all_feasible && power < best_power_local) {
                 cout << "(" << thread_id
@@ -6728,6 +6713,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 string temp = (string)opt_str + "_feasible";
                 SizeOut(temp);
                 // report results
+
                 for(unsigned view = 0; view < numViews; ++view) {
                     if(useOpenSTA) {
                         string find_timing = T[view]->doOneCmd("find_timing");
@@ -6822,6 +6808,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 }
                 updated_local = true;
             }
+#endif
             if(!updated_local) {
                 break;
             }
@@ -6837,7 +6824,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             CalcStats((unsigned)thread_id, true, "FINAL_PWR_OPT");
         }
-
+#if 0
         if(all_feasible && power < best_power_local) {
             cout << "(" << thread_id
                  << ") Local best power is updated -- final power opt. "
@@ -6852,10 +6839,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             updated_local = true;
         }
-
-        if(!all_feasible && best_score_local < best_score) {
+#endif
+        if(best_score_local < best_score) {
             cout << "(" << thread_id
-                 << ") Local best failed power is updated -- final power opt. "
+                 << ") Local best score is updated -- final power opt. "
                  << power << "/" << best_score_local << endl;
             best_score = best_score_local;
             string temp = (string)opt_str + "_best_infeasible";
@@ -6863,9 +6850,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
             SizeOut(temp);
             pthread_mutex_unlock(&mutex1);
             for(unsigned j = 0; j < numcells; ++j) {
-                best_failed_cells_local[j] = cells[j];
+                best_cells_poweropt[j] = best_cells_local[j];
             }
-            updated_failed_local = true;
+            updated_local = true;
         }
 #if 0
         if(!all_feasible) {
@@ -6893,8 +6880,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
         if(updated_local) {
             if(all_feasible) {
                 cout << "(" << thread_id
-                     << ") Local best power is updated (in the kick loop) "
-                     << power << "/" << best_power_local << endl;
+                     << ") Local best score is updated (in the kick loop) "
+                     << power << "/" << best_score_local << endl;
             }
             else
                 cout << "(" << thread_id
@@ -6907,6 +6894,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             kick_leak_exponent = kick_leak_exponent * 1.1;
         }
         else {
+#if 0
             cout << "(" << thread_id << ") Local best power not updated"
                  << endl;
             string temp = (string)opt_str + "_feasible";
@@ -6944,6 +6932,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             if(VERBOSE >= 100)
                 CheckCorrPT();
+#endif
             // if (degrade_count > 2 || cpuTime()-global_begin > 0.7 *
             // RuntimeLimit)
             // break;
@@ -6952,18 +6941,18 @@ void Sizer::Post_PowerOpt(int thread_id) {
             kick_leak_exponent = kick_leak_exponent * 0.1;
             stuck_count++;
             cout << "(" << thread_id
-                 << ") current best_power_local = " << best_power_local << endl;
+                 << ") current best_score_local = " << best_score_local << endl;
         }
 
         // if (cpuTime()-global_begin > 0.9 * RuntimeLimit) break;
 
-        if(prev_best_power <= best_power) {
+        if(prev_best_score <= best_score) {
             kick_stuck_count++;
-            cout << "KICK STUCK " << prev_best_power << " " << best_power << " "
+            cout << "KICK STUCK " << prev_best_score << " " << best_score << " "
                  << kick_stuck_count << endl;
         }
         else {
-            cout << "KICK NO STUCK " << prev_best_power << " " << best_power
+            cout << "KICK NO STUCK " << prev_best_score << " " << best_score
                  << " " << kick_stuck_count << endl;
         }
 
@@ -6987,10 +6976,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
         // localSollist stores best leakage power for SF, used for sorting SFs
         // (idx = SF, value = best leakage)
-        localSollist[localSFlist[thread_id]] = best_power_local;
+        localSollist[localSFlist[thread_id]] = best_score_local;
 
-        cout << "best_power/best_power_local: " << best_power << " "
-             << best_power_local << endl;
+        cout << "best_score/best_score_local: " << best_score << " "
+             << best_score_local << endl;
 
         // insert SF into sorted list for next iteration
         if(PRFT_PTNUM != 1) {
@@ -7002,7 +6991,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 cout << "(" << thread_id << ") nextSFitem " << *it << endl;
                 cout << "(" << thread_id << ") solution " << localSollist[*it]
                      << endl;
-                if(best_power_local < localSollist[*it]) {
+                if(best_score_local < localSollist[*it]) {
                     nextSFlist.insert(it, localSFlist[thread_id]);
                     nextAlphalist.insert(it2, best_alpha_local);
                     inserted = true;
@@ -7015,7 +7004,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
         }
         else {
-            if(best_power_local >= best_power) {
+            if(best_score_local >= best_score) {
                 cout << "Optimization got stuck with the current SF " << endl;
                 nextSFlist.push_back(sensFunc2);
                 nextAlphalist.push_back(best_alpha_local);
@@ -7043,7 +7032,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             cout << localSollist[i] << " ";
         }
         cout << endl;
-
+#if 0
         if(best_power_local < best_power) {
             cout << "From (" << thread_id << ") BEST POWER " << best_power_local
                  << endl;
@@ -7084,34 +7073,28 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     second_best_cells_poweropt[i] = best_cells_local[i];
             }
         }
-
-        if(best_score_local < best_score) {
+#endif
+        if(score < best_score) {
             cout << "From (" << thread_id << ") BEST FAILED POWER "
                  << best_score << endl;
-            best_failed_power = best_power_local;
-            best_failed_cells_poweropt.resize(numcells);
+            best_score = score;
+            best_cells_poweropt.resize(numcells);
             for(unsigned i = 0; i < numcells; i++) {
-                best_failed_cells_poweropt[i] = best_failed_cells_local[i];
+                best_cells_poweropt[i] = cells[i];
             }
             double wns, power;
-            ReportWithPT(best_failed_cells_poweropt, "failed_power_opt", wns,
-                         power);
+            ReportWithPT(best_cells_poweropt, "failed_power_opt", wns, power);
         }
 
-        double init_power = 0.0;
-        if(ALPHA == 0.0) {
-            init_power = init_leak[0];
-        }
-        else {
-            init_power = init_tot[0];
-        }
+        double ini_score = init_score[0];
 
-        cout << "best_power/init_power/best_tns/cur_best_tns : " << best_power
-             << "/" << init_power << "/" << best_tns << "/" << cur_best_tns
+        cout << "best_score/init_score/best_tns/cur_best_tns : " << best_score
+             << "/" << ini_score << "/" << best_tns << "/" << cur_best_tns
              << endl;
 
         cout << "done" << endl;
-        if(isEqual(best_power, init_power)) {
+#if 0
+        if(isEqual(best_score, ini_score)) {
             cout << "power not updated" << endl;
             // power has not been updated at all -- no feasible solution
             // then store the best infeasible solution
@@ -7127,6 +7110,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 ReportWithPT(best_failed_cells, "best_infeasible", wns, power);
             }
         }
+#endif
         pthread_mutex_unlock(&mutex1);
     }
     cout << "start delete" << endl;
@@ -7155,7 +7139,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 #endif
     TMR = (cpuTime() - TMR);
     cout << "LEAKOPT_time : " << TMR << endl;
-    cout << "(" << thread_id << ") Power after PowerOpt: " << best_power_local
+    cout << "(" << thread_id << ") Score after PowerOpt: " << best_score_local
          << " option: " << thread_id << " cpu time: " << TMR << endl;
 }
 
@@ -8033,7 +8017,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
 
 unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                                  double alpha, double toler, bool isPeephole,
-                                 bool &updated_local,
+                                 bool &updated_local, double &best_power_local,
                                  vector< CELL > &best_cells_local) {
     unsigned view = 0;
     if(alpha == -1) {
@@ -8947,6 +8931,7 @@ void Sizer::initSingleMode() {
     init_wns_worst = DBL_MAX;
     init_tns.push_back(0.0);
     init_leak.push_back(0.0);
+    init_score.push_back(DBL_MAX);
     init_tot.push_back(0.0);
     viewSlackMargin.push_back(slack_margin);
     viewTNSMargin.push_back(0.0);
@@ -9919,8 +9904,8 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
             else {
                 cout << "thread" << thread_id << " post gtr - infeasible"
                      << endl;
-                for(unsigned i = 0; i < numcells; i++)
-                    cells[i] = best_failed_cells[i];
+                // for(unsigned i = 0; i < numcells; i++)
+                // cells[i] = best_failed_cells[i]; //FIXME:
             }
         }
         else {
@@ -10152,14 +10137,14 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         pthread_mutex_lock(&mutex1);
         if(skew_violation == 0.) {
             feasible = true;
-            if(power < best_power) {
+            if(score < best_score) {
                 if(best_cells.size() != 0) {
-                    second_best_power = best_power;
+                    second_best_power = best_score;
                     SEC_TOPX = TOPX;
                     SEC_TOPEXP = TOPEXP;
                 }
 
-                best_power = power;
+                best_score = score;
 
                 if(!postGTR)
                     size_str = "1stgtr";
@@ -10187,15 +10172,15 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                     size_str = "2ndgtr";
                 SizeOut(size_str);
 
-                best_failed_cells.resize(numcells);
+                // best_failed_cells.resize(numcells); //FIXME:
                 best_failed_thread = thread_id;
                 for(unsigned i = 0; i < numcells; i++)
-                    best_failed_cells[i] = cells[i];
+                    // best_failed_cells[i] = cells[i];  //FIXME:
 
-                if(!postGTR) {
-                    FTOPX = ratio;
-                    FTOPEXP = exponent;
-                }
+                    if(!postGTR) {
+                        FTOPX = ratio;
+                        FTOPEXP = exponent;
+                    }
             }
         }
         pthread_mutex_unlock(&mutex1);

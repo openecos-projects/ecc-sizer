@@ -86,6 +86,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     cap_violation = CalcCapViolation();
     l2_norm = 0.0;
     average_error = 0.0;
+    score = calcScore(viewPower[view], skew_violation, slew_violation, cap_violation);
     // max_pt_err = CalcPTErrors(average_error, l2_norm);
     tot_violations = slew_violation + skew_violation + cap_violation;
     if(VERBOSE > 1) {

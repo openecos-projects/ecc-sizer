@@ -318,7 +318,7 @@ class Sizer {
     double slack_margin;
     double slack_margin2;
     double best_tns;
-    double best_power;
+    // double best_power;
     double best_score;
     double best_failed_power;
     double second_best_power;
@@ -353,14 +353,14 @@ class Sizer {
     vector< CELL > best_cells;
     vector< CELL > second_best_cells;
     vector< CELL > best_cells_poweropt;
-    vector< CELL >
-        best_failed_cells_poweropt;  // best solution within slack_margin2
+    // vector< CELL >
+    //     best_failed_cells_poweropt;  // best solution within slack_margin2
     vector< CELL > second_best_cells_poweropt;
     vector< CELL > multi_start_cells_poweropt_1;
     // vector< CELL > multi_start_cells_poweropt_2;
     // vector< CELL > multi_start_cells_poweropt_3;
     vector< vector< CellSol > > all_cells;
-    vector< CELL > best_failed_cells;
+    // vector< CELL > best_failed_cells;
 
     double max_pt_err, l2_norm, average_error;
     int leak_iter;
@@ -375,7 +375,8 @@ class Sizer {
         slew_violation_wst, cap_violation_wst, tot_pslack;
     unsigned slew_violation_cnt, skew_violation_cnt, cap_violation_cnt;
     double power;
-    double best_power_local;
+    double score;
+    // double best_power_local;
     double best_score_local;
     double toler;
     double best_alpha_local;
@@ -780,6 +781,7 @@ class Sizer {
     vector< double > init_wns;
     vector< double > init_tns;
     vector< double > init_leak;
+    vector< double > init_score;
     vector< double > init_tot;
 
     ////////////////////////////////////////////////////
@@ -817,7 +819,7 @@ class Sizer {
         slack_margin = -0.00005;
         slack_margin2 = -0.00005;
         pthread_mutex_init(&mutex1, NULL);
-        best_power = DBL_MAX;
+        // best_power = DBL_MAX;
         best_score = DBL_MAX;
         second_best_power = DBL_MAX;
         best_failed_power = DBL_MAX;
@@ -974,7 +976,7 @@ class Sizer {
     void FinalPowerOpt(double slk_th, unsigned thread_id);
     unsigned ReducePowerLegal(int thread_id, int option, int iter, double alpha,
                               double toler, bool isPeephole,
-                              bool &updated_local,
+                              bool &updated_local, double& best_power_local,
                               vector< CELL > &best_cells_local);
     CellSol GetCommonCell(unsigned cell_index);
     void ReducePowerFast(int option);

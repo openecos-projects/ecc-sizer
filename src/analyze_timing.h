@@ -135,7 +135,7 @@ class designTiming {
     string doOneCmd(string command);
     double getLeakPower();
     double getTotPower();
-
+    void getCapVio(double &tot, double &max, int &num);
     void testTCL();
 
    private:
