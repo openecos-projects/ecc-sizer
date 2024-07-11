@@ -58,8 +58,6 @@ def load_design(lefPath, libPath, designPath, design_name, verilog = False):
     design.readDef(defFile)
 
   # Read the SDC file, SPEF file, and set the clocks
-  spefFile = "%s/%s.spef"%(designDir.as_posix(), design_name)
-  design.evalTclString("read_spef %s"%spefFile)
   sdcFile = "%s/%s.sdc"%(designDir.as_posix(), design_name)
   design.evalTclString("read_sdc %s"%sdcFile)
   design.evalTclString("source %s/../setRC.tcl" % lefPath)
