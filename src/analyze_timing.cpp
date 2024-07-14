@@ -248,7 +248,17 @@ double designTiming::getWorstSlack(string _clkName) {
         _tclInputString = "EtsWorstSlack " + _clkName;
     }
     else if(program == OS) {
+        double begin = cpuTime();
         _tclInputString = "OSWorstSlack " + _clkName;
+        _sizer->_ckt->_ord_design->evalTclString("report_wns > wns.txt");
+        ifstream ifs("wns.txt");
+        double wns;
+        string _tclAnswer;
+        ifs >> _tclAnswer >> wns;
+        ifs.close();
+        wns = wns * 1e-12 / _sizer->time_unit;
+        pt_time += cpuTime() - begin;
+        return wns;
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -294,14 +304,16 @@ double designTiming::getLeakPower() {
         _tclInputString = "EtsLeakPower";
     }
     else {
+        double begin = cpuTime();
         double totalLeakagePower = 0.0;
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
-// #progma omp parallel for
+        // #progma omp parallel for
         for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
             totalLeakagePower +=
                 _sizer->_ckt->_ord_timing->staticPower(inst, corner);
         }
         totalLeakagePower /= _sizer->sw_adj;
+        pt_time += cpuTime() - begin;
         return totalLeakagePower;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -347,6 +359,7 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
     }
     else if(program == OS) {
         _tclInputString = "OSGetTranVio ";
+        double begin = cpuTime();
         auto design = _sizer->_ckt->_ord_design;
         // ofstream ofs("tran_vio1.txt");
         for(auto inst : design->getBlock()->getInsts()) {
@@ -374,6 +387,7 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
                 }
             }
         }
+        pt_time += cpuTime() - begin;
         // ofs.close();
         return;
     }
@@ -401,6 +415,7 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
     }
     else if(program == OS) {
         _tclInputString = "OSGetCapVio ";
+        double begin = cpuTime();
         auto design = _sizer->_ckt->_ord_design;
         // ofstream ofs("tran_vio1.txt");
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
@@ -408,14 +423,15 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
             for(auto pin_ : inst->getITerms()) {
                 if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
                    pin_->getNet()->getSigType() != "GROUND" &&
-                   pin_->getNet()->getSigType() != "CLOCK" && pin_->isOutputSignal()) {
+                   pin_->getNet()->getSigType() != "CLOCK" &&
+                   pin_->isOutputSignal()) {
                     auto m_term = pin_->getMTerm();
-                    double now_cap =
-                        _sizer->_ckt->_ord_timing->getNetCap(pin_->getNet(), corner, ord::Timing::Max);
+                    double now_cap = _sizer->_ckt->_ord_timing->getNetCap(
+                        pin_->getNet(), corner, ord::Timing::Max);
                     double cap_limit =
                         _sizer->_ckt->_ord_timing->getMaxCapLimit(m_term);
-                    double cap_diff = std::max(
-                        (now_cap - cap_limit) / _sizer->cap_unit, 0.0);
+                    double cap_diff =
+                        std::max((now_cap - cap_limit) / _sizer->cap_unit, 0.0);
                     tot += cap_diff;
                     if(cap_diff > 0) {
                         // cout
@@ -429,6 +445,7 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
                 }
             }
         }
+        pt_time += cpuTime() - begin;
         // ofs.close();
         return;
     }
@@ -564,7 +581,7 @@ bool designTiming::updateSize(string filename) {
     //_tclInputString = "redirect pt.updateSize.log {source " +
     // filename+"}";
 
-    _sizer->_sta->networkChanged();  // FIXME: This has a bug
+    _sizer->_sta->networkChanged1();  // FIXME: This has a bug
     _tclInputString = "source " + filename;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();

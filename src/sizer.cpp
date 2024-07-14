@@ -1215,7 +1215,7 @@ void Sizer::ExitPTimer() {
     for(unsigned i = 0; i < MAX_THREAD; i++) {
         for(int view = 0; view < numViews; view++) {
             tot_timer_time += PTimer[i][view]->pt_time;
-            PTimer[i][view]->Exit();
+            // PTimer[i][view]->Exit();
             cout << "Exit PrimeTime number " << i << " " << view << endl;
             delete PTimer[i][view];
         }
@@ -5684,6 +5684,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         //     string find_timing = T[view]->doOneCmd("find_timing");
         // }
         // UpdatePTSizes(view);
+#if 0
         double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
         double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -5741,6 +5742,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         if(init_wns_worst > init_wns[view]) {
             init_wns_worst = init_wns[view];
         }
+#endif
     }
 
     if(ISO_TIME && ISO_TNS == 0) {
@@ -5873,8 +5875,8 @@ void Sizer::Parallel_Sizer_Launcher() {
                      << best_score << " uW " << endl;
             }
 
-            double wns, power;
-            ReportWithPT(best_cells_poweropt, "prft", wns, power);
+            // double wns, power;
+            // ReportWithPT(best_cells_poweropt, "prft", wns, power);
             time_LeakOpt = cpuTime() - begin;
 
             if(VERBOSE >= 1) {
@@ -5959,11 +5961,11 @@ void Sizer::Parallel_Sizer_Launcher() {
         double vio1, power1 = 0.0;
         double vio = 0.0;
 
-        for(unsigned view = 1; view < numViews; ++view) {
-            ReportWithPT(best_cells_poweropt, "final", vio1, power1, view);
-        }
+        // for(unsigned view = 1; view < numViews; ++view) {
+        //     ReportWithPT(best_cells_poweropt, "final", vio1, power1, view);
+        // }
 
-        vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
+        // vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
 
         SizeOut(best_cells_poweropt, "final");
         SizeChangeOut(best_cells_poweropt, "final");
@@ -6004,7 +6006,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         }
     }
 
-    // ExitPTimer();
+    ExitPTimer();
 }
 
 void Sizer::PostWNSOpt(string input, unsigned view) {
@@ -6120,7 +6122,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     size_str = input + "_wns_opt_final";
     SizeOut(size_str);
     double wns, power;
-    ReportWithPT(best_cells, "wns_opt_final", wns, power);
+    // ReportWithPT(best_cells, "wns_opt_final", wns, power);
 }
 
 // JL
@@ -6195,6 +6197,27 @@ void Sizer::Post_PowerOpt(int thread_id) {
         CorrelatePT((unsigned)thread_id, view);
         CalcStats((unsigned)thread_id, true, "Initial after corr", view);
         // CORR_AAT = old_att;
+    }
+    if(init_score[0] == DBL_MAX) {
+        int view = 0;
+        init_wns[view] = worst_slack_worst;
+        init_tns[view] = skew_violation;
+        init_leak[view] = power;
+        init_tot[view] = power;
+        init_score[view] = score;
+
+        cout << "[view " << view
+             << "] Initial WNS from Timer    : " << init_wns[view] << " ps"
+             << endl;
+        cout << "[view " << view
+             << "] Initial TNS            : " << init_tns[view] << " ps"
+             << endl;
+        cout << "[view " << view
+             << "] Initial Leakage Power    : " << init_leak[view] << endl;
+        cout << "[view " << view
+             << "] Initial Tran           : " << slew_violation << endl;
+        cout << "[view " << view
+             << "] Initial Cap           : " << cap_violation << endl;
     }
 
     cout << "THREAD " << thread_id << " BEFORE KICKOPT" << endl;
@@ -6367,8 +6390,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
             // }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns" << "/"
-                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns"
+                 << "/" << worst_slack << "ns"
+                 << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -6852,7 +6876,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
         if(best_score_local < best_score) {
             cout << "(" << thread_id
                  << ") Local best score is updated -- final power opt. "
-                 << power << "/" << best_score_local << endl;
+                 << best_score << "/" << best_score_local << endl;
             best_score = best_score_local;
             string temp = (string)opt_str + "_best_infeasible";
             pthread_mutex_lock(&mutex1);
@@ -7092,7 +7116,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 best_cells_poweropt[i] = cells[i];
             }
             double wns, power;
-            ReportWithPT(best_cells_poweropt, "failed_power_opt", wns, power);
+            // ReportWithPT(best_cells_poweropt, "failed_power_opt", wns, power);
         }
 
         double ini_score = init_score[0];
@@ -8024,6 +8048,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
     return cnt;
 }
 
+//FIXME:
 unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                                  double alpha, double toler, bool isPeephole,
                                  bool &updated_local, double &best_power_local,
@@ -8322,8 +8347,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
-                             << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " "
+                             << " " << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -8435,7 +8460,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept" << " " << cells[cur].type << endl;
+                    cout << " Accept"
+                         << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -8552,10 +8578,10 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         string temp = (string)opt_str + "_feasible";
                         SizeOut(temp);
                         for(unsigned view = 0; view < numViews; ++view) {
-                            if(useOpenSTA) {
-                                string find_timing =
-                                    T[view]->doOneCmd("find_timing");
-                            }
+                            // if(useOpenSTA) {
+                            //     string find_timing =
+                            //         T[view]->doOneCmd("find_timing");
+                            // }
                             double wns =
                                 T[view]->getWorstSlack(clk_name[worst_corner]);
                             double tns = T[view]->getTNS();
@@ -10038,12 +10064,14 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -10237,7 +10265,9 @@ void Sizer::Profile() {
 }
 
 int main(int argc, char **argv) {
-    ord::flow_OpenROAD(argc, argv);
+    int agc = 0;
+    char **arv = nullptr;
+    ord::flow_OpenROAD(agc, arv);
     // cout << "------------------------------------------------------" << endl;
     // cout << "  TrionSizer ver 1.0                                " << endl;
     // cout << "  coded by Hyein Lee and Jiajia Li                    " << endl;
@@ -10248,7 +10278,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    ProfilerStart("cpu-profile.prof");
+    // ProfilerStart("cpu-profile.prof");
 
     for(int i = 1; i < argc; i++) {
         string input_option = string(argv[i]);
@@ -10286,7 +10316,7 @@ int main(int argc, char **argv) {
     LaunchPTBackground(_sizer.root, _sizer.benchname);
 #endif
 
-    _sizer.Clean();
+    // _sizer.Clean();
     _sizer.readCmdFile(CMD_FI);
     _sizer.readEnvFile(ENV_FI);
 
@@ -10314,8 +10344,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
-             << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " "
+             << "#Modes " << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;
@@ -10474,7 +10504,7 @@ int main(int argc, char **argv) {
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
-    ProfilerStop();
+    // ProfilerStop();
 
-    return 1;
+    return 0;
 }

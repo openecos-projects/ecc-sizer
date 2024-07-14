@@ -18,6 +18,7 @@
 
 #include "ord/OpenRoad.hh"
 #include "odb/db.h"
+#include "ord/Timing.h"
 #include "dpl/Opendp.h"
 #include "grt/GlobalRouter.h"
 #include "db_sta/dbSta.hh"
@@ -413,7 +414,7 @@ void Circuit::assignLibPinId() {
         for(int j = 0; j < _sizer->dontTouchCell.size(); j++) {
             if(_sizer->dontTouchCell[j] == master) {
                 g_cells[i].isDontTouch = true;
-                if(VERBOSE >= 1)
+                if(VERBOSE >= 4)
                     cout << "LIST DONT TOUCH " << g_cells[i].name << " "
                          << g_cells[i].type << endl;
             }
@@ -422,7 +423,7 @@ void Circuit::assignLibPinId() {
         for(int j = 0; j < _sizer->dontTouchInst.size(); j++) {
             if(_sizer->dontTouchInst[j] == cellInst) {
                 g_cells[i].isDontTouch = true;
-                if(VERBOSE >= 1)
+                if(VERBOSE >= 4)
                     cout << "LIST DONT TOUCH " << g_cells[i].name << " "
                          << g_cells[i].type << endl;
             }
@@ -496,7 +497,7 @@ void Circuit::assignLibPinId() {
                         visited[pin_index] = true;
 
                         if(g_cells[g_pins[pin_index].owner].isFF) {
-                            cout << "Found a sequential cell!" << endl;
+                            // cout << "Found a sequential cell!" << endl;
                             break;
                         }
                         g_cells[g_pins[pin_index].owner].isClockCell = true;
@@ -520,7 +521,7 @@ void Circuit::assignLibPinId() {
                                 break;
                             }
                         }
-                        if(VERBOSE >= 1)
+                        if(VERBOSE >= 4)
                             cout << "CLOCK CELL DONT TOUCH "
                                  << g_cells[g_pins[pin_index].owner].name << " "
                                  << g_cells[g_pins[pin_index].owner].type << " "
@@ -3035,7 +3036,8 @@ void Circuit::init_opensta() {
     // _ord_design->evalTclString("read_spef " + spefFile);
     _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
     _ord_design->evalTclString("source " + libPath + "/../setRC.tcl");
-
+    printf("sdc file %s,  setRC file %s \n", _sizer->sdcFile.c_str(),
+           (libPath + "/../setRC.tcl").c_str());
     // Global connect
     auto VDDNet = _ord_design->getBlock()->findNet("VDD");
     VDDNet->setSpecial();
@@ -3053,6 +3055,7 @@ void Circuit::init_opensta() {
     auto corner = _ord_timing->getCorners()[0];
     auto block = _ord_design->getBlock();
     _sta = ord::OpenRoad::openRoad()->getSta();
+    // _sta->networkChanged();
     // Legalization
     auto site = _ord_design->getBlock()
                     ->getRows()
@@ -3077,10 +3080,11 @@ void Circuit::init_opensta() {
     grt->setMinLayerForClock(clk_low_layer);
     grt->setMaxLayerForClock(clk_high_layer);
     grt->setAdjustment(0.5);
-    grt->setVerbose(false);
+    grt->setVerbose(true);
     printf("Run Global Routing...\n");
     grt->globalRoute(false);
     _ord_design->evalTclString("estimate_parasitics -global_routing");
+    // _ord_design->evalTclString("report_wns");
 #endif
 }
 

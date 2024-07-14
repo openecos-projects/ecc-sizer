@@ -81,7 +81,7 @@ def ICCAD_evaluation(filePath: str, design: Design, timing: Timing):
       grt.setMinLayerForClock(clk_low_layer)
       grt.setMaxLayerForClock(clk_high_layer)
       grt.setAdjustment(0.5)
-      grt.setVerbose(False)
+      grt.setVerbose(True)
       print("Run Global Routing...")
       grt.globalRoute(False)
       design.evalTclString("estimate_parasitics -global_routing")
