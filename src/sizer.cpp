@@ -255,7 +255,7 @@ CorrPTMetric CORR_PT_METRIC = SLK;
 // double Sizer::slew_violation_wst;
 // double Sizer::cap_violation_wst;
 // double Sizer::power;
-// double Sizer::best_power_local;
+// double Sizer::best_score_local;
 // double Sizer::best_alpha_local;
 // double Sizer::local_alpha;
 // double Sizer::toler;
@@ -2473,7 +2473,7 @@ void Sizer::SizeChangeOut(vector< CELL > &c, string option) {
         if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
             changed++;
         }
-        if(lib_cell_info != NULL) {
+        if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
             outsz << c[i].name << " " << lib_cell_info->name << endl;
             // cout << c[i].name << " "<<lib_cell_info->name<<endl;
         }
@@ -2707,6 +2707,8 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 
             maxCap = lib_cell_info->pins[pins[view][out_pin_id].lib_pin]
                          .maxCapacitance;
+
+            maxCap -= cap_margin;
             unsigned outnet = pins[view][out_pin_id].net;
 
             if(pins[view][out_pin_id].totcap > maxCap)
@@ -2926,7 +2928,7 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
             maxCap =
                 lib_cell_info->pins[pins[view][cells[cur].outpins[k]].lib_pin]
                     .maxCapacitance;
-
+            maxCap -= cap_margin;
             unsigned outnet = pins[view][cells[cur].outpins[k]].net;
 
             double loadCap = 0.;
@@ -2966,6 +2968,7 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
                         lib_cell_info
                             ->pins[pins[view][cells[cur].outpins[k]].lib_pin]
                             .maxCapacitance;
+                    maxCap -= cap_margin;
                 }
             }
 #ifdef DEBUG
@@ -3845,13 +3848,13 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             bool change = false;
             if(it->change == UPSIZE) {
                 if(STAGE == GLOBAL) {
-                    if(VERBOSE >= 1)
+                    if(VERBOSE >= 4)
                         cout << "GLOBAL TARGET = UPSIZE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
                 else {
-                    if(VERBOSE >= 1)
+                    if(VERBOSE >= 4)
                         cout << "FINESWAP TARGET = UPSIZE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
@@ -3865,13 +3868,13 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             }
             else {
                 if(STAGE == GLOBAL) {
-                    if(VERBOSE >= 1)
+                    if(VERBOSE >= 4)
                         cout << "GLOBAL TARGET = UPTYPE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
                 else {
-                    if(VERBOSE >= 1)
+                    if(VERBOSE >= 4)
                         cout << "FINESWAP TARGET = UPTYPE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
@@ -4144,6 +4147,7 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
             maxCap =
                 lib_cell_info->pins[pins[view][cells[cur].outpins[k]].lib_pin]
                     .maxCapacitance;
+            maxCap -= cap_margin;
             curCap = pins[view][cells[cur].outpins[k]].totcap;
             if(curCap > maxCap) {
                 restore_flag = true;
@@ -4293,6 +4297,7 @@ int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
         double maxCap =
             lib_cell_info->pins[pins[view][cells[cur].outpin].lib_pin]
                 .maxCapacitance;
+        maxCap -= cap_margin;
         double curCap = pins[view][cells[cur].outpin].totcap;
 
         if(pin_slack < WNS + gb || maxCap < curCap || revert) {  // restore
@@ -5263,6 +5268,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                                                [cells[path[start + l]].outpin]
                                                    .lib_pin]
                                     .maxCapacitance;
+                            maxCap -= cap_margin;
                         }
                         if(pins[view][cells[path[start + l]].outpin].totcap +
                                nets[corner]
@@ -5294,6 +5300,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                                                    [cells[fanin_cell].outpin]
                                                        .lib_pin]
                                         .maxCapacitance;
+                                maxCap -= cap_margin;
                             }
                             if(pins[view][cells[fanin_cell].outpin].totcap +
                                    nets[corner]
@@ -5473,6 +5480,7 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
                     double maxCap =
                         lib_cell_info->pins[pins[view][cells[i].outpin].lib_pin]
                             .maxCapacitance;
+                    maxCap -= cap_margin;
                     if(lib_cell_info &&
                        pins[view][cells[i].outpin].totcap > maxCap && change)
                         cell_retype(cells[i], 1);
@@ -5486,6 +5494,7 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
                     double maxCap =
                         lib_cell_info->pins[pins[view][cells[i].outpin].lib_pin]
                             .maxCapacitance;
+                    maxCap -= cap_margin;
                     if(lib_cell_info &&
                        pins[view][cells[i].outpin].totcap > maxCap && change)
                         cell_resize(cells[i], 1);
@@ -5868,11 +5877,11 @@ void Sizer::Parallel_Sizer_Launcher() {
 
             if(PRFT_ONLY) {
                 cout << "Best feasible score after POWEROPT on TOP = "
-                     << best_score << " uW " << endl;
+                     << best_score << endl;
             }
             else {
                 cout << "Best feasible score after POWEROPT on TOP = "
-                     << best_score << " uW " << endl;
+                     << best_score << endl;
             }
 
             // double wns, power;
@@ -5957,7 +5966,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                 cout << "GET NEXT START END" << endl;
             }
         }
-
+#if 0
         double vio1, power1 = 0.0;
         double vio = 0.0;
 
@@ -5965,7 +5974,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         //     ReportWithPT(best_cells_poweropt, "final", vio1, power1, view);
         // }
 
-        // vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
+        vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
 
         SizeOut(best_cells_poweropt, "final");
         SizeChangeOut(best_cells_poweropt, "final");
@@ -5977,33 +5986,12 @@ void Sizer::Parallel_Sizer_Launcher() {
         else {
             init_power = init_tot[0];
         }
-#if 0
-        double vio2, power2 = 0.0;
-        double vio3, power3 = 0.0;
-        ReportWithPT(best_failed_cells, "best_failed_final", vio2, power2, 0);
-        ReportWithPT(best_failed_cells_poweropt, "best_failed_opt_final", vio3,
-                     power3, 0);
-
-        double min_power = 0.0;
-        if(vio2 > -0.005) {
-            if(power2 < power1) {
-                min_power = power2;
-                vio = ReportWithPT(best_failed_cells, "final", vio2, power2, 0);
-            }
-        }
-
-        if(vio3 > -0.005) {
-            if(power3 < min_power) {
-                vio = ReportWithPT(best_failed_cells_poweropt, "final", vio3,
-                                   power3, 0);
-            }
-        }
-#endif
         if(vio != 0 && vio <= -slack_margin) {
             cout << "WNS = " << vio << " SLACK MARGIN = " << slack_margin
                  << endl;
             PostWNSOpt("final");
         }
+#endif
     }
 
     ExitPTimer();
@@ -6401,7 +6389,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 1;
+            unsigned max_time_recovery_iter = 3;
             // Timing recovery
             for(unsigned time_recovery_iter = 0;
                 time_recovery_iter < max_time_recovery_iter;
@@ -6431,7 +6419,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                     }
                 }
-
+                // TGR loop
                 if(slew_violation != 0.0 || (skew_violation != 0.0) ||
                    worst_slack < 0.0) {
                     double begin = cpuTime();
@@ -6582,7 +6570,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             for(unsigned j = 0; j < numcells; ++j) {
                                 best_cells_local[j] = cells[j];
                             }
-                            updated_failed_local = true;
+                            updated_local = true;
                         }
                         //}
                         if(all_change == 0) {
@@ -6595,97 +6583,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                          << " : " << viewRuntime[view] << " sec. ("
                          << viewRuntime[view] / 60 << " min. )" << endl;
                 }
-#if 0
-                all_feasible = true;
-                // for(unsigned view = 0; view < numViews; ++view) {
-                if(useOpenSTA) {
-                    string find_timing = T[view]->doOneCmd("find_timing");
-                }
-                double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
-                double tns = T[view]->getTNS();
-
-                double leak = 0.0;
-                double tot = 0.0;
-
-                leak = T[view]->getLeakPower();
-                tot = leak;
-
-                double tran_tot, tran_max;
-                tran_tot = tran_max = 0.0;
-                int tran_num = 0;
-                T[view]->getTranVio(tran_tot, tran_max, tran_num);
-
-                cout << "[view " << view
-                     << "] After timing recovery WNS from Timer    : " << wns
-                     << " ps (init: " << init_wns[view] << ")" << endl;
-                cout << "[view " << view
-                     << "] After timing recovery TNS            : " << tns
-                     << " ps (init: " << init_tns[view] << ")" << endl;
-                cout << "[view " << view
-                     << "] After timing recovery Leakage Power    : " << leak
-                     << endl;
-                cout << "[view " << view
-                     << "] After timing recovery Total Power    : " << tot
-                     << endl;
-
-                cout << "[view " << view
-                     << "] After timing recovery Tran           : " << tran_tot
-                     << " ps " << tran_num << " " << tran_max << " ps" << endl;
-
-                unsigned swap_count = 0;
-                unsigned uptype_swap_count = 0;
-                unsigned downtype_swap_count = 0;
-                unsigned upsize_swap_count = 0;
-                unsigned downsize_swap_count = 0;
-                unsigned hvt_init_count = 0;
-                unsigned hvt_count = 0;
-                for(unsigned i = 0; i < numcells; ++i) {
-                    if(g_cells[i].c_vtype == s) {
-                        ++hvt_init_count;
-                    }
-                }
-
-                for(unsigned i = 0; i < numcells; ++i) {
-                    if(g_cells[i].type != cells[i].type) {
-                        ++swap_count;
-                        if(cells[i].c_vtype > g_cells[i].c_vtype) {
-                            uptype_swap_count++;
-                        }
-                        else if(cells[i].c_vtype < g_cells[i].c_vtype) {
-                            downtype_swap_count++;
-                        }
-
-                        if(cells[i].c_size > g_cells[i].c_size) {
-                            upsize_swap_count++;
-                        }
-                        else if(cells[i].c_size < g_cells[i].c_size) {
-                            downsize_swap_count++;
-                        }
-                    }
-                    if(cells[i].c_vtype == s) {
-                        ++hvt_count;
-                    }
-                }
-
-                double hvt_ratio = (double)hvt_count / (double)numcells;
-                double hvt_init_ratio =
-                    (double)hvt_init_count / (double)numcells;
-
-                cout << "[view " << view
-                     << "] # Swap             : " << swap_count << "("
-                     << uptype_swap_count << "/" << downtype_swap_count << "/"
-                     << upsize_swap_count << "/" << downsize_swap_count << ")"
-                     << endl;
-                cout << "[view " << view
-                     << "] % HVT cells        : " << hvt_ratio * 100.0 << endl;
-                cout << "[view " << view
-                     << "] % HVT cells (init) : " << hvt_init_ratio * 100.0
-                     << endl;
-                CallTimer(view);
-                CorrelatePT((unsigned)thread_id, view);
-                CalcStats((unsigned)thread_id, true, "AFTER_TIME_RECOVERY",
-                          view);
-#endif
                 if((skew_violation != 0.0) || (worst_slack < 0.0)) {
                     all_feasible = false;
                 }
@@ -6693,11 +6590,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             for(unsigned j = 0; j < numcells; j++)
                 cells[j].touched = false;
-#if 0
-            CallTimer();
-            CorrelatePT((unsigned)thread_id);
-            CalcStats((unsigned)thread_id, true, "AFTER_PWROPT");
-#endif
             // POWER reduce loop
             if((skew_violation_worst == 0.0) || (toler <= worst_slack_worst)) {
                 cout << "REDUCE LEAK ITER " << init_wns_worst << " " << toler
@@ -6713,16 +6605,15 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 //     CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT",
                 //               view);
                 // }
-                CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT");
+                // CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT");
 
-                accept = ReducePowerLegal(thread_id, localSFlist[thread_id],
-                                          leak_iter, local_alpha, toler,
-                                          peephole_opt, updated_local, power,
-                                          best_cells_local);
+                accept = ReducePowerLegal(
+                    thread_id, localSFlist[thread_id], leak_iter, local_alpha,
+                    toler, peephole_opt, updated_local, best_cells_local);
                 tot_accept += accept;
 
                 leak_iter++;
-                if(accept == 0) {
+                if(accept != 0) {
                     for(unsigned view = 0; view < numViews; ++view) {
                         CallTimer(view);
                         CorrelatePT((unsigned)thread_id, view);
@@ -6730,118 +6621,87 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                   view);
                     }
                 }
-            }
-            cout << "(" << thread_id
-                 << ") Power after power reduction iteration " << leak_iter + 1
-                 << " : " << power << endl;
-#if 0
-            // save and report
-            if(all_feasible && power < best_power_local) {
+
+                if(score < best_score_local) {
+                    cout << "(" << thread_id
+                         << ") Local best power is updated "
+                            "(inside of power opt loop) "
+                         << score << "/" << best_score_local << endl;
+                    best_score_local = score;
+                    best_alpha_local = local_alpha;
+                    string temp = (string)opt_str + "_feasible";
+                    SizeOut(temp);
+                    // report results
+
+                    for(unsigned view = 0; view < numViews; ++view) {
+                        // if(useOpenSTA) {
+                        //     string find_timing =
+                        //     T[view]->doOneCmd("find_timing");
+                        // }
+                        unsigned swap_count = 0;
+                        unsigned uptype_swap_count = 0;
+                        unsigned downtype_swap_count = 0;
+                        unsigned upsize_swap_count = 0;
+                        unsigned downsize_swap_count = 0;
+                        unsigned hvt_init_count = 0;
+                        unsigned hvt_count = 0;
+                        for(unsigned i = 0; i < numcells; ++i) {
+                            if(g_cells[i].c_vtype == s) {
+                                ++hvt_init_count;
+                            }
+                        }
+
+                        for(unsigned i = 0; i < numcells; ++i) {
+                            if(g_cells[i].type != cells[i].type) {
+                                ++swap_count;
+                                if(cells[i].c_vtype > g_cells[i].c_vtype) {
+                                    uptype_swap_count++;
+                                }
+                                else if(cells[i].c_vtype < g_cells[i].c_vtype) {
+                                    downtype_swap_count++;
+                                }
+
+                                if(cells[i].c_size > g_cells[i].c_size) {
+                                    upsize_swap_count++;
+                                }
+                                else if(cells[i].c_size < g_cells[i].c_size) {
+                                    downsize_swap_count++;
+                                }
+                            }
+                            if(cells[i].c_vtype == s) {
+                                ++hvt_count;
+                            }
+                        }
+
+                        double hvt_ratio = (double)hvt_count / (double)numcells;
+                        double hvt_init_ratio =
+                            (double)hvt_init_count / (double)numcells;
+
+                        cout << "[view " << view
+                             << "] # Swap             : " << swap_count << "("
+                             << uptype_swap_count << "/" << downtype_swap_count
+                             << "/" << upsize_swap_count << "/"
+                             << downsize_swap_count << ")" << endl;
+                        cout << "[view " << view
+                             << "] % HVT cells        : " << hvt_ratio * 100.0
+                             << endl;
+                        cout << "[view " << view << "] % HVT cells (init) : "
+                             << hvt_init_ratio * 100.0 << endl;
+                    }
+                    Profile();
+
+                    // msk (it was ++j)
+                    // FIXME:
+                    // for(unsigned j = 0; j < numcells; ++j) {
+                    //     best_cells_local[j] = cells[j];
+                    // }
+                    updated_local = true;
+                }
                 cout << "(" << thread_id
-                     << ") Local best power is updated "
-                        "(inside of power opt loop) "
-                     << power << "/" << best_power_local << endl;
-                best_power_local = power;
-                best_alpha_local = local_alpha;
-                string temp = (string)opt_str + "_feasible";
-                SizeOut(temp);
-                // report results
-
-                for(unsigned view = 0; view < numViews; ++view) {
-                    if(useOpenSTA) {
-                        string find_timing = T[view]->doOneCmd("find_timing");
-                    }
-                    double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
-                    double tns = T[view]->getTNS();
-
-                    double leak = 0.0;
-                    double tot = 0.0;
-                    leak = T[view]->getLeakPower();
-                    tot = T[view]->getTotPower();
-
-                    double tran_tot, tran_max;
-                    tran_tot = tran_max = 0.0;
-                    int tran_num = 0;
-                    T[view]->getTranVio(tran_tot, tran_max, tran_num);
-
-                    cout << "[view " << view
-                         << "] Local best power  WNS from Timer    : " << wns
-                         << " ps (init: " << init_wns[view] << ")" << endl;
-                    cout << "[view " << view
-                         << "] Local best power  TNS            : " << tns
-                         << " ps (init: " << init_tns[view] << ")" << endl;
-                    cout << "[view " << view
-                         << "] Local best power Leakage Power    : " << leak
-                         << endl;
-                    cout << "[view " << view
-                         << "] Local best power Total Power    : " << tot
-                         << endl;
-
-                    cout << "[view " << view
-                         << "] Local best power Tran           : " << tran_tot
-                         << " ps " << tran_num << " " << tran_max << " ps"
-                         << endl;
-
-                    unsigned swap_count = 0;
-                    unsigned uptype_swap_count = 0;
-                    unsigned downtype_swap_count = 0;
-                    unsigned upsize_swap_count = 0;
-                    unsigned downsize_swap_count = 0;
-                    unsigned hvt_init_count = 0;
-                    unsigned hvt_count = 0;
-                    for(unsigned i = 0; i < numcells; ++i) {
-                        if(g_cells[i].c_vtype == s) {
-                            ++hvt_init_count;
-                        }
-                    }
-
-                    for(unsigned i = 0; i < numcells; ++i) {
-                        if(g_cells[i].type != cells[i].type) {
-                            ++swap_count;
-                            if(cells[i].c_vtype > g_cells[i].c_vtype) {
-                                uptype_swap_count++;
-                            }
-                            else if(cells[i].c_vtype < g_cells[i].c_vtype) {
-                                downtype_swap_count++;
-                            }
-
-                            if(cells[i].c_size > g_cells[i].c_size) {
-                                upsize_swap_count++;
-                            }
-                            else if(cells[i].c_size < g_cells[i].c_size) {
-                                downsize_swap_count++;
-                            }
-                        }
-                        if(cells[i].c_vtype == s) {
-                            ++hvt_count;
-                        }
-                    }
-
-                    double hvt_ratio = (double)hvt_count / (double)numcells;
-                    double hvt_init_ratio =
-                        (double)hvt_init_count / (double)numcells;
-
-                    cout << "[view " << view
-                         << "] # Swap             : " << swap_count << "("
-                         << uptype_swap_count << "/" << downtype_swap_count
-                         << "/" << upsize_swap_count << "/"
-                         << downsize_swap_count << ")" << endl;
-                    cout << "[view " << view
-                         << "] % HVT cells        : " << hvt_ratio * 100.0
-                         << endl;
-                    cout << "[view " << view
-                         << "] % HVT cells (init) : " << hvt_init_ratio * 100.0
-                         << endl;
-                }
-                Profile();
-
-                // msk (it was ++j)
-                for(unsigned j = 0; j < numcells; ++j) {
-                    best_cells_local[j] = cells[j];
-                }
-                updated_local = true;
+                     << ") Power after power reduction iteration "
+                     << leak_iter + 1 << " : " << power << endl;
             }
-#endif
+
             if(!updated_local) {
                 break;
             }
@@ -6857,22 +6717,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             CalcStats((unsigned)thread_id, true, "FINAL_PWR_OPT");
         }
-#if 0
-        if(all_feasible && power < best_power_local) {
-            cout << "(" << thread_id
-                 << ") Local best power is updated -- final power opt. "
-                 << power << "/" << best_power_local << endl;
-            best_power_local = power;
-            best_alpha_local = local_alpha;
-            string temp = (string)opt_str + "_feasible";
-            SizeOut(temp);
-            // msk (it was ++j)
-            for(unsigned j = 0; j < numcells; ++j) {
-                best_cells_local[j] = cells[j];
-            }
-            updated_local = true;
-        }
-#endif
         if(best_score_local < best_score) {
             cout << "(" << thread_id
                  << ") Local best score is updated -- final power opt. "
@@ -6887,26 +6731,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             updated_local = true;
         }
-#if 0
-        if(!all_feasible) {
-            if(updated_local) {
-                for(unsigned j = 0; j < numcells; ++j) {
-                    cells[j] = int_best_cells[j];
-                }
-            }
-            else {
-                if(updated_int_best_cells) {
-                    for(unsigned j = 0; j < numcells; ++j) {
-                        cells[j] = int_best_cells[j];
-                    }
-                }
-            }
-            string temp = (string)opt_str + "_infeasible";
-            pthread_mutex_lock(&mutex1);
-            SizeOut(temp);
-            pthread_mutex_unlock(&mutex1);
-        }
-#endif
         cout << "(" << thread_id << ") Power after KICK iteration " << i + 1
              << " kick ratio " << kick_ratio << " : " << power << endl;
         // local parameters update
@@ -6927,48 +6751,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
             kick_leak_exponent = kick_leak_exponent * 1.1;
         }
         else {
-#if 0
-            cout << "(" << thread_id << ") Local best power not updated"
-                 << endl;
-            string temp = (string)opt_str + "_feasible";
-            pthread_mutex_lock(&mutex1);
-            if(!SizeIn(temp)) {
-                temp = (string)opt_str + "_infeasible";
-                if(!SizeIn(temp)) {
-                    temp = (string)opt_str;
-                    SizeIn(temp);
-                }
-            }
-            pthread_mutex_unlock(&mutex1);
-
-            // CheckTriSizes(temp);
-            UpdatePTSizes();
-            // CheckPTSizes();
-            UpdateCapsFromCells();
-            for(unsigned view = 0; view < numViews; ++view) {
-                CallTimer(view);
-                if(CORR_PT) {
-                    CorrelatePT((unsigned)thread_id, view);
-                }
-            }
-            CalcStats((unsigned)thread_id, true, "AFTER_OPT");
-
-            if(RELEASE) {
-                pthread_mutex_lock(&mutex1);
-                Release(false, RELEASE_MODE);
-                pthread_mutex_unlock(&mutex1);
-                if(CORR_PT) {
-                    CorrelatePT((unsigned)thread_id);
-                }
-                CalcStats((unsigned)thread_id, true, "RELEASE");
-            }
-
-            if(VERBOSE >= 100)
-                CheckCorrPT();
-#endif
-            // if (degrade_count > 2 || cpuTime()-global_begin > 0.7 *
-            // RuntimeLimit)
-            // break;
             kick_ratio = kick_ratio * 2;
             kick_slack = kick_slack * 3;
             kick_leak_exponent = kick_leak_exponent * 0.1;
@@ -7001,7 +6783,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
          << " total time: " << cpuTime() - global_begin << endl;
 
     // if(skew_violation == 0. || WIRE_METRIC != ND)
-    if(WIRE_METRIC != ND) {
+    // WIRE_METRIC != ND
+    // FIXME:
+    if(false) {
         pthread_mutex_lock(&mutex1);
 
         cout << "(" << thread_id << ") uses SF" << localSFlist[thread_id]
@@ -7065,48 +6849,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
             cout << localSollist[i] << " ";
         }
         cout << endl;
-#if 0
-        if(best_power_local < best_power) {
-            cout << "From (" << thread_id << ") BEST POWER " << best_power_local
-                 << endl;
-            best_power = best_power_local;
-            best_kick = thread_id;
-            best_option = thread_id;
-            SizeOut(true);
-            cout << "Saving sizes done!" << endl;
-            best_cells_poweropt.resize(numcells);
-
-            /*
-            for(unsigned i=0 ; i<numcells; i++) {
-                cout << best_cells_poweropt[i].name << endl;
-                cout << best_cells_local[i].name << endl;
-            }
-            */
-
-            for(unsigned i = 0; i < numcells; i++) {
-                best_cells_poweropt[i] = best_cells_local[i];
-                // cout << "best_cells_poweropt.name:" <<
-                // best_cells_poweropt[i].name << endl;
-                // cout << "best_cells_local.name:" <<
-                // best_cells_poweropt[i].name << endl;
-            }
-            cout << "Copying best cells done!" << endl;
-            double wns, power;
-            ReportWithPT(best_cells_poweropt, "power_opt", wns, power);
-        }
-        else {
-            if(best_power_local < second_best_power &&
-               best_power_local != best_power) {
-                cout << "From (" << thread_id << ") SECOND BEST POWER "
-                     << best_power_local << endl;
-                second_best_power = best_power_local;
-                second_best_kick = thread_id;
-                second_best_cells_poweropt.resize(numcells);
-                for(unsigned i = 0; i < numcells; i++)
-                    second_best_cells_poweropt[i] = best_cells_local[i];
-            }
-        }
-#endif
         if(score < best_score) {
             cout << "From (" << thread_id << ") BEST FAILED POWER "
                  << best_score << endl;
@@ -7116,7 +6858,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 best_cells_poweropt[i] = cells[i];
             }
             double wns, power;
-            // ReportWithPT(best_cells_poweropt, "failed_power_opt", wns, power);
+            // ReportWithPT(best_cells_poweropt, "failed_power_opt", wns,
+            // power);
         }
 
         double ini_score = init_score[0];
@@ -8048,10 +7791,10 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
     return cnt;
 }
 
-//FIXME:
+// FIXME:
 unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                                  double alpha, double toler, bool isPeephole,
-                                 bool &updated_local, double &best_power_local,
+                                 bool &updated_local,
                                  vector< CELL > &best_cells_local) {
     unsigned view = 0;
     if(alpha == -1) {
@@ -8360,6 +8103,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         lib_cell_info
                             ->pins[pins[view1][cells[cur].outpins[k]].lib_pin]
                             .maxCapacitance;
+                    maxCap -= cap_margin;
                     curCap = pins[view1][cells[cur].outpins[k]].totcap;
                     if(curCap > maxCap) {
                         if(VERBOSE >= 1)
@@ -8566,12 +8310,12 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(wns > 0) {
-                    if(power < best_power_local) {
+                    if(power < best_score_local) {
                         cout << "(" << thread_id
                              << ") Local best power is updated (in reduce "
                                 "power function) "
-                             << power << "/" << best_power_local << endl;
-                        best_power_local = power;
+                             << power << "/" << best_score_local << endl;
+                        best_score_local = power;
                         best_alpha_local = local_alpha;
                         char opt_str[250];
                         sprintf(opt_str, "%d", thread_id);
@@ -8773,6 +8517,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                                      ->pins[pins[view1][cells[cur].outpins[k]]
                                                 .lib_pin]
                                      .maxCapacitance;
+                        maxCap -= cap_margin;
                         curCap = pins[view1][cells[cur].outpins[k]].totcap;
                         if(curCap > maxCap) {
                             if(VERBOSE >= 1)
@@ -8935,6 +8680,7 @@ bool Sizer::CheckMaxCap(CELL &cell) {
         for(unsigned view = 0; view < numViews; ++view) {
             maxCap = lib_cell_info->pins[pins[view][cell.outpins[k]].lib_pin]
                          .maxCapacitance;
+            maxCap -= cap_margin;
             curCap = pins[view][cell.outpins[k]].totcap;
             if(curCap > maxCap) {
                 return false;

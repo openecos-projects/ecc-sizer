@@ -86,13 +86,12 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     cap_violation = CalcCapViolation();
     l2_norm = 0.0;
     average_error = 0.0;
-    score = calcScore(viewPower[view], skew_violation, slew_violation, cap_violation);
+    score = calcScore(viewPower[view], skew_violation, slew_violation,
+                      cap_violation);
     // max_pt_err = CalcPTErrors(average_error, l2_norm);
     tot_violations = slew_violation + skew_violation + cap_violation;
-    if(VERBOSE > 1) {
+    if(VERBOSE >= 1) {
         cout << "--------------------------------------------" << endl;
-        cout << "Total Slew violation   : " << slew_violation << "ns ("
-             << maxTran[corner] << "ns) " << endl;
         cout << "Total Slack violation  : " << (-1) * skew_violation << "ns"
              << endl;
         cout << "--Max negative rslack  : " << max_neg_rslk << endl;
@@ -104,6 +103,8 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
             cout << "--Min negative (hold) fslack  : " << min_neg_fslk << endl;
         }
         cout << "Total Cap violation    : " << cap_violation << "fF" << endl;
+        cout << "Total Slew violation   : " << slew_violation << "ns ("
+             << maxTran[corner] << "ns) " << endl;
         cout << "Total violations       : " << tot_violations << endl;
         cout << "Total power            : " << power << "uW" << endl;
         if(CORR_PT && pt_err)
@@ -473,6 +474,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                 maxCap =
                     lib_cell_info->pins[pins[view][cells[i].outpins[k]].lib_pin]
                         .maxCapacitance;
+            maxCap -= cap_margin;
             unsigned outnet = pins[view][cells[i].outpins[k]].net;
             double loadCap = 0.;
 

@@ -111,6 +111,7 @@ class designTiming {
     void getPinTran(double &riseTran, double &fallTran, string pinName);
     void getPinArrival(double &riseArrival, double &fallArrival,
                        string pinName);
+    double getCellPower(string cell_name);
     double getCeff(string PinName);
     bool checkServer();
     bool checkSize(string filename);

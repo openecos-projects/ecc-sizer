@@ -389,9 +389,11 @@ class Sizer {
     NET **nets;
 
    public:
+    double cap_margin = 0.0;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
     std::vector< std::vector< string > > EquaivaID2cellNames;
+
    private:
     double tnsPenalty = 10, slewPenalty = 20, capPenalty = 20;
 
@@ -976,7 +978,7 @@ class Sizer {
     void FinalPowerOpt(double slk_th, unsigned thread_id);
     unsigned ReducePowerLegal(int thread_id, int option, int iter, double alpha,
                               double toler, bool isPeephole,
-                              bool &updated_local, double& best_power_local,
+                              bool &updated_local,
                               vector< CELL > &best_cells_local);
     CellSol GetCommonCell(unsigned cell_index);
     void ReducePowerFast(int option);

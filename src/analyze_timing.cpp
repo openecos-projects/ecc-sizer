@@ -296,6 +296,38 @@ double designTiming::getTotPower() {
     return (_totPower);
 }
 
+double designTiming::getCellPower(string cell_name) {
+    if(program == PT) {
+        _tclInputString = "PtTotalPower";
+    }
+    else if(program == ETS) {
+        _tclInputString = "EtsTotalPower";
+    }
+    else {
+        double begin = cpuTime();
+        double totalLeakagePower = 0.0;
+        auto inst =
+            _sizer->_ckt->_ord_design->getBlock()->findInst(cell_name.c_str());
+        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+        totalLeakagePower +=
+            _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+        totalLeakagePower /= _sizer->sw_adj;
+        pt_time += cpuTime() - begin;
+        return totalLeakagePower;
+    }
+    //_tclExpression = (char *)_tclInputString.c_str();
+    // cout << _tclInputString << endl;
+    double begin = cpuTime();
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+
+    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+    // cout << _tclAnswer << endl;
+    pt_time += cpuTime() - begin;
+    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+    double _totPower = _convertToDouble(_answerStr);
+    return (_totPower);
+}
+
 double designTiming::getLeakPower() {
     if(program == PT) {
         _tclInputString = "PtLeakPower";

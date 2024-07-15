@@ -95,6 +95,7 @@ def ICCAD_evaluation(filePath: str, design: Design, timing: Timing):
       with open ("tns_evaluation_temp.txt", "r") as file:
         for line in file:
           tns = float(line.split()[1]) / 1000
+      # cap_file = open("net_cap.txt", "w")
       for pin_ in design.getBlock().getITerms():
         if pin_.getNet() != None:
           if pin_.getNet().getSigType() != 'POWER' and pin_.getNet().getSigType() != 'GROUND' and pin_.getNet().getSigType() != 'CLOCK':
@@ -103,10 +104,11 @@ def ICCAD_evaluation(filePath: str, design: Design, timing: Timing):
               diff = abs(timing.getMaxSlewLimit(library_cell_pin) - timing.getPinSlew(pin_)) * 1000000000
               slew += diff
             if pin_.isOutputSignal():
+              # cap_file.write("{} {}\n".format(pin_.getNet().getName(), 1000000000000000 * timing.getNetCap(pin_.getNet(), corner, timing.Max)))
               if timing.getMaxCapLimit(library_cell_pin) < timing.getNetCap(pin_.getNet(), corner, timing.Max):
                 diff = abs(timing.getMaxCapLimit(library_cell_pin) - timing.getNetCap(pin_.getNet(), corner, timing.Max)) * 1000000000000000
                 cap += diff
-          
+      # cap_file.close()
       os.remove("tns_evaluation_temp.txt")
       for inst in design.getBlock().getInsts():
         leakage += timing.staticPower(inst, corner)
