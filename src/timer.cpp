@@ -2459,7 +2459,7 @@ double Sizer::CalSens(CELL &cell, int steps, int dir, int option, double gamma,
         return delta_power * cell_slack / EstDeltaTNS(cell, steps, dir, view);
     }
     else if(option == 5) {
-        double delta_tns = EstDeltaTNSNEW(cell, steps, dir, view);
+        double delta_tns = EstDeltaTNS(cell, steps, dir, view);
         //        cout << "ATTACK " << cell.name << " "
         //            << cell.type << " "
         //            << steps << "/" << dir << " "
@@ -5205,16 +5205,13 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
                                                     ord::Timing::Max);
         tran_rise = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Max);
-        tran_fall = tran_rise;  //_ckt->_ord_timing->getPinSlew(i_term,
-                                // ord::Timing::Max);
+        tran_fall = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Min);
+
         aat_rise = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Rise,
                                                     ord::Timing::Max);
         aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
                                                     ord::Timing::Max);
         pin_name = i_term->getName();
-        if(pin_name == "123") {
-            printf("debug debug!!!\n");
-        }
         int pin_id = pin2id[pin_name];
         slack_rise = slack_rise == FLT_MAX ? DBL_MAX : slack_rise;
         slack_fall = slack_fall == FLT_MAX ? DBL_MAX : slack_fall;
@@ -5557,7 +5554,7 @@ void Sizer::CorrelatePT(unsigned option, unsigned view) {
     vector< timing_lookup > tran_list;
     vector< timing_lookup > aat_list;
     double begin = cpuTime();
-    UpdatePTSizes(option);
+    // UpdatePTSizes(option);
     GetPTValues(option, view, slack_list, ceff_list, tran_list, aat_list);
 
     // transition correlation

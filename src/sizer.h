@@ -141,6 +141,7 @@ const string CorrPTMetricNames[] = {"SLK", "ALL", "TRAN", "CEFF"};
 
 extern bool ISO_TIME;
 extern bool MINIMUM;
+extern bool MAXIMUM;
 extern bool CORR_AAT;
 extern unsigned MAX_TRIALS;
 extern unsigned MAX_TARGETS;
@@ -487,7 +488,7 @@ class Sizer {
     // graphop.cpp
     void SortTopo();
     void InitNets();
-
+    // set< entry > targets;
     // timer.cpp
     LibCellInfo *sizing_progression(CELL &cell, int steps, int dir,
                                     unsigned corner = 0);
@@ -969,8 +970,8 @@ class Sizer {
                                 double maxTran, unsigned view = 0);
     unsigned Attack(unsigned round, unsigned STAGE, double RATIO,
                     double leak_exponent, double alpha = -1,
-                    unsigned thread_id = 0, double toler = .0,
-                    unsigned view = 0);
+                    double break_ratio = 0.1, unsigned thread_id = 0,
+                    double toler = .0, unsigned view = 0);
     void AttackPT(unsigned round, unsigned STAGE, double RATIO,
                   double leak_exponent);
     void Release(bool success, unsigned STAGE, unsigned view = 0);

@@ -295,7 +295,36 @@ void Circuit::Parser(string benchmark) {
             }
         }
     }
-
+    if(MAXIMUM) {
+        // reset to min size / vt
+        cout << "Reset to MAXMUM size / vt ... " << endl;
+        for(unsigned i = 0; i < g_cells.size(); ++i) {
+            if(g_cells[i].isDontTouch){
+                continue;
+            }
+            for(unsigned vt = 0; vt < _sizer->numVt; vt++) {
+                int main_id = g_cells[i].main_lib_cell_id;
+                LibCellInfo* new_lib_cell_info = _sizer->getLibCellInfo(
+                    main_id,
+                    _sizer->main_lib_cell_tables[0][main_id]
+                            ->lib_vt_size_table.size() -
+                        1,
+                    static_cast< cell_vtypes >(vt));
+                if(new_lib_cell_info != NULL) {
+                    g_cells[i].type = new_lib_cell_info->name;
+                    g_cells[i].c_size = 0;
+                    g_cells[i].c_vtype = static_cast< cell_vtypes >(vt);
+                    for(unsigned j = 0; j < g_cells[i].inpins.size(); j++) {
+                        g_pins[g_cells[i].inpins[j]].cap =
+                            new_lib_cell_info
+                                ->pins[g_pins[g_cells[i].inpins[j]].lib_pin]
+                                .capacitance;
+                    }
+                    break;
+                }
+            }
+        }
+    }
     if(_sizer->mmmcOn && _sizer->numCorners > 1) {
         cout << "copy nets to other corner" << endl;
         for(unsigned corner = 1; corner < _sizer->numCorners; ++corner) {

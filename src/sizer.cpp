@@ -83,6 +83,7 @@
 // global variables
 bool ISO_TIME = false;
 bool MINIMUM = false;
+bool MAXIMUM = false;
 bool CORR_AAT = false;
 double SLEW_GB = 10.0;
 unsigned MAX_TRIALS = 3000;
@@ -137,7 +138,7 @@ bool MIN_VT = false;
 bool FINAL_PWR_OPT = false;
 bool MIN_SIZE = false;
 bool UPDATE_LIST = false;
-int MULTI_STEP = 1;
+int MULTI_STEP = 30;
 int MULTI_STEP_KICK = 1;
 int MULTI_STEP_PWR = 1;
 double KICK_RATIO = 0.01;
@@ -3452,7 +3453,7 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
     double current_leak = 0.0;
     double current_tot = 0.0;
     if(useOpenSTA) {
-        string find_timing = T[view]->doOneCmd("find_timing");
+        // string find_timing = T[view]->doOneCmd("find_timing");
         current_leak = T[view]->getLeakPower();
         current_tot = current_leak;
     }
@@ -3520,8 +3521,8 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
 
 // slack/slew optimization
 unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
-                       double leak_exponent, double alpha, unsigned thread_id,
-                       double toler, unsigned view) {
+                       double leak_exponent, double alpha, double break_ratio,
+                       unsigned thread_id, double toler, unsigned view) {
     if(alpha = -1) {
         alpha = ALPHA;
     }
@@ -3796,6 +3797,9 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                           view);
                 update_cnt = 0;
             }
+            if(update_cnt > (targets.size() * break_ratio)) {
+                break;
+            }
 
             if(skew_violation_worst == 0.0 || worst_slack_worst >= toler) {
                 break;
@@ -3971,12 +3975,12 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                     }
                 }
 
-                if(VERBOSE >= 1)
+                if(VERBOSE >= 4)
                     cout << "-> " << cells[cur].type << " -- Restored" << endl;
             }
             else {  // accept
                 changed[cur] = true;
-                if(VERBOSE >= 1)
+                if(VERBOSE >= 4)
                     cout << "-> " << cells[cur].type << " -- Accepted" << endl;
                 count++;
                 update_cnt++;
@@ -5679,7 +5683,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 
     T = PTimer[0];
 
-    if(MINIMUM || GTR_IN) {
+    if(MINIMUM || GTR_IN || MAXIMUM) {
         InitPTSizes();
     }
 
@@ -5884,8 +5888,8 @@ void Sizer::Parallel_Sizer_Launcher() {
                      << best_score << endl;
             }
 
-            // double wns, power;
-            // ReportWithPT(best_cells_poweropt, "prft", wns, power);
+            double wns, power;
+            ReportWithPT(best_cells_poweropt, "prft", wns, power);
             time_LeakOpt = cpuTime() - begin;
 
             if(VERBOSE >= 1) {
@@ -6389,7 +6393,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 3;
+            unsigned max_time_recovery_iter = 10;
             // Timing recovery
             for(unsigned time_recovery_iter = 0;
                 time_recovery_iter < max_time_recovery_iter;
@@ -6498,7 +6502,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                         if(FIX_GLOBAL) {
                             change +=
-                                Attack(i + 1, GLOBAL, 30, 1.0, local_alpha,
+                                Attack(i + 1, GLOBAL, 30, 1.0, local_alpha, 1.0,
                                        thread_id, TIMING_OPT_GB, view);
                         }
 
