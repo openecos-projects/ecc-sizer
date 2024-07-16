@@ -5204,8 +5204,10 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
                                                     ord::Timing::Max);
         slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
                                                     ord::Timing::Max);
-        tran_rise = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Max);
-        tran_fall = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Min);
+        tran_rise = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Rise,
+                                                  ord::Timing::Max);
+        tran_fall = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Fall,
+                                                  ord::Timing::Max);
 
         aat_rise = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Rise,
                                                     ord::Timing::Max);
@@ -5248,9 +5250,10 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
                                                     ord::Timing::Max);
         slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
                                                     ord::Timing::Max);
-        tran_rise = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Max);
-        tran_fall = tran_rise;  //_ckt->_ord_timing->getPinSlew(i_term,
-                                // ord::Timing::Max);
+        tran_rise = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Rise,
+                                                  ord::Timing::Max);
+        tran_fall = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Fall,
+                                                  ord::Timing::Max);
         aat_rise = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Rise,
                                                     ord::Timing::Max);
         aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,

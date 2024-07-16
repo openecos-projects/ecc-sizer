@@ -4657,11 +4657,11 @@ void Sizer::AllCorrTest() {
             continue;
         }
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
-           !isEqual(pins[view][i].ftran, tran_list[i].fall) // ||
+           !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
            //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
            //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
-        //    !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
-        //    !isEqual(pins[view][i].fslk, slack_list[i].fall)
+           !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
+           !isEqual(pins[view][i].fslk, slack_list[i].fall)
            ) {
             cout << "after corr mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
