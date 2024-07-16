@@ -1,1 +1,0 @@
-set clock "create_clock -name nvdla_core_clk -period 0.4 \[get_ports nvdla_core_clk\]"
