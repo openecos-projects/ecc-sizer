@@ -5557,7 +5557,7 @@ void Sizer::CorrelatePT(unsigned option, unsigned view) {
     vector< timing_lookup > tran_list;
     vector< timing_lookup > aat_list;
     double begin = cpuTime();
-    // UpdatePTSizes(option);
+    UpdatePTSizes(option);
     GetPTValues(option, view, slack_list, ceff_list, tran_list, aat_list);
 
     // transition correlation
