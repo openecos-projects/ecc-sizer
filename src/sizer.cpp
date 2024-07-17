@@ -57,7 +57,7 @@
 #include "ord/Timing.h"
 #include <gperftools/profiler.h>
 #include <gperftools/heap-profiler.h>
-
+#include "ord/OpenRoad.hh"
 #define TIMER_RUNS_BACKGROUND
 
 #define GLOBAL 0
@@ -1356,32 +1356,19 @@ void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
     string filename = benchname + "_" + ostr.str() + "_sizes.tcl";
     ofstream outsz(filename.c_str());
     int count = 0;
-    for(unsigned i = 0; i < numcells; i++) {
+    auto bolck = _ckt->_ord_design->getBlock();
+    this->_sta->networkChanged();
+    auto db = ord::OpenRoad::openRoad()->getDb();
+    for(unsigned i = 0; i < c.size(); i++) {
         if(getLibCellInfo(c[i]) == NULL)
             continue;
         LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
-        if(useOpenSTA) {
-            outsz << "OSSizeCell " << c[i].name << " " << lib_cell_info->name
-                  << endl;
-        }
-        else if(!useETS) {
-            outsz << "PtSizeCell " << c[i].name << " " << lib_cell_info->name
-                  << endl;
-        }
-        else {
-            outsz << "EtsSizeCell " << c[i].name << " " << lib_cell_info->name
-                  << endl;
-        }
+        auto inst = bolck->findInst(c[i].name.c_str());
+        inst->swapMaster(db->findMaster(c[i].type.c_str()));
         c[i].isChanged = false;
         count++;
     }
-
-    outsz.close();
-    if(count > 0) {
-        for(unsigned view = 0; view < numViews; ++view) {
-            T[view]->updateSize(filename);
-        }
-    }
+    _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
 }
 
 void Sizer::CheckTriSizes(string opt_str) {
@@ -1485,13 +1472,13 @@ void Sizer::UpdatePTSizes(unsigned option) {
     //        cells[i].type << endl;
     //        T[view]->sizeCell(cells[i].name, cells[i].type);
     //    }
-    std::ostringstream ostr;
-    ostr.str("");
-    ostr << option;
+    // std::ostringstream ostr;
+    // ostr.str("");
+    // ostr << option;
 
     cout << "Update PT sizes... " << endl;
-    string filename = benchname + "_" + ostr.str() + "_sizes.tcl";
-    ofstream outsz(filename.c_str());
+    auto db = ord::OpenRoad::openRoad()->getDb();
+    auto block = _ckt->_ord_design->getBlock();
     int count = 0;
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
@@ -1499,34 +1486,22 @@ void Sizer::UpdatePTSizes(unsigned option) {
             continue;
         if(!PT_FULL_UPDATE && !cells[i].isChanged)
             continue;
-        // if(lib_cell_info->name != init_sizes[i]) {
-        //     count++;
-        // }
-        // cout  << PT_FULL_UPDATE << " " << cells[i].name << " "<<
-        // cells[i].isChanged << endl;
         count++;
-        if(useOpenSTA) {
-            outsz << "OSSizeCell " << cells[i].name << " "
-                  << lib_cell_info->name << endl;
-        }
-        else if(!useETS) {
-            outsz << "PtSizeCell " << cells[i].name << " "
-                  << lib_cell_info->name << endl;
-        }
-        else {
-            outsz << "EtsSizeCell " << cells[i].name << " "
-                  << lib_cell_info->name << endl;
-        }
-        // cout  << cells[i].name << " " << cells[i].isChanged << " sized"<<
-        // endl;
-        cells[i].isChanged = false;
     }
-    outsz.close();
     printf("Update PT sizes changed count %d\n", count);
     if(count > 0) {
-        for(unsigned view = 0; view < numViews; ++view) {
-            T[view]->updateSize(filename);
+        this->_sta->networkChanged();
+        for(unsigned i = 0; i < numcells; i++) {
+            LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+            if(lib_cell_info == NULL)
+                continue;
+            if(!PT_FULL_UPDATE && !cells[i].isChanged)
+                continue;
+            auto inst = block->findInst(cells[i].name.c_str());
+            inst->swapMaster(db->findMaster(cells[i].type.c_str()));
+            cells[i].isChanged = false;
         }
+         _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
     }
 
     // else cout << "No cell has been changed." << endl;
@@ -5684,7 +5659,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     T = PTimer[0];
 
     if(MINIMUM || GTR_IN || MAXIMUM) {
-        InitPTSizes();
+        UpdatePTSizes(g_cells);
     }
 
     double temp_best_tns = DBL_MAX;
@@ -6231,8 +6206,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
     best_score_local =
         calcScore(power, skew_violation, slew_violation, cap_violation);
+    best_score = best_score_local;
     SizeOut((string)opt_str);
-
+    printf("Initial Score: %f\n", best_score_local);
     pthread_mutex_lock(&mutex1);
     if(localSFlist[thread_id] == PRFT_PTNUM) {
         localSFlist[thread_id] = SFlist[thread_id];
@@ -6393,7 +6369,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 10;
+            unsigned max_time_recovery_iter = 3;
             // Timing recovery
             for(unsigned time_recovery_iter = 0;
                 time_recovery_iter < max_time_recovery_iter;

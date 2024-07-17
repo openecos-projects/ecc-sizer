@@ -84,6 +84,8 @@ def ICCAD_evaluation(filePath: str, design: Design, timing: Timing):
       grt.setVerbose(True)
       print("Run Global Routing...")
       grt.globalRoute(False)
+      # timing.resetTiming()
+      # swap_libcell(filePath, design)
       design.evalTclString("estimate_parasitics -global_routing")
       # Start Evaluation
       tns, slew, cap, leakage = 0, 0, 0, 0
