@@ -1501,7 +1501,7 @@ void Sizer::UpdatePTSizes(unsigned option) {
             inst->swapMaster(db->findMaster(cells[i].type.c_str()));
             cells[i].isChanged = false;
         }
-         _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
+        _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
     }
 
     // else cout << "No cell has been changed." << endl;
@@ -6369,7 +6369,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 3;
+            unsigned max_time_recovery_iter = 5;
             // Timing recovery
             for(unsigned time_recovery_iter = 0;
                 time_recovery_iter < max_time_recovery_iter;
@@ -10004,7 +10004,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    // ProfilerStart("cpu-profile.prof");
+    ProfilerStart("cpu-profile.prof");
 
     for(int i = 1; i < argc; i++) {
         string input_option = string(argv[i]);
@@ -10230,7 +10230,7 @@ int main(int argc, char **argv) {
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
-    // ProfilerStop();
+    ProfilerStop();
 
     return 0;
 }
