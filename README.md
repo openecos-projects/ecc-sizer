@@ -26,5 +26,4 @@ CMakeLists 中ROAD 2
 #### 1.3.2 TODO LIST
 
 - DEBUG
-- 使用 gperftools 进行 profiling。
-- 使用 OpenROAD 调用global routing，输出SPEF，其余流程不变。
+- static power 计算加速，减少的static power的调用次数，cell 不变时直接复用上次结果。
