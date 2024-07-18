@@ -2471,7 +2471,7 @@ double Sizer::CalSens(CELL &cell, int steps, int dir, int option, double gamma,
         return delta_power / delta_tns;
     }
     else if(option == 6) {
-        return 1 / EstDeltaTNSNEW(cell, steps, dir, view);
+        return 1 / EstDeltaTNS(cell, steps, dir, view);
     }
     else if(option == 7) {
         return EstDeltaTNSNEW(cell, steps, dir, view) / (-cell_slack);
