@@ -412,10 +412,12 @@ struct CELL {
     bool isClockCell : 1;
     bool isDontTouch : 1;
     bool isChanged = false;
+    bool isStaticChanged = true;
     unsigned depth;
     vector< double > max_tran;
     bool touched;
     bool downsized;
+    double static_power;
 
     int main_lib_cell_id;
     cell_vtypes c_vtype;
@@ -444,6 +446,7 @@ struct CELL {
           isDontTouch(false),
           isChanged(true),
           main_lib_cell_id(-1),
+          static_power(0.0),
           depth(1),
           max_tran(vector< double >()),
           touched(false),
@@ -483,6 +486,7 @@ struct CELL {
           outpin(orig.outpin),
           clock_pin(orig.clock_pin),
           data_pin(orig.data_pin),
+          static_power(orig.static_power),
           fis(orig.fis),
           fos(orig.fos),
           tabu(orig.tabu),
@@ -496,6 +500,7 @@ struct CELL {
         depth = assign.depth;
         max_tran = assign.max_tran;
         touched = assign.touched;
+        static_power = assign.static_power;
         downsized = assign.downsized;
         isClockCell = assign.isClockCell;
         isDontTouch = assign.isDontTouch;
