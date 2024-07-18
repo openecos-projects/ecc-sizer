@@ -13,6 +13,8 @@
 #include "sta/ConcreteNetwork.hh"
 #include "sta/PortExtCap.hh"
 #include "sta/InputDrive.hh"
+// #include "dbSta/dbNetwork.hh"
+#include "db_sta/dbNetwork.hh"
 #include "sta/PatternMatch.hh"
 #include "sta/PortDelay.hh"
 #include "sta/Sdc.hh"
@@ -3512,13 +3514,15 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         if(netNameStr == _sizer->clk_name[0]) {
             continue;
         }
-        Net* net = _sta->network()->findNet(netNameStr.c_str());
+        auto ord_net = _ord_design->getBlock()->findNet(netNameStr.c_str());
+        sta::dbSta* sta = _sizer->_ckt->_ord_timing->getSta();
+        sta::Net* net = sta->getDbNetwork()->dbToSta(ord_net);
         Parasitic* net_parasitic = parasitics->findParasiticNetwork(net, ap);
         float pin_cap;
         float wire_cap;
         _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
         double t_cap = wire_cap / _sizer->cap_unit;
-        g_nets[corner][i].cap = t_cap;  // FIXME: There is a critical bug, need to be fixed, 0717
+        g_nets[corner][i].cap = t_cap;
         if(net_parasitic == nullptr) {
             printf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;

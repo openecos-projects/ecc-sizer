@@ -84,10 +84,10 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
 
     // TODO
     cap_violation = CalcCapViolation();
-    double cap_tot, cap_max = 0;
-    int cap_num = 0;
-    T[view]->getCapVio(cap_tot, cap_max, cap_num);
-    exit(0);
+    // double cap_tot, cap_max = 0;
+    // int cap_num = 0;
+    // T[view]->getCapVio(cap_tot, cap_max, cap_num);
+    // exit(0);
     l2_norm = 0.0;
     average_error = 0.0;
     score = calcScore(viewPower[view], skew_violation, slew_violation,
