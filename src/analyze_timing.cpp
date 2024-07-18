@@ -342,9 +342,20 @@ double designTiming::getLeakPower() {
         double totalLeakagePower = 0.0;
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
         // #progma omp parallel for
-        for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
-            totalLeakagePower +=
-                _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+                // for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
+        //     totalLeakagePower +=
+        //         _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+        // }
+        for(int i = 0; i < _sizer->numcells; i++) {
+            if(_sizer->cells[i].isStaticChanged) {
+                auto inst = _sizer->_ckt->_ord_design->getBlock()->findInst(
+                    _sizer->cells[i].name.c_str());
+                _sizer->cells[i].static_power =
+                    _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+                _sizer->cells[i].isStaticChanged = false;
+            }
+
+            totalLeakagePower += _sizer->cells[i].static_power;
         }
         totalLeakagePower /= _sizer->sw_adj;
         pt_time += cpuTime() - begin;
