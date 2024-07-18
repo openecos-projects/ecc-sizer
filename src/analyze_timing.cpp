@@ -54,13 +54,15 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include "MinMax.hh"
 #include "ord/Timing.h"
+#include "sta/Network.hh"
 #include "sta/Sta.hh"
 #include "utils.h"
 #include "sizer.h"
 #include <tcl8.6/tcl.h>
 #include <tcl8.6/tclDecls.h>
-
+#include "db_sta/dbNetwork.hh"
 designTiming::designTiming() {
     program = PT;
     pt_time = 0.0;
@@ -449,7 +451,7 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
         _tclInputString = "OSGetCapVio ";
         double begin = cpuTime();
         auto design = _sizer->_ckt->_ord_design;
-        // ofstream ofs("tran_vio1.txt");
+        ofstream ofs("cap_vio1.txt");
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
         for(auto inst : design->getBlock()->getInsts()) {
             for(auto pin_ : inst->getITerms()) {
@@ -458,19 +460,24 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
                    pin_->getNet()->getSigType() != "CLOCK" &&
                    pin_->isOutputSignal()) {
                     auto m_term = pin_->getMTerm();
-                    double now_cap = _sizer->_ckt->_ord_timing->getNetCap(
-                        pin_->getNet(), corner, ord::Timing::Max);
+                    float pin_cap;
+                    float wire_cap;
+                    sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
+                    sta::Net *sta_net =
+                        sta->getDbNetwork()->dbToSta(pin_->getNet());
+                    _sizer->_sta->connectedCap(
+                        sta_net, corner, sta::MinMax::max(), pin_cap, wire_cap);
+                    wire_cap /= _sizer->cap_unit;
+                    pin_cap /= _sizer->cap_unit;
+                    double now_cap = wire_cap + pin_cap;
                     double cap_limit =
-                        _sizer->_ckt->_ord_timing->getMaxCapLimit(m_term);
-                    double cap_diff =
-                        std::max((now_cap - cap_limit) / _sizer->cap_unit, 0.0);
+                        _sizer->_ckt->_ord_timing->getMaxCapLimit(m_term) /
+                        _sizer->cap_unit;
+                    double cap_diff = std::max((now_cap - cap_limit), 0.0);
                     tot += cap_diff;
                     if(cap_diff > 0) {
-                        // cout
-                        //     << pin_->getName()
-                        //     << " max tran vio: " << now_slew /
-                        //     _sizer->time_unit
-                        //     << " " << slew_limit / _sizer->time_unit << endl;
+                        ofs << pin_->getName() << " max cap vio: " << now_cap
+                            << " " << wire_cap << " " << cap_limit << endl;
                         num++;
                     }
                     max = std::max(max, cap_diff);
@@ -478,7 +485,7 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
             }
         }
         pt_time += cpuTime() - begin;
-        // ofs.close();
+        ofs.close();
         return;
     }
     //_tclExpression = (char *)_tclInputString.c_str();

@@ -84,6 +84,10 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
 
     // TODO
     cap_violation = CalcCapViolation();
+    double cap_tot, cap_max = 0;
+    int cap_num = 0;
+    T[view]->getCapVio(cap_tot, cap_max, cap_num);
+    exit(0);
     l2_norm = 0.0;
     average_error = 0.0;
     score = calcScore(viewPower[view], skew_violation, slew_violation,
@@ -222,17 +226,16 @@ double Sizer::CalcSlewViolation(unsigned view) {
                 continue;
             }
             if(pins[view][curpin].name == "CLK" ||
-               pins[view][curpin].name == "SET" ||
                pins[view][curpin].owner == UINT_MAX) {
                 continue;
                 // printf("Pin name %s\n", pins[view][curpin].name.c_str());
             }
 
-            if(pins[view][curpin].max_tran == 0) {
-                printf("Pin name %s max_tran %f\n",
-                       pins[view][curpin].name.c_str(),
-                       pins[view][curpin].max_tran);
-            }
+            // if(pins[view][curpin].max_tran == 0) {
+            //     printf("Pin name %s max_tran %f\n",
+            //            pins[view][curpin].name.c_str(),
+            //            pins[view][curpin].max_tran);
+            // }
             double t_tran =
                 max(pins[view][curpin].rtran, pins[view][curpin].ftran);
             slew_viol += max(t_tran - pins[view][curpin].max_tran, 0.0);
@@ -465,6 +468,7 @@ double Sizer::CalcCapViolation(unsigned view) {
     double cap_viol = 0.;
     cap_violation_cnt = 0;
     cap_violation_wst = 0;
+    ofstream ofs("cap_vio2.txt");
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo* lib_cell_info = getLibCellInfo(cells[i], corner);
 
@@ -496,11 +500,16 @@ double Sizer::CalcCapViolation(unsigned view) {
             }
             pins[view][cells[i].outpins[k]].totcap =
                 nets[corner][outnet].cap + loadCap;
-            // cout << "TOT CAP CHECK: " << view << " " <<
-            // getFullPinName(pins[view][cells[i].outpins[k]]) << " "  <<
-            // pins[view][cells[i].outpins[k]].totcap << endl;
+            if(nets[corner][outnet].cap + loadCap - maxCap > 0) {
+                ofs << getFullPinName(pins[view][cells[i].outpins[k]])
+                    << " max cap vio: "
+                    << pins[view][cells[i].outpins[k]].totcap << " "
+                    << nets[corner][outnet].cap << " "
+                    << nets[corner][outnet].name <<" " << maxCap << endl;
+            }
         }
     }
+    ofs.close();
 #ifdef DRIVER_CELL
     for(unsigned i = 0; i < PIs.size(); i++) {
         LibCellInfo& driver =

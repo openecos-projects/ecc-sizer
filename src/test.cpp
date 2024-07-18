@@ -4508,7 +4508,7 @@ void Sizer::AllCorrTest() {
             nets[i][j] = g_nets[i][j];
         }
     }
-    UpdatePTSizes();
+    // UpdatePTSizes();
     PTimer = new designTiming**[1];
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];

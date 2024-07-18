@@ -1,3 +1,4 @@
+#include "MinMax.hh"
 #include "sizer.h"
 #include "ckt.h"
 #include <tcl8.6/tcl.h>
@@ -299,7 +300,7 @@ void Circuit::Parser(string benchmark) {
         // reset to min size / vt
         cout << "Reset to MAXMUM size / vt ... " << endl;
         for(unsigned i = 0; i < g_cells.size(); ++i) {
-            if(g_cells[i].isDontTouch){
+            if(g_cells[i].isDontTouch) {
                 continue;
             }
             for(unsigned vt = 0; vt < _sizer->numVt; vt++) {
@@ -3513,6 +3514,11 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         }
         Net* net = _sta->network()->findNet(netNameStr.c_str());
         Parasitic* net_parasitic = parasitics->findParasiticNetwork(net, ap);
+        float pin_cap;
+        float wire_cap;
+        _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
+        double t_cap = wire_cap / _sizer->cap_unit;
+        g_nets[corner][i].cap = t_cap;  // FIXME: There is a critical bug, need to be fixed, 0717
         if(net_parasitic == nullptr) {
             printf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;
@@ -3547,10 +3553,14 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 continue;
 
             SUB_NODE sn;
-
+            readSpefChangePinName(pin_name);
+            if(pin_name == "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y") {
+                std::cout << __LINE__ << "zero para"
+                          << "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y"
+                          << std::endl;
+            }
             // Input
             if(dir->isInput()) {
-                readSpefChangePinName(pin_name);
                 int p_id = pin2id[pin_name];
                 subNodeVecPtr->at(0).pinId = p_id;
                 g_pins[p_id].spef_pin = 0;
@@ -3560,7 +3570,6 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 // Output
                 sn.isSink = true;
                 sn.id = node_index++;
-                readSpefChangePinName(pin_name);
 
                 node2id[pin_name] = sn.id;
 
@@ -3661,8 +3670,8 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 subNodeVecPtr->at(index2).res.push_back(value);
             }
         }
-        double t_cap = conc_net_para->capacitance() / _sizer->cap_unit;
-        g_nets[corner][i].cap = t_cap;  // FIXME:
+        // double t_cap = conc_net_para->capacitance() / _sizer->cap_unit;
+        // g_nets[corner][i].cap = t_cap;  // FIXME:
     }
 }
 
