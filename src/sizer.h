@@ -333,6 +333,9 @@ class Sizer {
     designTiming ***PTimer;
     designTiming *PNR;
 
+    bool already_built;
+    set< entry > targets;
+
     vector< unsigned > topolist;
     vector< unsigned > rtopolist;
     vector< unsigned > map2topoidx;
@@ -383,13 +386,13 @@ class Sizer {
     double best_alpha_local;
     double local_alpha;
 
-    CELL *cells = nullptr;
     //     CELL *best_cells_local;
     //     CELL *best_failed_cells_local;
     PIN **pins;
     NET **nets;
 
    public:
+    CELL *cells = nullptr;
     double cap_margin = 0.0;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
@@ -409,6 +412,9 @@ class Sizer {
                      bool update_cap = true);
     bool cell_change(CELL &cell, CellSol cell_sol, bool update_cap = true);
     void ClearSwapFlag();
+    void buildTargets(unsigned iter, unsigned STAGE, double RATIO,
+                      double leak_exponent, double alpha, double break_ratio,
+                      unsigned thread_id, double toler, unsigned view);
 
     inline bool isMin(const CELL &cell) {
         return (cell.c_size == 0);
@@ -488,7 +494,6 @@ class Sizer {
     // graphop.cpp
     void SortTopo();
     void InitNets();
-    // set< entry > targets;
     // timer.cpp
     LibCellInfo *sizing_progression(CELL &cell, int steps, int dir,
                                     unsigned corner = 0);
@@ -513,6 +518,9 @@ class Sizer {
                             bool pt_corr = false, unsigned view = 0);
     int EstDeltaSlack(CELL &cell, int factor, int dir, double *rslk,
                       double *fslk, unsigned view = 0);
+    // double CalSensScore(CELL &cell, int steps, int dir, int option,
+    //                     double gamma, double alpha, unsigned view);
+    // FIX : IMPLEMENT ME
     double CalSens(CELL &cell, int steps, int dir, int option,
                    double gamma = 1.0, double alpha = -1.0, unsigned view = 0);
     double CalSensMMMC(CELL &cell, int steps, int dir, int option, double gamma,
@@ -833,6 +841,7 @@ class Sizer {
         gtr1_feasible = false;
         gtr2_feasible = false;
         worst_corner = 0;
+        already_built = false;
         // guardband=0.0;
         // maxTran = 0.0;
         // for (unsigned i = 0; i < MAX_NUM_THREADS; i++) {
@@ -931,6 +940,7 @@ class Sizer {
     designTiming *LaunchPTimer(unsigned thread_id = 0, unsigned view = 0);
     void ExitPTimer();
     void InitPTSizes();
+    void InitPowerBeforeUpdate(vector< CELL > &c);
     void UpdatePTSizes(unsigned option = 0);
     void UpdatePTSizes(vector< CELL > &c, unsigned option = 0);
     void CheckPTSizes(unsigned option = 0);
