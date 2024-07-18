@@ -145,7 +145,7 @@ double KICK_RATIO = 0.01;
 double MAX_KICK_RATIO = 0.01;
 bool KICK_MOVE_CHANGE = false;
 int KICK_METHOD = 4;
-int KICK_SFT = 16;
+int KICK_SFT = 16;  // SF 6 is TNS only, originally 16
 int NORM_SFT = 2;
 double KICK_SLACK = 0.02;
 int KICK_MAX = 4;
@@ -1232,7 +1232,8 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     std::ostringstream ostr;
 
     if(useOpenSTA) {
-        _ckt->_ord_design->evalTclString("source sizer_os.tcl");
+        _ckt->_ord_design->evalTclString(
+            "source /home/xingchaoyu/code/gpu_gate_sizing/src/sizer_os.tcl");
         designTiming *PT = new designTiming(OS, this);
         return PT;
         // exeOSServer(serverName, port, view);
@@ -1348,6 +1349,19 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
 #endif
 }
 
+void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
+    auto block = _ckt->_ord_design->getBlock();
+    auto db = ord::OpenRoad::openRoad()->getDb();
+    auto corner = this->_ckt->_ord_timing->getCorners()[0];
+    for(unsigned i = 0; i < c.size(); i++) {
+        if(getLibCellInfo(c[i]) == NULL)
+            continue;
+        auto inst = block->findInst(c[i].name.c_str());
+        c[i].static_power = this->_ckt->_ord_timing->staticPower(inst, corner);
+        c[i].isStaticChanged = false;
+    }
+}
+
 void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
     std::ostringstream ostr;
     ostr.str("");
@@ -1355,18 +1369,21 @@ void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
 
     string filename = benchname + "_" + ostr.str() + "_sizes.tcl";
     ofstream outsz(filename.c_str());
-    int count = 0;
-    auto bolck = _ckt->_ord_design->getBlock();
-    this->_sta->networkChanged();
+    // int count = 0;
+    auto block = _ckt->_ord_design->getBlock();
     auto db = ord::OpenRoad::openRoad()->getDb();
+    this->_sta->networkChanged();
+    auto corner = this->_ckt->_ord_timing->getCorners()[0];
     for(unsigned i = 0; i < c.size(); i++) {
-        if(getLibCellInfo(c[i]) == NULL)
+        if(getLibCellInfo(c[i]) == NULL || c[i].isChanged == false)
             continue;
-        LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
-        auto inst = bolck->findInst(c[i].name.c_str());
+        // LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
+        auto inst = block->findInst(c[i].name.c_str());
         inst->swapMaster(db->findMaster(c[i].type.c_str()));
         c[i].isChanged = false;
-        count++;
+        c[i].isStaticChanged = true;
+        // c[i].static_power = this->_ckt->_ord_timing->staticPower(inst,
+        // corner); count++;
     }
     _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
 }
@@ -1476,7 +1493,8 @@ void Sizer::UpdatePTSizes(unsigned option) {
     // ostr.str("");
     // ostr << option;
 
-    cout << "Update PT sizes... " << endl;
+    std::cerr << "Update PT sizes... " << std::endl;
+    std::cerr << "numcell = " << numcells << std::endl;
     auto db = ord::OpenRoad::openRoad()->getDb();
     auto block = _ckt->_ord_design->getBlock();
     int count = 0;
@@ -1491,6 +1509,7 @@ void Sizer::UpdatePTSizes(unsigned option) {
     printf("Update PT sizes changed count %d\n", count);
     if(count > 0) {
         this->_sta->networkChanged();
+        auto corner = this->_ckt->_ord_timing->getCorners()[0];
         for(unsigned i = 0; i < numcells; i++) {
             LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
             if(lib_cell_info == NULL)
@@ -1500,8 +1519,23 @@ void Sizer::UpdatePTSizes(unsigned option) {
             auto inst = block->findInst(cells[i].name.c_str());
             inst->swapMaster(db->findMaster(cells[i].type.c_str()));
             cells[i].isChanged = false;
+            cells[i].isStaticChanged = true;
+            // cells[i].static_power =
+            //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
         _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
+        // _ckt->_ord_design->evalTclString("find_timing");
+        // for(unsigned i = 0; i < numcells; i++) {
+        //     LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+        //     if(lib_cell_info == NULL)
+        //         continue;
+        //     if(!PT_FULL_UPDATE && !cells[i].isChanged)
+        //         continue;
+        //     auto inst = block->findInst(cells[i].name.c_str());
+        //     cells[i].static_power =
+        //         this->_ckt->_ord_timing->staticPower(inst, corner);
+        //     cells[i].isChanged = false;
+        // }
     }
 
     // else cout << "No cell has been changed." << endl;
@@ -3423,6 +3457,8 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
     double hvt_init_ratio = (double)hvt_init_count / (double)numcells;
 
     // double current_leak_int = leakage_power;
+
+    // InitPowerBeforeUpdate(c);
     UpdatePTSizes(c, 0);
 
     double current_leak = 0.0;
@@ -3494,6 +3530,217 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
     return wns;
 }
 
+inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
+                                double leak_exponent, double alpha,
+                                double break_ratio, unsigned thread_id,
+                                double toler, unsigned view) {
+    for(unsigned i = 0; i < numcells; i++) {
+        if(cells[i].isClockCell)
+            continue;
+        if(cells[i].isDontTouch)
+            continue;
+        if(isff(cells[i])) {
+            continue;
+        }
+        bool attack = false;
+        if(i % 100 == 0) {
+            printf("Attack %d/%d\n", i, numcells);
+        }
+        for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+            if(pins[view][cells[i].outpins[j]].rslk < toler ||
+               pins[view][cells[i].outpins[j]].fslk < toler) {
+                attack = true;
+                break;
+            }
+        }
+
+        if(attack) {
+            if(r_type(cells[i]) == (numVt - 1) && isMax(cells[i]))
+                continue;  // FIX : shouldn't it be checked first in loop_i?
+
+            entry tmpEntry;
+            tmpEntry.id = i;
+
+            double npaths = 0.0;
+            double totcaps = 0.0;
+
+            for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+                npaths += pins[view][cells[i].outpins[j]].NPaths;
+                totcaps += (double)pins[view][cells[i].outpins[j]].totcap;
+            }
+
+            if(GTR_METRIC2 == SF5) {
+                if(NO_TOPO) {
+                    tmpEntry.tie_break = i;
+                }
+                else
+                    tmpEntry.tie_break = map2topoidx[i];
+            }
+            else if(GTR_METRIC2 == SF6) {
+                tmpEntry.tie_break = (double)(r_size(cells[i]) + 1) / npaths;
+            }
+            else {
+                tmpEntry.tie_break = (double)(r_size(cells[i]) + 1) / totcaps;
+            }
+
+            vector< double > delta_impact_size, delta_impact_type;
+            vector< int > size_step, type_step;
+
+            for(int k = 1; k <= MULTI_STEP; ++k) {
+                // upsizing
+                if(isSizable(cells[i], k) && !cells[i].touched) {
+                    double sf = 0.0;
+                    if(!mmmcOn) {
+                        sf = CalSens(cells[i], k, 0, sensFuncT, leak_exponent,
+                                     alpha, view);
+                    }
+                    else {
+                        sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
+                                         leak_exponent, alpha, true);
+                    }
+                    // cout << "UPSIZING SF " << sf << endl;
+                    if(sf != 0.0) {
+                        delta_impact_size.push_back(1.0 / sf);
+                        size_step.push_back(k);
+                    }
+                }
+
+                // upgrading
+                if(isSwappable(cells[i], k)) {
+                    double sf = 0.0;
+                    if(!mmmcOn) {
+                        sf = CalSens(cells[i], 0, k, sensFuncT, leak_exponent,
+                                     alpha, view);
+                    }
+                    else {
+                        sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
+                                         leak_exponent, alpha, true);
+                    }
+                    // cout << "UPGRADING SF " << sf << endl;
+                    if(sf != 0.0) {
+                        delta_impact_type.push_back(1.0 / sf);
+                        type_step.push_back(k);
+                    }
+                }
+            }
+
+            double max_delta_impact_size = 0.0;
+            double max_delta_impact_type = 0.0;
+            int max_step_size = 0;
+            int max_step_type = 0;
+
+            for(unsigned k = 0; k < delta_impact_size.size(); ++k) {
+                if(max_delta_impact_size > delta_impact_size[k]) {
+                    max_step_size = size_step[k];
+                    max_delta_impact_size = delta_impact_size[k];
+                }
+            }
+
+            for(unsigned k = 0; k < delta_impact_type.size(); ++k) {
+                if(max_delta_impact_type > delta_impact_type[k]) {
+                    max_step_type = type_step[k];
+                    max_delta_impact_type = delta_impact_type[k];
+                }
+            }
+
+            tmpEntry.delta_impact = max_delta_impact_size;
+            tmpEntry.step = max_step_size;
+            tmpEntry.change = UPSIZE;
+
+            if(tmpEntry.delta_impact < 0.0)
+                targets.insert(tmpEntry);
+
+            tmpEntry.delta_impact = max_delta_impact_type;
+            tmpEntry.step = max_step_type;
+            tmpEntry.change = UPTYPE;
+
+            if(tmpEntry.delta_impact < 0.0)
+                targets.insert(tmpEntry);
+
+            // cout << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
+        }
+    }
+    cout << "# priority targets  : " << targets.size() << endl;
+
+    // if no cells with a positive gain, simply insert top x% negative slack
+    // cells.
+    bool uniform_flag = false;
+    if(targets.size() == 0 && STAGE == GLOBAL) {
+        uniform_flag = true;
+
+        for(unsigned i = 0; i < numcells; i++) {
+            bool attack = false;
+            if(cells[i].isClockCell)
+                continue;
+            if(cells[i].isDontTouch)
+                continue;
+            if(isff(cells[i])) {
+                continue;
+            }
+            for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+                if(pins[view][cells[i].outpins[j]].rslk <
+                       max_neg_rslk * RATIO * 0.01 ||
+                   pins[view][cells[i].outpins[j]].fslk <
+                       max_neg_fslk * RATIO * 0.01) {
+                    if(pins[view][cells[i].outpins[j]].rslk >= toler &&
+                       pins[view][cells[i].outpins[j]].fslk >= toler) {
+                        continue;
+                    }
+
+                    attack = true;
+                    break;
+                }
+            }
+
+            if(attack) {
+                entry tmpEntry;
+                tmpEntry.delta_impact = GetCellSlack(cells[i], view);
+                tmpEntry.id = i;
+
+                double npaths = 0.0;
+                double totcaps = 0.0;
+
+                for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+                    npaths += pins[view][cells[i].outpins[j]].NPaths;
+                    totcaps += (double)pins[view][cells[i].outpins[j]].totcap;
+                }
+
+                if(r_type(cells[i]) == (numVt - 1) && isMax(cells[i]))
+                    continue;
+                if(GTR_METRIC2 == SF5) {
+                    if(NO_TOPO) {
+                        tmpEntry.tie_break = i;
+                    }
+                    else
+                        tmpEntry.tie_break = map2topoidx[i];
+                }
+                else if(GTR_METRIC2 == SF6) {
+                    tmpEntry.tie_break = (double)r_size(cells[i]) / npaths;
+                }
+                else {
+                    tmpEntry.tie_break = (double)r_size(cells[i]) / totcaps;
+                }
+                if(r_type(cells[i]) != (numVt - 1)) {
+                    tmpEntry.change = UPTYPE;
+                }
+                else if(!isMax(cells[i])) {
+                    tmpEntry.change = UPSIZE;
+                }
+                targets.insert(tmpEntry);
+            }
+        }
+        cout << "# uniform targets  : " << targets.size() << endl;
+    }
+
+    std::cerr << "Targets Building Finished. Target.size = " << targets.size()
+              << std::endl;
+    // if(targets.size() == 0) {
+    //     // it's stuck. let's release some of cells
+    //     // Release(false, CRIT_LEGALIZE);
+    //     return 0;
+    // }
+}
+
 // slack/slew optimization
 unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                        double leak_exponent, double alpha, double break_ratio,
@@ -3537,7 +3784,14 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 }
             }
         }
-        set< entry > targets;
+        // set< entry > targets;
+        // if(!already_built) {
+        //     buildTargets(iter, STAGE, RATIO, leak_exponent, alpha,
+        //     break_ratio,
+        //                  thread_id, toler, view);
+        //     already_built = true;
+        // }
+
         for(unsigned i = 0; i < numcells; i++) {
             if(cells[i].isClockCell)
                 continue;
@@ -3561,6 +3815,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             if(attack) {
                 if(r_type(cells[i]) == (numVt - 1) && isMax(cells[i]))
                     continue;
+                // FIX : shouldn't it be checked first in loop_i ?
 
                 entry tmpEntry;
                 tmpEntry.id = i;
@@ -3750,7 +4005,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 
         vector< bool > changed;
         changed.resize(numcells);
-        for(unsigned i = 0; i < numcells; i++)
+        for(unsigned i = 0; i < numcells; i++)  // FIX???
             changed[i] = false;
 
         CallTimer(view);
@@ -5658,6 +5913,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 
     T = PTimer[0];
 
+    // InitPowerBeforeUpdate(g_cells);
     if(MINIMUM || GTR_IN || MAXIMUM) {
         UpdatePTSizes(g_cells);
     }
@@ -7519,10 +7775,10 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
                 double sf = 0.0;
                 if(!mmmcOn) {
                     sf = CalSens(cells[i], k, 0, 5, 1.0, alpha);
-                }
+                }  // SF 6 for TNS, originally 5
                 else {
                     sf = CalSensMMMC(cells[i], k, 0, 5, 1.0, alpha);
-                }
+                }  // SF 6 for TNS, originally 5
                 delta_impact_size.push_back(1.0 / sf);
                 size_step.push_back(k);
             }
@@ -8940,9 +9196,9 @@ void Sizer::readCmdFile(string cmdFileStr) {
     ptLaunchScriptFile = "";
     tcfFile = "";
     soceBin = "";
-    sensFunc = 0;
+    sensFunc = 0;  // SF 6 is TNS, originally 0
     sensFunc2 = 0;
-    sensFuncT = 5;
+    sensFuncT = 5;  // SF 6 is TNS only, originally 5
     falsePathFile = "";
     timerTestCnt = 0;
     timerTestCell = 0;
@@ -8968,7 +9224,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-top ") != string::npos) {
             benchname = getTokenS(line, "-top ");
         }
-        if(line.find("-minimum") != string::npos)
+        if(line.find("# -minimum") != string::npos)
             MINIMUM = true;
         if(line.find("-def ") != string::npos)
             defFile = getTokenS(line, "-def ");
@@ -10004,8 +10260,6 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    ProfilerStart("cpu-profile.prof");
-
     for(int i = 1; i < argc; i++) {
         string input_option = string(argv[i]);
         if(input_option == "-env") {
@@ -10045,6 +10299,10 @@ int main(int argc, char **argv) {
     // _sizer.Clean();
     _sizer.readCmdFile(CMD_FI);
     _sizer.readEnvFile(ENV_FI);
+
+    // std::string profile_name = _sizer.benchname + ".prof";
+    // std::cerr << "profiler save as: " << profile_name.c_str() << "\n";
+    // ProfilerStart(profile_name.c_str());
 
     if(_sizer.mmmcOn) {
         for(unsigned i = 0; i < _sizer.mmmcFiles.size(); ++i) {
@@ -10230,7 +10488,7 @@ int main(int argc, char **argv) {
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
-    ProfilerStop();
+    // ProfilerStop();
 
     return 0;
 }
