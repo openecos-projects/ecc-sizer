@@ -6119,8 +6119,8 @@ void Sizer::Parallel_Sizer_Launcher() {
                      << best_score << endl;
             }
 
-            double wns, power;
-            ReportWithPT(best_cells_poweropt, "prft", wns, power);
+            // double wns, power;
+            // ReportWithPT(best_cells_poweropt, "prft", wns, power);
             time_LeakOpt = cpuTime() - begin;
 
             if(VERBOSE >= 1) {
