@@ -346,7 +346,7 @@ double designTiming::getLeakPower() {
         //     totalLeakagePower +=
         //         _sizer->_ckt->_ord_timing->staticPower(inst, corner);
         // }
-        if(_sizer->cells = nullptr) {
+        if(_sizer->cells == nullptr) {
             for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
                 totalLeakagePower +=
                     _sizer->_ckt->_ord_timing->staticPower(inst, corner);
@@ -421,7 +421,7 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
         _tclInputString = "OSGetTranVio ";
         double begin = cpuTime();
         auto design = _sizer->_ckt->_ord_design;
-        // ofstream ofs("tran_vio1.txt");
+        ofstream ofs("tran_vio1.txt");
         for(auto inst : design->getBlock()->getInsts()) {
             for(auto pin_ : inst->getITerms()) {
                 if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
@@ -436,11 +436,10 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
                         (now_slew - slew_limit) / _sizer->time_unit, 0.0);
                     tot += slew_diff;
                     if(slew_diff > 0) {
-                        // cout
-                        //     << pin_->getName()
-                        //     << " max tran vio: " << now_slew /
-                        //     _sizer->time_unit
-                        //     << " " << slew_limit / _sizer->time_unit << endl;
+                        ofs
+                            << pin_->getName()
+                            << " max tran vio: " << now_slew / _sizer->time_unit
+                            << " " << slew_limit / _sizer->time_unit << endl;
                         num++;
                     }
                     max = std::max(max, slew_diff);
@@ -448,7 +447,7 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
             }
         }
         pt_time += cpuTime() - begin;
-        // ofs.close();
+        ofs.close();
         return;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
