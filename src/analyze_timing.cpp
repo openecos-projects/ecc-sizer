@@ -342,20 +342,27 @@ double designTiming::getLeakPower() {
         double totalLeakagePower = 0.0;
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
         // #progma omp parallel for
-                // for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
+        // for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
         //     totalLeakagePower +=
         //         _sizer->_ckt->_ord_timing->staticPower(inst, corner);
         // }
-        for(int i = 0; i < _sizer->numcells; i++) {
-            if(_sizer->cells[i].isStaticChanged) {
-                auto inst = _sizer->_ckt->_ord_design->getBlock()->findInst(
-                    _sizer->cells[i].name.c_str());
-                _sizer->cells[i].static_power =
+        if(_sizer->cells = nullptr) {
+            for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
+                totalLeakagePower +=
                     _sizer->_ckt->_ord_timing->staticPower(inst, corner);
-                _sizer->cells[i].isStaticChanged = false;
             }
-
-            totalLeakagePower += _sizer->cells[i].static_power;
+        }
+        else {
+            for(int i = 0; i < _sizer->numcells; i++) {
+                if(_sizer->cells[i].isStaticChanged) {
+                    auto inst = _sizer->_ckt->_ord_design->getBlock()->findInst(
+                        _sizer->cells[i].name.c_str());
+                    _sizer->cells[i].static_power =
+                        _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+                    _sizer->cells[i].isStaticChanged = false;
+                }
+                totalLeakagePower += _sizer->cells[i].static_power;
+            }
         }
         totalLeakagePower /= _sizer->sw_adj;
         pt_time += cpuTime() - begin;
@@ -381,14 +388,22 @@ double designTiming::getTNS(string _clkName) {
         _tclInputString = "EtsGetTNS " + _clkName;
     }
     else if(program == OS) {
-        _tclInputString = "OSGetTNS";
+        // _tclInputString = "OSGetTNS";
+        double begin = cpuTime();
+        _sizer->_ckt->_ord_design->evalTclString(
+            "report_tns > evaluation_temp.txt");
+        ifstream in("evaluation_temp.txt");
+        string t;
+        double tns;
+        in >> t >> tns;
+        // tns /= _sizer->time_unit;
+        pt_time += cpuTime() - begin;
+        return tns;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    pt_time += cpuTime() - begin;
     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     double _pathSlack = _convertToDouble(_answerStr);
     _pathSlack = _pathSlack * 1e-12 / _sizer->time_unit;
