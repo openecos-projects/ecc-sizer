@@ -428,16 +428,18 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
                    pin_->getNet()->getSigType() != "GROUND" &&
                    pin_->getNet()->getSigType() != "CLOCK") {
                     auto m_term = pin_->getMTerm();
-                    double now_slew =
-                        _sizer->_ckt->_ord_timing->getPinSlew(pin_);
+                    double r_slew = _sizer->_ckt->_ord_timing->getPinSlew(
+                        pin_, ord::Timing::Rise);
+                    double f_slew = _sizer->_ckt->_ord_timing->getPinSlew(
+                        pin_, ord::Timing::Fall);
+                    double now_slew = std::max(r_slew, f_slew);
                     double slew_limit =
                         _sizer->_ckt->_ord_timing->getMaxSlewLimit(m_term);
                     double slew_diff = std::max(
                         (now_slew - slew_limit) / _sizer->time_unit, 0.0);
                     tot += slew_diff;
                     if(slew_diff > 0) {
-                        ofs
-                            << pin_->getName()
+                        ofs << pin_->getName()
                             << " max tran vio: " << now_slew / _sizer->time_unit
                             << " " << slew_limit / _sizer->time_unit << endl;
                         num++;
@@ -482,8 +484,7 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
             for(auto pin_ : inst->getITerms()) {
                 if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
                    pin_->getNet()->getSigType() != "GROUND" &&
-                   pin_->getNet()->getSigType() != "CLOCK" &&
-                   pin_->isOutputSignal()) {
+                   pin_->getNet()->getSigType() != "CLOCK") {
                     auto m_term = pin_->getMTerm();
                     float pin_cap;
                     float wire_cap;

@@ -5194,9 +5194,9 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
     auto _design = _ckt->_ord_design;
     for(auto i_term : _design->getBlock()->getITerms()) {
         if(i_term->getNet() == nullptr ||
-           (i_term->getNet()->getSigType() == "POWER" &&
-            i_term->getNet()->getSigType() == "GROUND" &&
-            i_term->getNet()->getSigType() == "CLOCK")) {
+           i_term->getNet()->getSigType() == "POWER" ||
+           i_term->getNet()->getSigType() == "GROUND" ||
+           i_term->getNet()->getSigType() == "CLOCK") {
             // printf("i_term %s is pg or colck\n", i_term->getName().c_str());
             continue;
         }
@@ -5214,7 +5214,13 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
                                                     ord::Timing::Max);
         pin_name = i_term->getName();
+        if(pin2id.count(pin_name) == 0) {
+            printf("Pin name %s, Net name %s ,don't in pins\n",
+                   pin_name.c_str(), i_term->getNet()->getName().c_str());
+            continue;
+        }
         int pin_id = pin2id[pin_name];
+        assert(pin2id.count(pin_name) > 0);
         slack_rise = slack_rise == FLT_MAX ? DBL_MAX : slack_rise;
         slack_fall = slack_fall == FLT_MAX ? DBL_MAX : slack_fall;
         tran_rise = tran_rise == FLT_MAX ? DBL_MAX : tran_rise;
@@ -5241,8 +5247,8 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
     }
 
     for(auto i_term : _design->getBlock()->getBTerms()) {
-        if(i_term->getNet()->getSigType() == "POWER" &&
-           i_term->getNet()->getSigType() == "GROUND" &&
+        if(i_term->getNet()->getSigType() == "POWER" ||
+           i_term->getNet()->getSigType() == "GROUND" ||
            i_term->getNet()->getSigType() == "CLOCK") {
             continue;
         }
@@ -5260,7 +5266,10 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
                                                     ord::Timing::Max);
         pin_name = i_term->getName();
         int pin_id = pin2id[pin_name];
-
+        if(pin2id.count(pin_name) == 0) {
+            printf("Pin name %s don't in pins\n", pin_name.c_str());
+            continue;
+        }
         timing_lookup slack;
         slack.rise = slack_rise / this->time_unit;
         slack.fall = slack_fall / this->time_unit;

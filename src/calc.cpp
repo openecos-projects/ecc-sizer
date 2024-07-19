@@ -54,6 +54,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     slew_violation = CalcSlewViolation(view);
     double tran_tot, tran_max;
     int tran_num = 0;
+    // T[view]->getTranVio(tran_tot, tran_max, tran_num);
     if(!FIX_SLEW) {
         tran_tot = tran_max = 0.0;
         T[view]->getTranVio(tran_tot, tran_max, tran_num);
@@ -217,7 +218,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
     double slew_viol = 0.;
     slew_violation_cnt = 0;
     slew_violation_wst = 0;
-    // ofstream ofs("slew_violation.txt");
+    ofstream ofs("tran_vio1.txt.txt");
     for(unsigned i = 0; i < numcells; i++) {
         for(unsigned j = 0; j < cells[i].inpins.size(); j++) {
             unsigned curpin = cells[i].inpins[j];
@@ -245,7 +246,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
             if(VERBOSE >= 4) {
                 if(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
                    pins[view][curpin].max_tran) {
-                    cout << getFullPinName(pins[view][curpin])
+                    ofs << getFullPinName(pins[view][curpin])
                          << " max tran vio: "
                          << max(pins[view][curpin].rtran,
                                 pins[view][curpin].ftran)
@@ -264,6 +265,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
                     pins[view][curpin].ftran - pins[view][curpin].max_tran);
         }
     }
+    ofs.close();
 #if 0
     for(unsigned i = 0; i < POs.size(); i++) {
         unsigned curpin = POs[i];

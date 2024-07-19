@@ -3226,10 +3226,10 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         iter_i++;
 
         string netName = network->pathName(net);
-        if(netName.substr(0, 11) == "UNCONNECTED") {
-            // con("debug debug!!");
-            continue;
-        }
+        // if(netName.substr(0, 11) == "UNCONNECTED") {
+        //     // con("debug debug!!");
+        //     continue;
+        // }
         if(strcmp(netName.c_str(), string("SE").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SI").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SO").c_str()) == 0 ||
@@ -3511,9 +3511,6 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
         int node_index = 1;
         std::vector< SUB_NODE >::iterator subNodeIter;
-        if(netNameStr == _sizer->clk_name[0]) {
-            continue;
-        }
         auto ord_net = _ord_design->getBlock()->findNet(netNameStr.c_str());
         sta::dbSta* sta = _sizer->_ckt->_ord_timing->getSta();
         sta::Net* net = sta->getDbNetwork()->dbToSta(ord_net);
@@ -3523,6 +3520,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
         double t_cap = wire_cap / _sizer->cap_unit;
         g_nets[corner][i].cap = t_cap;
+        if(netNameStr == _sizer->clk_name[0]) {
+            continue;
+        }
         if(net_parasitic == nullptr) {
             printf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;
