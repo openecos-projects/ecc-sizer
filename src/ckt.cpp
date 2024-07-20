@@ -2635,7 +2635,9 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
         else if(tokens.size() == 2 && tokens[0] == "pin") {
             LibPinInfo pin;
             _begin_read_pin_info(is, tokens[1], pin, cell, lib);
-
+            if(pin.maxCapacitance == std::numeric_limits< double >::max()) {
+                
+            }
             if(cell.lib_pin2id_map.find(pin.name) ==
                cell.lib_pin2id_map.end()) {
                 unsigned pin_id = cell.lib_pin2id_map.size();

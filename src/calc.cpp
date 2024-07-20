@@ -44,8 +44,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include "sizer.h"
-
+#include "db_sta/dbNetwork.hh"
 double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
                         unsigned view, bool log) {
     // skew_violation == positive means violations
@@ -481,25 +482,81 @@ double Sizer::CalcCapViolation(unsigned view) {
     cap_violation_cnt = 0;
     cap_violation_wst = 0;
     ofstream ofs("our_cap_vio.txt");
+    auto _corner = _ckt->_ord_timing->getCorners()[0];
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo* lib_cell_info = getLibCellInfo(cells[i], corner);
 
         for(unsigned k = 0; k < cells[i].outpins.size(); ++k) {
             double maxCap = 0.0;
-            if(lib_cell_info)
+            if(lib_cell_info) {
                 maxCap =
                     lib_cell_info->pins[pins[view][cells[i].outpins[k]].lib_pin]
                         .maxCapacitance;
+                if(maxCap == std::numeric_limits< double >::max()) {
+                    string pin_name =
+                        getFullPinName(pins[view][cells[i].outpins[k]]);
+                    auto pin_ = _ckt->_ord_design->getBlock()->findITerm(
+                        pin_name.c_str());
+                    double cap_limit =
+                        _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
+                        cap_unit;
+                    lib_cell_info->pins[pins[view][cells[i].outpins[k]].lib_pin]
+                        .maxCapacitance = cap_limit;
+                    maxCap = cap_limit;
+                }
+            }
             maxCap -= cap_margin;
-            unsigned outnet = pins[view][cells[i].outpins[k]].net;
             float loadCap = 0.;
-
+            unsigned outnet = pins[view][cells[i].outpins[k]].net;
             for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++) {
-                loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
+                loadCap += static_cast< float >(
+                    pins[view][nets[corner][outnet].outpins[j]].cap);
+                // string pin_name =
+                //     getFullPinName(pins[view][nets[corner][outnet].outpins[j]]);
+                // auto pin_ =
+                //     _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+                // pin_->getC
                 assert(pins[view][nets[corner][outnet].outpins[j]].cap < 1e31);
                 // if(loadCap > 2 * 1e31) {
                 //     cout << "TOT CAP CHECK: " << view << " " << endl;
                 // }
+            }
+            if(TEST_MODE == "ALL_TEST") {
+                string pin_name =
+                    getFullPinName(pins[view][cells[i].outpins[k]]);
+
+                string netNameStr = nets[corner][outnet].name;
+                auto ord_net =
+                    _ckt->_ord_design->getBlock()->findNet(netNameStr.c_str());
+                auto pin_ =
+                    _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+                sta::dbSta* sta = _ckt->_ord_timing->getSta();
+                sta::Net* sta_net = sta->getDbNetwork()->dbToSta(ord_net);
+                float pin_cap2;
+                float wire_cap2;
+                sta->connectedCap(sta_net, _corner, sta::MinMax::max(),
+                                  pin_cap2, wire_cap2);
+                wire_cap2 /= cap_unit;
+                pin_cap2 /= cap_unit;
+                double cap_limit =
+                    _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
+                    cap_unit;
+                if(!isEqual(nets[corner][outnet].cap, wire_cap2)) {
+                    printf("Net %s, wire cap not equal %f, %f\n",
+                           netNameStr.c_str(), nets[corner][outnet].cap,
+                           wire_cap2);
+                    // diff_cap++;
+                }
+                if(!isEqual(pin_cap2, loadCap)) {
+                    printf("Pin name %s, pin cap not equal %f, %f\n",
+                           pin_name.c_str(), loadCap, pin_cap2);
+                    // diff_cap++;
+                }
+                if(!isEqual(maxCap, cap_limit)) {
+                    printf("Pin name %s, CapLimit not equal %f, %f\n",
+                           pin_name.c_str(), cap_limit, maxCap);
+                    // diff_cap++;
+                }
             }
 
             cap_viol += max(0.0, (nets[corner][outnet].cap + loadCap - maxCap));
