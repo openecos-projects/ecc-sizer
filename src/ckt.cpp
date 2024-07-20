@@ -3226,10 +3226,10 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         iter_i++;
 
         string netName = network->pathName(net);
-        // if(netName.substr(0, 11) == "UNCONNECTED") {
-        //     // con("debug debug!!");
-        //     continue;
-        // }
+        if(netName.substr(0, 11) == "UNCONNECTED") {
+            // con("debug debug!!");
+            continue;
+        }
         if(strcmp(netName.c_str(), string("SE").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SI").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SO").c_str()) == 0 ||

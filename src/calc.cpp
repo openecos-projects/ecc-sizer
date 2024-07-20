@@ -37,6 +37,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <algorithm>
 #include <cassert>
 #include <climits>
 #include <cmath>
@@ -57,6 +58,8 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     if(TEST_MODE == "ALL_TEST") {
         tran_tot = tran_max = 0.0;
         T[view]->getTranVio(tran_tot, tran_max, tran_num);
+        printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", tran_num,
+               tran_max);
         printf("Our slew violation :%f, OpenSTA slew violation: %f\n",
                slew_violation, tran_tot);
     }
@@ -94,6 +97,8 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
         double cap_tot, cap_max = 0;
         int cap_num = 0;
         T[view]->getCapVio(cap_tot, cap_max, cap_num);
+        printf("CAP VIOLATION cnt %d, cap_violation_wst %f\n", cap_num,
+               cap_max);
         printf("Our cap violation :%f, OpenSTA cap violation: %f\n",
                cap_violation, cap_tot);
     }
@@ -227,20 +232,34 @@ double Sizer::CalcSlewViolation(unsigned view) {
     double slew_viol = 0.;
     slew_violation_cnt = 0;
     slew_violation_wst = 0;
-    ofstream ofs("tran_vio1.txt.txt");
+    ofstream ofs("our_tran_vio.txt");
     for(unsigned i = 0; i < numcells; i++) {
+        std::vector< unsigned > pin_id_list;
         for(unsigned j = 0; j < cells[i].inpins.size(); j++) {
-            unsigned curpin = cells[i].inpins[j];
+            pin_id_list.push_back(cells[i].inpins[j]);
+        }
+        for(unsigned j = 0; j < cells[i].outpins.size(); j++) {
+            pin_id_list.push_back(cells[i].outpins[j]);
+        }
+        for(unsigned curpin : pin_id_list) {
+            // unsigned curpin = cells[i].inpins[j];
 
             if(curpin == UINT_MAX) {
                 continue;
             }
             if(pins[view][curpin].name == "CLK" ||
+               //    pins[view][curpin].name == "VDD" ||
                pins[view][curpin].owner == UINT_MAX) {
                 continue;
                 // printf("Pin name %s\n", pins[view][curpin].name.c_str());
             }
-
+            string name = cells[i].name;
+            string pin_name = getFullPinName(pins[view][curpin]);
+            auto pin_ =
+                _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+            assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+                   pin_->getNet()->getSigType() != "GROUND" &&
+                   pin_->getNet()->getSigType() != "CLOCK");
             // if(pins[view][curpin].max_tran == 0) {
             //     printf("Pin name %s max_tran %f\n",
             //            pins[view][curpin].name.c_str(),
@@ -248,24 +267,14 @@ double Sizer::CalcSlewViolation(unsigned view) {
             // }
             double t_tran =
                 max(pins[view][curpin].rtran, pins[view][curpin].ftran);
-            slew_viol += max(t_tran - pins[view][curpin].max_tran, 0.0);
-            // slew_viol += max(
-            //     pins[view][curpin].ftran - pins[view][curpin].max_tran, 0.0);
 
-            if(VERBOSE >= 4) {
-                if(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
-                   pins[view][curpin].max_tran) {
-                    ofs << getFullPinName(pins[view][curpin])
-                        << " max tran vio: "
-                        << max(pins[view][curpin].rtran,
-                               pins[view][curpin].ftran)
-                        << " " << pins[view][curpin].max_tran << endl;
-                }
-            }
-            if(pins[view][curpin].ftran > pins[view][curpin].max_tran)
+            if(t_tran > pins[view][curpin].max_tran) {
+                slew_viol += t_tran - pins[view][curpin].max_tran;
+                ofs << getFullPinName(pins[view][curpin])
+                    << " max tran vio: " << t_tran << " "
+                    << pins[view][curpin].max_tran << endl;
                 slew_violation_cnt++;
-            // if(pins[view][curpin].rtran > pins[view][curpin].max_tran)
-            //     slew_violation_cnt++;
+            }
             slew_violation_wst =
                 max(slew_violation_wst,
                     pins[view][curpin].rtran - pins[view][curpin].max_tran);
@@ -281,25 +290,17 @@ double Sizer::CalcSlewViolation(unsigned view) {
         if(curpin == UINT_MAX) {
             continue;
         }
-        slew_viol +=
-            max(pins[view][curpin].rtran - pins[view][curpin].max_tran, 0.0);
-        slew_viol +=
-            max(pins[view][curpin].ftran - pins[view][curpin].max_tran, 0.0);
-        // if (max(pins[view][curpin].rtran, pins[view][curpin].ftran)
-        //>maxTran[corner])
-        // cout << pins[view][curpin].name << " max tran vio: " <<
-        // max(pins[view][curpin].rtran, pins[view][curpin].ftran) <<
-        //" / " << maxTran[corner] << endl;;
-        if(pins[view][curpin].ftran > pins[view][curpin].max_tran)
+        double slew_max =
+            std::max(pins[view][curpin].rtran, pins[view][curpin].ftran);
+        if(slew_max > pins[view][curpin].max_tran) {
+            slew_viol += slew_max - pins[view][curpin].max_tran;
+            ofs << getFullPinName(pins[view][curpin])
+                << " max tran vio: " << slew_max << " "
+                << pins[view][curpin].max_tran << endl;
             slew_violation_cnt++;
-        if(pins[view][curpin].rtran > pins[view][curpin].max_tran)
-            slew_violation_cnt++;
+        }
         slew_violation_wst =
-            max(slew_violation_wst,
-                pins[view][curpin].rtran - pins[view][curpin].max_tran);
-        slew_violation_wst =
-            max(slew_violation_wst,
-                pins[view][curpin].ftran - pins[view][curpin].max_tran);
+            max(slew_violation_wst, slew_max - pins[view][curpin].max_tran);
     }
 #endif
     printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
@@ -479,7 +480,7 @@ double Sizer::CalcCapViolation(unsigned view) {
     double cap_viol = 0.;
     cap_violation_cnt = 0;
     cap_violation_wst = 0;
-    ofstream ofs("cap_vio2.txt");
+    ofstream ofs("our_cap_vio.txt");
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo* lib_cell_info = getLibCellInfo(cells[i], corner);
 
@@ -491,7 +492,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                         .maxCapacitance;
             maxCap -= cap_margin;
             unsigned outnet = pins[view][cells[i].outpins[k]].net;
-            double loadCap = 0.;
+            float loadCap = 0.;
 
             for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++) {
                 loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;

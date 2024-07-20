@@ -421,7 +421,7 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
         _tclInputString = "OSGetTranVio ";
         double begin = cpuTime();
         auto design = _sizer->_ckt->_ord_design;
-        ofstream ofs("tran_vio1.txt");
+        ofstream ofs("opensta_tran_vio.txt");
         for(auto inst : design->getBlock()->getInsts()) {
             for(auto pin_ : inst->getITerms()) {
                 if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
@@ -478,7 +478,7 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
         _tclInputString = "OSGetCapVio ";
         double begin = cpuTime();
         auto design = _sizer->_ckt->_ord_design;
-        ofstream ofs("cap_vio1.txt");
+        ofstream ofs("opensta_cap_vio.txt");
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
         for(auto inst : design->getBlock()->getInsts()) {
             for(auto pin_ : inst->getITerms()) {
