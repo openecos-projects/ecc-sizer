@@ -4491,26 +4491,6 @@ void Sizer::AllCorrSTATest() {
 }
 
 void Sizer::AllCorrTest() {
-    cells = new CELL[numcells];
-    for(unsigned i = 0; i < numcells; i++)
-        cells[i] = g_cells[i];
-    pins = new PIN*[numViews];
-
-    for(unsigned i = 0; i < numViews; ++i) {
-        pins[i] = new PIN[numpins];
-        for(unsigned j = 0; j < numpins; j++)
-            pins[i][j] = g_pins[i][j];
-    }
-
-    nets = new NET*[numCorners];
-
-    for(unsigned i = 0; i < numCorners; ++i) {
-        nets[i] = new NET[numnets];
-        for(unsigned j = 0; j < numnets; j++) {
-            nets[i][j] = g_nets[i][j];
-        }
-    }
-    // UpdatePTSizes();
     PTimer = new designTiming**[1];
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
@@ -4521,8 +4501,29 @@ void Sizer::AllCorrTest() {
     }
     T = PTimer[0];
     unsigned view = 0;
-    UpdateCapsFromCells();
+    GetSwitchPowerCoef(view);
+    GetMaxTranConst(view);
+    cells = new CELL[numcells];
+    for(unsigned i = 0; i < numcells; i++)
+        cells[i] = g_cells[i];
+    pins = new PIN*[numViews];
+    for(unsigned i = 0; i < numViews; ++i) {
+        pins[i] = new PIN[numpins];
+        for(unsigned j = 0; j < numpins; j++)
+            pins[i][j] = g_pins[i][j];
+    }
 
+    nets = new NET*[numCorners];
+    for(unsigned i = 0; i < numCorners; ++i) {
+        nets[i] = new NET[numnets];
+        for(unsigned j = 0; j < numnets; j++) {
+            nets[i][j] = g_nets[i][j];
+        }
+    }
+    UpdatePTSizes();
+    UpdateCapsFromCells();
+    double initial_tns = T[view]->getTNS();
+    printf("Initial TNS %f\n", initial_tns);
     string pt_in_file = benchname + ".pin_list";
     string pt_out_file = benchname + "_0.pt.tran";
     T[view]->writePinAll(pt_in_file, pt_out_file);
@@ -4636,12 +4637,13 @@ void Sizer::AllCorrTest() {
     //         neq_num++;
     //     }
     // }
-    printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
-           numpins);
+    // printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
+    //    numpins);
     // exit(0);
     CorrelatePT(view);
     auto design = _ckt->_ord_design;
     sta::Corner* _corner = _sta->corners()->corners()[0];
+    int diff_cap = 0;
     for(unsigned i = 0; i < numCorners; ++i) {
         for(unsigned j = 0; j < numnets; j++) {
             nets[i][j] = g_nets[i][j];
@@ -4658,9 +4660,11 @@ void Sizer::AllCorrTest() {
             if(!isEqual(nets[i][j].cap, wire_cap2)) {
                 printf("Net %s, cap not equal %f, %f\n", netNameStr.c_str(),
                        nets[i][j].cap, wire_cap2);
+                diff_cap++;
             }
         }
     }
+    printf("Num diff cap %d\n", diff_cap);
     int num_dif_pin = 0;
     for(auto inst : design->getBlock()->getInsts()) {
         for(auto pin_ : inst->getITerms()) {
@@ -4690,7 +4694,7 @@ void Sizer::AllCorrTest() {
             }
         }
     }
-    printf("Num diff pins %d / %d \n", num_dif_pin, numpins);
+    printf("Num diff slew pins %d / %d \n", num_dif_pin, numpins);
 
     CalcStats(0);
     for(unsigned i = 0; i < numpins; ++i) {

@@ -40,3 +40,4 @@ bin
 __pycache__
 .clangd
 results
+test

@@ -5265,11 +5265,11 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
                                                     ord::Timing::Max);
         pin_name = i_term->getName();
-        int pin_id = pin2id[pin_name];
         if(pin2id.count(pin_name) == 0) {
             printf("Pin name %s don't in pins\n", pin_name.c_str());
             continue;
         }
+        int pin_id = pin2id[pin_name];
         timing_lookup slack;
         slack.rise = slack_rise / this->time_unit;
         slack.fall = slack_fall / this->time_unit;

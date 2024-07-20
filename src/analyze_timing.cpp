@@ -484,7 +484,8 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
             for(auto pin_ : inst->getITerms()) {
                 if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
                    pin_->getNet()->getSigType() != "GROUND" &&
-                   pin_->getNet()->getSigType() != "CLOCK") {
+                   pin_->getNet()->getSigType() != "CLOCK" &&
+                   pin_->isOutputSignal()) {
                     auto m_term = pin_->getMTerm();
                     float pin_cap;
                     float wire_cap;

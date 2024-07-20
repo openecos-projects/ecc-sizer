@@ -54,7 +54,12 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     slew_violation = CalcSlewViolation(view);
     double tran_tot, tran_max;
     int tran_num = 0;
-    // T[view]->getTranVio(tran_tot, tran_max, tran_num);
+    if(TEST_MODE == "ALL_TEST") {
+        tran_tot = tran_max = 0.0;
+        T[view]->getTranVio(tran_tot, tran_max, tran_num);
+        printf("Our slew violation :%f, OpenSTA slew violation: %f\n",
+               slew_violation, tran_tot);
+    }
     if(!FIX_SLEW) {
         tran_tot = tran_max = 0.0;
         T[view]->getTranVio(tran_tot, tran_max, tran_num);
@@ -85,9 +90,13 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
 
     // TODO
     cap_violation = CalcCapViolation();
-    // double cap_tot, cap_max = 0;
-    // int cap_num = 0;
-    // T[view]->getCapVio(cap_tot, cap_max, cap_num);
+    if(TEST_MODE == "ALL_TEST") {
+        double cap_tot, cap_max = 0;
+        int cap_num = 0;
+        T[view]->getCapVio(cap_tot, cap_max, cap_num);
+        printf("Our cap violation :%f, OpenSTA cap violation: %f\n",
+               cap_violation, cap_tot);
+    }
     // exit(0);
     l2_norm = 0.0;
     average_error = 0.0;
@@ -247,10 +256,10 @@ double Sizer::CalcSlewViolation(unsigned view) {
                 if(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
                    pins[view][curpin].max_tran) {
                     ofs << getFullPinName(pins[view][curpin])
-                         << " max tran vio: "
-                         << max(pins[view][curpin].rtran,
-                                pins[view][curpin].ftran)
-                         << " " << pins[view][curpin].max_tran << endl;
+                        << " max tran vio: "
+                        << max(pins[view][curpin].rtran,
+                               pins[view][curpin].ftran)
+                        << " " << pins[view][curpin].max_tran << endl;
                 }
             }
             if(pins[view][curpin].ftran > pins[view][curpin].max_tran)
@@ -507,7 +516,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                     << " max cap vio: "
                     << pins[view][cells[i].outpins[k]].totcap << " "
                     << nets[corner][outnet].cap << " "
-                    << nets[corner][outnet].name <<" " << maxCap << endl;
+                    << nets[corner][outnet].name << " " << maxCap << endl;
             }
         }
     }
