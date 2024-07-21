@@ -463,6 +463,21 @@ void Sizer::UpdateCapsFromCells() {
                     pins[view][input_j].cap =
                         lib_cell_info->pins[pins[view][input_j].lib_pin]
                             .capacitance;
+                    if(pins[view][input_j].cap == 0.0) {
+                        string pin_name = getFullPinName(pins[view][input_j]);
+                        auto pin_ = _ckt->_ord_design->getBlock()->findITerm(
+                            pin_name.c_str());
+                        sta::dbSta* sta = _ckt->_ord_timing->getSta();
+                        sta::dbNetwork* network = sta->getDbNetwork();
+                        sta::Port* port = network->dbToSta(pin_->getMTerm());
+                        sta::LibertyPort* lib_port = network->libertyPort(port);
+                        sta::LibertyLibrary* lib =
+                            network->defaultLibertyLibrary();
+                        pins[view][input_j].cap =
+                            lib_port->capacitance() / cap_unit;
+                        lib_cell_info->pins[pins[view][input_j].lib_pin]
+                            .capacitance = pins[view][input_j].cap;
+                    }
                     assert(pins[view][input_j].cap < 1e31);
                     // pin 作为输入引脚时的电容
                 }
@@ -532,6 +547,16 @@ double Sizer::CalcCapViolation(unsigned view) {
                     _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
                 sta::dbSta* sta = _ckt->_ord_timing->getSta();
                 sta::Net* sta_net = sta->getDbNetwork()->dbToSta(ord_net);
+
+                if(!(pin_->getNet() &&
+                     pin_->getNet()->getSigType() != "POWER" &&
+                     pin_->getNet()->getSigType() != "GROUND" &&
+                     pin_->getNet()->getSigType() != "CLOCK")) {
+                    printf("Error pin %s, Net %s, type %s, is vdd/clk/gnd\n",
+                           pin_name.c_str(), pin_->getNet()->getName().c_str(),
+                           pin_->getNet()->getSigType().getString());
+                    // exit(0);
+                }
                 float pin_cap2;
                 float wire_cap2;
                 sta->connectedCap(sta_net, _corner, sta::MinMax::max(),
@@ -547,7 +572,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                            wire_cap2);
                     // diff_cap++;
                 }
-                if(!isEqual(pin_cap2, loadCap)) {
+                if(fabs(pin_cap2 - loadCap) > 0.05) {
                     printf("Pin name %s, pin cap not equal %f, %f\n",
                            pin_name.c_str(), loadCap, pin_cap2);
                     // diff_cap++;

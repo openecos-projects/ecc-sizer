@@ -187,6 +187,43 @@ void Circuit::Parser(string benchmark) {
     _sta->parasitics()->haveParasitics();
     readDesign_opensta(_sta);
     _sta->parasitics()->haveParasitics();
+    int t_corner = 0;
+    std::map< string, list< LibCellInfo* > >::iterator it;
+    for(it = _sizer->func_lib_cell_list[t_corner].begin();
+        it != _sizer->func_lib_cell_list[t_corner].end(); ++it) {
+        for(LibCellInfo* lib_cell_info : it->second) {
+            double partial_order = 0;
+            int partial_count = 0;
+            auto db_master = _ord_design->getTech()->getDB()->findMaster(
+                lib_cell_info->name.c_str());
+            for(auto& [id, pin] : lib_cell_info->pins) {
+                auto m_term = db_master->findMTerm(pin.name.c_str());
+                sta::dbSta* sta = _ord_timing->getSta();
+                sta::dbNetwork* network = sta->getDbNetwork();
+                sta::Port* port = network->dbToSta(m_term);
+                sta::LibertyPort* lib_port = network->libertyPort(port);
+                sta::LibertyLibrary* lib = network->defaultLibertyLibrary();
+                pin.capacitance = lib_port->capacitance();
+                bool maxCapExist;
+                float maxCap;
+                lib_port->capacitanceLimit(sta::MinMax::max(), maxCap,
+                                           maxCapExist);
+                if(!maxCapExist)
+                    lib->defaultMaxCapacitance(maxCap, maxCapExist);
+                pin.maxCapacitance = maxCap;
+                pin.maxCapacitance /= _sizer->cap_unit;
+                pin.capacitance /= _sizer->cap_unit;
+                if(pin.isInput) {
+                    partial_order += pin.capacitance;
+                    partial_count++;
+                }
+            }
+            lib_cell_info->partial_order = partial_order / partial_count;
+        }
+        (it->second).sort([&](LibCellInfo* c1, LibCellInfo* c2) {
+            return c1->partial_order < c2->partial_order;
+        });
+    }
     // if(!_sizer->mmmcOn) {
     //     cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
     //     sdc_parser(_sizer->sdcFile);
@@ -2636,7 +2673,6 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
             LibPinInfo pin;
             _begin_read_pin_info(is, tokens[1], pin, cell, lib);
             if(pin.maxCapacitance == std::numeric_limits< double >::max()) {
-                
             }
             if(cell.lib_pin2id_map.find(pin.name) ==
                cell.lib_pin2id_map.end()) {
@@ -3253,6 +3289,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         NET tmpNet;
         unsigned tmpNetId = _sizer->_ckt->g_nets[0].size();
         tmpNet.name = netName;
+        
         _sizer->_ckt->net2id.insert(
             pair< string, unsigned >(netName, tmpNetId));
 
@@ -3520,11 +3557,15 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         float pin_cap;
         float wire_cap;
         _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
-        double t_cap = wire_cap / _sizer->cap_unit;
-        g_nets[corner][i].cap = t_cap;
-        if(netNameStr == _sizer->clk_name[0]) {
+        // double t_cap = wire_cap / _sizer->cap_unit;
+        // g_nets[corner][i].cap = t_cap;
+        if(ord_net->getSigType() == "CLOCK") {
             continue;
         }
+
+        double t_cap = wire_cap / _sizer->cap_unit;
+
+        g_nets[corner][i].cap = t_cap;
         if(net_parasitic == nullptr) {
             printf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;
