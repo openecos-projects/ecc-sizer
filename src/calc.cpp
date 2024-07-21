@@ -555,6 +555,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                     printf("Error pin %s, Net %s, type %s, is vdd/clk/gnd\n",
                            pin_name.c_str(), pin_->getNet()->getName().c_str(),
                            pin_->getNet()->getSigType().getString());
+                    continue;
                     // exit(0);
                 }
                 float pin_cap2;
