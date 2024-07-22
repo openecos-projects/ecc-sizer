@@ -3560,6 +3560,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         // double t_cap = wire_cap / _sizer->cap_unit;
         // g_nets[corner][i].cap = t_cap;
         if(ord_net->getSigType() == "CLOCK") {
+            g_nets[corner][i].is_clock = true;
             continue;
         }
 

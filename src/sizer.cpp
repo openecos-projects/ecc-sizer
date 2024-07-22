@@ -6201,6 +6201,8 @@ void Sizer::Parallel_Sizer_Launcher() {
                 cout << "GET NEXT START END" << endl;
             }
         }
+        SizeOut(best_cells_poweropt, "final");
+        SizeChangeOut(best_cells_poweropt, "final");
 #if 0
         double vio1, power1 = 0.0;
         double vio = 0.0;
@@ -6211,8 +6213,6 @@ void Sizer::Parallel_Sizer_Launcher() {
 
         vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
 
-        SizeOut(best_cells_poweropt, "final");
-        SizeChangeOut(best_cells_poweropt, "final");
 
         double init_power = 0.0;
         if(ALPHA == 0.0) {

@@ -193,6 +193,7 @@ struct NET {
     unsigned inpin;
     vector< unsigned > outpins;
     double cap;
+    double is_clock = false;
     vector< SUB_NODE > subNodeVec;  // subNodeVec[0] is the inpin,
                                     // subNodeVec[1...n] are the n sub-nodes,
                                     // and subNodeVec[n+1...] are the outpins
@@ -212,6 +213,7 @@ struct NET {
           outpins(orig.outpins),
           cap(orig.cap),
           subNodeVec(orig.subNodeVec),
+          is_clock(orig.is_clock),
           subNodeResVec(orig.subNodeResVec) {
     }
 
@@ -220,6 +222,7 @@ struct NET {
         inpin = assign.inpin;
         outpins = assign.outpins;
         cap = assign.cap;
+        is_clock = assign.is_clock;
         subNodeVec = assign.subNodeVec;
         subNodeResVec = assign.subNodeResVec;
         return *this;
@@ -869,6 +872,7 @@ class Circuit {
     void readSpefChangePinName(string& pin_name);
     sta::dbSta* _sta = nullptr;
     Tcl_Interp* sta_interp = nullptr;
+
    private:
     std::ifstream is;
     Sizer* _sizer;
@@ -898,7 +902,7 @@ class Circuit {
     map< string, unsigned > cell2id;
     map< string, unsigned > pcell2id;
     map< string, unsigned > net2id;
-    map< string, unsigned > pin2id; // from 0 to numpins-1
+    map< string, unsigned > pin2id;  // from 0 to numpins-1
     map< string, int > node2id;
 
     vector< unsigned > topolist;

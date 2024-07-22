@@ -523,6 +523,9 @@ double Sizer::CalcCapViolation(unsigned view) {
             maxCap -= cap_margin;
             float loadCap = 0.;
             unsigned outnet = pins[view][cells[i].outpins[k]].net;
+            if(nets[corner][outnet].is_clock) {
+                continue;
+            }
             for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++) {
                 loadCap += static_cast< float >(
                     pins[view][nets[corner][outnet].outpins[j]].cap);
