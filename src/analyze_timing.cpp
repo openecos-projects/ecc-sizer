@@ -773,8 +773,8 @@ void designTiming::getPinTran(double &riseTran, double &fallTran,
     float temp1;
     float temp2;
     sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    riseTran = temp1;
-    fallTran = temp2;
+    riseTran = temp1 / _sizer->time_unit;
+    fallTran = temp2 / _sizer->time_unit;
     // cout << pinName << " " << riseSlack << " " << fallSlack << endl;
 }
 

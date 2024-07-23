@@ -184,18 +184,21 @@ void Circuit::Parser(string benchmark) {
     cout << "Load design... " << _sizer->benchname << endl;
     // _sta = new sta::Sta;
     init_opensta();
-    _sta->parasitics()->haveParasitics();
     readDesign_opensta(_sta);
-    _sta->parasitics()->haveParasitics();
     int t_corner = 0;
     std::map< string, list< LibCellInfo* > >::iterator it;
     for(it = _sizer->func_lib_cell_list[t_corner].begin();
         it != _sizer->func_lib_cell_list[t_corner].end(); ++it) {
+        printf("Cell main type %s: \n", it->first.c_str());
         for(LibCellInfo* lib_cell_info : it->second) {
             double partial_order = 0;
             int partial_count = 0;
             auto db_master = _ord_design->getTech()->getDB()->findMaster(
                 lib_cell_info->name.c_str());
+            if(_ord_design->isSequential(db_master) || db_master->isBlock()) {
+                lib_cell_info->dontTouch = true;
+                _sizer->dontTouchCell.push_back(lib_cell_info->name);
+            }
             for(auto& [id, pin] : lib_cell_info->pins) {
                 auto m_term = db_master->findMTerm(pin.name.c_str());
                 sta::dbSta* sta = _ord_timing->getSta();
@@ -208,6 +211,7 @@ void Circuit::Parser(string benchmark) {
                 float maxCap;
                 lib_port->capacitanceLimit(sta::MinMax::max(), maxCap,
                                            maxCapExist);
+                // lib_port->
                 if(!maxCapExist)
                     lib->defaultMaxCapacitance(maxCap, maxCapExist);
                 pin.maxCapacitance = maxCap;
@@ -219,9 +223,14 @@ void Circuit::Parser(string benchmark) {
                 }
             }
             lib_cell_info->partial_order = partial_order / partial_count;
+            printf("Cell type %s, sum cap %f, cap cnt %d, average power %f",
+                   lib_cell_info->name.c_str(), partial_order, partial_count,
+                   lib_cell_info->leakagePower);
+            std::cout << "lekage " << lib_cell_info->leakagePower << std::endl;
         }
-        (it->second).sort([&](LibCellInfo* c1, LibCellInfo* c2) {
-            return c1->partial_order < c2->partial_order;
+        auto& list = _sizer->func_lib_cell_list[t_corner][it->first];
+        list.sort([&](LibCellInfo* c1, LibCellInfo* c2) {
+            return c1->leakagePower < c2->leakagePower;
         });
     }
     // if(!_sizer->mmmcOn) {
@@ -317,6 +326,9 @@ void Circuit::Parser(string benchmark) {
         cout << "Reset to minimum size / vt ... " << endl;
         for(unsigned i = 0; i < g_cells.size(); ++i) {
             for(unsigned vt = 0; vt < _sizer->numVt; vt++) {
+                if(g_cells[i].isDontTouch) {
+                    continue;
+                }
                 LibCellInfo* new_lib_cell_info =
                     _sizer->getLibCellInfo(g_cells[i].main_lib_cell_id, 0,
                                            static_cast< cell_vtypes >(vt));
@@ -1100,9 +1112,10 @@ void Circuit::lib_parser(string filename, unsigned corner) {
             cell.name = tokens[1];
             string cellName = cell.name;
             cell.dontUse = isDontUse(cell.name);
-            if(ignore_cell) {
-                _sizer->dontTouchCell.push_back(cell.name);
-            }
+            // if(ignore_cell) {
+            //     _sizer->dontTouchCell.push_back(cell.name);
+            //     cell.dontTouch = true;
+            // }
             cell.max_tran = tmp_trans;
             // cout << "Reading cell " << cell.name << endl;
             _begin_read_cell_info(is, cell, lib);
@@ -1195,7 +1208,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
             lib_cell_info->partial_order = partial_order / partial_count;
         }
         (it->second).sort([&](LibCellInfo* c1, LibCellInfo* c2) {
-            return c1->partial_order < c2->partial_order;
+            return c1->leakagePower < c2->leakagePower;
         });
     }
 #endif
@@ -3154,6 +3167,7 @@ void Circuit::init_opensta() {
     printf("Run Global Routing...\n");
     grt->globalRoute(false);
     _ord_design->evalTclString("estimate_parasitics -global_routing");
+    _ord_timing->makeEquivCells();
     // _ord_design->evalTclString("report_wns");
 #endif
 }
@@ -3289,7 +3303,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         NET tmpNet;
         unsigned tmpNetId = _sizer->_ckt->g_nets[0].size();
         tmpNet.name = netName;
-        
+
         _sizer->_ckt->net2id.insert(
             pair< string, unsigned >(netName, tmpNetId));
 

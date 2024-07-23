@@ -138,7 +138,7 @@ bool MIN_VT = false;
 bool FINAL_PWR_OPT = false;
 bool MIN_SIZE = false;
 bool UPDATE_LIST = false;
-int MULTI_STEP = 30;
+int MULTI_STEP = 2;
 int MULTI_STEP_KICK = 1;
 int MULTI_STEP_PWR = 1;
 double KICK_RATIO = 0.01;
@@ -1375,7 +1375,7 @@ void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
     this->_sta->networkChanged();
     auto corner = this->_ckt->_ord_timing->getCorners()[0];
     for(unsigned i = 0; i < c.size(); i++) {
-        if(getLibCellInfo(c[i]) == NULL || c[i].isChanged == false)
+        if(getLibCellInfo(c[i]) == NULL)
             continue;
         // LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
         auto inst = block->findInst(c[i].name.c_str());
@@ -2720,7 +2720,9 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 
             maxCap -= cap_margin;
             unsigned outnet = pins[view][out_pin_id].net;
-
+            if(nets[corner][outnet].is_clock) {
+                continue;
+            }
             if(pins[view][out_pin_id].totcap > maxCap)
                 origins += (pins[view][out_pin_id].totcap - maxCap);
 
@@ -2940,7 +2942,9 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
                     .maxCapacitance;
             maxCap -= cap_margin;
             unsigned outnet = pins[view][cells[cur].outpins[k]].net;
-
+            if(nets[corner][outnet].is_clock) {
+                continue;
+            }
             double loadCap = 0.;
 
             for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++)
@@ -6625,7 +6629,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 5;
+            unsigned max_time_recovery_iter = 10;
             // Timing recovery
             for(unsigned time_recovery_iter = 0;
                 time_recovery_iter < max_time_recovery_iter;
@@ -9224,7 +9228,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-top ") != string::npos) {
             benchname = getTokenS(line, "-top ");
         }
-        if(line.find("# -minimum") != string::npos)
+        if(line.find("-minimum") != string::npos)
             MINIMUM = true;
         if(line.find("-def ") != string::npos)
             defFile = getTokenS(line, "-def ");

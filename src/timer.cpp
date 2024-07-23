@@ -3567,7 +3567,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         unsigned fipin = nets[corner][curnet].inpin;
         if(fipin == UINT_MAX)
             continue;
-        if(nets[corner][curnet].name == clk_port[view]) {
+        if(nets[corner][curnet].is_clock) {
             continue;
         }
         double preCap = pins[view][fipin].totcap;
@@ -3583,8 +3583,9 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         double newCap = pins[view][fipin].totcap;
 
         pins[view][fipin].ceff = pins[view][fipin].totcap;
-
-        fwpins.push_back(fipin);
+        if(fabs(newCap - preCap) > 0.0001) {
+            fwpins.push_back(fipin);
+        }
         // cout << "FWD PIN PUSH " << getFullPinName(pins[view][fipin]) << endl;
 
         if(WIRE_METRIC != ND && abs(newCap - preCap) > 0.0001) {
