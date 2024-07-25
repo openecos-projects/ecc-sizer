@@ -490,6 +490,7 @@ struct CELL {
           clock_pin(orig.clock_pin),
           data_pin(orig.data_pin),
           static_power(orig.static_power),
+          isStaticChanged(orig.isStaticChanged),
           fis(orig.fis),
           fos(orig.fos),
           tabu(orig.tabu),
@@ -508,6 +509,7 @@ struct CELL {
         isClockCell = assign.isClockCell;
         isDontTouch = assign.isDontTouch;
         isChanged = assign.isChanged;
+        isStaticChanged = assign.isStaticChanged,
         main_lib_cell_id = assign.main_lib_cell_id;
         c_vtype = assign.c_vtype;
         c_size = assign.c_size;

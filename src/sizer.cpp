@@ -155,7 +155,7 @@ bool SIZE_ONLY = false;
 bool FIX_CAP = false;
 bool FIX_SLEW = false;
 bool FIX_GLOBAL = false;
-int GWTW_MAX = 4;
+int GWTW_MAX = 1;
 int GWTW_DIV = 4;
 int GWTW_NUM_START = 4;
 
@@ -1448,38 +1448,38 @@ void Sizer::CheckPTSizes(unsigned option) {
     }
 }
 
-void Sizer::InitPTSizes() {
-    string filename = benchname + "_init_sizes.tcl";
-    ofstream outsz(filename.c_str());
-    int count = 0;
-    for(unsigned i = 0; i < numcells; i++) {
-        if(getLibCellInfo(g_cells[i]) == NULL)
-            continue;
-        if(!PT_FULL_UPDATE && !g_cells[i].isChanged)
-            continue;
-        LibCellInfo *lib_cell_info = getLibCellInfo(g_cells[i]);
-        if(useOpenSTA) {
-            outsz << "OSSizeCell " << g_cells[i].name << " "
-                  << lib_cell_info->name << endl;
-        }
-        else if(!useETS) {
-            outsz << "PtSizeCell " << g_cells[i].name << " "
-                  << lib_cell_info->name << endl;
-        }
-        else {
-            outsz << "EtsSizeCell " << g_cells[i].name << " "
-                  << lib_cell_info->name << endl;
-        }
-        g_cells[i].isChanged = false;
-        count++;
-    }
-    outsz.close();
-    if(count > 0) {
-        for(unsigned view = 0; view < numViews; ++view) {
-            T[view]->updateSize(filename);
-        }
-    }
-}
+// void Sizer::InitPTSizes() {
+//     string filename = benchname + "_init_sizes.tcl";
+//     ofstream outsz(filename.c_str());
+//     int count = 0;
+//     for(unsigned i = 0; i < numcells; i++) {
+//         if(getLibCellInfo(g_cells[i]) == NULL)
+//             continue;
+//         if(!PT_FULL_UPDATE && !g_cells[i].isChanged)
+//             continue;
+//         LibCellInfo *lib_cell_info = getLibCellInfo(g_cells[i]);
+//         if(useOpenSTA) {
+//             outsz << "OSSizeCell " << g_cells[i].name << " "
+//                   << lib_cell_info->name << endl;
+//         }
+//         else if(!useETS) {
+//             outsz << "PtSizeCell " << g_cells[i].name << " "
+//                   << lib_cell_info->name << endl;
+//         }
+//         else {
+//             outsz << "EtsSizeCell " << g_cells[i].name << " "
+//                   << lib_cell_info->name << endl;
+//         }
+//         g_cells[i].isChanged = false;
+//         count++;
+//     }
+//     outsz.close();
+//     if(count > 0) {
+//         for(unsigned view = 0; view < numViews; ++view) {
+//             T[view]->updateSize(filename);
+//         }
+//     }
+// }
 
 void Sizer::UpdatePTSizes(unsigned option) {
     //    double begin=cpuTime();
@@ -6207,17 +6207,10 @@ void Sizer::Parallel_Sizer_Launcher() {
         }
         SizeOut(best_cells_poweropt, "final");
         SizeChangeOut(best_cells_poweropt, "final");
-#if 0
         double vio1, power1 = 0.0;
         double vio = 0.0;
-
-        // for(unsigned view = 1; view < numViews; ++view) {
-        //     ReportWithPT(best_cells_poweropt, "final", vio1, power1, view);
-        // }
-
         vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
-
-
+#if 0
         double init_power = 0.0;
         if(ALPHA == 0.0) {
             init_power = init_leak[0];
@@ -6629,7 +6622,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 10;
+            unsigned max_time_recovery_iter = 6;
             // Timing recovery
             for(unsigned time_recovery_iter = 0;
                 time_recovery_iter < max_time_recovery_iter;
@@ -10304,9 +10297,9 @@ int main(int argc, char **argv) {
     _sizer.readCmdFile(CMD_FI);
     _sizer.readEnvFile(ENV_FI);
 
-    // std::string profile_name = _sizer.benchname + ".prof";
-    // std::cerr << "profiler save as: " << profile_name.c_str() << "\n";
-    // ProfilerStart(profile_name.c_str());
+    std::string profile_name = _sizer.benchname + ".prof";
+    std::cerr << "profiler save as: " << profile_name.c_str() << "\n";
+    ProfilerStart(profile_name.c_str());
 
     if(_sizer.mmmcOn) {
         for(unsigned i = 0; i < _sizer.mmmcFiles.size(); ++i) {
@@ -10492,7 +10485,7 @@ int main(int argc, char **argv) {
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
-    // ProfilerStop();
+    ProfilerStop();
 
     return 0;
 }

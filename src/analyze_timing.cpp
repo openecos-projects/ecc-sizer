@@ -643,25 +643,25 @@ bool designTiming::loadDesign(string benchname) {
         return false;
 }
 
-bool designTiming::updateSize(string filename) {
-    //_tclInputString = "redirect pt.updateSize.log {source " +
-    // filename+"}";
+// bool designTiming::updateSize(string filename) {
+//     //_tclInputString = "redirect pt.updateSize.log {source " +
+//     // filename+"}";
 
-    _sizer->_sta->networkChanged1();  // FIXME: This has a bug
-    _tclInputString = "source " + filename;
-    // cout << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+//     _sizer->_sta->networkChanged1();  // FIXME: This has a bug
+//     _tclInputString = "source " + filename;
+//     // cout << _tclInputString << endl;
+//     //_tclExpression = (char *)_tclInputString.c_str();
+//     double begin = cpuTime();
+//     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+//     pt_time += cpuTime() - begin;
+//     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+//     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
 
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
-}
+//     if(_answerStr == "1")
+//         return true;
+//     else
+//         return false;
+// }
 
 bool designTiming::checkSize(string filename) {
     if(program == PT) {
