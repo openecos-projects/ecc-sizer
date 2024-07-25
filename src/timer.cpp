@@ -5222,28 +5222,28 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         }
         int pin_id = pin2id[pin_name];
         assert(pin2id.count(pin_name) > 0);
-        slack_rise = slack_rise == FLT_MAX ? DBL_MAX : slack_rise;
-        slack_fall = slack_fall == FLT_MAX ? DBL_MAX : slack_fall;
-        tran_rise = tran_rise == FLT_MAX ? DBL_MAX : tran_rise;
-        tran_fall = tran_fall == FLT_MAX ? DBL_MAX : tran_fall;
-        aat_rise = aat_rise == FLT_MAX ? DBL_MAX : aat_rise;
-        aat_fall = aat_fall == FLT_MAX ? DBL_MAX : aat_fall;
+        slack_rise = slack_rise >= 1e8 ? DBL_MAX : slack_rise / this->time_unit;
+        slack_fall = slack_fall >= 1e8 ? DBL_MAX : slack_fall / this->time_unit;
+        tran_rise = tran_rise >= 1e8 ? DBL_MAX : tran_rise / this->time_unit;
+        tran_fall = tran_fall >= 1e8 ? DBL_MAX : tran_fall / this->time_unit;
+        aat_rise = aat_rise >= 1e8 ? DBL_MAX : aat_rise / this->time_unit;
+        aat_fall = aat_fall >= 1e8 ? DBL_MAX : aat_fall / this->time_unit;
 
         timing_lookup slack;
-        slack.rise = slack_rise / this->time_unit;
-        slack.fall = slack_fall / this->time_unit;
+        slack.rise = slack_rise;
+        slack.fall = slack_fall;
 
         slack_list[pin_id] = slack;
 
         timing_lookup tran;
-        tran.rise = tran_rise / this->time_unit;
-        tran.fall = tran_fall / this->time_unit;
+        tran.rise = tran_rise;
+        tran.fall = tran_fall;
 
         tran_list[pin_id] = tran;
 
         timing_lookup aat;
-        aat.fall = aat_fall / this->time_unit;
-        aat.rise = aat_rise / this->time_unit;
+        aat.fall = aat_fall;
+        aat.rise = aat_rise;
         aat_list[pin_id] = aat;
     }
 
@@ -5253,6 +5253,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
            i_term->getNet()->getSigType() == "CLOCK") {
             continue;
         }
+
         slack_rise = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Rise,
                                                     ord::Timing::Max);
         slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
@@ -5271,21 +5272,29 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
             continue;
         }
         int pin_id = pin2id[pin_name];
+
+        slack_rise = slack_rise >= 1e8 ? DBL_MAX : slack_rise / this->time_unit;
+        slack_fall = slack_fall >= 1e8 ? DBL_MAX : slack_fall / this->time_unit;
+        tran_rise = tran_rise >= 1e8 ? DBL_MAX : tran_rise / this->time_unit;
+        tran_fall = tran_fall >= 1e8 ? DBL_MAX : tran_fall / this->time_unit;
+        aat_rise = aat_rise >= 1e8 ? DBL_MAX : aat_rise / this->time_unit;
+        aat_fall = aat_fall >= 1e8 ? DBL_MAX : aat_fall / this->time_unit;
+
         timing_lookup slack;
-        slack.rise = slack_rise / this->time_unit;
-        slack.fall = slack_fall / this->time_unit;
+        slack.rise = slack_rise;
+        slack.fall = slack_fall;
 
         slack_list[pin_id] = slack;
 
         timing_lookup tran;
-        tran.rise = tran_rise / this->time_unit;
-        tran.fall = tran_fall / this->time_unit;
+        tran.rise = tran_rise;
+        tran.fall = tran_fall;
 
         tran_list[pin_id] = tran;
 
         timing_lookup aat;
-        aat.fall = aat_fall / this->time_unit;
-        aat.rise = aat_rise / this->time_unit;
+        aat.fall = aat_fall;
+        aat.rise = aat_rise;
         aat_list[pin_id] = aat;
     }
     if(slack_list.size() != numpins) {

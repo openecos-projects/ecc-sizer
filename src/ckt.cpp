@@ -195,6 +195,8 @@ void Circuit::Parser(string benchmark) {
             int partial_count = 0;
             auto db_master = _ord_design->getTech()->getDB()->findMaster(
                 lib_cell_info->name.c_str());
+            // lib_cell_info->isSequential = db_master->isSequential();
+            // assert(_ord_design->isSequential(db_master) == lib_cell_info->isSequential);
             if(_ord_design->isSequential(db_master) || db_master->isBlock()) {
                 lib_cell_info->dontTouch = true;
                 _sizer->dontTouchCell.push_back(lib_cell_info->name);

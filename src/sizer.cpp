@@ -159,7 +159,7 @@ int GWTW_MAX = 1;
 int GWTW_DIV = 4;
 int GWTW_NUM_START = 4;
 
-bool DATA_PIN_ONLY = true;
+bool DATA_PIN_ONLY = false;
 bool NO_LOG = false;
 bool CORR_DYN = false;
 int MAX_THREAD = 16;
@@ -1048,7 +1048,7 @@ void Sizer::Clean() {
     system(Commands);
 }
 double Sizer::calcScore(double leakage, double tns, double slew, double cap) {
-    double t_score = leakage + tnsPenalty * fabs(tns) +
+    double t_score = leakage - init_tot[0] + tnsPenalty * fabs(tns) +
                      slewPenalty * fabs(slew) + capPenalty * fabs(cap);
     return t_score;
 }
@@ -5916,7 +5916,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     }
 
     T = PTimer[0];
-
+    init_tot[0] = T[0]->getLeakPower();
     // InitPowerBeforeUpdate(g_cells);
     if(MINIMUM || GTR_IN || MAXIMUM) {
         UpdatePTSizes(g_cells);
@@ -5939,7 +5939,6 @@ void Sizer::Parallel_Sizer_Launcher() {
         double leak = 0.0;
         double tot = 0.0;
 
-        leak = T[view]->getLeakPower();
         tot = leak;
 
         double tran_tot, tran_max;
@@ -6207,9 +6206,9 @@ void Sizer::Parallel_Sizer_Launcher() {
         }
         SizeOut(best_cells_poweropt, "final");
         SizeChangeOut(best_cells_poweropt, "final");
-        double vio1, power1 = 0.0;
-        double vio = 0.0;
-        vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
+        // double vio1, power1 = 0.0;
+        // double vio = 0.0;
+        // vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
 #if 0
         double init_power = 0.0;
         if(ALPHA == 0.0) {
@@ -6423,7 +6422,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
         init_wns[view] = worst_slack_worst;
         init_tns[view] = skew_violation;
         init_leak[view] = power;
-        init_tot[view] = power;
+        // init_tot[view] = power;
         init_score[view] = score;
 
         cout << "[view " << view
@@ -10299,7 +10298,7 @@ int main(int argc, char **argv) {
 
     std::string profile_name = _sizer.benchname + ".prof";
     std::cerr << "profiler save as: " << profile_name.c_str() << "\n";
-    ProfilerStart(profile_name.c_str());
+    // ProfilerStart(profile_name.c_str());
 
     if(_sizer.mmmcOn) {
         for(unsigned i = 0; i < _sizer.mmmcFiles.size(); ++i) {
@@ -10485,7 +10484,7 @@ int main(int argc, char **argv) {
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
-    ProfilerStop();
+    // ProfilerStop();
 
     return 0;
 }

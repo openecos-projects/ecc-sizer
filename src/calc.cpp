@@ -258,9 +258,9 @@ double Sizer::CalcSlewViolation(unsigned view) {
             string pin_name = getFullPinName(pins[view][curpin]);
             auto pin_ =
                 _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
-            assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
-                   pin_->getNet()->getSigType() != "GROUND" &&
-                   pin_->getNet()->getSigType() != "CLOCK");
+            // assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+            //        pin_->getNet()->getSigType() != "GROUND" &&
+            //        pin_->getNet()->getSigType() != "CLOCK");
             // if(pins[view][curpin].max_tran == 0) {
             //     printf("Pin name %s max_tran %f\n",
             //            pins[view][curpin].name.c_str(),
