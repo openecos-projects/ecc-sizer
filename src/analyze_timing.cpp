@@ -143,8 +143,8 @@ void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
     float temp1;
     float temp2;
     sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    rise_delay = temp1;
-    fall_delay = temp2;
+    rise_delay = temp1 / _sizer->time_unit;
+    fall_delay = temp2 / _sizer->time_unit;
 
     // cout << delay << " " << riseFall << " " << endl;
 }

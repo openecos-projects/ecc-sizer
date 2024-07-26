@@ -45,6 +45,7 @@
 #include "sizer.h"
 #include <limits>
 #include "float.h"
+#include "utils.h"
 #define __DEBUG
 #define TIME_MON
 #define SLEW_THRESHOLD 4
@@ -5186,6 +5187,8 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
     // cout << "copy pin file done! " << option << endl;
 
     // ifstream infile(pt_out_file.c_str());
+    double begin = cpuTime();
+
     slack_list.resize(numpins);
     ceff_list.resize(numpins);
     tran_list.resize(numpins);
@@ -5297,6 +5300,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         aat.rise = aat_rise;
         aat_list[pin_id] = aat;
     }
+    T[view]->pt_time += cpuTime() - begin;
     if(slack_list.size() != numpins) {
         // cout << "ERROR -- # slack values does not match with # pins." <<
         // endl;

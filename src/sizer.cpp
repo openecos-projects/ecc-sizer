@@ -45,19 +45,25 @@
 #include <cstdlib>
 #include <sstream>
 #include "ckt.h"
+#include "db.h"
 #include "ord/ordMain.hh"
 #include "utils.h"
 #include <iostream>
+#include <vector>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include "db_sta/dbNetwork.hh"
+#include "db_sta/dbSta.hh"
 #include <arpa/inet.h>
 #include "ord/Design.h"
 #include "ord/Timing.h"
 #include <gperftools/profiler.h>
 #include <gperftools/heap-profiler.h>
 #include "ord/OpenRoad.hh"
+#include "dpl/Opendp.h"
+#include "grt/GlobalRouter.h"
 #define TIMER_RUNS_BACKGROUND
 
 #define GLOBAL 0
@@ -1370,6 +1376,7 @@ void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
     string filename = benchname + "_" + ostr.str() + "_sizes.tcl";
     ofstream outsz(filename.c_str());
     // int count = 0;
+    double begin = cpuTime();
     auto block = _ckt->_ord_design->getBlock();
     auto db = ord::OpenRoad::openRoad()->getDb();
     this->_sta->networkChanged();
@@ -1480,6 +1487,41 @@ void Sizer::CheckPTSizes(unsigned option) {
 //         }
 //     }
 // }
+bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
+                        std::set< odb::dbNet * > &parasitics_invalid_) {
+    using odb::dbInst;
+    using odb::dbMaster;
+    dbMaster *replacement_master = new_master;
+    auto sta_ = _ckt->_ord_timing->getSta();
+    auto db_network_ = sta_->getDbNetwork();
+    auto inst = db_network_->dbToSta(dinst);
+    auto opendp_ = ord::OpenRoad::openRoad()->getOpendp();
+    if(replacement_master) {
+        // dbInst *dinst = db_network_->staToDb(inst);
+        dbMaster *master = dinst->getMaster();
+        auto *replacement_cell1 = db_network_->dbToSta(replacement_master);
+
+        sta_->replaceCell(inst, replacement_cell1);
+        // designAreaIncr(area(replacement_master));
+
+        // Legalize the position of the instance in case it leaves the die
+        opendp_->legalCellPos(dinst);
+        // if(parasitics_src_ == ParasiticsSrc::global_routing) {
+        // }
+
+        // auto *pin_iter = db_network_->pinIterator(inst);
+        for(auto item : dinst->getITerms()) {
+            auto item_net = item->getNet();
+            if(!item_net || item_net->getSigType() == odb::dbSigType::POWER ||
+               item_net->getSigType() == odb::dbSigType::GROUND) {
+                continue;
+            }
+            parasitics_invalid_.insert(item_net);
+        }
+        return true;
+    }
+    return false;
+}
 
 void Sizer::UpdatePTSizes(unsigned option) {
     //    double begin=cpuTime();
@@ -1506,9 +1548,17 @@ void Sizer::UpdatePTSizes(unsigned option) {
             continue;
         count++;
     }
+    auto sta_ = _ckt->_ord_timing->getSta();
+    auto db_network_ = sta_->getDbNetwork();
+    auto global_router_ = _ckt->_ord_design->getGlobalRouter();
+    auto incr_groute_ = new grt::IncrementalGRoute(global_router_, block);
+    global_router_->setVerbose(true);
     printf("Update PT sizes changed count %d\n", count);
+    std::set< odb::dbNet * > parasitics_invalid_;
+    // UnorderedSet< const Net *, NetHash > parasitics_invalid_;
     if(count > 0) {
-        this->_sta->networkChanged();
+        double begin = cpuTime();
+        // this->_sta->networkChanged();
         auto corner = this->_ckt->_ord_timing->getCorners()[0];
         for(unsigned i = 0; i < numcells; i++) {
             LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
@@ -1517,27 +1567,25 @@ void Sizer::UpdatePTSizes(unsigned option) {
             if(!PT_FULL_UPDATE && !cells[i].isChanged)
                 continue;
             auto inst = block->findInst(cells[i].name.c_str());
-            inst->swapMaster(db->findMaster(cells[i].type.c_str()));
+            // inst->swapMaster();
+            replaceCell(inst, db->findMaster(cells[i].type.c_str()),
+                        parasitics_invalid_);
             cells[i].isChanged = false;
             cells[i].isStaticChanged = true;
             // cells[i].static_power =
             //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
-        _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
-        // _ckt->_ord_design->evalTclString("find_timing");
-        // for(unsigned i = 0; i < numcells; i++) {
-        //     LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
-        //     if(lib_cell_info == NULL)
-        //         continue;
-        //     if(!PT_FULL_UPDATE && !cells[i].isChanged)
-        //         continue;
-        //     auto inst = block->findInst(cells[i].name.c_str());
-        //     cells[i].static_power =
-        //         this->_ckt->_ord_timing->staticPower(inst, corner);
-        //     cells[i].isChanged = false;
-        // }
+        // _ckt->_ord_design->evalTclString("estimate_parasitics
+        // -global_routing");
+        T[0]->pt_time += cpuTime() - begin;
     }
-
+    incr_groute_->updateRoutes(false);
+    for(odb::dbNet *net : parasitics_invalid_) {
+        global_router_->estimateRC(net);
+    }
+    parasitics_invalid_.clear();
+    sta_->findRequireds();
+    delete incr_groute_;
     // else cout << "No cell has been changed." << endl;
 }
 
@@ -4053,7 +4101,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 new_tns = prev_tns;
             }
 
-            if(prev_slack > 0)
+            if(prev_slack > toler)
                 continue;
 
             if(tabuNum > 0) {
@@ -5916,7 +5964,18 @@ void Sizer::Parallel_Sizer_Launcher() {
     }
 
     T = PTimer[0];
-    init_tot[0] = T[0]->getLeakPower();
+    auto corner = this->_ckt->_ord_timing->getCorners()[0];
+    double totalLeakagePower = 0;
+    for(int i = 0; i < numcells; i++) {
+        auto inst =
+            _ckt->_ord_design->getBlock()->findInst(g_cells[i].name.c_str());
+        g_cells[i].static_power = _ckt->_ord_timing->staticPower(inst, corner);
+        g_cells[i].isChanged = false;
+        g_cells[i].isStaticChanged = false;
+        totalLeakagePower += g_cells[i].static_power;
+    }
+    totalLeakagePower /= sw_adj;
+    init_tot[0] = totalLeakagePower;
     // InitPowerBeforeUpdate(g_cells);
     if(MINIMUM || GTR_IN || MAXIMUM) {
         UpdatePTSizes(g_cells);

@@ -415,7 +415,8 @@ class Sizer {
     void buildTargets(unsigned iter, unsigned STAGE, double RATIO,
                       double leak_exponent, double alpha, double break_ratio,
                       unsigned thread_id, double toler, unsigned view);
-
+    bool replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
+                        std::set< odb::dbNet * > &parasitics_invalid_);
     inline bool isMin(const CELL &cell) {
         return (cell.c_size == 0);
     }

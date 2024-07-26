@@ -196,7 +196,8 @@ void Circuit::Parser(string benchmark) {
             auto db_master = _ord_design->getTech()->getDB()->findMaster(
                 lib_cell_info->name.c_str());
             // lib_cell_info->isSequential = db_master->isSequential();
-            // assert(_ord_design->isSequential(db_master) == lib_cell_info->isSequential);
+            // assert(_ord_design->isSequential(db_master) ==
+            // lib_cell_info->isSequential);
             if(_ord_design->isSequential(db_master) || db_master->isBlock()) {
                 lib_cell_info->dontTouch = true;
                 _sizer->dontTouchCell.push_back(lib_cell_info->name);
@@ -3169,7 +3170,17 @@ void Circuit::init_opensta() {
     printf("Run Global Routing...\n");
     grt->globalRoute(false);
     _ord_design->evalTclString("estimate_parasitics -global_routing");
-    _ord_timing->makeEquivCells();
+    // _ord_design->evalTclString("sta::set_delay_calculator lumped_cap");
+#if 0
+  registerDelayCalc("unit", makeUnitDelayCalc);
+  registerDelayCalc("lumped_cap", makeLumpedCapDelayCalc);
+  registerDelayCalc("dmp_ceff_elmore", makeDmpCeffElmoreDelayCalc);
+  registerDelayCalc("dmp_ceff_two_pole", makeDmpCeffTwoPoleDelayCalc);
+  registerDelayCalc("arnoldi", makeArnoldiDelayCalc);
+  registerDelayCalc("ccs_ceff", makeCcsCeffDelayCalc);
+  registerDelayCalc("ccs_sim", makeCcsSimDelayCalc);
+#endif
+    // _ord_timing->makeEquivCells();
     // _ord_design->evalTclString("report_wns");
 #endif
 }
