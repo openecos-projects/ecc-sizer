@@ -57,6 +57,7 @@
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include <arpa/inet.h>
+#include "rsz/Resizer.hh"
 #include "ord/Design.h"
 #include "ord/Timing.h"
 #include <gperftools/profiler.h>
@@ -695,7 +696,7 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
 
 LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
     assert(cell.type != "");
-    map< string, LibCellInfo >::iterator temp_iter =
+    unordered_map< string, LibCellInfo >::iterator temp_iter =
         libs[corner].find(cell.type);
 
     if(temp_iter != libs[corner].end()) {
@@ -707,9 +708,10 @@ LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
 }
 
 LibCellInfo *Sizer::getLibCellInfo(string type, unsigned corner) {
-    map< string, LibCellInfo >::iterator temp_iter = libs[corner].find(type);
+    unordered_map< string, LibCellInfo >::iterator temp_iter =
+        libs[corner].find(type);
     assert(type != "");
-    if(libs[corner].count(type)) {
+    if(temp_iter != libs[corner].end()) {
         return &(temp_iter->second);
     }
     else {
@@ -727,7 +729,7 @@ bool Sizer::cell_change(CELL &cell, CellSol cell_sol, bool update_cap) {
                        static_cast< cell_vtypes >(cell_sol.c_vtype));
 
     if(new_lib_cell_info != NULL) {
-        cell.isChanged = true;
+        cell.isChanged++;
         cell.type = new_lib_cell_info->name;
         cell.c_size = cell_sol.c_size;
         cell.c_vtype = static_cast< cell_vtypes >(cell_sol.c_vtype);
@@ -806,7 +808,7 @@ bool Sizer::cell_resize(CELL &cell, int steps, bool pt_corr, bool update_cap) {
         getLibCellInfo(cell.main_lib_cell_id, new_size, cell.c_vtype, corner);
 
     if(new_lib_cell_info != NULL) {
-        cell.isChanged = true;
+        cell.isChanged++;
         cell.type = new_lib_cell_info->name;
         cell.c_size = new_size;
 
@@ -823,7 +825,7 @@ bool Sizer::cell_resize(CELL &cell, int steps, bool pt_corr, bool update_cap) {
             for(unsigned view = 0; view < numViews; ++view) {
                 T[view]->sizeCell(cell.name, cell.type);
             }
-            cell.isChanged = false;
+            cell.isChanged = 0;
         }
 
         return true;
@@ -884,7 +886,7 @@ bool Sizer::cell_retype(CELL &cell, int dir, bool pt_corr, bool update_cap) {
             getLibCellInfo(cell.main_lib_cell_id, cell.c_size,
                            static_cast< cell_vtypes >(new_vt), corner);
         if(new_lib_cell_info != NULL) {
-            cell.isChanged = true;
+            cell.isChanged++;
             cell.type = new_lib_cell_info->name;
             cell.c_vtype = static_cast< cell_vtypes >(new_vt);
 
@@ -902,7 +904,7 @@ bool Sizer::cell_retype(CELL &cell, int dir, bool pt_corr, bool update_cap) {
                 for(unsigned view = 0; view < numViews; ++view) {
                     T[view]->sizeCell(cell.name, cell.type);
                 }
-                cell.isChanged = false;
+                cell.isChanged = 0;
             }
             return true;
         }
@@ -1015,7 +1017,7 @@ bool Sizer::cell_change(CELL &cell, cell_sizes size, cell_vtypes vt,
                        static_cast< cell_vtypes >(cell_sol.c_vtype));
 
     if(new_lib_cell_info != NULL) {
-        cell.isChanged = true;
+        cell.isChanged++;
         cell.type = new_lib_cell_info->name;
         cell.c_size = cell_sol.c_size;
         cell.c_vtype = static_cast< cell_vtypes >(cell_sol.c_vtype);
@@ -1038,7 +1040,7 @@ bool Sizer::cell_change(CELL &cell, cell_sizes size, cell_vtypes vt,
 
 void Sizer::ClearSwapFlag() {
     for(unsigned i = 0; i < numcells; i++) {
-        cells[i].isChanged = true;
+        cells[i].isChanged++;
     }
 }
 
@@ -1199,20 +1201,20 @@ void Sizer::Parser() {
 
     // write pin list file for PT correlation
     // if ( CORR_PT_FILE ) {
-    string pin_file = benchname + ".pin_list";
-    ofstream ofp(pin_file.c_str());
-    for(unsigned i = 0; i < numpins; i++) {
-        string full_pin_name;
-        if(g_pins[0][i].owner != UINT_MAX) {
-            full_pin_name =
-                g_cells[g_pins[0][i].owner].name + "/" + g_pins[0][i].name;
-        }
-        else {
-            full_pin_name = g_pins[0][i].name;
-        }
-        ofp << full_pin_name << endl;
-    }
-    ofp.close();
+    // string pin_file = benchname + ".pin_list";
+    // ofstream ofp(pin_file.c_str());
+    // for(unsigned i = 0; i < numpins; i++) {
+    //     string full_pin_name;
+    //     if(g_pins[0][i].owner != UINT_MAX) {
+    //         full_pin_name =
+    //             g_cells[g_pins[0][i].owner].name + "/" + g_pins[0][i].name;
+    //     }
+    //     else {
+    //         full_pin_name = g_pins[0][i].name;
+    //     }
+    //     ofp << full_pin_name << endl;
+    // }
+    // ofp.close();
     //}
 
     time_IO += cpuTime() - begin;
@@ -1238,8 +1240,8 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     std::ostringstream ostr;
 
     if(useOpenSTA) {
-        _ckt->_ord_design->evalTclString(
-            "source /home/xingchaoyu/code/gpu_gate_sizing/src/sizer_os.tcl");
+        // _ckt->_ord_design->evalTclString(
+        //     "source /home/xingchaoyu/code/gpu_gate_sizing/src/sizer_os.tcl");
         designTiming *PT = new designTiming(OS, this);
         return PT;
         // exeOSServer(serverName, port, view);
@@ -1382,17 +1384,18 @@ void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
     this->_sta->networkChanged();
     auto corner = this->_ckt->_ord_timing->getCorners()[0];
     for(unsigned i = 0; i < c.size(); i++) {
-        if(getLibCellInfo(c[i]) == NULL)
+        if(getLibCellInfo(c[i]) == NULL || c[i].isDontTouch)
             continue;
         // LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
         auto inst = block->findInst(c[i].name.c_str());
         inst->swapMaster(db->findMaster(c[i].type.c_str()));
-        c[i].isChanged = false;
+        c[i].isChanged = 0;
         c[i].isStaticChanged = true;
         // c[i].static_power = this->_ckt->_ord_timing->staticPower(inst,
         // corner); count++;
     }
     _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
+    _sta->findRequireds();
 }
 
 void Sizer::CheckTriSizes(string opt_str) {
@@ -1501,7 +1504,8 @@ bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
         dbMaster *master = dinst->getMaster();
         auto *replacement_cell1 = db_network_->dbToSta(replacement_master);
 
-        sta_->replaceCell(inst, replacement_cell1);
+        dinst->swapMaster(replacement_master);
+        // sta_->replaceCell(inst, replacement_cell1);
         // designAreaIncr(area(replacement_master));
 
         // Legalize the position of the instance in case it leaves the die
@@ -1551,8 +1555,7 @@ void Sizer::UpdatePTSizes(unsigned option) {
     auto sta_ = _ckt->_ord_timing->getSta();
     auto db_network_ = sta_->getDbNetwork();
     auto global_router_ = _ckt->_ord_design->getGlobalRouter();
-    auto incr_groute_ = new grt::IncrementalGRoute(global_router_, block);
-    global_router_->setVerbose(true);
+
     printf("Update PT sizes changed count %d\n", count);
     std::set< odb::dbNet * > parasitics_invalid_;
     // UnorderedSet< const Net *, NetHash > parasitics_invalid_;
@@ -1570,22 +1573,21 @@ void Sizer::UpdatePTSizes(unsigned option) {
             // inst->swapMaster();
             replaceCell(inst, db->findMaster(cells[i].type.c_str()),
                         parasitics_invalid_);
-            cells[i].isChanged = false;
+            cells[i].isChanged = 0;
             cells[i].isStaticChanged = true;
             // cells[i].static_power =
             //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
+        // incr_groute_->updateRoutes(false);
+        for(odb::dbNet *net : parasitics_invalid_) {
+            global_router_->estimateRC(net);
+        }
         // _ckt->_ord_design->evalTclString("estimate_parasitics
         // -global_routing");
+        parasitics_invalid_.clear();
+        sta_->findRequireds();
         T[0]->pt_time += cpuTime() - begin;
     }
-    incr_groute_->updateRoutes(false);
-    for(odb::dbNet *net : parasitics_invalid_) {
-        global_router_->estimateRC(net);
-    }
-    parasitics_invalid_.clear();
-    sta_->findRequireds();
-    delete incr_groute_;
     // else cout << "No cell has been changed." << endl;
 }
 
@@ -2477,10 +2479,10 @@ void Sizer::exeOSServer(string &serverName, int &port, unsigned view) {
 
 void Sizer::SizeOut(bool success) {
     double begin = cpuTime();
-    cout << endl << "Saving final sizes... " << benchname + ".sizes" << endl;
-    string filename = benchname + ".sizes";
+    cout << endl << "Saving final sizes... " << benchname + ".size" << endl;
+    string filename = benchname + ".size";
     if(!success)
-        filename = benchname + ".int.sizes";
+        filename = benchname + ".int.size";
     ofstream outsz(filename.c_str());
     int changed = 0;
     for(unsigned i = 0; i < numcells; i++) {
@@ -2498,11 +2500,9 @@ void Sizer::SizeOut(bool success) {
     time_SizeOut = cpuTime() - begin;
 }
 
-void Sizer::SizeOut(vector< CELL > &c, string option) {
-    cout << endl
-         << "Saving final sizes... " << benchname + "." + option + ".sizes"
-         << endl;
-    string filename = benchname + "." + option + ".sizes";
+void Sizer::SizeOut(string path, vector< CELL > &c) {
+    string filename = path + "/" + benchname + ".size";
+    cout << endl << "Saving final sizes... " << filename << endl;
     ofstream outsz(filename.c_str());
     int changed = 0;
     for(unsigned i = 0; i < c.size(); i++) {
@@ -2519,11 +2519,9 @@ void Sizer::SizeOut(vector< CELL > &c, string option) {
     outsz.close();
 }
 
-void Sizer::SizeChangeOut(vector< CELL > &c, string option) {
-    cout << endl
-         << "Saving final sizes changes... "
-         << benchname + "." + option + ".change.sizes" << endl;
-    string filename = benchname + "." + option + ".change.sizes";
+void Sizer::SizeChangeOut(string path, vector< CELL > &c) {
+    string filename = path + "/" + benchname + ".size";
+    cout << endl << "Saving final sizes... " << filename << endl;
     ofstream outsz(filename.c_str());
     int changed = 0;
     for(unsigned i = 0; i < c.size(); i++) {
@@ -2540,11 +2538,9 @@ void Sizer::SizeChangeOut(vector< CELL > &c, string option) {
     outsz.close();
 }
 
-void Sizer::SizeOut(string option) {
-    cout << endl
-         << "Saving final sizes... " << benchname + "." + option + ".sizes"
-         << endl;
-    string filename = benchname + "." + option + ".sizes";
+void Sizer::SizeOut(string path) {
+    string filename = path + "/" + benchname + ".size";
+    cout << endl << "Saving final sizes... " << filename << endl;
     ofstream outsz(filename.c_str());
     int changed = 0;
     for(unsigned i = 0; i < numcells; i++) {
@@ -2582,9 +2578,9 @@ void Sizer::SizeTempOut(string option) {
     outsz.close();
 }
 
-bool Sizer::SizeIn(string option) {
-    cout << "Reading sizes... " << benchname + "." + option + ".sizes" << endl;
-    string filename = benchname + "." + option + ".sizes";
+bool Sizer::SizeIn(string path) {
+    string filename = path + "/" + benchname + ".size";
+    cout << endl << "Size in sizes... " << filename << endl;
     vector< pair< string, string > > sizes = readSizes(filename);
     if(sizes.size() == 0)
         return false;
@@ -2597,7 +2593,7 @@ bool Sizer::SizeIn(string option) {
             cells[cell2id[cellName]].c_vtype = lib_cell_info->c_vtype;
             cells[cell2id[cellName]].c_size = lib_cell_info->c_size;
         }
-        cells[cell2id[cellName]].isChanged = true;
+        cells[cell2id[cellName]].isChanged++;
     }
     return true;
 }
@@ -2614,7 +2610,7 @@ void Sizer::UDSizeIn(string filename) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[cell2id[cellName]]);
         cells[cell2id[cellName]].c_vtype = lib_cell_info->c_vtype;
         cells[cell2id[cellName]].c_size = lib_cell_info->c_size;
-        cells[cell2id[cellName]].isChanged = true;
+        cells[cell2id[cellName]].isChanged++;
     }
 }
 
@@ -2630,7 +2626,7 @@ void Sizer::UDSizeIn(vector< CELL > &int_cells, string filename) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[cell2id[cellName]]);
         int_cells[cell2id[cellName]].c_vtype = lib_cell_info->c_vtype;
         int_cells[cell2id[cellName]].c_size = lib_cell_info->c_size;
-        int_cells[cell2id[cellName]].isChanged = true;
+        int_cells[cell2id[cellName]].isChanged++;
     }
 }
 
@@ -2651,7 +2647,7 @@ void Sizer::SizeInit(string option) {
         }
         // cout << "SIZE INIT " << g_cells[cell2id[cellName]].name  << " " <<
         // g_cells[cell2id[cellName]].type << endl;
-        g_cells[cell2id[cellName]].isChanged = true;
+        g_cells[cell2id[cellName]].isChanged++;
     }
 }
 
@@ -3123,6 +3119,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     change++;
                     if(cur_tns > prev_tns) {
                         cell_resize(cells[focell], 1);
+                        cells[focell].isChanged -= 2;
                         change--;
                         OneTimer(cells[focell], STA_MARGIN, view);
                     }
@@ -3145,6 +3142,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                 if(!isMax(cells[cur])) {
                     // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // prev_tns = CalcSlackViolation(view);
                     prev_tns = viewTNS[view];
 
                     bool change_size = cell_resize(cells[cur], 1);
@@ -3152,8 +3150,8 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                         OneTimer(cells[cur], STA_MARGIN, view);
                     }
                     // CalcStats((unsigned)thread_id, false, "", view, false);
-                    cur_tns = viewTNS[view];
-
+                    // cur_tns = CalcSlackViolation(view);
+                    cur_tns = prev_tns;
                     double delta_tran = 0.0;
 
                     if(cur_tns > prev_tns) {
@@ -3170,6 +3168,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                     if(change_size) {
                         cell_resize(cells[cur], -1);
+                        cells[cur].isChanged -= 2;
                         OneTimer(cells[cur], STA_MARGIN, view);
                     }
 
@@ -3214,8 +3213,10 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     if(delta_tran > 0.0)
                         delta_tran = 0;
 
-                    if(change_type)
+                    if(change_type) {
                         cell_retype(cells[cur], -1);
+                        cells[cur].isChanged -= 2;
+                    }
 
                     OneTimer(cells[cur], STA_MARGIN, view);
 
@@ -3350,8 +3351,10 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     if(delta_tran > 0.0)
                         delta_tran = 0;
 
-                    if(change_size)
+                    if(change_size) {
                         cell_resize(cells[ficell], -1);
+                        cells[ficell].isChanged -= 2;
+                    }
 
                     OneTimer(cells[ficell], STA_MARGIN, view);
 
@@ -3394,8 +3397,10 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     if(delta_tran > 0.0)
                         delta_tran = 0;
 
-                    if(change_type)
+                    if(change_type) {
                         cell_retype(cells[ficell], -1);
+                        cells[ficell].isChanged -= 2;
+                    }
 
                     OneTimer(cells[ficell], STA_MARGIN, view);
 
@@ -3569,8 +3574,8 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
     cout << sizeout << " Slew. Vio.     : " << tran_tot
          << " ps,  #: " << tran_num << ", max: " << tran_max << endl;
 
-    SizeOut(c, sizeout);
-    SizeChangeOut(c, sizeout);
+    SizeOut("./", c);
+    // SizeChangeOut(c, sizeout);
     wns_input = wns;
     if(ALPHA == 0.0) {
         power_input = current_leak;
@@ -4259,6 +4264,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 
                 if(VERBOSE >= 4)
                     cout << "-> " << cells[cur].type << " -- Restored" << endl;
+                cells[cur].isChanged -= 2;
             }
             else {  // accept
                 changed[cur] = true;
@@ -4267,6 +4273,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 count++;
                 update_cnt++;
                 swap_cnt++;
+                // cells[cur].isChanged++;
                 // CalcStats((unsigned)thread_id, false, "After accept
                 // TIMING_RECOVERY", view);
             }
@@ -4330,6 +4337,20 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
                         tmpEntry.delta_impact =
                             -min(pins[view][cells[curfo].outpins[k]].rslk,
                                  pins[view][cells[curfo].outpins[k]].fslk);
+
+#if 0
+                        // test slack
+                        double min_slack = DBL_MAX;
+                        for(int l = 0; l < cells[curfo].outpins.size(); l++) {
+                            min_slack =
+                                min(min_slack,
+                                    pins[view][cells[curfo].outpins[l]].rslk);
+                            min_slack =
+                                min(min_slack,
+                                    pins[view][cells[curfo].outpins[l]].fslk);
+                        }
+                        tmpEntry.delta_impact = -min_slack;
+#endif
                         if(tmpEntry.delta_impact < 0)
                             targets.insert(tmpEntry);
                     }
@@ -4454,6 +4475,7 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
                 cell_resize(cells[cur], 1);
             else
                 cell_resize(cells[cur], -1);
+            cells[cur].isChanged -= 2;
             OneTimer(cells[cur], STA_MARGIN);
             restore++;
         }
@@ -4923,8 +4945,8 @@ unsigned Sizer::OptWNSPathBalance(bool corr_pt, unsigned option,
         }
     }
 
-    string size_out = "balance_opt";
-    SizeOut(size_out);
+    // string size_out = "balance_opt";
+    SizeOut(outputDir);
     return swap_cnt;
 }
 
@@ -5201,7 +5223,7 @@ bool Sizer::InitSize(unsigned index) {
             cells[index].c_vtype = lib_cell_info->c_vtype;
             cells[index].c_size = lib_cell_info->c_size;
         }
-        cells[index].isChanged = true;
+        cells[index].isChanged++;
         return true;
     }
     else {
@@ -5869,7 +5891,7 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
                     cells[i].c_vtype = lib_cell_info->c_vtype;
                     cells[i].c_size = lib_cell_info->c_size;
                 }
-                cells[i].isChanged = true;
+                cells[i].isChanged++;
             }
         }
     }
@@ -5970,12 +5992,13 @@ void Sizer::Parallel_Sizer_Launcher() {
         auto inst =
             _ckt->_ord_design->getBlock()->findInst(g_cells[i].name.c_str());
         g_cells[i].static_power = _ckt->_ord_timing->staticPower(inst, corner);
-        g_cells[i].isChanged = false;
+        g_cells[i].isChanged = 0;
         g_cells[i].isStaticChanged = false;
         totalLeakagePower += g_cells[i].static_power;
     }
     totalLeakagePower /= sw_adj;
     init_tot[0] = totalLeakagePower;
+    init_leak[0] = totalLeakagePower;
     // InitPowerBeforeUpdate(g_cells);
     if(MINIMUM || GTR_IN || MAXIMUM) {
         UpdatePTSizes(g_cells);
@@ -6263,24 +6286,19 @@ void Sizer::Parallel_Sizer_Launcher() {
                 cout << "GET NEXT START END" << endl;
             }
         }
-        SizeOut(best_cells_poweropt, "final");
-        SizeChangeOut(best_cells_poweropt, "final");
+        SizeOut(outputDir, best_cells_poweropt);
+        // SizeChangeOut(outputDir);
         // double vio1, power1 = 0.0;
         // double vio = 0.0;
         // vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
-#if 0
+#if 1
         double init_power = 0.0;
-        if(ALPHA == 0.0) {
-            init_power = init_leak[0];
-        }
-        else {
-            init_power = init_tot[0];
-        }
-        if(vio != 0 && vio <= -slack_margin) {
-            cout << "WNS = " << vio << " SLACK MARGIN = " << slack_margin
-                 << endl;
-            PostWNSOpt("final");
-        }
+        init_power = init_tot[0];
+        // if(skew_violation != 0 && -skew_violation <= -slack_margin) {
+        //     cout << "WNS = " << skew_violation
+        //          << " SLACK MARGIN = " << slack_margin << endl;
+        //     PostWNSOpt("final");
+        // }
 #endif
     }
 
@@ -6308,7 +6326,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
             nets[i][j] = g_nets[i][j];
     }
 
-    SizeIn(input);
+    SizeIn(outputDir);
 
     UpdateCapsFromCells();
     UpdatePTSizes();
@@ -6350,7 +6368,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     oneTMR = (cpuTime() - oneTMR);
     cout << "[PostWNSOpt] without correlation runtime ---" << oneTMR << endl;
     string size_str = input + "_aft_wns_opt";
-    SizeOut(size_str);
+    SizeOut(outputDir);
 
     oneTMR = cpuTime();
     UpdateCapsFromCells();
@@ -6397,8 +6415,8 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     oneTMR = (cpuTime() - oneTMR);
     cout << "[PostWNSOpt] with correlation runtime: " << oneTMR << endl;
 
-    size_str = input + "_wns_opt_final";
-    SizeOut(size_str);
+    // size_str = input + "_wns_opt_final";
+    SizeOut(outputDir);
     double wns, power;
     // ReportWithPT(best_cells, "wns_opt_final", wns, power);
 }
@@ -6518,7 +6536,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     best_score_local =
         calcScore(power, skew_violation, slew_violation, cap_violation);
     best_score = best_score_local;
-    SizeOut((string)opt_str);
+    SizeOut(outputDir);
     printf("Initial Score: %f\n", best_score_local);
     pthread_mutex_lock(&mutex1);
     if(localSFlist[thread_id] == PRFT_PTNUM) {
@@ -6800,6 +6818,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         //            thread_id, TIMING_OPT_GB, view);
 
                         if(change > 0) {
+                            // for(int i = 0; i < numcells; i++) {
+                            //     assert(change[i] == cells[i].isChanged);
+                            // }
+                            // printf();
                             CallTimer(view);
                             CorrelatePT((unsigned)thread_id, view);
                             CalcStats((unsigned)thread_id, true,
@@ -6856,7 +6878,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             best_alpha_local = local_alpha;
                             string temp = (string)opt_str + "_best_infeasible";
                             pthread_mutex_lock(&mutex1);
-                            SizeOut(temp);
+                            SizeOut(outputDir);
                             pthread_mutex_unlock(&mutex1);
                             for(unsigned j = 0; j < numcells; ++j) {
                                 best_cells_local[j] = cells[j];
@@ -6921,7 +6943,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     best_score_local = score;
                     best_alpha_local = local_alpha;
                     string temp = (string)opt_str + "_feasible";
-                    SizeOut(temp);
+                    SizeOut(outputDir);
                     // report results
 
                     for(unsigned view = 0; view < numViews; ++view) {
@@ -7015,7 +7037,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             best_score = best_score_local;
             string temp = (string)opt_str + "_best_infeasible";
             pthread_mutex_lock(&mutex1);
-            SizeOut(temp);
+            SizeOut(outputDir);
             pthread_mutex_unlock(&mutex1);
             for(unsigned j = 0; j < numcells; ++j) {
                 best_cells_poweropt[j] = best_cells_local[j];
@@ -8611,7 +8633,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         char opt_str[250];
                         sprintf(opt_str, "%d", thread_id);
                         string temp = (string)opt_str + "_feasible";
-                        SizeOut(temp);
+                        SizeOut(outputDir);
                         for(unsigned view = 0; view < numViews; ++view) {
                             // if(useOpenSTA) {
                             //     string find_timing =
@@ -9285,6 +9307,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             defFile = getTokenS(line, "-def ");
         if(line.find("-spef ") != string::npos)
             spefFile = getTokenS(line, "-spef ");
+        if(line.find("-outputPath ") != string::npos)
+            outputDir = getTokenS(line, "-outputPath ");
         if(line.find("-tcf ") != string::npos)
             tcfFile = getTokenS(line, "-tcf ");
         if(line.find("-false_path_file ") != string::npos)
@@ -9985,7 +10009,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 cells[i] = g_cells[i];
 
             if(GTRWPT_ONLY) {
-                SizeIn("1stgtr");
+                SizeIn(outputDir);
                 cout << "2nd gtr only -- size in" << endl;
             }
             else {
@@ -10195,7 +10219,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
             CalcStats(thread_id);
 
             string size_str = "2ndgtr";
-            SizeOut(size_str);
+            SizeOut(outputDir);
         }
 
         if(postGTR) {
@@ -10225,7 +10249,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 else
                     size_str = "2ndgtr";
 
-                SizeOut(size_str);
+                SizeOut(outputDir);
 
                 TOPX = ratio;
                 TOPEXP = exponent;
@@ -10244,7 +10268,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                     size_str = "1stgtr";
                 else
                     size_str = "2ndgtr";
-                SizeOut(size_str);
+                SizeOut(outputDir);
 
                 // best_failed_cells.resize(numcells); //FIXME:
                 best_failed_thread = thread_id;
@@ -10448,7 +10472,10 @@ int main(int argc, char **argv) {
     }
 
     _sizer.Parallel_Sizer_Launcher();
+    // rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
+    // resizer->repairSetup(0, 5, 10, true, true, true, false);
 
+    // exit(0);
     /*
     vector<double>::iterator iter;
 

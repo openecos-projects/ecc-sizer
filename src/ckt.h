@@ -414,7 +414,7 @@ struct CELL {
     bool isFF : 1;
     bool isClockCell : 1;
     bool isDontTouch : 1;
-    bool isChanged = false;
+    int isChanged = 1;
     bool isStaticChanged = true;
     unsigned depth;
     vector< double > max_tran;
@@ -447,7 +447,7 @@ struct CELL {
           isFF(false),
           isClockCell(false),
           isDontTouch(false),
-          isChanged(true),
+          isChanged(1),
           main_lib_cell_id(-1),
           static_power(0.0),
           depth(1),
@@ -475,7 +475,7 @@ struct CELL {
           isFF(orig.isFF),
           isClockCell(orig.isClockCell),
           isDontTouch(orig.isDontTouch),
-          isChanged(true),
+          isChanged(1),
           depth(orig.depth),
           max_tran(orig.max_tran),
           touched(orig.touched),

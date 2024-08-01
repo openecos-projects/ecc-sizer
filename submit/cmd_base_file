@@ -1,0 +1,37 @@
+# GWTW with 4 threads
+# -prft_ptnum 4
+# -thread 4
+# -GWTW_max_iter 2
+# -GWTW_div 2
+# -GWTW_num_start 2
+# Single thread
+-GWTW_max_iter 1
+-prft_ptnum 1
+-thread 1
+-prft_only
+-ptport 7474
+# -top NV_NVDLA_partition_m
+# -tcf ./test.tcf
+-ptLog
+-useOpenSTA
+-alpha 0.5
+-dont_touch_cell TIEL
+-dont_touch_cell TIEH
+-sf 1
+-sft 5
+-maxTr 0.32
+-kick_ratio 1.0
+-kick_max_iter 1
+-opt_effort 1
+-fix_slew
+-fix_cap
+-fix_global
+# -minimum
+-trial_rate 0.3
+-slack_margin 0
+-verbose 1
+-asap7
+# -gtr_input /home/zhaoxueyan/code/gpu_gate_sizing/build/NV_NVDLA_partition_m.prft.sizes
+# -test ALL_TEST
+# -dont_use_lis
+

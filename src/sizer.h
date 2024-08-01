@@ -62,7 +62,7 @@
 #include <stack>
 #include <string>
 #include <vector>
-
+#include "grt/GlobalRouter.h"
 #include "sta/ArcDelayCalc.hh"
 #include "sta/Bfs.hh"
 #include "sta/Corner.hh"
@@ -674,9 +674,9 @@ class Sizer {
     unsigned worst_corner;
 
     queue< pair< double, double > > search_queue;
-
+    grt::IncrementalGRoute* incr_groute_ = nullptr;
     vector< vector< LibCellTable * > > main_lib_cell_tables;  // MMMC
-    vector< map< string, LibCellInfo > > libs;                // MMMC
+    vector< unordered_map< string, LibCellInfo > > libs;                // MMMC
     vector< map< string, int > > node2id;                     // MMMC
     unsigned numCorners;
     unsigned numModes;
@@ -731,6 +731,7 @@ class Sizer {
     string spefFile;
     string verilogFile;
     string falsePathFile;
+    string outputDir="./";
     string sdcFile;
     string timerSdcFile;
     string clockName;
@@ -960,11 +961,11 @@ class Sizer {
     void CheckTriSizes(string filename);
     void SizeOut(bool success);
     void SizeOut(bool success, string option);
-    void SizeOut(string option);
-    void SizeOut(vector< CELL > &c, string option);
-    void SizeChangeOut(vector< CELL > &c, string option = "final");
+    void SizeOut(string path);
+    void SizeOut(string path, vector< CELL > &c);
+    void SizeChangeOut(string path, vector< CELL > &c);
     void SizeTempOut(string option);
-    bool SizeIn(string option);
+    bool SizeIn(string path);
     void UDSizeIn(string option);
     void UDSizeIn(vector< CELL > &int_cells, string filename);
     void SizeInfromPT(string filename);

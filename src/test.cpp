@@ -4579,61 +4579,103 @@ void Sizer::AllCorrTest() {
     CallTimer(view);
     ofstream outfile("test-timer.log");
     int neq_num = 0;
-    // for(unsigned i = 0; i < numpins; ++i) {
-    //     // cout << "before corr " << getFullPinName(pins[view][i])
-    //     //     << " " << pins[view][i].rtran << "/" << tran_list[i].rise << "
-    //     "
-    //     //     << " " << pins[view][i].ftran << "/" << tran_list[i].fall << "
-    //     "
-    //     //     << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-    //     //     << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-    //     //     << " " << pins[view][i].rRAT << "/" << aat_list[i].rise +
-    //     //     slack_list[i].rise << " "
-    //     //     << " " << pins[view][i].fRAT << "/" << aat_list[i].fall +
-    //     //     slack_list[i].fall << " "
-    //     //     << " " << pins[view][i].rslk << "/" << slack_list[i].rise << "
-    //     "
-    //     //     << " " << pins[view][i].fslk << "/" << slack_list[i].fall << "
-    //     "
-    //     //     << endl;
-    //     string pin_name = getFullPinName(pins[view][i]);
-    //     if(pins[view][i].name == "CLK" || this->inftran[view].count(i) > 0 ||
-    //        this->_pos_set.count(i) > 0) {
-    //         continue;
-    //     }
-    //     // for(unsigned i = 0; i < _ckt->POs.size(); ++i) {
-    //     //     string po_name = getFullPinName(g_pins[0][POs[i]]);
-    //     //     assert(this->outdelays[view].count(pin_name) > 0);
-    //     // }
-    //     if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
-    //        !isEqual(pins[view][i].ftran, tran_list[i].fall)  // ||
-    //        //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
-    //        //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
-    //        //    !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
-    //        //    !isEqual(pins[view][i].fslk, slack_list[i].fall)
-    //     ) {
-    //         outfile << "before corr mismatch " <<
-    //         getFullPinName(pins[view][i])
-    //                 << " ";
-    //         outfile << pins[view][i].rtran << "/" << tran_list[i].rise << " "
-    //                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-    //                 << " ";
-    //         outfile << " " << pins[view][i].rAAT << "/" << aat_list[i].rise
-    //                 << " " << " " << pins[view][i].fAAT << "/"
-    //                 << aat_list[i].fall << " ";
-    //         outfile << " " << pins[view][i].rRAT << "/"
-    //                 << aat_list[i].rise + slack_list[i].rise << " " << " "
-    //                 << pins[view][i].fRAT << "/"
-    //                 << aat_list[i].fall + slack_list[i].fall << " ";
-    //         outfile << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-    //                 << " " << " " << pins[view][i].fslk << "/"
-    //                 << slack_list[i].fall << " " << endl;
-    //         neq_num++;
-    //     }
-    // }
-    // printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
-    //    numpins);
-    // exit(0);
+    // slack check
+    for(unsigned i = 0; i < FFs.size(); i++) {
+        if(getLibCellInfo(cells[FFs[i]], view) == NULL) {
+            continue;
+        }
+
+        for(unsigned j = 0; j < cells[FFs[i]].inpins.size(); ++j) {
+            unsigned curpin = cells[FFs[i]].inpins[j];
+            // cout << "CALC SLACK -- " << cells[FFs[i]].name << endl;
+
+            if(curpin == UINT_MAX) {
+                continue;
+            }
+
+            if(libs[view]
+                   .find(cells[FFs[i]].type)
+                   ->second.pins[pins[view][curpin].lib_pin]
+                   .isClock) {
+                continue;
+            }
+
+            if(DATA_PIN_ONLY) {
+                if(!libs[view]
+                        .find(cells[FFs[i]].type)
+                        ->second.pins[pins[view][curpin].lib_pin]
+                        .isData) {
+                    continue;
+                }
+            }
+
+            double slack =
+                min(pins[view][curpin].rslk, pins[view][curpin].fslk);
+            double slack_ref =
+                min(slack_list[curpin].fall, slack_list[curpin].rise);
+            if(!isEqual(slack, slack_ref)) {
+                outfile << getFullPinName(pins[view][i]) << "," << slack << ","
+                        << slack_ref << endl;
+
+                neq_num++;
+            }
+        }
+    }
+    printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
+           numpins);
+    exit(0);
+    for(unsigned i = 0; i < numpins; ++i) {
+        // cout << "before corr " << getFullPinName(pins[view][i])
+        //     << " " << pins[view][i].rtran << "/" << tran_list[i].rise << ""
+        //     << " " << pins[view][i].ftran << "/" << tran_list[i].fall << ""
+        //     << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
+        //     << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
+        //     << " " << pins[view][i].rRAT << "/" << aat_list[i].rise +
+        //     slack_list[i].rise << " "
+        //     << " " << pins[view][i].fRAT << "/" << aat_list[i].fall +
+        //     slack_list[i].fall << " "
+        //     << " " << pins[view][i].rslk << "/" << slack_list[i].rise << ""
+        //     << " " << pins[view][i].fslk << "/" << slack_list[i].fall << ""
+        //     << endl;
+        string pin_name = getFullPinName(pins[view][i]);
+        if(pins[view][i].name == "CLK" || this->inftran[view].count(i) > 0 ||
+           this->_pos_set.count(i) > 0) {
+            continue;
+        }
+        // for(unsigned i = 0; i < _ckt->POs.size(); ++i) {
+        //     string po_name = getFullPinName(g_pins[0][POs[i]]);
+        //     assert(this->outdelays[view].count(pin_name) > 0);
+        // }
+        if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
+           !isEqual(pins[view][i].ftran, tran_list[i].fall)  // ||
+           //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
+           //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
+           //    !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
+           //    !isEqual(pins[view][i].fslk, slack_list[i].fall)
+        ) {
+            outfile << "before corr mismatch " << getFullPinName(pins[view][i])
+                    << " ";
+            outfile << pins[view][i].rtran << "/" << tran_list[i].rise << " "
+                    << " " << pins[view][i].ftran << "/" << tran_list[i].fall
+                    << " ";
+            outfile << " " << pins[view][i].rAAT << "/" << aat_list[i].rise
+                    << " "
+                    << " " << pins[view][i].fAAT << "/" << aat_list[i].fall
+                    << " ";
+            outfile << " " << pins[view][i].rRAT << "/"
+                    << aat_list[i].rise + slack_list[i].rise << " "
+                    << " " << pins[view][i].fRAT << "/"
+                    << aat_list[i].fall + slack_list[i].fall << " ";
+            outfile << " " << pins[view][i].rslk << "/" << slack_list[i].rise
+                    << " "
+                    << " " << pins[view][i].fslk << "/" << slack_list[i].fall
+                    << " " << endl;
+            neq_num++;
+        }
+    }
+    printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
+           numpins);
+    exit(0);
     CorrelatePT(view);
     auto design = _ckt->_ord_design;
     sta::Corner* _corner = _sta->corners()->corners()[0];
@@ -4736,7 +4778,7 @@ void Sizer::AllCorrTest() {
     }
     printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
            numpins);
-    exit(0);
+    // exit(0);
     CallTimer(view);
 
     for(unsigned i = 0; i < numpins; ++i) {

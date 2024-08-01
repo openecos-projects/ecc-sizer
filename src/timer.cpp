@@ -44,6 +44,7 @@
 #include "ord/Timing.h"
 #include "sizer.h"
 #include <limits>
+#include <unordered_map>
 #include "float.h"
 #include "utils.h"
 #define __DEBUG
@@ -3540,15 +3541,15 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     list< unsigned > bwpins;  // pin list for backward traverse
     list< unsigned > endpins;
     list< unsigned > startpins;
-    vector< unsigned > visited;
+    std::unordered_map< unsigned, int > visited;
 
     margin = margin / 1e-12 * time_unit;
 
-    visited.resize(numnets);
+    // visited.resize(numnets);
 
-    for(unsigned i = 0; i < numnets; ++i) {
-        visited[i] = 0;
-    }
+    // for(unsigned i = 0; i < numnets; ++i) {
+    //     visited[i] = 0;
+    // }
 
     if(VERBOSE >= 2)
         cout << "One Timer " << cell.name << " " << cell.type << " "
@@ -3562,6 +3563,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         pins[view][cell.outpins[i]].ceff = pins[view][cell.outpins[i]].totcap;
     }
 
+    // printf("In pin degree %d\n", cell.inpins.size());
     // update loadcap for each fanin cell
     for(unsigned i = 0; i < cell.inpins.size(); i++) {
         unsigned curnet = pins[view][cell.inpins[i]].net;
@@ -3580,6 +3582,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
             cout << fipin << " " << getFullPinName(pins[view][fipin]) << " "
                  << pins[view][fipin].totcap << "-->"
                  << nets[corner][curnet].cap + loadCap << endl;
+        // update fi pin cap
         pins[view][fipin].totcap = nets[corner][curnet].cap + loadCap;
         double newCap = pins[view][fipin].totcap;
 
@@ -3612,7 +3615,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     //        cout << "INPUT PIN " << j << " " << cell.inpins[j] << " " <<
     //        getFullPinName(pins[view][cell.inpins[j]]) << endl;
     //    }
-
+    // printf("fwpins num %d\n", fwpins.size());
     //(output) pin list for timing, AAT updates
     while(!fwpins.empty()) {
         unsigned fipin = fwpins.front();
@@ -3631,10 +3634,11 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         if(VERBOSE >= 2)
             cout << "----- NET " << nets[corner][curnet].name << " "
                  << nets[corner][curnet].outpins.size() << endl;
-
-        ++visited[curnet];
-
-        if(visited[curnet] > MAX_VISIT) {
+        if(!visited.count(curnet)) {
+            visited[curnet] = 0;
+        }
+        int t_visit = ++visited[curnet];
+        if(t_visit > MAX_VISIT) {
             change = false;
         }
 
@@ -3735,9 +3739,10 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     if(VERBOSE >= 2)
         cout << "BACKWARD START" << endl;
 
-    for(unsigned i = 0; i < numnets; ++i) {
-        visited[i] = 0;
-    }
+    visited.clear();
+    // for(unsigned i = 0; i < numnets; ++i) {
+    //     visited[i] = 0;
+    // }
 
     while(!bwpins.empty()) {  //(input) pin list for RAT, slack updates
         unsigned fopin = bwpins.front();
@@ -3745,10 +3750,12 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         bwpins.pop_front();
         bool change = updatePinSlack(pins[view][fopin], margin, view);
         unsigned curnet = pins[view][fopin].net;
+        if(!visited.count(curnet)) {
+            visited[curnet] = 0;
+        }
+        int t_visit = ++visited[curnet];
 
-        ++visited[curnet];
-
-        if(visited[curnet] > MAX_VISIT) {
+        if(t_visit > MAX_VISIT) {
             change = false;
         }
 
@@ -5212,11 +5219,12 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
                                                   ord::Timing::Max);
         tran_fall = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Fall,
                                                   ord::Timing::Max);
-
-        aat_rise = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Rise,
-                                                    ord::Timing::Max);
-        aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
-                                                    ord::Timing::Max);
+        if(CORR_AAT) {
+            aat_rise = _ckt->_ord_timing->getPinArrival(
+                i_term, ord::Timing::Rise, ord::Timing::Max);
+            aat_fall = _ckt->_ord_timing->getPinArrival(
+                i_term, ord::Timing::Fall, ord::Timing::Max);
+        }
         pin_name = i_term->getName();
         if(pin2id.count(pin_name) == 0) {
             printf("Pin name %s, Net name %s ,don't in pins\n",
@@ -5265,10 +5273,13 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
                                                   ord::Timing::Max);
         tran_fall = _ckt->_ord_timing->getPinSlew(i_term, ord::Timing::Fall,
                                                   ord::Timing::Max);
-        aat_rise = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Rise,
-                                                    ord::Timing::Max);
-        aat_fall = _ckt->_ord_timing->getPinArrival(i_term, ord::Timing::Fall,
-                                                    ord::Timing::Max);
+        if(CORR_AAT) {
+            aat_rise = _ckt->_ord_timing->getPinArrival(
+                i_term, ord::Timing::Rise, ord::Timing::Max);
+            aat_fall = _ckt->_ord_timing->getPinArrival(
+                i_term, ord::Timing::Fall, ord::Timing::Max);
+        }
+
         pin_name = i_term->getName();
         if(pin2id.count(pin_name) == 0) {
             printf("Pin name %s don't in pins\n", pin_name.c_str());
@@ -5613,9 +5624,9 @@ bool Sizer::IsTranVio(PIN &pin) {
 
 void Sizer::GetMaxTranConst(unsigned view) {
     unsigned mode = mmmcViewList[view].mode;
+#if 0
     string pt_in_file = benchname + ".pin_list";
     string pt_out_file = benchname + ".pt_pin_max_tran_const";
-#if 0
     T[view]->writeMaxTranConst(pt_in_file, pt_out_file);
     ifstream infile(pt_out_file.c_str());
     vector< double > temp;
@@ -5662,59 +5673,13 @@ void Sizer::GetMaxTranConst(unsigned view) {
 void Sizer::GetSwitchPowerCoef(unsigned view) {
     unsigned mode = mmmcViewList[view].mode;
     // cout << "GetSwitchPowerCoef" << endl;
-    string pt_in_file = benchname + ".pin_list";
-    string pt_out_file = benchname + ".pt_pin_toggle_rate";
-
-    char clk_period_str[100];
-    sprintf(clk_period_str, "%f", power_clk_period[mode]);
-
-    T[view]->writePinToggleRate(pt_in_file, pt_out_file, clk_period_str);
-    ifstream infile(pt_out_file.c_str());
-    if(!infile) {
-        cout << "INIT_PIN_TOGGLERATE_PT_ERROR: cannot find toggle-rate file -- "
-             << pt_out_file << endl;
-        for(unsigned i = 0; i < numpins; i++) {
-            double tr_PT;
-            if(g_pins[view][i].owner == UINT_MAX)  // PI, PO
-                T[view]->getPinToggleRate(tr_PT, g_pins[view][i].name);
-            else
-                T[view]->getPinToggleRate(
-                    tr_PT, cells[g_pins[view][i].owner].name + "/" +
-                               g_pins[view][i].name);
-
-            g_pins[view][i].sw_coef = tr_PT * sw_adj;
-            g_pins[view][i].toggle_rate = tr_PT;
-            // cout << "TR/SW " << getFullPinName(g_pins[view][i]) << ": " <<
-            // g_pins[view][i].toggle_rate << "/" << g_pins[view][i].sw_coef <<
-            // endl;
-        }
-    }
-    else {
-        map< string, double > temp;
-        string pin_name, tr;
+    for(unsigned i = 0; i < numpins; i++) {
         double tr_PT;
-        while(infile >> pin_name >> tr) {
-            if(tr == "")
-                tr_PT = .0;
-            else
-                tr_PT = atof(tr.c_str());
-            temp.insert(std::pair< string, double >(pin_name, tr_PT));
-        }
-        infile.close();
-        for(unsigned i = 0; i < numpins; i++) {
-            if(g_pins[view][i].owner != UINT_MAX) {
-                g_pins[view][i].sw_coef =
-                    temp[g_cells[g_pins[view][i].owner].name + "/" +
-                         g_pins[view][i].name] *
-                    sw_adj;
-                g_pins[view][i].toggle_rate =
-                    temp[g_cells[g_pins[view][i].owner].name + "/" +
-                         g_pins[view][i].name];
-                // cout << "TR/SW " << getFullPinName(g_pins[view][i]) << ": "
-                // << g_pins[view][i].toggle_rate << "/" <<
-                // g_pins[view][i].sw_coef << endl;
-            }
-        }
+        g_pins[view][i].sw_coef = 0;
+        g_pins[view][i].toggle_rate = 0;
+        // cout << "TR/SW " << getFullPinName(g_pins[view][i]) << ": " <<
+        // g_pins[view][i].toggle_rate << "/" << g_pins[view][i].sw_coef <<
+        // endl;
     }
 }
 

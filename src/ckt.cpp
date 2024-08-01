@@ -10,6 +10,7 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include "sta/ConcreteNetwork.hh"
 #include "sta/PortExtCap.hh"
 #include "sta/InputDrive.hh"
@@ -108,7 +109,7 @@ void Circuit::InitData() {
     for(unsigned i = 0; i < _sizer->numCorners; ++i) {
         vector< NET > _net;
         vector< LibCellTable* > _main_lib_cell_tables;            // MMMC
-        map< string, LibCellInfo > _libs;                         // MMMC
+        unordered_map< string, LibCellInfo > _libs;                         // MMMC
         map< string, int > _node2id;                              // MMMC
         map< string, list< LibCellInfo* > > _func_lib_cell_list;  // MMMC
         double _maxTran = 0.0;
@@ -730,7 +731,7 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
 // vtype as colums. X is the vtype and ZZ is the column
 //
 map< string, unsigned > Circuit::generateLibCellTable() {
-    map< string, LibCellInfo >::iterator iter;
+    unordered_map< string, LibCellInfo >::iterator iter;
     // unsigned count = 0;
     map< string, unsigned > check_map;
 
@@ -3170,6 +3171,9 @@ void Circuit::init_opensta() {
     printf("Run Global Routing...\n");
     grt->globalRoute(false);
     _ord_design->evalTclString("estimate_parasitics -global_routing");
+    _sta->findRequireds();
+    // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
+
     // _ord_design->evalTclString("sta::set_delay_calculator lumped_cap");
 #if 0
   registerDelayCalc("unit", makeUnitDelayCalc);
