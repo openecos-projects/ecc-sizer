@@ -201,7 +201,7 @@ bool GTR_IN = false;
 unsigned ML_WIRETRAN_MODEL = 2;
 unsigned ML_WIREDELAY_MODEL = 1;
 unsigned ML_CELLTRAN_MODEL = 1;
-double STA_MARGIN = 1.0;
+double STA_MARGIN = 0.0;
 double GUARD_BAND = 0.0;
 double GUARD_BAND_GTR = 10.0;
 double GUARD_BAND_2ND_GTR = 0.0;
@@ -10361,13 +10361,13 @@ int main(int argc, char **argv) {
     Sizer _sizer(argc, argv);
     _sizer.global_begin = cpuTime();
 
-#ifdef TIME_MON
+// #ifdef TIME_MON
     _sizer.time_OneTimer = .0;
     _sizer.time_CallTimer = .0;
     _sizer.time_Fineswap = .0;
     _sizer.count_OneTimer = 0;
     _sizer.count_CallTimer = 0;
-#endif
+// #endif
 
 #ifndef TIMER_RUNS_BACKGROUND
     LaunchPTBackground(_sizer.root, _sizer.benchname);

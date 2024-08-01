@@ -3531,20 +3531,26 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment) {
     }
 }
 
-void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
-                     unsigned view) {
+static std::vector< unsigned > fwpins;  // pin std::vector for forward traverse
+static std::vector< unsigned > bwpins;  // pin std::vector for backward traverse
+static std::vector< unsigned > endpins;
+static std::vector< unsigned > startpins;
+static std::set< unsigned > bwpins_set;
+
+inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
+                            unsigned view) {
     unsigned corner = mmmcViewList[view].corner;
 #ifdef TIME_MON
     double begin = cpuTime();
 #endif
-    std::vector< unsigned > fwpins;  // pin std::vector for forward traverse
-    std::vector< unsigned > bwpins;  // pin std::vector for backward traverse
-    std::vector< unsigned > endpins;
-    std::vector< unsigned > startpins;
     std::unordered_map< unsigned, int > visited;
 
-    margin = margin / 1e-12 * time_unit;
-
+    margin = margin / 1e-9 * time_unit;
+    fwpins.clear();
+    bwpins.clear();
+    endpins.clear();
+    startpins.clear();
+    bwpins_set.clear();
     // visited.resize(numnets);
 
     // for(unsigned i = 0; i < numnets; ++i) {
@@ -3588,9 +3594,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         double newCap = pins[view][fipin].totcap;
 
         pins[view][fipin].ceff = pins[view][fipin].totcap;
-        if(fabs(newCap - preCap) > 0.0001) {
-            fwpins.push_back(fipin);
-        }
+        fwpins.push_back(fipin);
         // cout << "FWD PIN PUSH " << getFullPinName(pins[view][fipin]) << endl;
 
         if(WIRE_METRIC != ND && abs(newCap - preCap) > 0.0001) {
@@ -3655,7 +3659,10 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                     if(VERBOSE >= 2)
                         cout << "REACH PO -- ADD BW PIN "
                              << getFullPinName(pins[view][curpin]) << endl;
-                    bwpins.push_back(curpin);
+                    if(bwpins_set.count(curpin) == 0) {
+                        bwpins.push_back(curpin);
+                        bwpins_set.insert(curpin);
+                    }
                     // cout << "FWD CHANGE  BWD PIN PUSH " <<
                     // getFullPinName(pins[view][curpin]) << endl;
                     continue;
@@ -3672,7 +3679,10 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                                 cout << "REACH FF -- ADD BW PIN "
                                      << getFullPinName(pins[view][curpin])
                                      << endl;
-                            bwpins.push_back(curpin);
+                            if(bwpins_set.count(curpin) == 0) {
+                                bwpins.push_back(curpin);
+                                bwpins_set.insert(curpin);
+                            }
                             // cout << "FWD CHANGE BWD PIN PUSH " <<
                             // getFullPinName(pins[view][curpin]) << endl;
                         }
@@ -3709,7 +3719,10 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                          << getFullPinName(pins[view][curpin]) << endl;
 
                 if(curfo != UINT_MAX) {
-                    bwpins.push_back(curpin);
+                    if(bwpins_set.count(curpin) == 0) {
+                        bwpins.push_back(curpin);
+                        bwpins_set.insert(curpin);
+                    }
                     // cout << "FWD NOCHANGE BWD PIN PUSH " <<
                     // getFullPinName(pins[view][curpin]) << endl;
                     for(unsigned k = 0; k < cells[curfo].outpins.size(); ++k) {
@@ -3719,7 +3732,10 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                     }
                 }
                 else {
-                    bwpins.push_back(curpin);
+                    if(bwpins_set.count(curpin) == 0) {
+                        bwpins.push_back(curpin);
+                        bwpins_set.insert(curpin);
+                    }
                     // cout << "FWD NOCHANGE BWD PIN PUSH " <<
                     // getFullPinName(pins[view][curpin]) << endl;
                     endpins.push_back(curpin);
@@ -3731,11 +3747,9 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
 
     // cout << "HERE" << endpins.size() << endl;
 
-    //    while (!endpins.empty()) {
-    //        unsigned fipin=endpins.front();
-    //        updatePinTiming(pins[view][fipin], margin, view);
-    //        endpins.pop_front();
-    //    }
+    // for(auto fipin : endpins) {
+    //     updatePinTiming(pins[view][fipin], margin, view);
+    // }
 
     if(VERBOSE >= 2)
         cout << "BACKWARD START" << endl;
@@ -3744,8 +3758,8 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     // for(unsigned i = 0; i < numnets; ++i) {
     //     visited[i] = 0;
     // }
-    stable_sort(bwpins.begin(), bwpins.end());
-    bwpins.erase(unique(bwpins.begin(), bwpins.end()), bwpins.end());
+    // stable_sort(bwpins.begin(), bwpins.end());
+    // bwpins.erase(unique(bwpins.begin(), bwpins.end()), bwpins.end());
     //(input) pin list for RAT, slack updates
     for(int iter = 0; iter < bwpins.size(); iter++) {
         unsigned fopin = bwpins[iter];
@@ -3806,11 +3820,9 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         }
     }
 
-    //    while (!startpins.empty()) {
-    //        unsigned fopin=startpins.front();
-    //        updatePinSlack(pins[view][fopin], margin, view);
-    //        startpins.pop_front();
-    //    }
+    // for(auto fopin : startpins) {
+    //     updatePinSlack(pins[view][fopin], margin, view);
+    // }
 
     if(VERBOSE >= 3)
         cout << pins[view][cell.outpin].rslk << "/"
