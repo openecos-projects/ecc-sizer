@@ -3537,10 +3537,10 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
 #ifdef TIME_MON
     double begin = cpuTime();
 #endif
-    list< unsigned > fwpins;  // pin list for forward traverse
-    list< unsigned > bwpins;  // pin list for backward traverse
-    list< unsigned > endpins;
-    list< unsigned > startpins;
+    std::vector< unsigned > fwpins;  // pin std::vector for forward traverse
+    std::vector< unsigned > bwpins;  // pin std::vector for backward traverse
+    std::vector< unsigned > endpins;
+    std::vector< unsigned > startpins;
     std::unordered_map< unsigned, int > visited;
 
     margin = margin / 1e-12 * time_unit;
@@ -3575,6 +3575,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         }
         double preCap = pins[view][fipin].totcap;
         double loadCap = 0.;
+#pragma omp parallel for reduction(+ : loadCap)
         for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++)
             loadCap += pins[view][nets[corner][curnet].outpins[j]].cap;
 
@@ -3617,8 +3618,8 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     //    }
     // printf("fwpins num %d\n", fwpins.size());
     //(output) pin list for timing, AAT updates
-    while(!fwpins.empty()) {
-        unsigned fipin = fwpins.front();
+    for(int iter = 0; iter < fwpins.size(); iter++) {
+        unsigned fipin = fwpins[iter];
 
         if(VERBOSE >= 2)
             cout << "--- UPDATE PIN TIMING START "
@@ -3725,7 +3726,7 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                 }
             }
         }
-        fwpins.pop_front();
+        // fwpins.pop_front();
     }
 
     // cout << "HERE" << endpins.size() << endl;
@@ -3743,11 +3744,14 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     // for(unsigned i = 0; i < numnets; ++i) {
     //     visited[i] = 0;
     // }
-
-    while(!bwpins.empty()) {  //(input) pin list for RAT, slack updates
-        unsigned fopin = bwpins.front();
-        // bwcnt++;
-        bwpins.pop_front();
+    stable_sort(bwpins.begin(), bwpins.end());
+    bwpins.erase(unique(bwpins.begin(), bwpins.end()), bwpins.end());
+    //(input) pin list for RAT, slack updates
+    for(int iter = 0; iter < bwpins.size(); iter++) {
+        unsigned fopin = bwpins[iter];
+        // unsigned fopin = bwpins.front();
+        // // bwcnt++;
+        // bwpins.pop_front();
         bool change = updatePinSlack(pins[view][fopin], margin, view);
         unsigned curnet = pins[view][fopin].net;
         if(!visited.count(curnet)) {
@@ -3811,10 +3815,10 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     if(VERBOSE >= 3)
         cout << pins[view][cell.outpin].rslk << "/"
              << pins[view][cell.outpin].fslk << endl;
-    fwpins.clear();
-    bwpins.clear();
-    endpins.clear();
-    startpins.clear();
+        // fwpins.clear();
+        // bwpins.clear();
+        // endpins.clear();
+        // startpins.clear();
 #ifdef TIME_MON
     time_OneTimer += cpuTime() - begin;
     count_OneTimer++;

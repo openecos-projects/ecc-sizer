@@ -1,4 +1,6 @@
 #include "MinMax.hh"
+#include "NetworkClass.hh"
+#include "Transition.hh"
 #include "sizer.h"
 #include "ckt.h"
 #include <tcl8.6/tcl.h>
@@ -109,7 +111,7 @@ void Circuit::InitData() {
     for(unsigned i = 0; i < _sizer->numCorners; ++i) {
         vector< NET > _net;
         vector< LibCellTable* > _main_lib_cell_tables;            // MMMC
-        unordered_map< string, LibCellInfo > _libs;                         // MMMC
+        unordered_map< string, LibCellInfo > _libs;               // MMMC
         map< string, int > _node2id;                              // MMMC
         map< string, list< LibCellInfo* > > _func_lib_cell_list;  // MMMC
         double _maxTran = 0.0;
@@ -457,7 +459,8 @@ void Circuit::assignLibPinId() {
             CELL& cell = g_cells[pin->owner];
             // cout << pin->name << " " << pin2id[cell.name+"/"+pin->name] << "
             // " << pin->owner << endl;
-            LibCellInfo* lib_cell_info = _sizer->getLibCellInfo(cell);
+            LibCellInfo* lib_cell_info =
+                &(_sizer->libs[corner].find(cell.type)->second);
             // Resize the rdelay/fdelay vector size
             pin->rdelay.resize(cell.outpins.size(), 0.0);
             pin->fdelay.resize(cell.outpins.size(), 0.0);
@@ -484,7 +487,9 @@ void Circuit::assignLibPinId() {
     cout << "END OF PIN MAPPING" << endl;
 
     for(unsigned i = 0; i < g_cells.size(); ++i) {
-        LibCellInfo* lib_cell_info = _sizer->getLibCellInfo(g_cells[i]);
+        LibCellInfo* lib_cell_info =
+            &(_sizer->libs[corner].find(g_cells[i].type)->second);
+        // LibCellInfo* lib_cell_info = _sizer->getLibCellInfo(g_cells[i]);
 
         if(g_cells[i].outpins.size() != 0) {
             g_cells[i].outpin = g_cells[i].outpins[0];
@@ -671,7 +676,8 @@ void Circuit::assignMaxTrans() {
         CELL* cell = &(*iter);
 
         for(unsigned i = 0; i < _sizer->numCorners; ++i) {
-            LibCellInfo* lib_cell = _sizer->getLibCellInfo(*cell, i);
+            LibCellInfo* lib_cell = &(_sizer->libs[i].find(cell->type)->second);
+            // LibCellInfo* lib_cell = _sizer->getLibCellInfo(*cell, i);
 
             if(lib_cell == NULL) {
                 printf("Error : cannot find lib cell info for %s\n",
@@ -703,7 +709,7 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
     for(iter = g_cells.begin(); iter != g_cells.end(); ++iter) {
         CELL* cell = &(*iter);
 
-        LibCellInfo* lib_cell = _sizer->getLibCellInfo(*cell);
+        LibCellInfo* lib_cell = &(_sizer->libs[0].find(cell->type)->second);
 
         if(lib_cell == NULL) {
             continue;
@@ -3585,6 +3591,19 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         sta::dbSta* sta = _sizer->_ckt->_ord_timing->getSta();
         sta::Net* net = sta->getDbNetwork()->dbToSta(ord_net);
         Parasitic* net_parasitic = parasitics->findParasiticNetwork(net, ap);
+#if 0
+        
+        auto drivers = sta->network()->drivers(net);
+
+        if(!drivers || drivers->empty()) {
+            printf("Error: net %s don't have drivers\n", netNameStr.c_str());
+            continue;
+        }
+        PinSet::Iterator drvr_iter(drivers);
+        const Pin* drvr_pin = drvr_iter.next();
+        Parasitic* net_parasitic =
+            parasitics->findPiElmore(drvr_pin, sta::RiseFall::rise(), ap);
+#endif
         float pin_cap;
         float wire_cap;
         _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
@@ -3661,7 +3680,11 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         }
         sta::ConcreteParasiticSubNodeMap* sub_nodes = conc_net_para->subNodes();
         auto sub_nodes_iter = sub_nodes->begin();
-
+#if 0
+        double c1, c2, rpi;
+        sta::ConcretePi* para_pi =
+            conc_net_para->piModel(float& c2, float& rpi, float& c1);
+#endif
         // CAP
         while(sub_nodes_iter != sub_nodes->end()) {
             ConcreteParasiticNode* node = sub_nodes_iter->second;

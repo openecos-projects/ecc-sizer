@@ -38,6 +38,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include "sizer.h"
+#include <omp.h>
 #include <stdlib.h>
 #include <algorithm>
 #include <cassert>
@@ -695,16 +696,12 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
 }
 
 LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
-    assert(cell.type != "");
-    unordered_map< string, LibCellInfo >::iterator temp_iter =
-        libs[corner].find(cell.type);
-
-    if(temp_iter != libs[corner].end()) {
-        return &(temp_iter->second);
-    }
-    else {
-        return NULL;
-    }
+    // assert(cell.type != "");
+    // unordered_map< string, LibCellInfo >::iterator temp_iter =
+    //     libs[corner].find(cell.type);
+    assert(main_lib_cell_tables.size());
+    return getLibCellInfo(cell.main_lib_cell_id, cell.c_size,
+                          static_cast< cell_vtypes >(cell.c_vtype));
 }
 
 LibCellInfo *Sizer::getLibCellInfo(string type, unsigned corner) {
@@ -6904,7 +6901,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             for(unsigned j = 0; j < numcells; j++)
                 cells[j].touched = false;
             // POWER reduce loop
-            if((skew_violation_worst == 0.0) || (toler <= worst_slack_worst)) {
+            if(false) {
                 cout << "REDUCE LEAK ITER " << init_wns_worst << " " << toler
                      << " " << TOLERANCE << " " << TOLER_STOP << " "
                      << leak_iter << " " << worst_slack_worst << " "
@@ -10328,6 +10325,7 @@ void Sizer::Profile() {
 int main(int argc, char **argv) {
     int agc = 0;
     char **arv = nullptr;
+    omp_set_num_threads(8);
     ord::flow_OpenROAD(agc, arv);
     // cout << "------------------------------------------------------" << endl;
     // cout << "  TrionSizer ver 1.0                                " << endl;
@@ -10558,12 +10556,12 @@ int main(int argc, char **argv) {
     cout << "Total runtime      : " << tot_time << " sec. (" << tot_time / 60
          << " min.)" << endl;
     cout << "Timer runtime      : " << tot_timer_time << " sec. ("
-         << tot_timer_time / 60 << " min.)" << endl;
+         << tot_timer_time / 60 << " min.)" << endl;    
+    cout << "Inc-STA (time/count)  : " << _sizer.time_OneTimer << " sec."
+         << " / " << _sizer.count_OneTimer << endl;
 #ifdef TIME_MON
     cout << "Full-STA (time/count) : " << _sizer.time_CallTimer << " sec."
          << " / " << _sizer.count_CallTimer << endl;
-    cout << "Inc-STA (time/count)  : " << _sizer.time_OneTimer << " sec."
-         << " / " << _sizer.count_OneTimer << endl;
 #endif
     printMemoryUsage();
 
