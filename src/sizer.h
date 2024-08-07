@@ -416,7 +416,7 @@ class Sizer {
                       double leak_exponent, double alpha, double break_ratio,
                       unsigned thread_id, double toler, unsigned view);
     bool replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
-                        std::set< odb::dbNet * > &parasitics_invalid_);
+                     std::set< odb::dbNet * > &parasitics_invalid_);
     inline bool isMin(const CELL &cell) {
         return (cell.c_size == 0);
     }
@@ -674,9 +674,9 @@ class Sizer {
     unsigned worst_corner;
 
     queue< pair< double, double > > search_queue;
-    grt::IncrementalGRoute* incr_groute_ = nullptr;
+    grt::IncrementalGRoute *incr_groute_ = nullptr;
     vector< vector< LibCellTable * > > main_lib_cell_tables;  // MMMC
-    vector< unordered_map< string, LibCellInfo > > libs;                // MMMC
+    vector< unordered_map< string, LibCellInfo > > libs;      // MMMC
     vector< map< string, int > > node2id;                     // MMMC
     unsigned numCorners;
     unsigned numModes;
@@ -731,7 +731,7 @@ class Sizer {
     string spefFile;
     string verilogFile;
     string falsePathFile;
-    string outputDir="./";
+    string outputDir = "./";
     string sdcFile;
     string timerSdcFile;
     string clockName;
@@ -980,6 +980,7 @@ class Sizer {
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);
     int FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
                                 double maxTran, unsigned view = 0);
+    unsigned FwdFixSlackViolation(double maxTranRatio, unsigned view);
     unsigned Attack(unsigned round, unsigned STAGE, double RATIO,
                     double leak_exponent, double alpha = -1,
                     double break_ratio = 0.1, unsigned thread_id = 0,

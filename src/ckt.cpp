@@ -229,9 +229,8 @@ void Circuit::Parser(string benchmark) {
                 }
             }
             lib_cell_info->partial_order = partial_order / partial_count;
-            printf("Cell type %s, sum cap %f, cap cnt %d, average power %f",
-                   lib_cell_info->name.c_str(), partial_order, partial_count,
-                   lib_cell_info->leakagePower);
+            printf("Cell type %s, sum cap %f, cap cnt %d",
+                   lib_cell_info->name.c_str(), partial_order, partial_count);
             std::cout << "lekage " << lib_cell_info->leakagePower << std::endl;
         }
         auto& list = _sizer->func_lib_cell_list[t_corner][it->first];
@@ -3160,6 +3159,7 @@ void Circuit::init_opensta() {
     _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
                                                 false);
     // Global Route and Estimate Global Route RC
+    double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
     auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
     auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
@@ -3176,8 +3176,11 @@ void Circuit::init_opensta() {
     grt->setVerbose(true);
     printf("Run Global Routing...\n");
     grt->globalRoute(false);
+    printf("Run Global Routing Time %f\n", cpuTime() - begin);
+    begin = cpuTime();
     _ord_design->evalTclString("estimate_parasitics -global_routing");
     _sta->findRequireds();
+    printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
 
     // _ord_design->evalTclString("sta::set_delay_calculator lumped_cap");
