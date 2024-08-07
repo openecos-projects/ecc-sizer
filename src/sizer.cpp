@@ -188,7 +188,7 @@ unsigned THRESHOLD = 50;
 double ratio_sweep = 5;
 int PTNUM = 1;
 int PRFT_PTNUM = 1;
-int VERBOSE = 0;
+const int VERBOSE = 1;
 bool USE_PT = true;
 // bool CORR_PT = true;
 bool CORR_PT = false;
@@ -4206,7 +4206,7 @@ inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
 unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                        double leak_exponent, double alpha, double break_ratio,
                        unsigned thread_id, double toler, unsigned view) {
-    if(alpha = -1) {
+    if(alpha == -1) {
         alpha = ALPHA;
     }
     unsigned swap_cnt = 0;
@@ -9958,7 +9958,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
         }
 
         if(line.find("-verbose ") != string::npos) {
-            VERBOSE = getTokenI(line, "-verbose ");
+            // VERBOSE = getTokenI(line, "-verbose ");
         }
 
         if(line.find("-corr_dyn") != string::npos) {

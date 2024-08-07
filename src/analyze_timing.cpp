@@ -229,6 +229,8 @@ double designTiming::getWorstSlackHold(string _clkName) {
     }
     else if(program == OS) {
         _tclInputString = "OSWorstHoldSlack " + _clkName;
+        printf("Error: don't have OSWorstHoldSlack !\n");
+        exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -251,7 +253,6 @@ double designTiming::getWorstSlack(string _clkName) {
     }
     else if(program == OS) {
         double begin = cpuTime();
-        _tclInputString = "OSWorstSlack " + _clkName;
         _sizer->_ckt->_ord_design->evalTclString("report_wns > wns.txt");
         ifstream ifs("wns.txt");
         double wns;
@@ -561,6 +562,8 @@ bool designTiming::sizeCell(string cellInstance, string cellMaster) {
     }
     else if(program == OS) {
         _tclInputString = "OSSizeCell " + cellInstance + " " + cellMaster;
+        printf("Error: don't have OSSizeCell !\n");
+        exit(0);
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -672,6 +675,8 @@ bool designTiming::checkSize(string filename) {
     }
     else if(program == OS) {
         _tclInputString = "OSGetCurSize " + filename;
+        printf("Error: don't have OSGetCurSize !\n");
+        exit(0);
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
@@ -711,6 +716,8 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
     }
     else if(program == OS) {
         _tclInputString = "OSGetPinSlack " + pinName;
+        printf("Error: don't have OSGetPinSlack !\n");
+        exit(0);
     }
     //_tclExpression = (char *)_tclInputString.c_str();
 
@@ -766,6 +773,7 @@ void designTiming::getPinTran(double &riseTran, double &fallTran,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
+    printf("Error: not OSGetPinTran !\n");
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
 
@@ -805,6 +813,8 @@ bool designTiming::writePinSlack(string infile, string outfile) {
     }
     else if(program == OS) {
         _tclInputString = "OSWritePinSlack " + infile + " " + outfile;
+        printf("Error: don't have OSWritePinSlack !\n");
+        exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -877,6 +887,8 @@ bool designTiming::writePinToggleRate(string infile, string outfile,
     }
     else if(program == OS) {
         _tclInputString = "OSWritePinToggleRate " + infile + " " + outfile;
+        printf("Error: don't have OSWritePinToggleRate !\n");
+        exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -899,6 +911,8 @@ bool designTiming::writePinToggleRate(string infile, string outfile) {
     }
     else if(program == OS) {
         _tclInputString = "OSWritePinToggleRate " + infile + " " + outfile;
+        printf("Error: don't have OSWritePinToggleRate !\n");
+        exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -967,6 +981,8 @@ bool designTiming::writePinAll(string infile, string outfile) {
     }
     else if(program == OS) {
         _tclInputString = "OSWritePinAll " + infile + " " + outfile;
+        printf("Error: don't have OSWritePinAll !\n");
+        exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -986,6 +1002,8 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
     _tclInputString = "OSGetPinArrival " + pinName;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
+    printf("Error: not OSGetPinArrival !\n");
+    exit(0);
     double begin = cpuTime();
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     pt_time += cpuTime() - begin;
