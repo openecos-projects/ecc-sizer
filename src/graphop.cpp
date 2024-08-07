@@ -249,7 +249,7 @@ void Sizer::SortTopo() {
 }
 
 void Sizer::CountNPaths(unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
 
     return;
 
@@ -339,7 +339,7 @@ void Sizer::CountNPaths(unsigned view) {
 }
 
 void Sizer::CountPathsLesserThanSlack(unsigned view, double slack) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
 
     // Initialize
     for(unsigned i = 0; i < numpins; i++) {

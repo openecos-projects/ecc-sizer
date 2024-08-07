@@ -52,7 +52,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     // skew_violation == positive means violations
     // slew_violation == positive means violations
 
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     slew_violation = CalcSlewViolation(view);
     double tran_tot, tran_max;
     int tran_num = 0;
@@ -229,7 +229,7 @@ double Sizer::CalcPTErrors(double& avg_err, double& l2_norm, unsigned view) {
 }
 // FIXME: has bug
 double Sizer::CalcSlewViolation(unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     double slew_viol = 0.;
     slew_violation_cnt = 0;
     slew_violation_wst = 0;
@@ -313,7 +313,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
     // worst_slack = worst timing slack; could be positive
     // max_neg_{r,f}slk = worst negative timing slack; could be only
     // negative
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     double slack_viol = 0.;
     worst_slack = DBL_MAX;
     max_neg_rslk = max_neg_fslk = 0.;
@@ -454,7 +454,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
 
 void Sizer::UpdateCapsFromCells() {
     for(unsigned view = 0; view < numViews; ++view) {
-        unsigned corner = mmmcViewList[view].corner;
+        unsigned corner = 0; // mmmcViewList[view].corner;
         for(unsigned i = 0; i < numcells; i++) {
             for(unsigned j = 0; j < cells[i].inpins.size(); j++) {
                 LibCellInfo* lib_cell_info = getLibCellInfo(cells[i], corner);
@@ -491,7 +491,7 @@ void Sizer::UpdateCapsFromCells() {
 }
 
 double Sizer::CalcCapViolation(unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     double cap_viol = 0.;
     cap_violation_cnt = 0;
@@ -641,7 +641,7 @@ double Sizer::CalcCapViolation(unsigned view) {
 }
 
 double Sizer::CalcPower(unsigned thread, bool rpt_power, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     double totPower = 0.;
     if(ALPHA == 0.0) {
         totPower = T[view]->getLeakPower();

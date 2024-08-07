@@ -280,7 +280,7 @@ double Sizer::GetFICellSlack(CELL &cell, unsigned view) {
 // has a bug?
 LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
                                        unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     bool min = false;
     bool max = false;
     cell_sizes size = cell.c_size;
@@ -370,7 +370,7 @@ LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
 
 // calculate wire delay, FSTA
 void Sizer::CalcWire(unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     for(unsigned i = 0; i < numnets; i++) {
         if(WIRE_METRIC == DEBUG) {
             cout << nets[corner][i].name << endl;
@@ -382,7 +382,7 @@ void Sizer::CalcWire(unsigned view) {
 
 void Sizer::calc_one_net_delay(unsigned netID, DelayMetric WIRE_METRIC,
                                bool recompute_moment, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     vector< SUB_NODE > &snv = nets[corner][netID].subNodeVec;
     calc_net_moment(snv, nets[corner][netID].subNodeResVec, recompute_moment,
                     view);  // m1, m2 calculation
@@ -394,7 +394,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                          vector< timing_lookup > &value_list) {
     CalcWire(view);
 
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     for(unsigned i = 0; i < PIs.size(); i++) {
         unsigned curpin = PIs[i];
@@ -563,7 +563,7 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
 // is there a bug ?
 // calculate transition time
 void Sizer::CalcTran(unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     for(unsigned i = 0; i < PIs.size(); i++) {
         unsigned curpin = PIs[i];
@@ -720,7 +720,7 @@ void Sizer::CalcTran(unsigned view) {
 // delta_cap should be a vector, since there are multiple outputs
 void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                      int dir, double delta_cap, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     // unsigned mode = mmmcViewList[view].mode;
     LibCellInfo *cur;
 
@@ -905,7 +905,7 @@ void Sizer::CalcDelay(unsigned view) {
 void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                      vector< double > &fdelay, int dir, double delta_cap,
                      unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     if(VERBOSE >= 3)
         cout << "LOOK DT " << cell.name << " " << cell.type << " " << dir << " "
              << steps << endl;
@@ -1121,7 +1121,7 @@ double Sizer::GetGB() {
 }
 
 void Sizer::CalcSlack(unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     // reset
     for(unsigned i = 0; i < numpins; i++) {
@@ -1496,7 +1496,7 @@ void Sizer::CalcSlack(unsigned view) {
 }
 
 double Sizer::EstDeltaTNS(CELL &cell, int steps, int dir, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     if(steps == 0 && dir == 0)
         return 0;
 
@@ -1634,7 +1634,7 @@ double Sizer::EstDeltaTNS(CELL &cell, int steps, int dir, unsigned view) {
 }
 
 double Sizer::EstDeltaTNSNEW(CELL &cell, int steps, int dir, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     if(steps == 0 && dir == 0)
         return 0;
     // measure resizing impact on other cells
@@ -1746,7 +1746,7 @@ bool Sizer::EstHoldVio(CELL &cell, double delta_delay, unsigned view) {
 
 double Sizer::EstDeltaSlackNEW(CELL &cell, int steps, int dir, bool pt_corr,
                                unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     if(steps == 0 && dir == 0)
         return 0;
 
@@ -1805,7 +1805,7 @@ double Sizer::EstDeltaSlackNEW(CELL &cell, int steps, int dir, bool pt_corr,
 }
 
 double Sizer::GetCellDelay(CELL &cell, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
 
     double delay = 0.0;
 
@@ -1826,7 +1826,7 @@ double Sizer::GetCellDelay(CELL &cell, unsigned view) {
 }
 
 double Sizer::EstDeltaDelay(CELL &cell, int steps, int dir, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     if(steps == 0 && dir == 0)
         return 0;
 
@@ -1944,7 +1944,7 @@ double Sizer::EstDeltaDelay(CELL &cell, int steps, int dir, unsigned view) {
 }
 
 double Sizer::FiNSlackSUM(CELL &cell, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     // unsigned mode = mmmcViewList[view].mode;
     double sum_fi_nslack = 0;
 
@@ -1968,7 +1968,7 @@ double Sizer::FiNSlackSUM(CELL &cell, unsigned view) {
 
 int Sizer::EstDeltaSlack(CELL &cell, int steps, int dir, double *rslk,
                          double *fslk, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     // Still incorrect to use!!!
     if(steps == 0 && dir == 0)
@@ -2347,7 +2347,7 @@ double Sizer::CalSensMMMC(CELL &cell, int steps, int dir, int option,
 
 double Sizer::CalSens(CELL &cell, int steps, int dir, int option, double gamma,
                       double alpha, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     // small --> higher priority
     // SF for timing recovery --> 1/SF
@@ -2611,7 +2611,7 @@ double Sizer::CalSens(CELL &cell, int steps, int dir, int option, double gamma,
 
 double Sizer::SumTotPowerCells(vector< unsigned > targets, double alpha,
                                unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     double leak_power = 0.0;
     double int_power = 0.0;
     double sw_power = 0.0;
@@ -2648,7 +2648,7 @@ double Sizer::CalSensSetMMMC(vector< unsigned > target_list,
 double Sizer::CalSensSet(vector< unsigned > target_list,
                          vector< unsigned > change_list, int option,
                          double gamma, double alpha, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     // small --> higher priority
     // SF for timing recovery --> 1/SF
@@ -2798,7 +2798,7 @@ void Sizer::LookupDeltaCap(CELL &cell, int steps, int dir,
 }
 
 double Sizer::GetCellLeak(CELL &cell, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     LibCellInfo *lib_cell_info = getLibCellInfo(cell, corner);
 
     if(lib_cell_info == NULL) {
@@ -2808,7 +2808,7 @@ double Sizer::GetCellLeak(CELL &cell, unsigned view) {
 }
 
 double Sizer::LookupDeltaLeak(CELL &cell, int steps, int dir, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     LibCellInfo *lib_cell_info = getLibCellInfo(cell, corner);
 
     if(lib_cell_info == NULL) {
@@ -2834,7 +2834,7 @@ double Sizer::LookupDeltaLeak(CELL &cell, int steps, int dir, unsigned view) {
 
 double Sizer::LookupDeltaTotPowerPT(CELL &cell, int steps, int dir,
                                     unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
 
     LibCellInfo *lib_cell_info = getLibCellInfo(cell, corner);
     if(lib_cell_info == NULL) {
@@ -2862,7 +2862,7 @@ double Sizer::LookupDeltaTotPowerPT(CELL &cell, int steps, int dir,
 }
 
 double Sizer::LookupSwitchPower(CELL &cell, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     LibCellInfo *lib_cell_info = getLibCellInfo(cell, corner);
     if(lib_cell_info == NULL) {
         if(VERBOSE >= 3)
@@ -2890,7 +2890,7 @@ double Sizer::LookupSwitchPower(CELL &cell, unsigned view) {
 
 double Sizer::LookupDeltaSwitchPower(CELL &cell, int steps, int dir,
                                      unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     LibCellInfo *lib_cell_info = getLibCellInfo(cell, corner);
     if(lib_cell_info == NULL) {
         if(VERBOSE >= 3)
@@ -3048,7 +3048,7 @@ double Sizer::LookupIntPowerTran(CELL &cell, LibCellInfo *cur,
 
 double Sizer::LookupIntPowerTran(CELL &cell, double fo_rtran, double fo_ftran,
                                  unsigned pin_id, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     LibCellInfo *cur = getLibCellInfo(cell, corner);
 
     if(cur == NULL) {
@@ -3168,7 +3168,7 @@ double Sizer::LookupIntPowerLoad(CELL &cell, LibCellInfo *cur, double fi_load,
 
 void Sizer::LookupSTLoad(CELL &cell, double &rtran, double &ftran,
                          double fi_load, unsigned pin_id, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     LibCellInfo *cur;
     cur = getLibCellInfo(cell, corner);
 
@@ -3263,7 +3263,7 @@ void Sizer::LookupSTTran(CELL &cell, vector< double > in_rtrans,
                          vector< double > in_ftrans,
                          vector< double > &out_rtrans,
                          vector< double > &out_ftrans, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     LibCellInfo *cur;
 
     cur = getLibCellInfo(cell, corner);
@@ -3345,7 +3345,7 @@ void Sizer::LookupSTTran(CELL &cell, vector< double > in_rtrans,
 
 double Sizer::LookupDeltaIntPower(CELL &cell, int steps, int dir,
                                   unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
 
     LibCellInfo *cur_cell = getLibCellInfo(cell, corner);
 
@@ -3539,7 +3539,7 @@ static std::set< unsigned > bwpins_set;
 
 inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                             unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
 #ifdef TIME_MON
     double begin = cpuTime();
 #endif
@@ -3838,7 +3838,7 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
 }
 
 bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     // cout << getFullPinName(pin) << " calls updatePinTiming" << endl;
@@ -4232,7 +4232,7 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
 }
 
 bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     // cout << getFullPinName(pin) << " calls updatePinSlack" << endl;
@@ -4821,7 +4821,7 @@ void Sizer::calc_net_moment(vector< SUB_NODE > &subNodeVec,
 
 timing_lookup Sizer::get_wire_delay(unsigned netID, unsigned sinkPinID,
                                     unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     if(VERBOSE >= 222) {
         cout << "get wire delay " << netID << " " << sinkPinID << " " << view
              << " " << endl;
@@ -4900,7 +4900,7 @@ timing_lookup Sizer::get_wire_tran(unsigned netID, unsigned sinkPinID,
 }
 
 void Sizer::calc_net_delay(unsigned netID, DelayMetric DM, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
 
     vector< SUB_NODE > &subNodeVec = nets[corner][netID].subNodeVec;
     if(subNodeVec.size() == 0)
@@ -4978,7 +4978,7 @@ void Sizer::calc_net_delay(unsigned netID, DelayMetric DM, unsigned view) {
 
 // CEFF Calculation
 void Sizer::CalcCeff(unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     for(unsigned i = 0; i < PIs.size(); i++) {
         //        unsigned outnet=pins[view][PIs[i]].net;
         //        double loadCap=0.;
@@ -5029,7 +5029,7 @@ void Sizer::CalcCeff(unsigned view) {
 }
 
 void Sizer::calc_pin_ceff_MC(PIN &pin, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     // Settings
     // int alpha_Nstep=100;
     // int beta_Nstep=100;
@@ -5657,7 +5657,7 @@ void Sizer::GetMaxTranConst(unsigned view) {
     }
     infile.close();
     for(unsigned i = 0; i < numpins; i++) {
-        unsigned corner = mmmcViewList[view].corner;
+        unsigned corner = 0; // mmmcViewList[view].corner;
         if(temp[i] > maxTran[corner])
             g_pins[view][i].max_tran = temp[i];
         else {
@@ -5700,7 +5700,7 @@ void Sizer::GetSwitchPowerCoef(unsigned view) {
 }
 
 vector< unsigned > Sizer::GetWorstPath(PIN &pin, unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned pinid = pin.id;
     vector< unsigned > path;
 
@@ -5740,7 +5740,7 @@ vector< unsigned > Sizer::GetWorstPath(PIN &pin, unsigned view) {
 
 void Sizer::GetCellsWorstPath(vector< unsigned > &path, PIN &pin,
                               unsigned view) {
-    unsigned corner = mmmcViewList[view].corner;
+    unsigned corner = 0; // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     unsigned pinid = pin.id;
     cout << "Start GetCellsWorstPath" << endl;
