@@ -633,7 +633,8 @@ void Sizer::CalcTran(unsigned view) {
             if(fopin == UINT_MAX) {
                 continue;
             }
-            if(pins[view][fopin].name == "CLK") {
+            if(pins[view][fopin].name == "CLK" ||
+               pins[view][fopin].name == "clk") {
                 continue;
             }
             string pin_name = getFullPinName(pins[view][fopin]);
@@ -4328,6 +4329,11 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
                 double r_slk = 0.0, f_slk = 0.0;
 
                 if(!pin.bb_checked_rat) {
+                    printf(
+                        "ERROR curlib %p, cells[cur].outpins.size(): %d: pin "
+                        "name %s\n",
+                        curlib, cells[cur].outpins.size(),
+                        getFullPinName(pin).c_str());
                     T[view]->getPinArrival(r_AAT, f_AAT, getFullPinName(pin));
                     T[view]->getPinSlack(r_slk, f_slk, getFullPinName(pin));
 
@@ -4355,6 +4361,8 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
                         double r_slk = 0.0, f_slk = 0.0;
 
                         if(!pin.bb_checked_rat) {
+                            printf("ERROR arc null  pin name %s\n",
+                                   getFullPinName(pin).c_str());
                             T[view]->getPinArrival(r_AAT, f_AAT,
                                                    getFullPinName(pin));
                             T[view]->getPinSlack(r_slk, f_slk,
@@ -4851,12 +4859,12 @@ timing_lookup Sizer::get_wire_delay(unsigned netID, unsigned sinkPinID,
         cout << "spef pin " << pins[view][sinkPinID].spef_pin << " "
              << nets[corner][netID].subNodeVec.size() << endl;
     }
-    if(pins[view][sinkPinID].name != "CLK") {
-        assert(pins[view][sinkPinID].spef_pin != UINT_MAX &&
-               pins[view][sinkPinID].spef_pin >= 0 &&
-               pins[view][sinkPinID].spef_pin <
-                   nets[corner][netID].subNodeVec.size());
-    }
+    // if(pins[view][sinkPinID].name != "CLK") {
+    //     assert(pins[view][sinkPinID].spef_pin != UINT_MAX &&
+    //            pins[view][sinkPinID].spef_pin >= 0 &&
+    //            pins[view][sinkPinID].spef_pin <
+    //                nets[corner][netID].subNodeVec.size());
+    // }
     if(pins[view][sinkPinID].spef_pin != UINT_MAX &&
        pins[view][sinkPinID].spef_pin >= 0 &&
        pins[view][sinkPinID].spef_pin < nets[corner][netID].subNodeVec.size()) {
@@ -4866,6 +4874,14 @@ timing_lookup Sizer::get_wire_delay(unsigned netID, unsigned sinkPinID,
         wire_delay.fall = nets[corner][netID]
                               .subNodeVec[pins[view][sinkPinID].spef_pin]
                               .delay;
+    }
+    else {
+        if(pins[view][sinkPinID].name != "CLK" &&
+           pins[view][sinkPinID].name != "clk") {
+            printf("ERROR: wire delay error, pin name %s, net name %s\n",
+                   getFullPinName(pins[view][sinkPinID]).c_str(),
+                   nets[corner][netID].name.c_str());
+        }
     }
     return wire_delay;
 }

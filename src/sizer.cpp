@@ -177,7 +177,7 @@ int TOLER_NUM = 5;
 double TOLERANCE = 0.0;
 double TOLER_STOP = 0.0;
 bool TOLER_STEP = false;
-double ALPHA = 0.5;
+double ALPHA = 0.0;
 double NORMALIZE_FACTOR = 10.0;
 double GAMMA = 0.5;
 double SLEW_TH = 0.2;
@@ -1596,7 +1596,7 @@ void Sizer::wait(int seconds) {
 }
 
 void Sizer::exePTServerOne(int port, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     if(numViews > 1) {
@@ -1814,7 +1814,7 @@ void Sizer::exePTServerOne(int port, unsigned view) {
 }
 
 void Sizer::exeETSServerOne(int port, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     std::ostringstream ostr;
     ostr.str("");
@@ -2051,7 +2051,7 @@ void Sizer::exeETSServerOne(int port, unsigned view) {
 }
 
 void Sizer::exeOSServerOne(int port, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     if(numViews > 1) {
@@ -2730,7 +2730,7 @@ vector< pair< string, string > > Sizer::readSizesPT(const string &filename) {
 }
 
 unsigned Sizer::FwdFixCapViolation(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned change = 0;
 
     cout << "Fwd fix cap violation .. for view " << view << " ";
@@ -2954,7 +2954,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 unsigned Sizer::BwdFixCapViolation(unsigned view) {
     unsigned change = 0;
     cout << "Bwd fix cap violation .. for view " << view << " ";
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
 
     double remains = 0.0;
     double origins = 0.0;  // origin is not always the same current since cap
@@ -3050,7 +3050,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
     unsigned thread_id = 0;
 
     cout << "Fwd fix slew violation .. for view " << view << endl;
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
 
     for(unsigned i = 0; i < topolist.size(); i++) {
@@ -3059,11 +3059,8 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
         if(cells[cur].isClockCell) {
             continue;
         }
-        if(cells[cur].isDontTouch)
-            continue;
-        if(isff(cells[cur])) {
-            continue;
-        }
+        // if(cells[cur].isDontTouch)
+        //     continue;
         if(getLibCellInfo(cells[cur], corner) == NULL) {
             continue;
         }
@@ -3105,7 +3102,9 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 }
                 if(cells[focell].isDontTouch)
                     continue;
-
+                // if(isff(cells[focell])) {
+                //     continue;
+                // }
                 // CalcStats((unsigned)thread_id, false, "", view, false);
                 prev_tns = viewTNS[view];
 
@@ -3131,7 +3130,8 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 if(r_type(cells[cur]) == numVt - 1 && isMax(cells[cur])) {
                     break;
                 }
-
+                if(cells[cur].isDontTouch)
+                    break;
                 double delta_impact_size = 0.0, delta_impact_type = 0.0;
                 double prev_tran =
                     max(pins[view][curpin].rtran, pins[view][curpin].ftran);
@@ -3457,7 +3457,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
     unsigned thread_id = 0;
 
     cout << "Fwd fix slew violation .. for view " << view << endl;
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
 
     for(unsigned i = 0; i < topolist.size(); i++) {
@@ -3859,7 +3859,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
 int Sizer::FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
                                    double maxTran, unsigned view) {
     cout << "Fwd fix slew violation cell .. for view " << view << endl;
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
 
     int swap_cell_cnt = 0;
     for(unsigned j = 0; j < cells[cur].inpins.size(); j++) {
@@ -4701,7 +4701,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 }
 
 unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     set< entry > targets;
     unsigned swap_cnt = 0;
     for(unsigned i = 0; i < numcells; i++) {
@@ -4899,7 +4899,7 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
 int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
                                  unsigned cell_index, double gb,
                                  unsigned dont_touch, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     int swap_cnt = 0;
     double WNS = 0.0;
     double TNS = 0.0;
@@ -5030,7 +5030,7 @@ int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
 
 int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
                             double gb, int upsize, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     if(cell_index == UINT_MAX)
         return 0;
     int swap_cnt = 0;
@@ -5242,7 +5242,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
 
 unsigned Sizer::OptWNSPathBalance(bool corr_pt, unsigned option,
                                   unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     cout << "OptWNSPathBalance() start..." << endl;
     if(corr_pt)
         T = PTimer[option];
@@ -5519,7 +5519,7 @@ vector< vector< int > > Sizer::GenSequence(unsigned option, unsigned num_cell) {
 }
 
 unsigned Sizer::InitWNSPath(unsigned view, unsigned numPath) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     cout << "InitWNSPath() starts....... " << view << endl;
 
     vector< vector< unsigned > > path_cell_list;
@@ -5638,7 +5638,7 @@ bool Sizer::InitSize(unsigned index) {
 unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                                unsigned option, int num_cell, unsigned STEP,
                                unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     cout << "OptWNSPathGray() starts.......for view " << view << endl;
     cout << "option " << option;
     cout << " num_cell " << num_cell;
@@ -6158,7 +6158,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
 
 // further cap optimization
 void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     if(STAGE == GLOBAL) {
         cout << "RELEASE/GLOBAL - Start global releasing .. " << endl;
         for(unsigned i = 0; i < numcells; i++) {
@@ -6734,11 +6734,11 @@ void Sizer::Parallel_Sizer_Launcher() {
 #if 1
         double init_power = 0.0;
         init_power = init_tot[0];
-        // if(skew_violation != 0 && -skew_violation <= -slack_margin) {
-        //     cout << "WNS = " << skew_violation
-        //          << " SLACK MARGIN = " << slack_margin << endl;
-        //     PostWNSOpt("final");
-        // }
+        if(skew_violation != 0 && -skew_violation <= -slack_margin) {
+            cout << "WNS = " << skew_violation
+                 << " SLACK MARGIN = " << slack_margin << endl;
+            PostWNSOpt("final");
+        }
 #endif
     }
 
@@ -8478,7 +8478,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
 
                 bool attack = true;
                 for(unsigned view = 0; view < numViews; ++view) {
-                    unsigned corner = 0; // mmmcViewList[view].corner;
+                    unsigned corner = 0;  // mmmcViewList[view].corner;
                     double max_slew = 0.0;
                     for(unsigned k = 0; k < cells[i].inpins.size(); ++k) {
                         if(IsTranVio(pins[view][cells[i].inpins[k]])) {

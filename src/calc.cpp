@@ -249,7 +249,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
                 continue;
             }
             if(pins[view][curpin].name == "CLK" ||
-               //    pins[view][curpin].name == "VDD" ||
+               pins[view][curpin].name == "clk" ||
                pins[view][curpin].owner == UINT_MAX) {
                 continue;
                 // printf("Pin name %s\n", pins[view][curpin].name.c_str());

@@ -715,9 +715,23 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
         _tclInputString = "EtsGetPinSlack " + pinName;
     }
     else if(program == OS) {
-        _tclInputString = "OSGetPinSlack " + pinName;
-        printf("Error: don't have OSGetPinSlack !\n");
-        exit(0);
+        double begin = cpuTime();
+        auto pin_ =
+            _sizer->_ckt->_ord_design->getBlock()->findITerm(pinName.c_str());
+        sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
+        sta::dbNetwork *network = sta->getDbNetwork();
+        // sta::Port *port = network->dbToSta(pin_->getMTerm());
+        double r_att =
+            _sizer->_ckt->_ord_timing->getPinSlack(pin_, ord::Timing::Rise);
+        double f_att =
+            _sizer->_ckt->_ord_timing->getPinSlack(pin_, ord::Timing::Fall);
+        pt_time += cpuTime() - begin;
+
+        riseSlack = r_att / _sizer->time_unit;
+        fallSlack = f_att / _sizer->time_unit;
+
+        pt_time += cpuTime() - begin;
+        cout << pinName << " " << riseSlack << " " << fallSlack << endl;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
 
@@ -773,17 +787,21 @@ void designTiming::getPinTran(double &riseTran, double &fallTran,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    printf("Error: not OSGetPinTran !\n");
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+    printf("Error: not OSGetPinTran !, pin name %s\n", pinName.c_str());
+    auto pin_ =
+        _sizer->_ckt->_ord_design->getBlock()->findITerm(pinName.c_str());
+    sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
+    sta::dbNetwork *network = sta->getDbNetwork();
+    // sta::Port *port = network->dbToSta(pin_->getMTerm());
+    double r_slew =
+        _sizer->_ckt->_ord_timing->getPinSlew(pin_, ord::Timing::Rise);
+    double f_slew =
+        _sizer->_ckt->_ord_timing->getPinSlew(pin_, ord::Timing::Fall);
     pt_time += cpuTime() - begin;
 
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
-    sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    riseTran = temp1 / _sizer->time_unit;
-    fallTran = temp2 / _sizer->time_unit;
-    // cout << pinName << " " << riseSlack << " " << fallSlack << endl;
+    riseTran = r_slew / _sizer->time_unit;
+    fallTran = f_slew / _sizer->time_unit;
+    cout << pinName << " " << riseTran << " " << fallTran << endl;
 }
 
 // void designTiming::getPinCap(double &riseTran, double &fallTran,
@@ -1002,19 +1020,24 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
     _tclInputString = "OSGetPinArrival " + pinName;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
-    printf("Error: not OSGetPinArrival !\n");
-    exit(0);
+    printf("Error: not OSGetPinArrival !, pin name %s\n", pinName.c_str());
     double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+    auto pin_ =
+        _sizer->_ckt->_ord_design->getBlock()->findITerm(pinName.c_str());
+    sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
+    sta::dbNetwork *network = sta->getDbNetwork();
+    // sta::Port *port = network->dbToSta(pin_->getMTerm());
+    double r_att =
+        _sizer->_ckt->_ord_timing->getPinArrival(pin_, ord::Timing::Rise);
+    double f_att =
+        _sizer->_ckt->_ord_timing->getPinArrival(pin_, ord::Timing::Fall);
     pt_time += cpuTime() - begin;
 
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
-    sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    riseArrival = temp1;
-    fallArrival = temp2;
-    // cout << pinName << " " << riseSlack << " " << fallSlack << endl;
+    riseArrival = r_att / _sizer->time_unit;
+    fallArrival = f_att / _sizer->time_unit;
+
+    pt_time += cpuTime() - begin;
+    cout << pinName << " " << riseArrival << " " << fallArrival << endl;
 }
 
 double designTiming::getRiseSlack(string PinName) {
@@ -1061,6 +1084,8 @@ double designTiming::getRiseTran(string PinName) {
     else {
         _tclInputString = "OSGetRiseTran " + PinName;
     }
+    printf("Error: not OSGetRiseTran !, pin name %s\n", PinName.c_str());
+    exit(0);
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
