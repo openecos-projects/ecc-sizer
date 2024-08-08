@@ -3611,6 +3611,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
     ap = _corner->findParasiticAnalysisPt(cnst_min_max);
 
     int corner = 0;
+    for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
+        g_nets[corner][i].subNodeVec.clear();
+    }
 
     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
         string netNameStr = g_nets[corner][i].name;

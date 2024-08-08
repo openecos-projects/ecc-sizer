@@ -1515,7 +1515,7 @@ bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
         // designAreaIncr(area(replacement_master));
 
         // Legalize the position of the instance in case it leaves the die
-        opendp_->legalCellPos(dinst);
+        // opendp_->legalCellPos(dinst);
         // if(parasitics_src_ == ParasiticsSrc::global_routing) {
         // }
 
@@ -6635,8 +6635,101 @@ void Sizer::Parallel_Sizer_Launcher() {
                 thread_args.push_back(tmp_thread_args);
             }
             // poweropt + kickopt
-            for(int j = 0; j < min(MAX_THREAD, PRFT_PTNUM); j++) {
-                static_poweropt_driver((void *)&thread_args[j]);
+            for(int j = 0; j < PRFT_PTNUM; j++) {
+                static_poweropt_driver((void *)&thread_args[0]);
+
+                if(j != PRFT_PTNUM - 1) {
+                    //
+                    auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
+                    auto _ord_design = _ckt->_ord_design;
+                    auto block = _ord_design->getBlock();
+                    auto _sta = ord::OpenRoad::openRoad()->getSta();
+                    _sta->networkChanged();
+                    for(unsigned i = 0; i < numcells; i++) {
+                        LibCellInfo *lib_cell_info =
+                            getLibCellInfo(best_cells_poweropt[i]);
+                        if(lib_cell_info == NULL ||
+                           best_cells_poweropt[i].isDontTouch)
+                            continue;
+                        if(!PT_FULL_UPDATE && !best_cells_poweropt[i].isChanged)
+                            continue;
+                        auto inst = block->findInst(
+                            best_cells_poweropt[i].name.c_str());
+                        auto new_master =
+                            _ord_design->getTech()->getDB()->findMaster(
+                                best_cells_poweropt[i].type.c_str());
+                        if(new_master->getName() !=
+                           best_cells_poweropt[i].type) {
+                            inst->swapMaster(new_master);
+                            best_cells_poweropt[i].isChanged = 0;
+                            best_cells_poweropt[i].isStaticChanged = true;
+                            best_cells_poweropt[i].static_power =
+                                _ckt->_ord_timing->staticPower(inst, corner_);
+                        }
+                    }
+                    auto site =
+                        _ord_design->getBlock()->getRows().begin()->getSite();
+                    auto max_disp_x =
+                        int(_ord_design->micronToDBU(0.1) / site->getWidth());
+                    auto max_disp_y =
+                        int(_ord_design->micronToDBU(0.1) / site->getHeight());
+                    _sta = ord::OpenRoad::openRoad()->getSta();
+                    _ord_design->getOpendp()->detailedPlacement(
+                        max_disp_x, max_disp_y, "", false);
+                    // Global Route and Estimate Global Route RC
+                    double begin = cpuTime();
+                    auto db_tech = _ord_design->getTech()->getDB()->getTech();
+                    auto signal_low_layer =
+                        db_tech->findLayer("M1")->getRoutingLevel();
+                    auto signal_high_layer =
+                        db_tech->findLayer("M7")->getRoutingLevel();
+                    auto clk_low_layer =
+                        db_tech->findLayer("M1")->getRoutingLevel();
+                    auto clk_high_layer =
+                        db_tech->findLayer("M7")->getRoutingLevel();
+                    auto grt = _ord_design->getGlobalRouter();
+                    grt->clear();
+                    grt->setAllowCongestion(true);
+                    grt->setMinRoutingLayer(signal_low_layer);
+                    grt->setMaxRoutingLayer(signal_high_layer);
+                    grt->setMinLayerForClock(clk_low_layer);
+                    grt->setMaxLayerForClock(clk_high_layer);
+                    grt->setAdjustment(0.5);
+                    grt->setVerbose(true);
+                    printf("Run Global Routing...\n");
+                    grt->globalRoute(false);
+                    printf("Run Global Routing Time %f\n", cpuTime() - begin);
+                    begin = cpuTime();
+                    _ord_design->evalTclString(
+                        "estimate_parasitics -global_routing");
+                    _sta->findRequireds();
+                    _ckt->readSpef_opensta(_sta);
+                    int corner = 0;
+                    for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
+                        g_nets[corner][i].cap =
+                            g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
+
+                        if(VERBOSE > 4)
+                            cout << "CORNER " << corner << " NETS --- " << i
+                                 << " " << g_nets[corner][i].name << endl;
+
+                        vector< SUB_NODE > *subNodeVecPtr =
+                            &g_nets[corner][i].subNodeVec;
+                        std::vector< SUB_NODE >::iterator subNodeIter;
+                        for(subNodeIter = subNodeVecPtr->begin();
+                            subNodeIter != subNodeVecPtr->end();
+                            ++subNodeIter) {
+                            subNodeIter->cap =
+                                subNodeIter->cap;  // * 1e-12 / _sizer->cap_unit
+                            for(unsigned int j = 0; j < subNodeIter->adj.size();
+                                ++j) {
+                                subNodeIter->res[j] =
+                                    subNodeIter->res[j] / this->res_unit;
+                            }
+                        }
+                    }
+                    InitNets();
+                }
                 // pthread_create(&threads[j], NULL, (),
                 //                ;
                 cout << "THREAD CREATE DONE!! " << j << endl;
@@ -6881,7 +6974,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     best_cells_local.resize(numcells);
     // best_failed_cells_local.resize(numcells);
 
-    pthread_mutex_lock(&mutex1);
+    // pthread_mutex_lock(&mutex1);
 
     T = PTimer[thread_id];
 
@@ -6933,7 +7026,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
         cout << "(" << thread_id << ") COPY BEST SO FAR CELLS DONE" << endl;
     }
 
-    pthread_mutex_unlock(&mutex1);
+    // pthread_mutex_unlock(&mutex1);
 
     for(unsigned view = 0; view < numViews; ++view) {
         // cout << "WORST SLACK (" << thread_id << "-" << view << ") "
@@ -6990,7 +7083,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     best_score = best_score_local;
     SizeOut(outputDir);
     printf("Initial Score: %f\n", best_score_local);
-    pthread_mutex_lock(&mutex1);
+    // pthread_mutex_lock(&mutex1);
     if(localSFlist[thread_id] == PRFT_PTNUM) {
         localSFlist[thread_id] = SFlist[thread_id];
         localAlphalist[thread_id] = alphalist[thread_id];
@@ -7000,7 +7093,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
         localSFlist[thread_id] = SFlist[div_index];
         localAlphalist[thread_id] = alphalist[div_index];
     }
-    pthread_mutex_unlock(&mutex1);
+    // pthread_mutex_unlock(&mutex1);
 
     TMR = cpuTime();
 
@@ -7342,9 +7435,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             best_score_local = score;
                             best_alpha_local = local_alpha;
                             string temp = (string)opt_str + "_best_infeasible";
-                            pthread_mutex_lock(&mutex1);
+                            // pthread_mutex_lock(&mutex1);
                             SizeOut(outputDir);
-                            pthread_mutex_unlock(&mutex1);
+                            // pthread_mutex_unlock(&mutex1);
                             for(unsigned j = 0; j < numcells; ++j) {
                                 best_cells_local[j] = cells[j];
                             }
@@ -7501,9 +7594,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                  << best_score << "/" << best_score_local << endl;
             best_score = best_score_local;
             string temp = (string)opt_str + "_best_infeasible";
-            pthread_mutex_lock(&mutex1);
+            // pthread_mutex_lock(&mutex1);
             SizeOut(outputDir);
-            pthread_mutex_unlock(&mutex1);
+            // pthread_mutex_unlock(&mutex1);
             for(unsigned j = 0; j < numcells; ++j) {
                 best_cells_poweropt[j] = best_cells_local[j];
             }
@@ -7564,7 +7657,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     // WIRE_METRIC != ND
     // FIXME:
     if(false) {
-        pthread_mutex_lock(&mutex1);
+        // pthread_mutex_lock(&mutex1);
 
         cout << "(" << thread_id << ") uses SF" << localSFlist[thread_id]
              << endl;
@@ -7665,7 +7758,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
         }
 #endif
-        pthread_mutex_unlock(&mutex1);
+        // pthread_mutex_unlock(&mutex1);
     }
     cout << "start delete" << endl;
     delete[] cells;
@@ -10412,9 +10505,9 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 nets[i][j] = g_nets[i][j];
         }
 
-        pthread_mutex_lock(&mutex1);
+        // pthread_mutex_lock(&mutex1);
         if(search_queue.empty()) {
-            pthread_mutex_unlock(&mutex1);
+            // pthread_mutex_unlock(&mutex1);
             break;
         }
         double ratio = (search_queue.front()).first;
@@ -10482,7 +10575,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
             }
         }
 
-        pthread_mutex_unlock(&mutex1);
+        // pthread_mutex_unlock(&mutex1);
 
         if(FIX_CAP) {
             FwdFixCapViolation();
@@ -10493,9 +10586,9 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         CallTimer();
         oneTMR = (cpuTime() - oneTMR);
         CorrelatePT(thread_id);
-        pthread_mutex_lock(&mutex1);
+        // pthread_mutex_lock(&mutex1);
         CalcStats(thread_id);
-        pthread_mutex_unlock(&mutex1);
+        // pthread_mutex_unlock(&mutex1);
 
         cout << "Single timing simulation runtime = " << oneTMR << endl;
         cout << "Violations with minimum sizes = " << tot_violations << endl;
@@ -10689,15 +10782,15 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
 
         if(postGTR) {
             // mutex lock is applied. Update the best soluation if necessary
-            pthread_mutex_lock(&mutex1);
+            // pthread_mutex_lock(&mutex1);
             if(skew_violation == 0.) {
                 gtr2_feasible = true;
             }
-            pthread_mutex_unlock(&mutex1);
+            // pthread_mutex_unlock(&mutex1);
         }
 
         // mutex lock is applied. Update the best soluation if necessary
-        pthread_mutex_lock(&mutex1);
+        // pthread_mutex_lock(&mutex1);
         if(skew_violation == 0.) {
             feasible = true;
             if(score < best_score) {
@@ -10746,7 +10839,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                     }
             }
         }
-        pthread_mutex_unlock(&mutex1);
+        // pthread_mutex_unlock(&mutex1);
 
         if(skew_violation == 0.)
             cout << "Feasible power = " << power << " uW ( @ X = " << ratio
