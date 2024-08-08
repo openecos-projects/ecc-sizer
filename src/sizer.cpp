@@ -46,7 +46,7 @@
 #include <cstdlib>
 #include <sstream>
 #include "ckt.h"
-#include "db.h"
+#include "odb/db.h"
 #include "ord/ordMain.hh"
 #include "utils.h"
 #include <iostream>
@@ -678,6 +678,9 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
        main_lib_cell_id < main_lib_cell_tables[corner].size()) {
         lib_cell_table = main_lib_cell_tables[corner][main_lib_cell_id];
     }
+    else {
+        printf("Error: main_lib_cell_id can't find %d\n", main_lib_cell_id);
+    }
 
     if(lib_cell_table == NULL) {
         return NULL;
@@ -691,6 +694,10 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
             return main_lib_cell_tables[corner][main_lib_cell_id]
                 ->lib_vt_size_table[size][vtype];
         }
+    }
+    else {
+        printf("Error: Cell size %d /vtype %d can't find, cell main_lib_cell_id %d\n",
+               size, vtype, main_lib_cell_id);
     }
     return NULL;
 }
@@ -1562,7 +1569,7 @@ void Sizer::UpdatePTSizes(unsigned option) {
         auto corner = this->_ckt->_ord_timing->getCorners()[0];
         for(unsigned i = 0; i < numcells; i++) {
             LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
-            if(lib_cell_info == NULL)
+            if(lib_cell_info == NULL || cells[i].isDontTouch)
                 continue;
             if(!PT_FULL_UPDATE && !cells[i].isChanged)
                 continue;
@@ -2585,12 +2592,14 @@ bool Sizer::SizeIn(string path) {
         string cellName = sizes[i].first;
         string cellType = sizes[i].second;
         cells[cell2id[cellName]].type = cellType;
-        LibCellInfo *lib_cell_info = getLibCellInfo(cells[cell2id[cellName]]);
+        unordered_map< string, LibCellInfo >::iterator temp_iter =
+            libs[0].find(cellType);
+        LibCellInfo *lib_cell_info = &temp_iter->second;
         if(lib_cell_info != NULL) {
             cells[cell2id[cellName]].c_vtype = lib_cell_info->c_vtype;
             cells[cell2id[cellName]].c_size = lib_cell_info->c_size;
         }
-        cells[cell2id[cellName]].isChanged++;
+        cells[cell2id[cellName]].isChanged = 1;
     }
     return true;
 }
@@ -3127,11 +3136,12 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
             // upsizing target cell
             while(IsTranVio(pins[view][curpin])) {
+                if(cells[cur].isDontTouch)
+                    break;
                 if(r_type(cells[cur]) == numVt - 1 && isMax(cells[cur])) {
                     break;
                 }
-                if(cells[cur].isDontTouch)
-                    break;
+
                 double delta_impact_size = 0.0, delta_impact_type = 0.0;
                 double prev_tran =
                     max(pins[view][curpin].rtran, pins[view][curpin].ftran);
@@ -6779,7 +6789,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     int optCnt = 0;
     int stopCnt = 0;
     double skew_violation_prev;
-    while(skew_violation > clk_period[worst_corner] * 0.5) {
+    while(skew_violation > clk_period[worst_corner] * 0.1) {
         skew_violation_prev = skew_violation;
         cout << "[PostWNSOpt] without correlation # " << optCnt++ << endl;
         if(FIX_CAP) {

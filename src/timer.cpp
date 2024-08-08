@@ -748,6 +748,7 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
             double r_rtran = 0.0, r_ftran = 0.0;
             unsigned pin_index = cell.outpins[i];
             if(!pins[view][pin_index].bb_checked_tran) {
+                cout << __FILE__ << ":" << __LINE__ << endl;
                 T[view]->getPinTran(r_rtran, r_ftran,
                                     getFullPinName(pins[view][pin_index]));
                 pins[view][pin_index].bb_checked_tran = true;
@@ -811,9 +812,15 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                 if(arc_error) {
                     unsigned pin_index = cell.outpins[i];
                     if(!pins[view][pin_index].bb_checked_tran) {
+                        cout << "timing arc error : " << arc->fromPin
+                             << " != " << pins[view][curpin].name << endl;
+                        cout << "LOOKUP ST -- lib cell " << cell.name << " "
+                             << cell.type << " " << cur->name << endl;
+                        cout << __FILE__ << ":" << __LINE__ << endl;
                         T[view]->getPinTran(
                             r_rtran, r_ftran,
                             getFullPinName(pins[view][pin_index]));
+                        assert(0);
                         pins[view][pin_index].bb_checked_tran = true;
                     }
                     else {
@@ -3888,7 +3895,10 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
            !(pins[view][pin.id].name == clk_port[mode])) {
             double r_tran = 0.0, f_tran = 0.0;
             if(!pin.bb_checked_tran) {
-                T[view]->getPinTran(r_tran, f_tran, getFullPinName(pin));
+                // cout << __FILE__ << ":" << __LINE__ << endl;
+                r_tran = inrtran[mode][pin.id];
+                f_tran = inftran[mode][pin.id];
+                // T[view]->getPinTran(r_tran, f_tran, getFullPinName(pin));
                 pin.ftran = r_tran;
                 pin.rtran = f_tran;
                 pin.bb_checked_tran = true;
@@ -3966,6 +3976,8 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
             double r_AAT = 0.0, f_AAT = 0.0;
             double rtran = 0.0, ftran = 0.0;
             if(!pin.bb_checked_aat) {
+                printf("ERROR cell %s not have master %s\n",
+                       cells[cur].name.c_str(), cells[cur].type.c_str());
                 T[view]->getPinArrival(r_AAT, f_AAT, getFullPinName(pin));
 
                 pin.rAAT = r_AAT;
@@ -3973,6 +3985,7 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
                 pin.bb_checked_aat = true;
             }
             if(!pin.bb_checked_tran) {
+                cout << __FILE__ << ":" << __LINE__ << endl;
                 T[view]->getPinTran(rtran, ftran, getFullPinName(pin));
                 pin.ftran = ftran;
                 pin.rtran = rtran;
@@ -4054,6 +4067,8 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
         if(lib_cell == NULL || cells[cur].inpins.size() == 0) {
             double r_AAT = 0.0, f_AAT = 0.0;
             if(!pin.bb_checked_aat) {
+                printf("ERROR cell %s inpins.size() %d\n",
+                       cells[cur].name.c_str(), cells[cur].inpins.size());
                 T[view]->getPinArrival(r_AAT, f_AAT, getFullPinName(pin));
 
                 pin.rAAT = r_AAT;
@@ -4306,8 +4321,8 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         if(outdelays[mode].find(pin.name) != outdelays[mode].end()) {
             fo_delay = outdelays[mode][pin.name];
         }
-        pin.rRAT = clk_period[mode] - fo_delay;
-        pin.fRAT = clk_period[mode] - fo_delay;
+        pin.rRAT = 9999.99;  // clk_period[mode] - fo_delay
+        pin.fRAT = 9999.99;  // clk_period[mode] - fo_delay
 
         if(fipin != UINT_MAX) {
             timing_lookup wire_delay = get_wire_delay(pin.net, pin.id, view);
@@ -4465,6 +4480,8 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
                 double r_AAT = 0.0, f_AAT = 0.0;
                 double r_slk = 0.0, f_slk = 0.0;
                 if(!pins[view][fipin].bb_checked_rat) {
+                    printf("Error: RAT is inf!!!!, pin name %s\n",
+                           getFullPinName(pins[view][fipin]).c_str());
                     T[view]->getPinArrival(r_AAT, f_AAT,
                                            getFullPinName(pins[view][fipin]));
                     T[view]->getPinSlack(r_slk, f_slk,

@@ -47,6 +47,7 @@
 #include "analyze_timing.h"
 #include <stdlib.h>
 #include <sys/time.h>
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -1026,6 +1027,7 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
         _sizer->_ckt->_ord_design->getBlock()->findITerm(pinName.c_str());
     sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
     sta::dbNetwork *network = sta->getDbNetwork();
+    // assert(0);
     // sta::Port *port = network->dbToSta(pin_->getMTerm());
     double r_att =
         _sizer->_ckt->_ord_timing->getPinArrival(pin_, ord::Timing::Rise);

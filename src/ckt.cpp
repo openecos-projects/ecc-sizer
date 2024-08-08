@@ -207,6 +207,11 @@ void Circuit::Parser(string benchmark) {
             }
             for(auto& [id, pin] : lib_cell_info->pins) {
                 auto m_term = db_master->findMTerm(pin.name.c_str());
+                if(m_term == nullptr) {
+                    string new_pin_name = pin.name + "[0]";
+                    m_term = db_master->findMTerm(new_pin_name.c_str());
+                }
+                assert(m_term);
                 sta::dbSta* sta = _ord_timing->getSta();
                 sta::dbNetwork* network = sta->getDbNetwork();
                 sta::Port* port = network->dbToSta(m_term);
@@ -465,6 +470,9 @@ void Circuit::assignLibPinId() {
             pin->fdelay.resize(cell.outpins.size(), 0.0);
             pin->bb_checked_delay.resize(cell.outpins.size(), false);
             if(lib_cell_info == NULL) {
+                cout << "Error: cell " << cell.type << " not found in lib"
+                     << endl;
+                assert(0);
                 continue;
             }
             if((temp_iter = lib_cell_info->lib_pin2id_map.find(pin->name)) !=
@@ -475,6 +483,18 @@ void Circuit::assignLibPinId() {
                 // cout << "LIBPIN " << cell.name << "--" << pin->name <<"/" <<
                 // pin->lib_pin << endl;
                 // cout << lib_cell_info->pins[pin->lib_pin] ;
+            }
+            else if(pin->name.find("]") != std::string::npos) {
+                string new_pin_name = pin->name.substr(0, pin->name.find("["));
+                temp_iter = lib_cell_info->lib_pin2id_map.find(new_pin_name);
+                pin->lib_pin = temp_iter->second;
+                pin->cap = lib_cell_info->pins[pin->lib_pin].capacitance;
+                // assert(pin->cap < 1e31);
+            }
+            else {
+                cout << "Error: pin " << pin->name << " not found in cell "
+                     << cell.type << endl;
+                assert(0);
             }
         }
         else {
@@ -1532,11 +1552,13 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
                               LibInfo lib) {
     std::vector< string > tokens;
 
-    bool flag;
+    bool flag = false;
 
     LibTableTempl& templ = lib.templs[lut.templ];
     // cout << "Table template name " << templ.name << endl;
-
+    // if(!templ.loadFirst && templ.tranFirst) {
+    //     printf("asdasda");
+    // }
     // Read indices
     unsigned size1 = 0, size2 = 0, index_num = 0;
 
@@ -1558,6 +1580,10 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
                 for(unsigned i = 0; i < tokens.size() - 1; ++i) {
                     lut.loadIndices[i] = atof(tokens[i + 1].c_str());
                 }
+            }
+            else {
+                printf("Error: LUT template is not defined correctly\n");
+                // exit(0);
             }
             ++index_num;
         }
@@ -1676,7 +1702,7 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
         }
     }
     // cout << "Load index size = " << lut.loadIndices.size();
-    // cout << " Tran index size = " << lut.transitionIndices.size() << endl;
+    // cout << "Tran index size = " << lut.transitionIndices.size() << endl;
     // cout << "LUT size = " << lut.tableVals.size() << endl;
 }
 
@@ -2498,10 +2524,12 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
             tmplib.cnt2 = 1;
             tmplib.cnt3 = 1;
 
+            if(cell.name == "sram_asap7_32x256_1rw" && pinName == "rd_out") {
+                printf("hhh");
+            }
             // Read timing info
             fromPin = _begin_read_timing_info(is, pinName, tmplib, lib);
             // cout << "fromPin: " << fromPin << " toPin: " << pinName << endl;
-
             if(fromPin != "") {
                 // JLPWR
                 if(tmplib.timingSense == '-') {
@@ -2560,6 +2588,10 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
                 }
                 // cout << "Read " << cell.timingArcs.size() << " timing arcs"
                 // << endl;
+            }
+            else {
+                printf("Pin name %s\n", pinName.c_str());
+                assert(0);
             }
             --check;
         }
@@ -2691,7 +2723,8 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
         else if(tokens.size() == 2 && tokens[0] == "next_state") {
             data_pin = tokens[1];
         }
-        else if(tokens.size() == 2 && tokens[0] == "pin") {
+        else if(tokens.size() == 2 &&
+                (tokens[0] == "pin" || tokens[0] == "bus")) {
             LibPinInfo pin;
             _begin_read_pin_info(is, tokens[1], pin, cell, lib);
             if(pin.maxCapacitance == std::numeric_limits< double >::max()) {
