@@ -1,0 +1,16 @@
+apt-get install bioson felx
+apt-get install cmake
+apt-get install swig
+apt-get install swig
+apt-get install libspdlog-dev
+apt-get install bioson felx
+apt-get install bioson felx
+apt-get install bison flex
+apt-get install libeigen3-dev
+apt-get install liblemon-dev
+apt-get install libortools-dev
+cp -r bin/* /usr/local/bin/
+cp -r include/* /usr/local/include/
+cp -r lib/* /usr/local/lib/
+cp -r share/* /usr/local/share/
+apt-get install tclsh

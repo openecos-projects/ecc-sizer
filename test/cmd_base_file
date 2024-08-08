@@ -32,6 +32,6 @@
 -verbose 1
 -asap7
 # -gtr_input /home/zhaoxueyan/code/gpu_gate_sizing/build/NV_NVDLA_partition_m.prft.sizes
-# -test ALL_TEST
+-test ALL_TEST
 # -dont_use_lis
 

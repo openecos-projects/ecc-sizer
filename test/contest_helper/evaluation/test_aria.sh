@@ -6,8 +6,8 @@ DESIGN_NAME=ariane136
 LEF_PATH=${cwd}/benchmark/iccad24/platform/ASAP7/lef/
 LIB_PATH=${cwd}/benchmark/iccad24/platform/ASAP7/lib/
 DESIGN_PATH=${cwd}/benchmark/iccad24/design/
-FILE_PATH=${cwd}/test/${DESIGN_NAME}/${DESIGN_NAME}.0_best_infeasible.sizes
-# FILE_PATH=${cwd}/build/NV_NVDLA_partition_m.0_best_infeasible.sizes
+# FILE_PATH=${cwd}/test/test2/${DESIGN_NAME}/${DESIGN_NAME}.final.sizes
+FILE_PATH=${cwd}/build/${DESIGN_NAME}.size
 
 ${OPENROAD_EXE} -python evaluation.py -exit --file_path ${FILE_PATH} \
                 --design_name ${DESIGN_NAME} --lefPath ${LEF_PATH} \

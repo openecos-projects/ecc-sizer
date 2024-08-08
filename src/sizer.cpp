@@ -696,8 +696,10 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
         }
     }
     else {
-        printf("Error: Cell size %d /vtype %d can't find, cell main_lib_cell_id %d\n",
-               size, vtype, main_lib_cell_id);
+        printf(
+            "Error: Cell size %d /vtype %d can't find, cell main_lib_cell_id "
+            "%d\n",
+            size, vtype, main_lib_cell_id);
     }
     return NULL;
 }
@@ -6741,7 +6743,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         // double vio1, power1 = 0.0;
         // double vio = 0.0;
         // vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
-#if 1
+#if 0
         double init_power = 0.0;
         init_power = init_tot[0];
         if(skew_violation != 0 && -skew_violation <= -slack_margin) {
@@ -7262,7 +7264,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
 
                         all_change += change;
-                        // change = 0;
                         // change +=
                         //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
                         //            thread_id, TIMING_OPT_GB, view);
@@ -7276,6 +7277,20 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             CorrelatePT((unsigned)thread_id, view);
                             CalcStats((unsigned)thread_id, true,
                                       "AFTER_TIM_REC", view);
+                        }
+                        change = 0;
+                        if(time_recovery_iter == max_time_recovery_iter - 1) {
+                            if(FIX_SLEW) {
+                                change += FwdFixSlewViolation(1.0, view);
+                                if(change > 0) {
+                                    CallTimer(view);
+                                    CorrelatePT((unsigned)thread_id, view);
+                                    CalcStats((unsigned)thread_id, true,
+                                              "AFTER_FIX_SLEW", view);
+                                }
+                                all_change += change;
+                                change = 0;
+                            }
                         }
 
                         double wns;

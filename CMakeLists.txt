@@ -9,21 +9,21 @@ set(CMAKE_CXX_STANDARD 17)
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp -static-libgcc -static-libstdc++ -static -lpthread -lm -lgomp -finline-functions -fomit-frame-pointer -fno-operator-names -march=x86-64 -msse4.2 -mfpmath=sse -ffast-math -fexcess-precision=fast -ffinite-math-only")
 
 # set(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3") # -DNDEBUG
+set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3") # -DNDEBUG -DNDEBUG # -DNDEBUG
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O3")
 set(CMAKE_VERBOSE_MAKEFILEON ON)
 
 # -fstandalone-debug
 # set(CMAKE_BUILD_TYPE Debug) -O0 -Og -fstandalone-debug
-set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -Wall -Wextra") # -Wl --start-group
-set(CMAKE_C_FLAGS_DEBUG  "${CMAKE_C_FLAGS} -O0 -g -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O2 -g -Wall -Wextra") # -Wl --start-group
+set(CMAKE_C_FLAGS_DEBUG  "${CMAKE_C_FLAGS} -O2 -g -Wall -Wextra")
 add_compile_options("-D_GLIBCXX_USE_CXX11_ABI=1")
 set(OpenROAD_DIR ${CMAKE_SOURCE_DIR}/thirdparty/OpenROAD)
 set(iEDA_DIR ${CMAKE_SOURCE_DIR}/thirdparty/iEDA)
 set(taskflow_DIR ${CMAKE_SOURCE_DIR}/thirdparty/taskflow)
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build)
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build)
 # include_directories(${CMAKE_SOURCE_DIR}/src)
 # include_directories(${CMAKE_SOURCE_DIR}/thirdparty/OpenROAD/include)
 

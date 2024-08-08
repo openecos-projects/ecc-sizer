@@ -6,7 +6,7 @@ DESIGN_NAME=mempool_tile_wrap
 LEF_PATH=${cwd}/benchmark/iccad24/platform/ASAP7/lef/
 LIB_PATH=${cwd}/benchmark/iccad24/platform/ASAP7/lib/
 DESIGN_PATH=${cwd}/benchmark/iccad24/design/
-FILE_PATH=/home/zhaoxueyan/code/gpu_gate_sizing/build/mempool_tile_wrap.init_sizes.sizes
+FILE_PATH=${cwd}/test/test2/${DESIGN_NAME}/${DESIGN_NAME}.final.sizes
 # FILE_PATH=${cwd}/build/NV_NVDLA_partition_m.0_best_infeasible.sizes
 
 ${OPENROAD_EXE} -python evaluation.py -exit --file_path ${FILE_PATH} \
