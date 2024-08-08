@@ -45,9 +45,10 @@ def swap_libcell(filePath: str, design: Design):
 
   # Start examine the correctness of the result
   db = ord.get_db()
-  for inst in design.getBlock().getInsts():
-    if inst.getName() not in changeTypeDict:
-      print("Error: Instance \"%s\" is not ins the output .size file"%inst.getName())
+  for inst_name in changeTypeDict:
+    inst = design.getBlock().findInst(inst_name)
+    if inst == None:
+      print("Error: Instance \"%s\" is not in the design"%inst.getName())
       return False
     inst.swapMaster(db.findMaster(changeTypeDict[inst.getName()]))
   return True
