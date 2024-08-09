@@ -733,6 +733,7 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
 
         pt_time += cpuTime() - begin;
         cout << pinName << " " << riseSlack << " " << fallSlack << endl;
+        return ;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
 

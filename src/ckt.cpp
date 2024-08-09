@@ -3189,6 +3189,13 @@ void Circuit::init_opensta() {
     auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
     printf("Legalizing...\n");
+    for(auto db_inst : block->getInsts()) {
+        int inst_x, inst_y;
+        db_inst->getLocation(inst_x, inst_y);
+        old_localtion_x.push_back(inst_x);
+        old_localtion_y.push_back(inst_y);
+    }
+    // _ord_design->getOpendp()->VERBOSE
     _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
                                                 false);
     // Global Route and Estimate Global Route RC

@@ -3996,6 +3996,9 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
                 max(fabs(prv_rtran - pin.rtran), fabs(prv_ftran - pin.ftran));
             double diff_AAT =
                 max(fabs(prv_rAAT - pin.rAAT), fabs(prv_fAAT - pin.fAAT));
+            if(pin.rslk > 8000 || pin.fslk > 8000) {
+                return false;
+            }
             if(diff_tran > margin || diff_AAT > margin)
                 return true;
             else
@@ -4259,6 +4262,9 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
 
     //    cout << "PIN TRAN / AAT CHANGE "
     //        << diff_tran << " " << diff_AAT << " " << margin << endl;
+    if(pin.rslk > 8000 || pin.fslk > 8000) {
+        return false;
+    }
     if(diff_tran > margin || diff_AAT > margin)
         return true;
     else
@@ -4545,7 +4551,9 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
     else {
         diff_RAT = max(fabs(prv_rRAT - pin.rRAT), fabs(prv_fRAT - pin.fRAT));
     }
-
+    if(pin.rRAT > 8000 || pin.fRAT > 8000) {
+        return false;
+    }
     //    cout << "PIN RAT CHANGE " << diff_RAT << " " << margin << endl;
     if(diff_RAT > margin)
         return true;
