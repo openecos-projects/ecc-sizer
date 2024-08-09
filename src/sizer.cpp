@@ -42,6 +42,7 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -221,7 +222,7 @@ double EXP_IN = 0.0;
 unsigned MIN_IA_MODE = 0;
 unsigned tabuNum = 0;
 int RATIO2 = 30;
-
+int ATTACK_RATIO = 30;
 #ifdef ALPHA_BIN
 bool BACKGROUND = true;
 #else
@@ -1135,6 +1136,7 @@ void Sizer::Parser() {
             g_nets[j].push_back(net);
         }
     }
+
     /*
     for(unsigned i=0 ; i<_ckt->numnets ; i++) {
 
@@ -1179,6 +1181,22 @@ void Sizer::Parser() {
             int pin_id = PIs[i];
             this->g_pins[mode][pin_id].rAAT = this->inrdelays[mode][pin_id];
             this->g_pins[mode][pin_id].fAAT = this->infdelays[mode][pin_id];
+        }
+    }
+    for(unsigned j = 0; j < numViews; j++) {
+        for(unsigned i = 0; i < _ckt->numpins; i++) {
+            PIN pin = _ckt->g_pins[i];
+            int net_id = pin.net;
+            if(pin.spef_pin == UINT_MAX && net_id != UINT_MAX &&
+               infdelays[0].count(pin.id) == 0 && _pos_set.count(pin.id) == 0) {
+                // outdelays has bug
+                NET net = _ckt->g_nets[j][net_id];
+                if(!net.is_clock) {
+                    printf(
+                        "Error: pin %s has no spef pin, pin's net name is %s\n",
+                        getFullPinName(pin).c_str(), net.name.c_str());
+                }
+            }
         }
     }
     cell2id = _ckt->cell2id;
@@ -4399,7 +4417,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
         // if no cells with a positive gain, simply insert top x% negative slack
         // cells.
         bool uniform_flag = false;
-        if(targets.size() == 0 && STAGE == GLOBAL) {
+        if(false) {
             uniform_flag = true;
 
             for(unsigned i = 0; i < numcells; i++) {
@@ -6707,28 +6725,41 @@ void Sizer::Parallel_Sizer_Launcher() {
                     int corner = 0;
                     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
                         g_nets[corner][i].cap =
-                            g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
+                            _ckt->g_nets[corner][i]
+                                .cap;  //* 1e-12 / _sizer->cap_unit
 
                         if(VERBOSE > 4)
                             cout << "CORNER " << corner << " NETS --- " << i
                                  << " " << g_nets[corner][i].name << endl;
 
-                        vector< SUB_NODE > *subNodeVecPtr =
-                            &g_nets[corner][i].subNodeVec;
-                        std::vector< SUB_NODE >::iterator subNodeIter;
-                        for(subNodeIter = subNodeVecPtr->begin();
-                            subNodeIter != subNodeVecPtr->end();
-                            ++subNodeIter) {
-                            subNodeIter->cap =
-                                subNodeIter->cap;  // * 1e-12 / _sizer->cap_unit
-                            for(unsigned int j = 0; j < subNodeIter->adj.size();
-                                ++j) {
-                                subNodeIter->res[j] =
-                                    subNodeIter->res[j] / this->res_unit;
-                            }
-                        }
+                        g_nets[corner][i].subNodeVec =
+                            _ckt->g_nets[corner][i].subNodeVec;
+                        g_nets[corner][i].subNodeResVec =
+                            _ckt->g_nets[corner][i].subNodeResVec;
+                        // vector< SUB_NODE > *subNodeVecPtr =
+                        //     &g_nets[corner][i].subNodeVec;
+                        // std::vector< SUB_NODE >::iterator subNodeIter;
+
+                        // for(subNodeIter = subNodeVecPtr->begin();
+                        //     subNodeIter != subNodeVecPtr->end();
+                        //     ++subNodeIter) {
+                        //     subNodeIter->cap =
+                        //         subNodeIter->cap;  // * 1e-12 /
+                        //         _sizer->cap_unit
+                        //     for(unsigned int j = 0; j <
+                        //     subNodeIter->adj.size();
+                        //         ++j) {
+                        //         subNodeIter->res[j] =
+                        //             subNodeIter->res[j] / this->res_unit;
+                        //     }
+                        // }
                     }
                     InitNets();
+                    max_time_recovery_iter -= 4;
+                    max_time_recovery_iter =
+                        std::max(max_time_recovery_iter, 1);
+                    ATTACK_RATIO -= 20;
+                    ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
                 }
                 // pthread_create(&threads[j], NULL, (),
                 //                ;
@@ -7243,7 +7274,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
             all_feasible = false;
 
-            unsigned max_time_recovery_iter = 7;
+            // unsigned max_time_recovery_iter = 7;
             // Timing recovery
             for(unsigned time_recovery_iter = 0;
                 time_recovery_iter < max_time_recovery_iter;
@@ -7351,9 +7382,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             CountNPaths(view);
 
                         if(FIX_GLOBAL) {
-                            change +=
-                                Attack(i + 1, GLOBAL, 30, 1.0, local_alpha, 1.0,
-                                       thread_id, TIMING_OPT_GB, view);
+                            change += Attack(i + 1, GLOBAL, ATTACK_RATIO, 1.0,
+                                             local_alpha, 1.0, thread_id,
+                                             TIMING_OPT_GB, view);
                         }
 
                         all_change += change;
@@ -11007,8 +11038,8 @@ int main(int argc, char **argv) {
             exit(0);
         }
         else if(TEST_MODE == "ALL_TEST") {
-            _sizer.AllCorrTest();
-            exit(0);
+            //   _sizer.AllCorrTest();
+            //   exit(0);
         }
         else if(TEST_MODE == "ALL_STA_TEST") {
             _sizer.AllCorrSTATest();

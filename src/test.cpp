@@ -1094,7 +1094,7 @@ void Sizer::TimerOffsetTest(unsigned view) {
 }
 
 void Sizer::WireDelayTest(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     cout << "[Test] Wire delay test..." << endl;
 
     cells = new CELL[numcells];
@@ -1221,7 +1221,7 @@ void Sizer::WireDelayTest(unsigned view) {
 }
 
 void Sizer::ReportWireTiming(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
 
     cout << "------------------------------------------------------------"
          << endl;
@@ -1702,7 +1702,7 @@ void Sizer::ReportTiming(unsigned view) {
 
 void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
                              unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
 
 #ifdef WORST_TEST
 
@@ -2502,7 +2502,7 @@ void Sizer::getCellDelaySlew(CELL& cell, vector< timing_lookup >& cell_delays,
 }
 
 void Sizer::ReportDelayAllParam(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     double begin = cpuTime();
     cout << "[Test] report all parameters ..." << endl;
@@ -2623,7 +2623,7 @@ void Sizer::ReportDelayAllParam(unsigned view) {
 
 void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
                           unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     unsigned subNodeID = 0;
@@ -2791,7 +2791,7 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
 }
 
 void Sizer::ReportDeltaTimingAll(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     bool ifDelete = true;
 
@@ -2927,7 +2927,7 @@ void Sizer::ReportDeltaTimingAll(unsigned view) {
     ExitPTimer();
 }
 void Sizer::ReportDeltaCellTranTimingAll(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     bool ifDelete = true;
 
@@ -3020,7 +3020,7 @@ void Sizer::ReportDeltaCellTranTimingAll(unsigned view) {
 
 void Sizer::DeltaCellTest(unsigned netID, unsigned sinkPinID, int step,
                           bool isSize, bool isDrv, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     unsigned outpinID = 0;
@@ -3210,7 +3210,7 @@ void Sizer::DeltaCellTest(unsigned netID, unsigned sinkPinID, int step,
 
 void Sizer::DeltaCellTranTest(unsigned cellID, int step, bool isSize,
                               unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     string prefix;
@@ -3283,7 +3283,7 @@ void Sizer::DeltaCellTranTest(unsigned cellID, int step, bool isSize,
 }
 
 void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
     vector< unsigned > changed_net_list;
@@ -3862,7 +3862,7 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
 }
 
 void Sizer::ReportDeltaTiming(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     bool ifDelete = true;
 
@@ -3922,7 +3922,7 @@ void Sizer::ReportDeltaTiming(unsigned view) {
 }
 
 void Sizer::DelaySearchTest(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++)
@@ -5153,7 +5153,7 @@ void Sizer::HLTest() {
 }
 
 void Sizer::ReportCellTran(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++)
@@ -5254,7 +5254,7 @@ void Sizer::ReportCellTran(unsigned view) {
 }
 
 void Sizer::ReportCellTran(unsigned cellID, string prefix, unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     double max_rise_tran, max_fall_tran;
     max_rise_tran = max_fall_tran = 0.0;

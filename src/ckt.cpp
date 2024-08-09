@@ -410,8 +410,8 @@ void Circuit::Parser(string benchmark) {
             node2id.clear();
         }
         for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
-            g_nets[corner][i].cap =
-                g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
+            // g_nets[corner][i].cap =
+            //     g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
 
             if(VERBOSE > 4)
                 cout << "CORNER " << corner << " NETS --- " << i << " "
@@ -419,15 +419,15 @@ void Circuit::Parser(string benchmark) {
 
             vector< SUB_NODE >* subNodeVecPtr = &g_nets[corner][i].subNodeVec;
             std::vector< SUB_NODE >::iterator subNodeIter;
-            for(subNodeIter = subNodeVecPtr->begin();
-                subNodeIter != subNodeVecPtr->end(); ++subNodeIter) {
-                subNodeIter->cap =
-                    subNodeIter->cap;  // * 1e-12 / _sizer->cap_unit
-                for(unsigned int j = 0; j < subNodeIter->adj.size(); ++j) {
-                    subNodeIter->res[j] =
-                        subNodeIter->res[j] / _sizer->res_unit;
-                }
-            }
+            // for(subNodeIter = subNodeVecPtr->begin();
+            //     subNodeIter != subNodeVecPtr->end(); ++subNodeIter) {
+            //     subNodeIter->cap =
+            //         subNodeIter->cap;  // * 1e-12 / _sizer->cap_unit
+            //     for(unsigned int j = 0; j < subNodeIter->adj.size(); ++j) {
+            //         subNodeIter->res[j] =
+            //             subNodeIter->res[j] ;
+            //     }
+            // }
             list< string > pin_list2;
             for(unsigned j = 0; j < g_nets[corner][i].outpins.size(); ++j) {
                 pin_list2.push_back(
@@ -451,7 +451,7 @@ void Circuit::Parser(string benchmark) {
 // pankit 01/25/2013 - assign lib_pin_id for a pin (doesnt change even when type
 // or size id changes)
 //
-//
+// need to be accelerate
 void Circuit::assignLibPinId() {
     unsigned corner = 0;
     vector< PIN >::iterator pin_iter;
@@ -3648,6 +3648,10 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
         // double t_cap = wire_cap / _sizer->cap_unit;
         // g_nets[corner][i].cap = t_cap;
+        // if(ord_net->getName() == _sizer->clk_name[0]) {
+        //    g_nets[corner][i].is_clock = true;
+        //    continue;
+        //}
         if(ord_net->getSigType() == "CLOCK") {
             g_nets[corner][i].is_clock = true;
             continue;
@@ -3768,7 +3772,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 node2id.find(toNodeNameStr);
             unsigned index1, index2;
 
-            float value = parasitics->value(paraDev);
+            float value = parasitics->value(paraDev) / _sizer->res_unit;
 
             // RES
             // RES

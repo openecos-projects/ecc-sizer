@@ -4561,6 +4561,7 @@ void Sizer::calc_res_vec(vector< SUB_NODE > &subNodeVec, NET &net) {
 
     if(VERBOSE >= 220)
         cout << "calc res vec start" << endl;
+    net.subNodeResVec.clear();
     for(unsigned i = 0; i < subNodeVec.size() - 1; i++) {
         if(VERBOSE >= 220)
             cout << i << "/" << subNodeVec.size() << endl;
@@ -4893,8 +4894,7 @@ timing_lookup Sizer::get_wire_delay(unsigned netID, unsigned sinkPinID,
                               .delay;
     }
     else {
-        if(pins[view][sinkPinID].name != "CLK" &&
-           pins[view][sinkPinID].name != "clk") {
+        if(!nets[corner][netID].is_clock) {
             printf("ERROR: wire delay error, pin name %s, net name %s\n",
                    getFullPinName(pins[view][sinkPinID]).c_str(),
                    nets[corner][netID].name.c_str());

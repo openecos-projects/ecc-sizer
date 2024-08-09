@@ -374,7 +374,7 @@ class Sizer {
     double max_neg_rslk, max_neg_fslk;
     double min_neg_rslk, min_neg_fslk;
     double max_pos_rslk, max_pos_fslk;
-
+    int max_time_recovery_iter = 7;
     double tot_violations, slew_violation, skew_violation, cap_violation,
         slew_violation_wst, cap_violation_wst, tot_pslack;
     unsigned slew_violation_cnt, skew_violation_cnt, cap_violation_cnt;
