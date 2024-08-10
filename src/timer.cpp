@@ -1500,10 +1500,10 @@ void Sizer::CalcSlack(unsigned view) {
             }
             unsigned curnet = pins[view][curinpin].net;
 
-            if(pins[view][curinpin].rRAT > 8000 ||
-               pins[view][curinpin].fRAT > 8000) {
-                printf("Error: rRAT is too large\n");
-            }
+            // if(pins[view][curinpin].rRAT > 8000 ||
+            //    pins[view][curinpin].fRAT > 8000) {
+            //     printf("Error: rRAT is too large\n");
+            // }
             if(curnet == UINT_MAX) {
                 continue;
             }
