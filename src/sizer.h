@@ -365,7 +365,7 @@ class Sizer {
     // vector< CELL > multi_start_cells_poweropt_3;
     vector< vector< CellSol > > all_cells;
     // vector< CELL > best_failed_cells;
-
+    
     double max_pt_err, l2_norm, average_error;
     int leak_iter;
 

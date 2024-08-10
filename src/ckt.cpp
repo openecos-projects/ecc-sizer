@@ -2524,12 +2524,16 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
             tmplib.cnt2 = 1;
             tmplib.cnt3 = 1;
 
-            if(cell.name == "sram_asap7_32x256_1rw" && pinName == "rd_out") {
-                printf("hhh");
-            }
             // Read timing info
             fromPin = _begin_read_timing_info(is, pinName, tmplib, lib);
             // cout << "fromPin: " << fromPin << " toPin: " << pinName << endl;
+            if(cell.name == "ASYNC_DFFHx1_ASAP7_75t_R" ){
+                printf("hhh");
+            }
+            if(cell.name == "ASYNC_DFFHx1_ASAP7_75t_R" && pinName == "RESET" &&
+               fromPin == "RESET") {
+                printf("hhh");
+            }
             if(fromPin != "") {
                 // JLPWR
                 if(tmplib.timingSense == '-') {
@@ -3336,14 +3340,13 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     int netsNum = nets->size();
     NetSeq::Iterator nets_iter(nets);
     iter_i = 0;
-    while(nets_iter.hasNext()) {
-        auto net = nets_iter.next();
+    for(auto net : _ord_design->getBlock()->getNets()) {
         if(iter_i % 1000 == 0) {
             printf("Read %d / %d Nets\n", iter_i, netsNum);
         }
         iter_i++;
 
-        string netName = network->pathName(net);
+        string netName = net->getName();
         if(netName.substr(0, 11) == "UNCONNECTED") {
             // con("debug debug!!");
             continue;
@@ -3355,7 +3358,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             continue;
         // cout << "Net Name: " << network->pathName(net) << endl;
 
-        if(network->isPower(net) || network->isGround(net)) {
+        if(net->getSigType() == "POWER" || net->getSigType() == "GROUND") {
             // logFile << "power / ground net " << endl;
             continue;
         }
@@ -3375,15 +3378,11 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 
         // NET -- PINS
         // here are the gates connected to the net
-        NetPinIterator* instTerms_iter = network->pinIterator(net);
+
         int net_pin_num = 0;
-        while(instTerms_iter->hasNext()) {
+        for(auto instTerms_iter : net->getITerms()) {
             net_pin_num++;
-            auto instGatePin = instTerms_iter->next();
-            Instance* instGate = network->instance(instGatePin);
-
-            string instGateName = network->name(instGate);
-
+            string instGateName = instTerms_iter->getInst()->getName();
             char tmpName[2000];
             strcpy(tmpName, instGateName.c_str());
 
@@ -3398,10 +3397,9 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 
             CELL& cell = _sizer->_ckt->g_cells[gateId];
 
-            string pin_name = network->name(instGatePin);
+            string pin_name = instTerms_iter->getName();
 
-            size_t found = pin_name.find_last_of("/");
-            string termName = pin_name.substr(found + 1);
+            string termName = instTerms_iter->getMTerm()->getName();
 
             // NEW PIN
             PIN tmpPin;
@@ -3414,9 +3412,9 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
                 pair< string, unsigned >(pin_name, tmpPin.id));
             _sizer->_ckt->g_pins.push_back(tmpPin);
 
-            PortDirection* dir = network->direction(instGatePin);
+            // auto* dir = instTerms_iter->getMTerm()->getDirection();
 
-            if(dir->isAnyOutput()) {
+            if(instTerms_iter->isOutputSignal()) {
                 cell.outpins.push_back(tmpPin.id);
                 tmpNet.inpin = tmpPin.id;
                 cell.pinchar.insert(
@@ -3435,44 +3433,38 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         // PI/PO
         // InstancePinIterator
         // *top_level_pins_iter=network->pinIterator(network->topInstance());
-        NetConnectedPinIterator* top_level_pins_iter =
-            network->connectedPinIterator(net);
 
-        while(top_level_pins_iter->hasNext()) {
-            auto term = top_level_pins_iter->next();
+        for(auto term : net->getBTerms()) {
+            string termName = term->getName();
+            char tmpName[120];
+            strcpy(tmpName, termName.c_str());
 
-            if(network->isTopLevelPort(term)) {
-                string termName = network->name(term);
-                char tmpName[120];
-                strcpy(tmpName, termName.c_str());
+            // NEW PIN
+            PIN tmpPin2;
+            tmpPin2.id = _sizer->_ckt->g_pins.size();
+            tmpPin2.name = tmpName;
+            tmpPin2.net = tmpNetId;
+            tmpPin2.owner = UINT_MAX;
+            assert(pin2id.find(tmpName) == pin2id.end());
 
-                // NEW PIN
-                PIN tmpPin2;
-                tmpPin2.id = _sizer->_ckt->g_pins.size();
-                tmpPin2.name = tmpName;
-                tmpPin2.net = tmpNetId;
-                tmpPin2.owner = UINT_MAX;
-
-                PortDirection* dir_term = network->direction(term);
-
-                if(dir_term->isAnyOutput()) {
-                    _sizer->_ckt->outdelays.insert(
-                        pair< string, double >(tmpName, 0.0));
-                    _sizer->_ckt->POs.push_back(tmpPin2.id);
-                    tmpNet.outpins.push_back(tmpPin2.id);
-                    tmpPin2.isPO = true;
-                }
-                else {
-                    _sizer->_ckt->indelays.insert(
-                        pair< string, double >(tmpName, 0.0));
-                    _sizer->_ckt->PIs.push_back(tmpPin2.id);
-                    tmpNet.inpin = tmpPin2.id;
-                    tmpPin2.isPI = true;
-                }
-                _sizer->_ckt->pin2id.insert(
-                    pair< string, unsigned >(tmpName, tmpPin2.id));
-                _sizer->_ckt->g_pins.push_back(tmpPin2);
+            if(term->getIoType() == "OUTPUT") {
+                _sizer->_ckt->outdelays.insert(
+                    pair< string, double >(tmpName, 0.0));
+                _sizer->_ckt->POs.push_back(tmpPin2.id);
+                tmpNet.outpins.push_back(tmpPin2.id);
+                tmpPin2.isPO = true;
             }
+            else {
+                _sizer->_ckt->indelays.insert(
+                    pair< string, double >(tmpName, 0.0));
+                _sizer->_ckt->PIs.push_back(tmpPin2.id);
+                tmpNet.inpin = tmpPin2.id;
+                tmpPin2.isPI = true;
+            }
+            _sizer->_ckt->pin2id.insert(
+                pair< string, unsigned >(tmpName, tmpPin2.id));
+            _sizer->_ckt->g_pins.push_back(tmpPin2);
+
         }  // PI/PO END
 
         for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {

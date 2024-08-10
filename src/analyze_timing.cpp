@@ -133,21 +133,24 @@ void designTiming::closeServerContact() {
 
 void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
                                 string cellInPin, string cellOutPin) {
-    _tclInputString = "gate_delay " + cellInPin + " " + cellOutPin;
+    _tclInputString =
+        "report_dcalc -max -digits 3 -from " + cellInPin + " -to " + cellOutPin;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
+    // report_dcalc -max -digits 3 -from $cellInPin -to $cellOutPin > tmp3.rpt
+    printf("Error : don't have gate_delay !\n");
+    // assert(0);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
+    float temp1 = 0;
+    float temp2 = 0;
     sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    rise_delay = temp1 / _sizer->time_unit;
-    fall_delay = temp2 / _sizer->time_unit;
+    rise_delay = temp1 / 1e3;
+    fall_delay = temp2 / 1e3;
 
-    // cout << delay << " " << riseFall << " " << endl;
+    cout << "Cell delay" << rise_delay << " " << fall_delay << " " << endl;
 }
 
 void designTiming::getFFDelay(double &rdelay, double &fdelay,
@@ -156,6 +159,8 @@ void designTiming::getFFDelay(double &rdelay, double &fdelay,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
+    printf("Error : don't have getFFDelay !\n");
+    exit(0);
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
@@ -733,7 +738,7 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
 
         pt_time += cpuTime() - begin;
         cout << pinName << " " << riseSlack << " " << fallSlack << endl;
-        return ;
+        return;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
 
@@ -858,7 +863,7 @@ bool designTiming::writePinMinSlack(string infile, string outfile) {
     }
     else {
         printf("error: no writePinMinSlack !");
-        exit(0);
+        // exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -908,7 +913,7 @@ bool designTiming::writePinToggleRate(string infile, string outfile,
     else if(program == OS) {
         _tclInputString = "OSWritePinToggleRate " + infile + " " + outfile;
         printf("Error: don't have OSWritePinToggleRate !\n");
-        exit(0);
+        // exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -932,7 +937,7 @@ bool designTiming::writePinToggleRate(string infile, string outfile) {
     else if(program == OS) {
         _tclInputString = "OSWritePinToggleRate " + infile + " " + outfile;
         printf("Error: don't have OSWritePinToggleRate !\n");
-        exit(0);
+        // exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -978,7 +983,7 @@ bool designTiming::writePinTran(string infile, string outfile) {
     }
     else {
         printf("error: no writePinTran !");
-        exit(0);
+        // exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -1002,7 +1007,7 @@ bool designTiming::writePinAll(string infile, string outfile) {
     else if(program == OS) {
         _tclInputString = "OSWritePinAll " + infile + " " + outfile;
         printf("Error: don't have OSWritePinAll !\n");
-        exit(0);
+        // exit(0);
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();

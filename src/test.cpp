@@ -4608,7 +4608,10 @@ void Sizer::AllCorrTest() {
                     continue;
                 }
             }
-
+            if(pins[view][curpin].rRAT > 8000 ||
+               pins[view][curpin].fRAT > 8000) {
+                printf("Error, calc RAT Error\n");
+            }
             double slack =
                 min(pins[view][curpin].rslk, pins[view][curpin].fslk);
             double slack_ref =
@@ -4621,9 +4624,9 @@ void Sizer::AllCorrTest() {
             }
         }
     }
-    printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
-           numpins);
-    exit(0);
+    printf("Slack not equal num %f , %d / %d\n", 1. * neq_num / numpins,
+           neq_num, numpins);
+    // exit(0);
     for(unsigned i = 0; i < numpins; ++i) {
         // cout << "before corr " << getFullPinName(pins[view][i])
         //     << " " << pins[view][i].rtran << "/" << tran_list[i].rise << ""
@@ -4641,6 +4644,9 @@ void Sizer::AllCorrTest() {
         if(pins[view][i].name == "CLK" || this->inftran[view].count(i) > 0 ||
            this->_pos_set.count(i) > 0) {
             continue;
+        }
+        if(pins[view][i].rRAT > 8000 || pins[view][i].fRAT > 8000) {
+            printf("Error, pin %s calc RAT Error\n", pin_name.c_str());
         }
         // for(unsigned i = 0; i < _ckt->POs.size(); ++i) {
         //     string po_name = getFullPinName(g_pins[0][POs[i]]);
@@ -4675,7 +4681,7 @@ void Sizer::AllCorrTest() {
     }
     printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
            numpins);
-    exit(0);
+    // exit(0);
     CorrelatePT(view);
     auto design = _ckt->_ord_design;
     sta::Corner* _corner = _sta->corners()->corners()[0];
@@ -4758,21 +4764,23 @@ void Sizer::AllCorrTest() {
             //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
             !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
             !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-            cout << "after corr mismatch " << getFullPinName(pins[view][i])
-                 << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                 << " "
-                 << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-                 << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-                 << " " << pins[view][i].rRAT << "/"
-                 << aat_list[i].rise + slack_list[i].rise << " "
-                 << " " << pins[view][i].fRAT << "/"
-                 << aat_list[i].fall + slack_list[i].fall << " "
-                 << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                 << " "
-                 << " " << pins[view][i].fslk << "/" << slack_list[i].fall
-                 << " " << endl;
+            outfile << "after corr mismatch " << getFullPinName(pins[view][i])
+                    << " " << pins[view][i].rtran << "/" << tran_list[i].rise
+                    << " "
+                    << " " << pins[view][i].ftran << "/" << tran_list[i].fall
+                    << " "
+                    << " " << pins[view][i].rAAT << "/" << aat_list[i].rise
+                    << " "
+                    << " " << pins[view][i].fAAT << "/" << aat_list[i].fall
+                    << " "
+                    << " " << pins[view][i].rRAT << "/"
+                    << aat_list[i].rise + slack_list[i].rise << " "
+                    << " " << pins[view][i].fRAT << "/"
+                    << aat_list[i].fall + slack_list[i].fall << " "
+                    << " " << pins[view][i].rslk << "/" << slack_list[i].rise
+                    << " "
+                    << " " << pins[view][i].fslk << "/" << slack_list[i].fall
+                    << " " << endl;
             neq_num++;
         }
     }
@@ -4794,47 +4802,49 @@ void Sizer::AllCorrTest() {
         //      << pins[view][i].rslk << "/" << slack_list[i].rise << " " << " "
         //      << pins[view][i].fslk << "/" << slack_list[i].fall << " " <<
         //      endl;
-        if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
-           !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
-           //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
-           //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
-           !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
-           !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-            cout << "after timer mismatch " << getFullPinName(pins[view][i])
-                 << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                 << " "
-                 << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-                 << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-                 << " " << pins[view][i].rRAT << "/"
-                 << aat_list[i].rise + slack_list[i].rise << " "
-                 << " " << pins[view][i].fRAT << "/"
-                 << aat_list[i].fall + slack_list[i].fall << " "
-                 << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                 << " "
-                 << " " << pins[view][i].fslk << "/" << slack_list[i].fall
-                 << " " << endl;
-        }
+        // if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
+        //    !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
+        //    //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
+        //    //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
+        //    !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
+        //    !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
+        //     cout << "after timer mismatch " << getFullPinName(pins[view][i])
+        //          << " " << pins[view][i].rtran << "/" << tran_list[i].rise
+        //          << " "
+        //          << " " << pins[view][i].ftran << "/" << tran_list[i].fall
+        //          << " "
+        //          << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << "
+        //          "
+        //          << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << "
+        //          "
+        //          << " " << pins[view][i].rRAT << "/"
+        //          << aat_list[i].rise + slack_list[i].rise << " "
+        //          << " " << pins[view][i].fRAT << "/"
+        //          << aat_list[i].fall + slack_list[i].fall << " "
+        //          << " " << pins[view][i].rslk << "/" << slack_list[i].rise
+        //          << " "
+        //          << " " << pins[view][i].fslk << "/" << slack_list[i].fall
+        //          << " " << endl;
+        // }
     }
 
     for(unsigned i = 0; i < numcells; ++i) {
         OneTimer(cells[i], STA_MARGIN);
     }
-
+    num_dif_pin = 0;
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "after one timer " << getFullPinName(pins[view][i]) << " "
-             << pins[view][i].rtran << "/" << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << "/" << tran_list[i].fall << " "
-             << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-             << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-             << " " << pins[view][i].rRAT << "/"
-             << aat_list[i].rise + slack_list[i].rise << " "
-             << " " << pins[view][i].fRAT << "/"
-             << aat_list[i].fall + slack_list[i].fall << " "
-             << " " << pins[view][i].rslk << "/" << slack_list[i].rise << " "
-             << " " << pins[view][i].fslk << "/" << slack_list[i].fall << " "
-             << endl;
+        // cout << "after one timer " << getFullPinName(pins[view][i]) << " "
+        //      << pins[view][i].rtran << "/" << tran_list[i].rise << " "
+        //      << " " << pins[view][i].ftran << "/" << tran_list[i].fall << " "
+        //      << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
+        //      << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
+        //      << " " << pins[view][i].rRAT << "/"
+        //      << aat_list[i].rise + slack_list[i].rise << " "
+        //      << " " << pins[view][i].fRAT << "/"
+        //      << aat_list[i].fall + slack_list[i].fall << " "
+        //      << " " << pins[view][i].rslk << "/" << slack_list[i].rise << " "
+        //      << " " << pins[view][i].fslk << "/" << slack_list[i].fall << " "
+        //      << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
            //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
@@ -4856,9 +4866,10 @@ void Sizer::AllCorrTest() {
                  << " "
                  << " " << pins[view][i].fslk << "/" << slack_list[i].fall
                  << " " << endl;
+            num_dif_pin++;
         }
     }
-
+    printf("Num diff slew pins %d / %d \n", num_dif_pin, numpins);
     ExitPTimer();
 
     for(unsigned i = 0; i < numViews; ++i) {

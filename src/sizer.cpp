@@ -1170,6 +1170,10 @@ void Sizer::Parser() {
         _pos_set.insert(_ckt->POs[i]);
         if(VERBOSE > 0)
             cout << "PO -- " << getFullPinName(g_pins[0][POs[i]]) << endl;
+        if(g_pins[0][POs[i]].owner != UINT_MAX) {
+            printf("PO has cell %s \n",
+                   g_cells[g_pins[0][POs[i]].owner].name.c_str());
+        }
     }
     for(unsigned i = 0; i < _ckt->PIs.size(); ++i) {
         PIs.push_back(_ckt->PIs[i]);
@@ -1264,8 +1268,8 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     std::ostringstream ostr;
 
     if(useOpenSTA) {
-        // _ckt->_ord_design->evalTclString(
-        //     "source /home/xingchaoyu/code/gpu_gate_sizing/src/sizer_os.tcl");
+        _ckt->_ord_design->evalTclString(
+            "source /home/xingchaoyu/code/gpu_gate_sizing/src/sizer_os.tcl");
         designTiming *PT = new designTiming(OS, this);
         return PT;
         // exeOSServer(serverName, port, view);
@@ -11061,8 +11065,8 @@ int main(int argc, char **argv) {
             exit(0);
         }
         else if(TEST_MODE == "ALL_TEST") {
-            //   _sizer.AllCorrTest();
-            //   exit(0);
+            _sizer.AllCorrTest();
+            exit(0);
         }
         else if(TEST_MODE == "ALL_STA_TEST") {
             _sizer.AllCorrSTATest();

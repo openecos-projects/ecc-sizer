@@ -633,10 +633,10 @@ void Sizer::CalcTran(unsigned view) {
             if(fopin == UINT_MAX) {
                 continue;
             }
-            if(pins[view][fopin].name == "CLK" ||
-               pins[view][fopin].name == "clk") {
-                continue;
-            }
+            // if(pins[view][fopin].name == "CLK" ||
+            //    pins[view][fopin].name == "clk") {
+            //     continue;
+            // }
             string pin_name = getFullPinName(pins[view][fopin]);
             timing_lookup wire_tran =
                 get_wire_tran(curnet, fopin, pins[view][curpin].rtran,
@@ -999,7 +999,15 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                 if(libs[corner]
                        .find(cell.type)
                        ->second.pins[pins[view][curpin].lib_pin]
-                       .isData) {
+                       .isData &&
+                   libs[corner]
+                           .find(cell.type)
+                           ->second.pins[pins[view][curpin].lib_pin]
+                           .name != "RESET" &&
+                   libs[corner]
+                           .find(cell.type)
+                           ->second.pins[pins[view][curpin].lib_pin]
+                           .name != "SET") {
                     idx = pins[view][cell.clock_pin].lib_pin +
                           pins[view][curpin].lib_pin * 100;
                 }
@@ -1022,7 +1030,15 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                 if(libs[corner]
                        .find(cell.type)
                        ->second.pins[pins[view][curpin].lib_pin]
-                       .isData) {
+                       .isData &&
+                   libs[corner]
+                           .find(cell.type)
+                           ->second.pins[pins[view][curpin].lib_pin]
+                           .name != "RESET" &&
+                   libs[corner]
+                           .find(cell.type)
+                           ->second.pins[pins[view][curpin].lib_pin]
+                           .name != "SET") {
                     if(arc->fromPin != pins[view][cell.clock_pin].name) {
                         if(VERBOSE >= 3)
                             cout << "timing arc error : " << arc->fromPin
@@ -1099,6 +1115,9 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                          << " r_fdelay = " << r_fdelay << endl;
                     cout << "  ceff = " << pins[view][cell.outpins[i]].ceff
                          << " delta_cap = " << delta_cap << endl;
+                }
+                if(r_fdelay < 0 || r_fdelay < 0) {
+                    printf("Error in delay calculation\n");
                 }
                 rdelay.push_back(r_rdelay);
                 fdelay.push_back(r_fdelay);
@@ -1345,6 +1364,16 @@ void Sizer::CalcSlack(unsigned view) {
         // add a loop for outpins
         for(unsigned k = 0; k < cells[cur].inpins.size(); ++k) {
             unsigned curinpin = cells[cur].inpins[k];
+            if("g23384__4733/A1" == getFullPinName(pins[view][curinpin])) {
+                printf("debug debug");
+            }
+            if("FE_OFC1503_u_NV_NVDLA_cmac_u_core_u_mac_1_mul_136_55_n_69/A" ==
+               getFullPinName(pins[view][curinpin])) {
+                printf("debug debug");
+            }
+            if(curinpin == 2544) {
+                printf("debug debug!");
+            }
             if(cells[cur].outpins.size() == 0) {
                 double r_AAT = 0.0, f_AAT = 0.0;
                 double r_slk = 0.0, f_slk = 0.0;
@@ -1410,6 +1439,8 @@ void Sizer::CalcSlack(unsigned view) {
                                      << " != " << pins[view][curinpin].name
                                      << endl;
                             }
+                            cout << "Error: timing arc error : " << arc->fromPin
+                                 << " != " << pins[view][curinpin].name << endl;
                             double r_AAT = 0.0, f_AAT = 0.0;
                             double r_slk = 0.0, f_slk = 0.0;
 
@@ -1469,6 +1500,10 @@ void Sizer::CalcSlack(unsigned view) {
             }
             unsigned curnet = pins[view][curinpin].net;
 
+            if(pins[view][curinpin].rRAT > 8000 ||
+               pins[view][curinpin].fRAT > 8000) {
+                printf("Error: rRAT is too large\n");
+            }
             if(curnet == UINT_MAX) {
                 continue;
             }
@@ -1477,7 +1512,6 @@ void Sizer::CalcSlack(unsigned view) {
             if(fipin == UINT_MAX) {
                 continue;
             }
-
             timing_lookup wire_delay = get_wire_delay(curnet, curinpin, view);
             pins[view][fipin].rRAT =
                 min(pins[view][fipin].rRAT,
@@ -4293,7 +4327,9 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         prv_rRAT = pin.rRAT;
         prv_fRAT = pin.fRAT;
     }
-
+    if(pin.id == 2544) {
+        printf("debug debug!");
+    }
     if(VERBOSE >= 2) {
         cout << "UPDATE PIN SLACK - ORIG " << getFullPinName(pin) << " ("
              << pin.rslk << "/" << pin.fslk << ")"
@@ -4317,8 +4353,10 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         }
     }
 
-    if(!pin.bb_checked_rat)
+    if(!pin.bb_checked_rat) {
         pin.rRAT = pin.fRAT = 9999.99;
+        // printf("ERROR pin %s not have RAT\n", getFullPinName(pin).c_str());
+    }
 
     // double prv_rslk=pins[view][fipin].rslk;
     // double prv_fslk=pins[view][fipin].fslk;
@@ -4327,9 +4365,13 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         if(outdelays[mode].find(pin.name) != outdelays[mode].end()) {
             fo_delay = outdelays[mode][pin.name];
         }
-        pin.rRAT = 9999.99;  // clk_period[mode] - fo_delay
-        pin.fRAT = 9999.99;  // clk_period[mode] - fo_delay
-
+        else {
+            printf("Error: outdelays not have pin: %s\n", pin.name.c_str());
+        }
+        // pin.rRAT = 9999.99;  // clk_period[mode] - fo_delay
+        // pin.fRAT = 9999.99;  // clk_period[mode] - fo_delay
+        pin.rRAT = clk_period[mode] - fo_delay;  // clk_period[mode] - fo_delay
+        pin.fRAT = clk_period[mode] - fo_delay;  // clk_period[mode] - fo_delay
         if(fipin != UINT_MAX) {
             timing_lookup wire_delay = get_wire_delay(pin.net, pin.id, view);
             pins[view][fipin].rRAT =
@@ -4552,6 +4594,11 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         diff_RAT = max(fabs(prv_rRAT - pin.rRAT), fabs(prv_fRAT - pin.fRAT));
     }
     if(pin.rRAT > 8000 || pin.fRAT > 8000) {
+        // printf("Error: pin %s RAT is inf!!!!\n",
+        // getFullPinName(pin).c_str()); printf("Cell name %s\n", cur ==
+        // UINT_MAX
+        //                              ? ("PO " + getFullPinName(pin)).c_str()
+        //                              : cells[cur].name.c_str());
         return false;
     }
     //    cout << "PIN RAT CHANGE " << diff_RAT << " " << margin << endl;
@@ -5664,9 +5711,35 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
     }
 }
 
+#if 0
 // Correlate PT (NEW)
+void Sizer::getInfluencedPins(std::vector< CELL * > &influenced_cells,
+                           ) {
+    for(unsigned i = 0; i < need_to_be_updated.size(); i++) {
+        CELL *cell = need_to_be_updated[i];
+        LibCellInfo *lib_cell_info = getLibCellInfo(cell);
+        if(lib_cell_info == NULL || cell->isDontTouch)
+            continue;
+        if(cell->isChanged) {
+            influenced_cells.push_back(cell);
+            if(isff(*cell))
+                influenced_ffs.push_back(cell);
+        }
+    }
+}
+#endif
 
 void Sizer::CorrelatePT(unsigned option, unsigned view) {
+    // std::vector< CELL * > need_to_be_updated;
+    // for(unsigned i = 0; i < numcells; i++) {
+    //     LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+    //     if(lib_cell_info == NULL || cells[i].isDontTouch)
+    //         continue;
+    //     if(!PT_FULL_UPDATE && !cells[i].isChanged)
+    //         continue;
+    //     need_to_be_updated.push_back(&cells[i]);
+    // }
+
     vector< timing_lookup > slack_list;
     vector< timing_lookup > ceff_list;
     vector< timing_lookup > tran_list;
