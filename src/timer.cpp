@@ -659,9 +659,6 @@ void Sizer::CalcTran(unsigned view) {
 
     for(unsigned i = 0; i < topolist.size(); i++) {
         double rtran = 0.0, ftran = 0.0;
-        if(cells[topolist[i]].name == "g45186") {
-            printf("debug debug!!");
-        }
         //  multi-output support -- currently Sizer is using offsets (ftran_ofs,
         //  rtran_ofs)
         LookupST(cells[topolist[i]], 0, &rtran, &ftran, 0, 0.0, view);
@@ -673,9 +670,6 @@ void Sizer::CalcTran(unsigned view) {
             pins[view][curpin].ftran = ftran + pins[view][curpin].ftran_ofs;
             pins[view][curpin].rtran = rtran + pins[view][curpin].rtran_ofs;
             string pin_name = getFullPinName(pins[view][curpin]);
-            if(pin_name == "g45186/Y") {
-                printf("debug debug!!");
-            }
             if(VERBOSE >= 4)
                 cout << "OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " " << rtran
@@ -697,6 +691,15 @@ void Sizer::CalcTran(unsigned view) {
                                ->second.pins[pins[view][fopin].lib_pin]
                                .isClock) {
                             continue;
+                        }
+                        else {
+                            if(fopin == 31092) {
+                                printf("hhh");
+                            }
+                            cout << "PIN TRAN UPDATE "
+                                 << getFullPinName(pins[view][fopin]) << " "
+                                 << fopin << endl;
+                            // printf("hhh");
                         }
                     }
                 }
@@ -1474,14 +1477,15 @@ void Sizer::CalcSlack(unsigned view) {
                     }
                 }
                 else {
-                    if(!libs[corner]
-                            .find(cells[cur].type)
-                            ->second.pins[pins[view][curinpin].lib_pin]
-                            .isData) {
-                        pins[view][curinpin].rRAT = pins[view][curinpin].fRAT =
-                            9999.99;
-                        break;
-                    }
+                    // if(!libs[corner]
+                    //         .find(cells[cur].type)
+                    //         ->second.pins[pins[view][curinpin].lib_pin]
+                    //         .isData) {
+                    //     pins[view][curinpin].rRAT = pins[view][curinpin].fRAT
+                    //     =
+                    //         9999.99;
+                    //     break;
+                    // }
                     pins[view][curinpin].rRAT =
                         min(pins[view][curinpin].rRAT,
                             clk_period[mode] - pins[view][curinpin].rdelay[j]);

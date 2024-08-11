@@ -168,7 +168,7 @@ int GWTW_MAX = 1;
 int GWTW_DIV = 4;
 int GWTW_NUM_START = 4;
 
-bool DATA_PIN_ONLY = true;
+bool DATA_PIN_ONLY = false;
 bool NO_LOG = false;
 bool CORR_DYN = false;
 int MAX_THREAD = 16;
@@ -6758,7 +6758,14 @@ void Sizer::Parallel_Sizer_Launcher() {
                         if(VERBOSE > 4)
                             cout << "CORNER " << corner << " NETS --- " << i
                                  << " " << g_nets[corner][i].name << endl;
-
+                        int sink_num = 0;
+                        for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
+                            if(sn.isSink) {
+                                sn.pinId = pin2id[sn.pin_name];
+                                g_pins[corner][sn.pinId].spef_pin = sn.id;
+                            }
+                            sink_num += sn.isSink;
+                        }
                         g_nets[corner][i].subNodeVec =
                             _ckt->g_nets[corner][i].subNodeVec;
                         g_nets[corner][i].subNodeResVec =
@@ -11065,9 +11072,9 @@ int main(int argc, char **argv) {
             exit(0);
         }
         else if(TEST_MODE == "ALL_TEST") {
-            _sizer.WireDelayTest();
-            exit(0);
+            // _sizer.WireDelayTest();
             _sizer.AllCorrTest();
+            exit(0);
         }
         else if(TEST_MODE == "ALL_STA_TEST") {
             _sizer.AllCorrSTATest();

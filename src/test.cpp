@@ -4664,7 +4664,7 @@ void Sizer::AllCorrTest() {
             << neq_num << " / " << numpins << endl;
     printf("Slack not equal num %f , %d / %d\n", 1. * neq_num / numpins,
            neq_num, numpins);
-    exit(0);
+    // exit(0);
     for(unsigned i = 0; i < numpins; ++i) {
         // cout << "before corr " << getFullPinName(pins[view][i])
         //     << " " << pins[view][i].rtran << "/" << tran_list[i].rise << ""
@@ -4719,7 +4719,7 @@ void Sizer::AllCorrTest() {
     }
     printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
            numpins);
-    // exit(0);
+    exit(0);
     CorrelatePT(view);
     auto design = _ckt->_ord_design;
     sta::Corner* _corner = _sta->corners()->corners()[0];
