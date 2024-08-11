@@ -123,6 +123,7 @@ struct CellSol {
 };
 
 struct SUB_NODE {
+    string pin_name;
     unsigned id;      // id of the sub-node
     bool isSink : 1;  // if the sub-node is sink (i.e., an outpin)
     bool visited : 1;
@@ -160,6 +161,7 @@ struct SUB_NODE {
           is_branch(orig.is_branch),
           cap(orig.cap),
           totres(orig.totres),
+          pin_name(orig.pin_name),
           adj(orig.adj),
           fanin(orig.fanin),
           fanouts(orig.fanouts),
@@ -180,6 +182,7 @@ struct SUB_NODE {
         adj = assign.adj;
         fanin = assign.fanin;
         fanouts = assign.fanouts;
+        pin_name = assign.pin_name;
         res = assign.res;
         delay = assign.delay;
         m1 = assign.m1;
@@ -874,8 +877,9 @@ class Circuit {
     void readSpefChangePinName(string& pin_name);
     sta::dbSta* _sta = nullptr;
     Tcl_Interp* sta_interp = nullptr;
-    std::vector<int> old_localtion_x;
-    std::vector<int> old_localtion_y;
+    std::vector< int > old_localtion_x;
+    std::vector< int > old_localtion_y;
+
    private:
     std::ifstream is;
     Sizer* _sizer;

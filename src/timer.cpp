@@ -999,15 +999,7 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                 if(libs[corner]
                        .find(cell.type)
                        ->second.pins[pins[view][curpin].lib_pin]
-                       .isData &&
-                   libs[corner]
-                           .find(cell.type)
-                           ->second.pins[pins[view][curpin].lib_pin]
-                           .name != "RESET" &&
-                   libs[corner]
-                           .find(cell.type)
-                           ->second.pins[pins[view][curpin].lib_pin]
-                           .name != "SET") {
+                       .isData) {
                     idx = pins[view][cell.clock_pin].lib_pin +
                           pins[view][curpin].lib_pin * 100;
                 }
@@ -1030,15 +1022,7 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                 if(libs[corner]
                        .find(cell.type)
                        ->second.pins[pins[view][curpin].lib_pin]
-                       .isData &&
-                   libs[corner]
-                           .find(cell.type)
-                           ->second.pins[pins[view][curpin].lib_pin]
-                           .name != "RESET" &&
-                   libs[corner]
-                           .find(cell.type)
-                           ->second.pins[pins[view][curpin].lib_pin]
-                           .name != "SET") {
+                       .isData) {
                     if(arc->fromPin != pins[view][cell.clock_pin].name) {
                         if(VERBOSE >= 3)
                             cout << "timing arc error : " << arc->fromPin
@@ -1364,14 +1348,15 @@ void Sizer::CalcSlack(unsigned view) {
         // add a loop for outpins
         for(unsigned k = 0; k < cells[cur].inpins.size(); ++k) {
             unsigned curinpin = cells[cur].inpins[k];
-            if("g23384__4733/A1" == getFullPinName(pins[view][curinpin])) {
-                printf("debug debug");
-            }
-            if("FE_OFC1503_u_NV_NVDLA_cmac_u_core_u_mac_1_mul_136_55_n_69/A" ==
-               getFullPinName(pins[view][curinpin])) {
-                printf("debug debug");
-            }
-            if(curinpin == 2544) {
+            // if("g23384__4733/A1" == getFullPinName(pins[view][curinpin])) {
+            //     printf("debug debug");
+            // }
+            // if("FE_OFC1503_u_NV_NVDLA_cmac_u_core_u_mac_1_mul_136_55_n_69/A"
+            // ==
+            //    getFullPinName(pins[view][curinpin])) {
+            //     printf("debug debug");
+            // }
+            if(pins[view][curinpin].name == "2544") {
                 printf("debug debug!");
             }
             if(cells[cur].outpins.size() == 0) {
@@ -1386,7 +1371,6 @@ void Sizer::CalcSlack(unsigned view) {
                 pins[view][curinpin].rRAT = r_AAT + r_slk;
                 pins[view][curinpin].fRAT = f_AAT + f_slk;
             }
-
             for(unsigned j = 0; j < cells[cur].outpins.size(); ++j) {
                 if(!isff(cells[cur])) {
                     if(lib_cell == NULL) {
@@ -1490,6 +1474,14 @@ void Sizer::CalcSlack(unsigned view) {
                     }
                 }
                 else {
+                    if(!libs[corner]
+                            .find(cells[cur].type)
+                            ->second.pins[pins[view][curinpin].lib_pin]
+                            .isData) {
+                        pins[view][curinpin].rRAT = pins[view][curinpin].fRAT =
+                            9999.99;
+                        break;
+                    }
                     pins[view][curinpin].rRAT =
                         min(pins[view][curinpin].rRAT,
                             clk_period[mode] - pins[view][curinpin].rdelay[j]);
@@ -4365,9 +4357,6 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         if(outdelays[mode].find(pin.name) != outdelays[mode].end()) {
             fo_delay = outdelays[mode][pin.name];
         }
-        else {
-            printf("Error: outdelays not have pin: %s\n", pin.name.c_str());
-        }
         // pin.rRAT = 9999.99;  // clk_period[mode] - fo_delay
         // pin.fRAT = 9999.99;  // clk_period[mode] - fo_delay
         pin.rRAT = clk_period[mode] - fo_delay;  // clk_period[mode] - fo_delay
@@ -4891,14 +4880,9 @@ void Sizer::calc_net_moment(vector< SUB_NODE > &subNodeVec,
 
     // pin m1/m2/prev_m1/prev_m2 update
     for(unsigned k = 1; k < subNodeVec.size(); k++) {
-        //            cout << "M1/M2 "
-        //                << view << "/"
-        //                << k << "/"
-        //                << subNodeVec[k].pinId << "/"
-        //                << subNodeVec[k].m1 << "/"
-        //                << subNodeVec[k].m2 << "/"
-        //                << subNodeVec[k].totres << "/"
-        //                << endl;
+        // cout << "M1/M2 " << view << "/" << k << "/" << subNodeVec[k].pinId
+        //      << "/" << subNodeVec[k].m1 << "/" << subNodeVec[k].m2 << "/"
+        //      << subNodeVec[k].totres << "/" << endl;
         if(subNodeVec[k].isSink) {
             // pins[view][subNodeVec[k].pinId].prev_m1 =
             // pins[view][subNodeVec[k].pinId].m1;
@@ -4907,13 +4891,10 @@ void Sizer::calc_net_moment(vector< SUB_NODE > &subNodeVec,
             pins[view][subNodeVec[k].pinId].m1 = subNodeVec[k].m1;
             pins[view][subNodeVec[k].pinId].m2 = subNodeVec[k].m2;
 
-            //            cout << "PIN M1/M2 "
-            //                << view << "/"
-            //                << k << "/"
-            //                << subNodeVec[k].pinId << "/"
-            //                << pins[view][subNodeVec[k].pinId].m1 << "/"
-            //                << pins[view][subNodeVec[k].pinId].m2 << "/"
-            //                << endl;
+            // cout << "PIN M1/M2 " << view << "/" << k << "/"
+            //      << subNodeVec[k].pinId << "/"
+            //      << pins[view][subNodeVec[k].pinId].m1 << "/"
+            //      << pins[view][subNodeVec[k].pinId].m2 << "/" << endl;
         }
     }
 }
@@ -5078,14 +5059,16 @@ void Sizer::calc_net_delay(unsigned netID, DelayMetric DM, unsigned view) {
         default:
             break;
     }
-
-    /*
-    for (i = 0; i < subNodeVec.size(); i++) {
-        if ( subNodeVec[i].isSink ) {
-            cout << "DELAY " << subNodeVec[i].delay << endl;
+    int sink_num = 0;
+    for(i = 0; i < subNodeVec.size(); i++) {
+        if(subNodeVec[i].isSink) {
+            // cout << "DELAY " << subNodeVec[i].delay << endl;
+            sink_num++;
         }
     }
-    */
+    if(nets[corner][netID].outpins.size() != sink_num) {
+        printf("ERROR: sink num is not equal to the number of outpins\n");
+    }
 }
 
 // CEFF Calculation

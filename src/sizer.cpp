@@ -168,7 +168,7 @@ int GWTW_MAX = 1;
 int GWTW_DIV = 4;
 int GWTW_NUM_START = 4;
 
-bool DATA_PIN_ONLY = false;
+bool DATA_PIN_ONLY = true;
 bool NO_LOG = false;
 bool CORR_DYN = false;
 int MAX_THREAD = 16;
@@ -230,7 +230,7 @@ bool BACKGROUND = true;
 #endif
 int LEAKOPT_OPTION = 0;
 
-DelayMetric WIRE_METRIC = DM0;
+DelayMetric WIRE_METRIC = EM;
 SlewMetric SLEW_METRIC = PERI;
 CapMetric CAP_METRIC = CTOT;
 string TEST_MODE = "NO_TEST";
@@ -11065,8 +11065,9 @@ int main(int argc, char **argv) {
             exit(0);
         }
         else if(TEST_MODE == "ALL_TEST") {
-            _sizer.AllCorrTest();
+            _sizer.WireDelayTest();
             exit(0);
+            _sizer.AllCorrTest();
         }
         else if(TEST_MODE == "ALL_STA_TEST") {
             _sizer.AllCorrSTATest();

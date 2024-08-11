@@ -1090,10 +1090,11 @@ double designTiming::getRiseTran(string PinName) {
         _tclInputString = "PtGetRiseTran " + PinName;
     }
     else {
+        
         _tclInputString = "OSGetRiseTran " + PinName;
     }
-    printf("Error: not OSGetRiseTran !, pin name %s\n", PinName.c_str());
-    exit(0);
+    // printf("Error: not OSGetRiseTran !, pin name %s\n", PinName.c_str());
+    // exit(0);
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();

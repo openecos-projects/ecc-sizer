@@ -1116,25 +1116,41 @@ void Sizer::WireDelayTest(unsigned view) {
         for(unsigned j = 0; j < numnets; j++)
             nets[i][j] = g_nets[i][j];
     }
-
+    // LaunchPTimer(0);
+    PTimer = new designTiming**[1];
+    for(int i = 0; i < 1; i++) {
+        PTimer[i] = new designTiming*[numViews];
+        for(int view = 0; view < numViews; view++) {
+            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
+        }
+    }
+    T = PTimer[0];
     UpdateCapsFromCells();
     CallTimer();
-    LaunchPTimer(0);
     UpdatePTSizes();
 
-    cout << setw(8) << "NetName"
-         << " " << setw(8) << "InPin"
-         << " " << setw(8) << "OutPin"
-         << " " << setw(8) << fixed << "PtDelayR"
-         << " " << setw(8) << fixed << "PtDelayF"
-         << " " << setw(8) << fixed << "EMDelay"
-         << " " << setw(8) << fixed << "D2MDelay"
-         << " " << setw(8) << fixed << "TriDelay"
-         << " " << setw(8) << fixed << "Err"
-         << " " << setw(8) << fixed << "InSlew"
-         << " " << setw(8) << "NumFanout"
-         << " " << setw(8) << fixed << "InCap"
-         << " " << setw(8) << "Ceff" << endl;
+    vector< timing_lookup > slack_list;
+    vector< timing_lookup > ceff_list;
+    vector< timing_lookup > tran_list;
+    vector< timing_lookup > aat_list;
+    double begin = cpuTime();
+    CORR_AAT = true;
+    GetPTValues(0, 0, slack_list, ceff_list, tran_list, aat_list);
+    ofstream ofs("wire_delay_test.csv");
+    ofs << setw(8) << "NetName"
+        << "," << setw(8) << "InPin"
+        << "," << setw(8) << "OutPin"
+        << "," << setw(8) << fixed << "PtDelayR"
+        << "," << setw(8) << fixed << "PtDelayF"
+        << "," << setw(8) << fixed << "EMDelay"
+        << "," << setw(8) << fixed << "D2MDelay"
+        << "," << setw(8) << fixed << "TriDelay"
+        << "," << setw(8) << fixed << "Err"
+        << "," << setw(8) << fixed << "InSlew"
+        << "," << setw(8) << "NumFanout"
+        << "," << setw(8) << fixed << "InCap"
+        << "," << setw(8) << "Ceff" << endl;
 
     double maxErr = 0.0;
 
@@ -1182,39 +1198,40 @@ void Sizer::WireDelayTest(unsigned view) {
             ptDelayR = ptDelayF = 0.0;
 
             // T[view]->getNetDelay(ptDelay,in_pin_name,out_pin_name);
-            ptDelayR = T[view]->getRiseArrival(out_pin_name) -
-                       T[view]->getRiseArrival(in_pin_name);
-            ptDelayF = T[view]->getFallArrival(out_pin_name) -
-                       T[view]->getFallArrival(in_pin_name);
+            auto out_pin_id = pin2id[out_pin_name];
+            auto in_pin_id = pin2id[in_pin_name];
+            ptDelayR = aat_list[out_pin_id].rise - aat_list[in_pin_id].rise;
 
-            cout.precision(4);
-            cout << setw(8) << nets[corner][i].name << " " << setw(8)
-                 << in_pin_name << " " << setw(8) << out_pin_name << " "
-                 << setw(8) << fixed << ptDelayR << " " << setw(8) << fixed
-                 << ptDelayF << " " << setw(8) << fixed << emDelay << " "
-                 << setw(8) << fixed << d2mDelay << " " << setw(8) << fixed
-                 << triDelay.rise << " " << setw(8) << fixed
-                 << triDelay.rise - ptDelayR << " " << setw(8) << fixed
-                 << T[view]->getRiseTran(in_pin_name) << " " << setw(8)
-                 << nets[corner][i].outpins.size() << " " << setw(8) << fixed
-                 << pins[view][nets[corner][i].inpin].totcap << " " << setw(8)
-                 << fixed << T[view]->getCeff(in_pin_name) << endl;
+            ptDelayF = aat_list[out_pin_id].fall - aat_list[in_pin_id].fall;
+
+            ofs.precision(8);
+            ofs << setw(8) << nets[corner][i].name << "," << setw(8)
+                << in_pin_name << "," << setw(8) << out_pin_name << ","
+                << setw(8) << fixed << ptDelayR << "," << setw(8) << fixed
+                << ptDelayF << "," << setw(8) << fixed << emDelay << ","
+                << setw(8) << fixed << d2mDelay << "," << setw(8) << fixed
+                << triDelay.rise << "," << setw(8) << fixed
+                << triDelay.rise - ptDelayR << "," << setw(8) << fixed
+                << tran_list[in_pin_id].rise << "," << setw(8)
+                << nets[corner][i].outpins.size() << "," << setw(8) << fixed
+                << pins[view][nets[corner][i].inpin].totcap << "," << setw(8)
+                << endl;
             if(abs(maxErr) < abs(triDelay.rise - ptDelayR))
                 maxErr = triDelay.rise - ptDelayR;
         }
     }
     cout << setw(8) << "MaxErr"
-         << " " << setw(8) << ""
-         << " " << setw(8) << ""
-         << " " << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << maxErr << " " << setw(8) << fixed << ""
-         << " " << setw(8) << ""
-         << " " << setw(8) << ""
-         << " " << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << "" << endl;
+         << "," << setw(8) << ""
+         << "," << setw(8) << ""
+         << "," << setw(8) << fixed << ""
+         << "," << setw(8) << fixed << ""
+         << "," << setw(8) << fixed << ""
+         << "," << setw(8) << fixed << ""
+         << "," << setw(8) << fixed << maxErr << "," << setw(8) << fixed << ""
+         << "," << setw(8) << ""
+         << "," << setw(8) << ""
+         << "," << setw(8) << fixed << ""
+         << "," << setw(8) << fixed << "" << endl;
     ExitPTimer();
 
     printMemoryUsage();
@@ -4580,6 +4597,7 @@ void Sizer::AllCorrTest() {
     ofstream outfile("test-timer.log");
     int neq_num = 0;
     // slack check
+    double slack_diff_sum = 0;
     for(unsigned i = 0; i < FFs.size(); i++) {
         if(getLibCellInfo(cells[FFs[i]], view) == NULL) {
             continue;
@@ -4616,17 +4634,37 @@ void Sizer::AllCorrTest() {
                 min(pins[view][curpin].rslk, pins[view][curpin].fslk);
             double slack_ref =
                 min(slack_list[curpin].fall, slack_list[curpin].rise);
+            slack_diff_sum += fabs(slack - slack_ref);
             if(!isEqual(slack, slack_ref)) {
-                outfile << getFullPinName(pins[view][i]) << "," << slack << ","
-                        << slack_ref << endl;
-
+                outfile << getFullPinName(pins[view][curpin]) << " ";
+                outfile << pins[view][curpin].rtran << "/"
+                        << tran_list[curpin].rise << " "
+                        << " " << pins[view][curpin].ftran << "/"
+                        << tran_list[curpin].fall << " ";
+                outfile << " " << pins[view][curpin].rAAT << "/"
+                        << aat_list[curpin].rise << " "
+                        << " " << pins[view][curpin].fAAT << "/"
+                        << aat_list[curpin].fall << " ";
+                outfile << " " << pins[view][curpin].rRAT << "/"
+                        << aat_list[curpin].rise + slack_list[curpin].rise
+                        << " "
+                        << " " << pins[view][curpin].fRAT << "/"
+                        << aat_list[curpin].fall + slack_list[curpin].fall
+                        << " ";
+                outfile << " " << pins[view][curpin].rslk << "/"
+                        << slack_list[curpin].rise << " "
+                        << " " << pins[view][curpin].fslk << "/"
+                        << slack_list[curpin].fall << " " << endl;
                 neq_num++;
             }
         }
     }
+    outfile << "Slack diff sum " << slack_diff_sum << endl;
+    outfile << "Slack not equal num " << 1. * neq_num / numpins << " , "
+            << neq_num << " / " << numpins << endl;
     printf("Slack not equal num %f , %d / %d\n", 1. * neq_num / numpins,
            neq_num, numpins);
-    // exit(0);
+    exit(0);
     for(unsigned i = 0; i < numpins; ++i) {
         // cout << "before corr " << getFullPinName(pins[view][i])
         //     << " " << pins[view][i].rtran << "/" << tran_list[i].rise << ""
@@ -4645,9 +4683,9 @@ void Sizer::AllCorrTest() {
            this->_pos_set.count(i) > 0) {
             continue;
         }
-        if(pins[view][i].rRAT > 8000 || pins[view][i].fRAT > 8000) {
-            printf("Error, pin %s calc RAT Error\n", pin_name.c_str());
-        }
+        // if(pins[view][i].rRAT > 8000 || pins[view][i].fRAT > 8000) {
+        //     printf("Error, pin %s calc RAT Error\n", pin_name.c_str());
+        // }
         // for(unsigned i = 0; i < _ckt->POs.size(); ++i) {
         //     string po_name = getFullPinName(g_pins[0][POs[i]]);
         //     assert(this->outdelays[view].count(pin_name) > 0);

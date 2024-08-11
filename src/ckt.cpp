@@ -419,22 +419,25 @@ void Circuit::Parser(string benchmark) {
 
             vector< SUB_NODE >* subNodeVecPtr = &g_nets[corner][i].subNodeVec;
             std::vector< SUB_NODE >::iterator subNodeIter;
-            // for(subNodeIter = subNodeVecPtr->begin();
-            //     subNodeIter != subNodeVecPtr->end(); ++subNodeIter) {
-            //     subNodeIter->cap =
-            //         subNodeIter->cap;  // * 1e-12 / _sizer->cap_unit
-            //     for(unsigned int j = 0; j < subNodeIter->adj.size(); ++j) {
-            //         subNodeIter->res[j] =
-            //             subNodeIter->res[j] ;
-            //     }
-            // }
+            int sink_num = 0;
+            for(auto& sn : g_nets[corner][i].subNodeVec) {
+                if(sn.isSink) {
+                    sn.pinId = pin2id[sn.pin_name];
+                    g_pins[sn.pinId].spef_pin = sn.id;
+                }
+                sink_num += sn.isSink;
+            }
             list< string > pin_list2;
             for(unsigned j = 0; j < g_nets[corner][i].outpins.size(); ++j) {
                 pin_list2.push_back(
                     getFullPinName(g_pins[g_nets[corner][i].outpins[j]]));
             }
             pin_list2.sort();
-
+            if(sink_num != g_nets[corner][i].outpins.size()) {
+                printf("Net %s has %d sinks, but %d outpins\n",
+                       g_nets[corner][i].name.c_str(), sink_num,
+                       g_nets[corner][i].outpins.size());
+            }
             g_nets[corner][i].outpins.clear();
 
             for(std::list< string >::iterator it = pin_list2.begin();
@@ -1184,7 +1187,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
 
     // JLPWR
     _sizer->sw_adj = 1e-6;
-    _sizer->res_unit = 1e3;
+    _sizer->res_unit = 1e6;
     _sizer->cap_unit = 1e-15;
     _sizer->time_unit = 1e-9;
 
@@ -2388,12 +2391,12 @@ string Circuit::_begin_read_timing_info(istream& is, string toPin,
             timing.fromPin = tokens[1];
         }
         else if(tokens[0] == "timing_type") {
-            if(tokens[1].find("setup") != -1) {
+            if(tokens[1] == "setup_falling" || tokens[1] == "setup_rising") {
                 // cout << "setup timing" << endl;
                 timing.timingSense = 'c';
                 timingType = 1;
             }
-            else if(tokens[1].find("hold") != -1) {
+            else if(tokens[1] == "hold_falling" || tokens[1] == "hold_rising") {
                 timingType = 2;
                 timing.timingSense = 'c';
                 // cout << "hold timing" << endl;
@@ -2527,7 +2530,7 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
             // Read timing info
             fromPin = _begin_read_timing_info(is, pinName, tmplib, lib);
             // cout << "fromPin: " << fromPin << " toPin: " << pinName << endl;
-            if(cell.name == "ASYNC_DFFHx1_ASAP7_75t_R" ){
+            if(pinName == "RESET") {
                 printf("hhh");
             }
             if(cell.name == "ASYNC_DFFHx1_ASAP7_75t_R" && pinName == "RESET" &&
@@ -3354,6 +3357,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         if(strcmp(netName.c_str(), string("SE").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SI").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SO").c_str()) == 0 ||
+           //    strcmp(netName.c_str(), string("RESET").c_str()) == 0 ||
+           //    strcmp(netName.c_str(), string("SET").c_str()) == 0 ||
            strcmp(netName.c_str(), string("HRESETn").c_str()) == 0)
             continue;
         // cout << "Net Name: " << network->pathName(net) << endl;
@@ -3400,7 +3405,9 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             string pin_name = instTerms_iter->getName();
 
             string termName = instTerms_iter->getMTerm()->getName();
-
+            // if(pin_name.find("RESET") != string::npos) {
+            //     printf("Find RESET pin!!! %s\n", pin_name.c_str());
+            // }
             // NEW PIN
             PIN tmpPin;
             tmpPin.id = _sizer->_ckt->g_pins.size();
@@ -3677,11 +3684,8 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             static_cast< ConcreteParasitic* >(net_parasitic);
         sta::ConcreteParasiticNetwork* conc_net_para =
             static_cast< sta::ConcreteParasiticNetwork* >(conc_para);
-        while(connPinIter->hasNext()) {
-            auto connPin = connPinIter->next();
-
-            string pin_name = _sta->network()->name(connPin);
-            PortDirection* dir = _sta->network()->direction(connPin);
+        for(auto pin : ord_net->getITerms()) {
+            string pin_name = pin->getName();
             // if(pin_name ==
             //    "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
             //     puts("debug debug");
@@ -3693,14 +3697,14 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 continue;
 
             SUB_NODE sn;
-            readSpefChangePinName(pin_name);
+            // readSpefChangePinName(pin_name);
             if(pin_name == "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y") {
                 std::cout << __LINE__ << "zero para"
                           << "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y"
                           << std::endl;
             }
             // Input
-            if(dir->isInput()) {
+            if(pin->isOutputSignal()) {
                 int p_id = pin2id[pin_name];
                 subNodeVecPtr->at(0).pinId = p_id;
                 g_pins[p_id].spef_pin = 0;
@@ -3713,8 +3717,47 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
                 node2id[pin_name] = sn.id;
 
-                sn.pinId = pin2id[pin_name];
-                g_pins[sn.pinId].spef_pin = sn.id;
+                sn.pin_name = pin_name;
+                subNodeVecPtr->push_back(sn);
+            }
+            // printf("node str %s\n", pin_name.c_str());
+        }
+        for(auto pin : ord_net->getBTerms()) {
+            string pin_name = pin->getName();
+            // if(pin_name ==
+            //    "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
+            //     puts("debug debug");
+            // }
+            if(strcmp(pin_name.c_str(), string("SE").c_str()) == 0 ||
+               strcmp(pin_name.c_str(), string("SI").c_str()) == 0 ||
+               strcmp(pin_name.c_str(), string("SO").c_str()) == 0 ||
+               strcmp(pin_name.c_str(), string("HRESETn").c_str()) == 0)
+                continue;
+
+            SUB_NODE sn;
+            // readSpefChangePinName(pin_name);
+            if(pin_name == "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y") {
+                std::cout << __LINE__ << "zero para"
+                          << "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y"
+                          << std::endl;
+            }
+            // Input
+            if(pin->getIoType() == "INPUT") {
+                int p_id = pin2id[pin_name];
+                subNodeVecPtr->at(0).pinId = p_id;
+                g_pins[p_id].spef_pin = 0;
+                node2id[pin_name] = 0;
+            }
+            else {
+                // Output
+                sn.isSink = true;
+                sn.id = node_index++;
+
+                node2id[pin_name] = sn.id;
+                sn.pin_name = pin_name;
+
+                // sn.pinId = pin2id[pin_name];
+                // g_pins[sn.pinId].spef_pin = sn.id;
 
                 subNodeVecPtr->push_back(sn);
             }
@@ -3761,6 +3804,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 static_cast< ConcreteParasiticResistor* >(pDev);
             sta::ParasiticNode* para_node = paraDev->node1();
             sta::ParasiticNode* other_node = paraDev->node2();
+            if(para_node == other_node) {
+                continue;
+            }
             string fromNodeNameStr = parasitics->name(para_node);
             string toNodeNameStr = parasitics->name(other_node);
             readSpefChangePinName(fromNodeNameStr);
