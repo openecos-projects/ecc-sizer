@@ -67,7 +67,7 @@ bool isEqual(double a, double b) {
         return true;
     if(a == DBL_MAX && std::isinf(b))
         return true;
-    double SMALL_NUM = 0.01;
+    double SMALL_NUM = 0.08;
     return (abs(a - b) < SMALL_NUM);
 }
 

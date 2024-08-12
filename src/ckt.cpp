@@ -127,25 +127,29 @@ void Circuit::InitData() {
 
 void Circuit::Parser(string benchmark) {
     InitData();
+    cout << "Load design... " << _sizer->benchname << endl;
+    // _sta = new sta::Sta;
+    init_opensta();
     ifstream infile;
-    infile.open(_sizer->libLibPath + "/../libcell_id.csv");
+    _ord_timing->makeEquivCells();
     int maxx = 0;
-    if(infile.is_open()) {
-        string line;
-        while(getline(infile, line)) {
-            std::vector< std::string > tokens;
-            int nPos = line.find(',');
-            string cell_name = line.substr(0, nPos);
-            string cell_id_str = line.substr(nPos + 1);
-            int cell_id = std::stoi(cell_id_str);
-            _sizer->cellName2EquaivaID[cell_name] = cell_id;
-            maxx = std::max(maxx, cell_id);
+    for(auto lib : _ord_tech->getDB()->getLibs()) {
+        for(auto master : lib->getMasters()) {
+            auto dbmaster =
+                _ord_tech->getDB()->findMaster(master->getName().c_str());
+            auto equicCells = _ord_timing->equivCells(dbmaster);
+            string eq_name = equicCells.at(0)->getName();
+            if(_sizer->cellName2EquaivaID.count(eq_name) > 0) {
+                continue;
+            }
+            for(auto equicCell : equicCells) {
+                _sizer->cellName2EquaivaID.insert(
+                    make_pair(equicCell->getName(), maxx));
+            }
+            maxx++;
         }
     }
-    else {
-        printf("Can't read lib_cell_id.csv\n");
-        assert(0);
-    }
+
     _sizer->EquaivaID2cellNames.resize(maxx + 1);
     for(auto it = _sizer->cellName2EquaivaID.begin();
         it != _sizer->cellName2EquaivaID.end(); ++it) {
@@ -184,9 +188,6 @@ void Circuit::Parser(string benchmark) {
         }
     }
 
-    cout << "Load design... " << _sizer->benchname << endl;
-    // _sta = new sta::Sta;
-    init_opensta();
     readDesign_opensta(_sta);
     int t_corner = 0;
     std::map< string, list< LibCellInfo* > >::iterator it;

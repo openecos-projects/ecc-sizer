@@ -693,12 +693,12 @@ void Sizer::CalcTran(unsigned view) {
                             continue;
                         }
                         else {
-                            if(fopin == 31092) {
-                                printf("hhh");
-                            }
-                            cout << "PIN TRAN UPDATE "
-                                 << getFullPinName(pins[view][fopin]) << " "
-                                 << fopin << endl;
+                            // if(fopin == 31092) {
+                            //     printf("hhh");
+                            // }
+                            // cout << "PIN TRAN UPDATE "
+                            //      << getFullPinName(pins[view][fopin]) << " "
+                            //      << fopin << endl;
                             // printf("hhh");
                         }
                     }

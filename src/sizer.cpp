@@ -4296,9 +4296,9 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 continue;
             }
             bool attack = false;
-            if(i % 100 == 0) {
-                printf("Attack %d/%d\n", i, numcells);
-            }
+            // if(i % 100 == 0) {
+            //     printf("Attack %d/%d\n", i, numcells);
+            // }
             for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
                 if(pins[view][cells[i].outpins[j]].rslk < toler ||
                    pins[view][cells[i].outpins[j]].fslk < toler) {
