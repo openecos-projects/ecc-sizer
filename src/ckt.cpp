@@ -1366,7 +1366,7 @@ void Circuit::read_head_info(istream& is, LibInfo& lib, unsigned corner) {
                 lib.cap_unit = 1e-15;
             }
             else {
-                lib.cap_unit = 1e-12;
+                lib.cap_unit = 1e-15;
             }
             cout << "Cap unit = " << lib.cap_unit << "F" << endl;
             if(temp == "init") {
@@ -1565,6 +1565,15 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
     // }
     // Read indices
     unsigned size1 = 0, size2 = 0, index_num = 0;
+    double ratio = 1;
+    if(type == "power") {
+        // Normalize the power unit to mW
+        ratio = lib.int_power_unit / 1e-3;
+    }
+    else if(type == "timing") {
+        // Normalize the timing unit to ns
+        ratio = lib.time_unit / 1e-9;
+    }
 
     tokens.push_back("init");
 
@@ -1576,13 +1585,15 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
             if(templ.tranFirst) {
                 lut.transitionIndices.resize(size1);
                 for(unsigned i = 0; i < tokens.size() - 1; ++i) {
-                    lut.transitionIndices[i] = atof(tokens[i + 1].c_str());
+                    lut.transitionIndices[i] =
+                        atof(tokens[i + 1].c_str()) * lib.time_unit / 1e-9;
                 }
             }
             else if(templ.loadFirst) {
                 lut.loadIndices.resize(size1);
                 for(unsigned i = 0; i < tokens.size() - 1; ++i) {
-                    lut.loadIndices[i] = atof(tokens[i + 1].c_str());
+                    lut.loadIndices[i] =
+                        atof(tokens[i + 1].c_str()) * lib.cap_unit / 1e-15;
                 }
             }
             else {
@@ -1597,13 +1608,15 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
             if(templ.tranFirst) {
                 lut.loadIndices.resize(size2);
                 for(unsigned i = 0; i < tokens.size() - 1; ++i) {
-                    lut.loadIndices[i] = atof(tokens[i + 1].c_str());
+                    lut.loadIndices[i] =
+                        atof(tokens[i + 1].c_str()) * lib.cap_unit / 1e-15;
                 }
             }
             else if(templ.loadFirst) {
                 lut.transitionIndices.resize(size2);
                 for(unsigned i = 0; i < tokens.size() - 1; ++i) {
-                    lut.transitionIndices[i] = atof(tokens[i + 1].c_str());
+                    lut.transitionIndices[i] =
+                        atof(tokens[i + 1].c_str()) * lib.time_unit / 1e-9;
                 }
             }
             ++index_num;
@@ -1639,16 +1652,6 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
         tokens.erase(tokens.begin());
     }
 
-    double ratio = 1;
-    if(type == "power") {
-        // Normalize the power unit to mW
-        ratio = lib.int_power_unit / 1e-3;
-    }
-    else if(type == "timing") {
-        // Normalize the timing unit to ns
-        ratio = lib.time_unit / 1e-9;
-    }
-
     if(lut.transitionIndices.empty() || lut.loadIndices.empty()) {
         if(flag) {
             read_line_as_tokens_chk(is, tokens);
@@ -1658,14 +1661,14 @@ void Circuit::_begin_read_lut(istream& is, LibLUT& lut, string type,
             tmpline.push_back(atof(tokens[i].c_str()) * ratio);
         }
         if(lut.loadIndices.empty()) {
-            lut.loadIndices.push_back(0);
-            lut.loadIndices.push_back(100);
+            lut.loadIndices.push_back(0 * lib.cap_unit / 1e-15);
+            lut.loadIndices.push_back(100 * lib.cap_unit / 1e-15);
             lut.tableVals.push_back(tmpline);
             lut.tableVals.push_back(tmpline);
         }
         else {
-            lut.transitionIndices.push_back(0);
-            lut.transitionIndices.push_back(100);
+            lut.transitionIndices.push_back(0 * lib.time_unit / 1e-9);
+            lut.transitionIndices.push_back(100 * lib.time_unit / 1e-9);
             lut.tableVals.resize(tmpline.size());
             for(unsigned i = 0; i < lut.loadIndices.size(); ++i) {
                 lut.tableVals[i].resize(2);
@@ -2534,8 +2537,8 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
             if(pinName == "RESET") {
                 printf("hhh");
             }
-            if(cell.name == "ASYNC_DFFHx1_ASAP7_75t_R" && pinName == "RESET" &&
-               fromPin == "RESET") {
+            if(cell.name == "ASYNC_DFFHx1_ASAP7_75t_R" && pinName == "D" &&
+               fromPin == "CLK") {
                 printf("hhh");
             }
             if(fromPin != "") {
@@ -3667,7 +3670,8 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         double t_cap = wire_cap / _sizer->cap_unit;
 
         g_nets[corner][i].cap = t_cap;
-        if(net_parasitic == nullptr) {
+        if(net_parasitic == nullptr ||
+           ord_net->getName().find("tile_id") != string::npos) {
             printf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;
         }

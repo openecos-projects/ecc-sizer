@@ -1154,7 +1154,8 @@ void Sizer::CalcSlack(unsigned view) {
         unsigned curpin = PIs[i];
         if(pins[view][curpin].name == clk_port[mode])
             continue;
-
+        pins[view][curpin].rAAT = inrdelays[0][curpin];
+        pins[view][curpin].fAAT = infdelays[0][curpin];
         unsigned curnet = pins[view][PIs[i]].net;
         for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
             unsigned fopin = nets[corner][curnet].outpins[j];

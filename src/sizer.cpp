@@ -1228,22 +1228,22 @@ void Sizer::Parser() {
     InitNets();  // calculate network cap for net delay
 
     // write pin list file for PT correlation
-    // if ( CORR_PT_FILE ) {
-    // string pin_file = benchname + ".pin_list";
-    // ofstream ofp(pin_file.c_str());
-    // for(unsigned i = 0; i < numpins; i++) {
-    //     string full_pin_name;
-    //     if(g_pins[0][i].owner != UINT_MAX) {
-    //         full_pin_name =
-    //             g_cells[g_pins[0][i].owner].name + "/" + g_pins[0][i].name;
-    //     }
-    //     else {
-    //         full_pin_name = g_pins[0][i].name;
-    //     }
-    //     ofp << full_pin_name << endl;
-    // }
-    // ofp.close();
-    //}
+    if(TEST_MODE != "") {
+        string pin_file = benchname + ".pin_list";
+        ofstream ofp(pin_file.c_str());
+        for(unsigned i = 0; i < numpins; i++) {
+            string full_pin_name;
+            if(g_pins[0][i].owner != UINT_MAX) {
+                full_pin_name =
+                    g_cells[g_pins[0][i].owner].name + "/" + g_pins[0][i].name;
+            }
+            else {
+                full_pin_name = g_pins[0][i].name;
+            }
+            ofp << full_pin_name << endl;
+        }
+        ofp.close();
+    }
 
     time_IO += cpuTime() - begin;
 }
@@ -11072,8 +11072,8 @@ int main(int argc, char **argv) {
             exit(0);
         }
         else if(TEST_MODE == "ALL_TEST") {
-            // _sizer.WireDelayTest();
-            _sizer.AllCorrTest();
+            _sizer.WireDelayTest();
+            // _sizer.AllCorrTest();
             exit(0);
         }
         else if(TEST_MODE == "ALL_STA_TEST") {

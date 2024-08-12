@@ -1215,6 +1215,8 @@ void Sizer::WireDelayTest(unsigned view) {
                 << tran_list[in_pin_id].rise << "," << setw(8)
                 << nets[corner][i].outpins.size() << "," << setw(8) << fixed
                 << pins[view][nets[corner][i].inpin].totcap << "," << setw(8)
+                << T[view]->getCeff(
+                       getFullPinName(pins[view][nets[corner][i].inpin]))
                 << endl;
             if(abs(maxErr) < abs(triDelay.rise - ptDelayR))
                 maxErr = triDelay.rise - ptDelayR;
@@ -1232,6 +1234,154 @@ void Sizer::WireDelayTest(unsigned view) {
          << "," << setw(8) << ""
          << "," << setw(8) << fixed << ""
          << "," << setw(8) << fixed << "" << endl;
+
+    ofstream ofs2("cell_delay_test.csv");
+    ofs << setw(8) << "NetName"
+        << "," << setw(8) << "InPin"
+        << "," << setw(8) << "OutPin"
+        << "," << setw(8) << fixed << "PtDelayR"
+        << "," << setw(8) << fixed << "PtDelayF"
+        << "," << setw(8) << fixed << "EMDelay"
+        << "," << setw(8) << fixed << "D2MDelay"
+        << "," << setw(8) << fixed << "TriDelay"
+        << "," << setw(8) << fixed << "Err"
+        << "," << setw(8) << fixed << "InSlew"
+        << "," << setw(8) << "NumFanout"
+        << "," << setw(8) << fixed << "InCap"
+        << "," << setw(8) << "Ceff" << endl;
+    for(unsigned i = 0; i < PIs.size(); i++) {
+        unsigned curpin = PIs[i];
+        if(pins[0][curpin].name == clk_port[0])
+            continue;
+
+        unsigned curnet = pins[view][PIs[i]].net;
+        for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
+            unsigned fopin = nets[corner][curnet].outpins[j];
+            // include wire delay
+            if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
+               !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
+                std::cout << "Error: PI aat not equal"
+                          << getFullPinName(pins[view][fopin]) << "/" << fopin
+                          << " " << pins[view][fopin].rAAT << "/"
+                          << aat_list[fopin].rise << " "
+                          << pins[view][fopin].fAAT << "/"
+                          << aat_list[fopin].fall << " " << std::endl;
+            }
+        }
+    }
+
+    for(unsigned i = 0; i < topolist.size(); i++) {
+        unsigned cur = topolist[i];
+        // add a loop for outpins
+        for(unsigned j = 0; j < cells[cur].outpins.size(); ++j) {
+            unsigned outpinidx =
+                pins[view][cells[cur].outpins[j]].lib_pin * 100;
+
+            LibCellInfo* lib_cell = getLibCellInfo(cells[cur], corner);
+            int fopin = cells[cur].outpins[j];
+            assert(lib_cell);
+            if(isff(cells[cur])) {
+                if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
+                   !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
+                    std::cout << "Error: FF QN aat not equal"
+                              << getFullPinName(pins[view][fopin]) << "/"
+                              << fopin << " " << pins[view][fopin].rAAT << "/"
+                              << aat_list[fopin].rise << " "
+                              << pins[view][fopin].fAAT << "/"
+                              << aat_list[fopin].fall << " " << std::endl;
+                }
+            }
+            else {
+                if(cells[cur].inpins.size() == 0) {
+                    double r_AAT = 0.0, f_AAT = 0.0;
+
+                    if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
+                       !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
+                        std::cout << "Error: Comb not equal"
+                                  << getFullPinName(pins[view][fopin]) << "/"
+                                  << fopin << " " << pins[view][fopin].rAAT
+                                  << "/" << aat_list[fopin].rise << " "
+                                  << pins[view][fopin].fAAT << "/"
+                                  << aat_list[fopin].fall << " " << std::endl;
+                    }
+                }
+
+                for(unsigned k = 0; k < cells[cur].inpins.size(); k++) {
+                    double r_delay = aat_list[fopin].rise -
+                                     aat_list[cells[cur].inpins[k]].rise;
+                    double f_delay = aat_list[fopin].fall -
+                                     aat_list[cells[cur].inpins[k]].fall;
+                    if(!isEqual(r_delay,
+                                pins[view][cells[cur].inpins[k]].rdelay[j]) ||
+                       !isEqual(f_delay,
+                                pins[view][cells[cur].inpins[k]].fdelay[j])) {
+                        std::cout << "From pin "
+                                  << pins[view][cells[cur].inpins[k]].name
+                                  << " "
+                                  << "Out pin " << pins[view][fopin].name << " "
+                                  << std::endl;
+                        std::cout
+                            << "Error: Comb delay not equal " << cells[cur].name
+                            << "/" << cells[cur].type << " " << r_delay << "/"
+                            << pins[view][cells[cur].inpins[k]].rdelay[j] << " "
+                            << f_delay << "/"
+                            << pins[view][cells[cur].inpins[k]].fdelay[j]
+                            << " ";
+                        std::cout << "Input Tran "
+                                  << tran_list[cells[cur].inpins[k]].rise << "/"
+                                  << pins[view][cells[cur].inpins[k]].rtran
+                                  << " " << tran_list[cells[cur].inpins[k]].fall
+                                  << "/"
+                                  << pins[view][cells[cur].inpins[k]].ftran;
+                        std::cout << " Load Cap "
+                                  << T[view]->getCeff(
+                                         getFullPinName(pins[view][fopin]))
+                                  << "/" << pins[view][fopin].totcap
+                                  << std::endl;
+                        vector< double > rdelay, fdelay;
+                        double rise_delay, fall_delay;
+                        T[view]->getCellDelay(
+                            rise_delay, fall_delay,
+                            getFullPinName(pins[view][cells[cur].inpins[k]]),
+                            getFullPinName(pins[view][fopin]));
+                        _ckt->report_cell(*getLibCellInfo(cells[cur], 0));
+                        // VERBOSE = 3;
+                        LookupDT(cells[topolist[i]], 0, rdelay, fdelay, 0, 0.0,
+                                 view);
+                    }
+                    if(VERBOSE >= 4) {
+                        cout
+                            << "CALC_SLACK: UPDATE PIN AAT INPIN " << view
+                            << " "
+                            << getFullPinName(pins[view][cells[cur].inpins[k]])
+                            << " " << pins[view][cells[cur].inpins[k]].rAAT
+                            << "/" << pins[view][cells[cur].inpins[k]].fAAT
+                            << " " << pins[view][cells[cur].inpins[k]].rdelay[j]
+                            << "/" << pins[view][cells[cur].inpins[k]].fdelay[j]
+                            << " " << pins[view][cells[cur].outpins[j]].rAAT
+                            << "/" << pins[view][cells[cur].outpins[j]].fAAT
+                            << endl;
+                    }
+                }
+            }
+
+            unsigned curnet = pins[view][cells[cur].outpins[j]].net;
+            for(unsigned k = 0; k < nets[corner][curnet].outpins.size(); ++k) {
+                unsigned fopin = nets[corner][curnet].outpins[k];
+                // one inpin is driven by one net
+                if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
+                   !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
+                    std::cout << "Error: Comb not equal"
+                              << getFullPinName(pins[view][fopin]) << "/"
+                              << fopin << " " << pins[view][fopin].rAAT << "/"
+                              << aat_list[fopin].rise << " "
+                              << pins[view][fopin].fAAT << "/"
+                              << aat_list[fopin].fall << " " << std::endl;
+                }
+            }
+        }
+    }
+
     ExitPTimer();
 
     printMemoryUsage();
@@ -4541,6 +4691,7 @@ void Sizer::AllCorrTest() {
     UpdateCapsFromCells();
     double initial_tns = T[view]->getTNS();
     printf("Initial TNS %f\n", initial_tns);
+
     string pt_in_file = benchname + ".pin_list";
     string pt_out_file = benchname + "_0.pt.tran";
     T[view]->writePinAll(pt_in_file, pt_out_file);

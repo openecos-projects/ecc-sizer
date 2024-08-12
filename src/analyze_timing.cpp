@@ -140,17 +140,11 @@ void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
     double begin = cpuTime();
     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
     // report_dcalc -max -digits 3 -from $cellInPin -to $cellOutPin > tmp3.rpt
-    printf("Error : don't have gate_delay !\n");
     // assert(0);
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     float temp1 = 0;
     float temp2 = 0;
-    sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    rise_delay = temp1 / 1e3;
-    fall_delay = temp2 / 1e3;
-
-    cout << "Cell delay" << rise_delay << " " << fall_delay << " " << endl;
 }
 
 void designTiming::getFFDelay(double &rdelay, double &fdelay,
@@ -1090,7 +1084,6 @@ double designTiming::getRiseTran(string PinName) {
         _tclInputString = "PtGetRiseTran " + PinName;
     }
     else {
-        
         _tclInputString = "OSGetRiseTran " + PinName;
     }
     // printf("Error: not OSGetRiseTran !, pin name %s\n", PinName.c_str());
@@ -1158,8 +1151,26 @@ double designTiming::getCeff(string PinName) {
         _tclInputString = "EtsGetCeff " + PinName;
     }
     else {
+        auto design = _sizer->_ckt->_ord_design;
+        // ofstream ofs("opensta_cap_vio.txt");
+        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+        auto pin_ = design->getBlock()->findITerm(PinName.c_str());
+        if(!pin_) {
+            printf("error: no getCeff !\n");
+            return 0;
+        }
+        auto m_term = pin_->getMTerm();
+        float pin_cap;
+        float wire_cap;
+        sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
+        sta::Net *sta_net = sta->getDbNetwork()->dbToSta(pin_->getNet());
+        _sizer->_sta->connectedCap(sta_net, corner, sta::MinMax::max(), pin_cap,
+                                   wire_cap);
+        wire_cap /= _sizer->cap_unit;
+        pin_cap /= _sizer->cap_unit;
+        double now_cap = wire_cap + pin_cap;
+        return now_cap;
         printf("error: no getCeff !");
-        exit(0);
     }
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
