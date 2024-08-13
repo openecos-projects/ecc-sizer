@@ -4786,7 +4786,11 @@ void Sizer::AllCorrTest() {
             double slack_ref =
                 min(slack_list[curpin].fall, slack_list[curpin].rise);
             slack_diff_sum += fabs(slack - slack_ref);
-            if(!isEqual(slack, slack_ref)) {
+            double rat = min(pins[view][curpin].rRAT, pins[view][curpin].fRAT);
+            double rat_ref =
+                min(aat_list[curpin].rise + slack_list[curpin].rise,
+                    aat_list[curpin].fall + slack_list[curpin].fall);
+            if(fabs(rat - rat_ref) > 1e-3) {
                 outfile << getFullPinName(pins[view][curpin]) << " ";
                 outfile << pins[view][curpin].rtran << "/"
                         << tran_list[curpin].rise << " "
@@ -4870,7 +4874,8 @@ void Sizer::AllCorrTest() {
     }
     printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
            numpins);
-    exit(0);
+    // exit(0);
+
     CorrelatePT(view);
     auto design = _ckt->_ord_design;
     sta::Corner* _corner = _sta->corners()->corners()[0];
@@ -5034,6 +5039,9 @@ void Sizer::AllCorrTest() {
         //      << " " << pins[view][i].rslk << "/" << slack_list[i].rise << " "
         //      << " " << pins[view][i].fslk << "/" << slack_list[i].fall << " "
         //      << endl;
+        if(pins[view][i].name == "CLK" || pins[view][i].name == "clk") {
+            continue;
+        }
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
            //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
@@ -5054,11 +5062,12 @@ void Sizer::AllCorrTest() {
                  << " " << pins[view][i].rslk << "/" << slack_list[i].rise
                  << " "
                  << " " << pins[view][i].fslk << "/" << slack_list[i].fall
-                 << " " << endl;
+                 << "slack_ofs " << pins[view][i].fslk_ofs << "/"
+                 << pins[view][i].rslk_ofs << " " << endl;
             num_dif_pin++;
         }
     }
-    printf("Num diff slew pins %d / %d \n", num_dif_pin, numpins);
+    printf("Num diff pins after one timer %d / %d \n", num_dif_pin, numpins);
     ExitPTimer();
 
     for(unsigned i = 0; i < numViews; ++i) {

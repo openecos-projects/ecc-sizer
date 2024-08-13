@@ -11072,8 +11072,8 @@ int main(int argc, char **argv) {
             exit(0);
         }
         else if(TEST_MODE == "ALL_TEST") {
-            _sizer.WireDelayTest();
-            // _sizer.AllCorrTest();
+            // _sizer.WireDelayTest();
+            _sizer.AllCorrTest();
             exit(0);
         }
         else if(TEST_MODE == "ALL_STA_TEST") {

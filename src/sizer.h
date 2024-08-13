@@ -365,7 +365,7 @@ class Sizer {
     // vector< CELL > multi_start_cells_poweropt_3;
     vector< vector< CellSol > > all_cells;
     // vector< CELL > best_failed_cells;
-    
+
     double max_pt_err, l2_norm, average_error;
     int leak_iter;
 
@@ -822,7 +822,7 @@ class Sizer {
     bool pt_err;
 
     // JLPWR
-    double sw_adj;
+    double sw_adj = 1e-6;
 
     // sizer.cpp
     Sizer(int _argc, char **_argv) : argc(_argc), argv(_argv) {

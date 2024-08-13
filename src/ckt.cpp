@@ -314,6 +314,7 @@ void Circuit::Parser(string benchmark) {
         for(std::list< string >::iterator it = pin_list.begin();
             it != pin_list.end(); it++) {
             // cout << "IN PIN LIST " <<   (*it) << endl;
+            assert(pin2id.count(*it));
             g_cells[i].inpins.push_back(pin2id[(*it)]);
         }
 
@@ -328,6 +329,7 @@ void Circuit::Parser(string benchmark) {
         for(std::list< string >::iterator it = pin_list2.begin();
             it != pin_list2.end(); it++) {
             // cout << "OUT PIN LIST " <<   (*it) << endl;
+            assert(pin2id.count(*it));
             g_cells[i].outpins.push_back(pin2id[(*it)]);
         }
     }
@@ -423,6 +425,7 @@ void Circuit::Parser(string benchmark) {
             int sink_num = 0;
             for(auto& sn : g_nets[corner][i].subNodeVec) {
                 if(sn.isSink) {
+                    assert(pin2id.count(sn.pin_name));
                     sn.pinId = pin2id[sn.pin_name];
                     g_pins[sn.pinId].spef_pin = sn.id;
                 }
@@ -444,6 +447,7 @@ void Circuit::Parser(string benchmark) {
             for(std::list< string >::iterator it = pin_list2.begin();
                 it != pin_list2.end(); it++) {
                 // cout << "OUT PIN LIST " <<   (*it) << endl;
+                assert(pin2id.count(*it));
                 g_nets[corner][i].outpins.push_back(pin2id[(*it)]);
                 // cout << "NETS --- " << i << " " << g_nets[corner][i].name <<
                 // "OUT PIN LIST " <<   (*it) << endl;
@@ -558,10 +562,12 @@ void Circuit::assignLibPinId() {
 
                     if(lib_cell_info->pins[pin->lib_pin].isClock) {
                         string pin_name = cell.name + "/" + pin->name;
+                        assert(pin2id.count(pin_name));
                         cell.clock_pin = pin2id[pin_name];
                     }
                     if(lib_cell_info->pins[pin->lib_pin].isData) {
                         string pin_name = cell.name + "/" + pin->name;
+                        assert(pin2id.count(pin_name));
                         cell.data_pin = pin2id[pin_name];
                     }
                 }
@@ -809,8 +815,8 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
         // if((*it)->c_vtype != 0) {
         //     continue;
         // }
-        printf("%s/%f ", candidate_cell_info->name.c_str(),
-               candidate_cell_info->width);
+        cout << candidate_cell_info->name << "/"
+             << candidate_cell_info->leakagePower << " ";
         int vt = 0;
         string newCellName = candidate_cell_info->name;
         if(_sizer->numVt == 3) {
@@ -2706,9 +2712,10 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
 
         if(tokens.size() == 2 && tokens[0] == "cell_leakage_power") {
             // Normalize the leakage power to mW
+            // cell.leakagePower =
+            //     atof(tokens[1].c_str()) * lib.leak_power_unit / 1e-6;
             cell.leakagePower =
-                atof(tokens[1].c_str()) * lib.leak_power_unit / 1e-6;
-            // cell.leakagePower = atof(tokens[1].c_str());
+                atof(tokens[1].c_str()) * lib.leak_power_unit / _sizer->sw_adj;
             leak_flag = true;
         }
         else if(tokens.size() == 1 && tokens[0] == "leakage_power") {
@@ -2760,7 +2767,8 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
     // assign leakage power
     if(!leak_flag) {
         if(leak_cnt != 0 && lib.leak_power_unit != 0)
-            cell.leakagePower = leak / leak_cnt * lib.leak_power_unit / 1e-3;
+            cell.leakagePower =
+                leak / leak_cnt * lib.leak_power_unit / _sizer->sw_adj;
         else
             cell.leakagePower = 0.0;
     }
@@ -3670,8 +3678,8 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         double t_cap = wire_cap / _sizer->cap_unit;
 
         g_nets[corner][i].cap = t_cap;
-        if(net_parasitic == nullptr ||
-           ord_net->getName().find("tile_id") != string::npos) {
+        if(net_parasitic == nullptr) {  //||
+            // ord_net->getName().find("tile_id_i") != string::npos ||
             printf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;
         }
@@ -3710,6 +3718,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             }
             // Input
             if(pin->isOutputSignal()) {
+                assert(pin2id.count(pin_name));
                 int p_id = pin2id[pin_name];
                 subNodeVecPtr->at(0).pinId = p_id;
                 g_pins[p_id].spef_pin = 0;
@@ -3748,6 +3757,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             }
             // Input
             if(pin->getIoType() == "INPUT") {
+                assert(pin2id.count(pin_name));
                 int p_id = pin2id[pin_name];
                 subNodeVecPtr->at(0).pinId = p_id;
                 g_pins[p_id].spef_pin = 0;

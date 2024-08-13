@@ -1487,6 +1487,7 @@ void Sizer::CalcSlack(unsigned view) {
                     //         9999.99;
                     //     break;
                     // }
+                    // error
                     pins[view][curinpin].rRAT =
                         min(pins[view][curinpin].rRAT,
                             clk_period[mode] - pins[view][curinpin].rdelay[j]);
@@ -3918,6 +3919,7 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
     unsigned curnet = pin.net;
     pin.rAAT = pin.fAAT = 0.0;
     pin.rRAT = pin.fRAT = 9999.99;
+    // critical affected time FIXME:
 
     if(VERBOSE >= 3)
         cout << "UPDATE PIN TIMING " << getFullPinName(pin) << endl;
@@ -5342,12 +5344,15 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
                 i_term, ord::Timing::Fall, ord::Timing::Max);
         }
         pin_name = i_term->getName();
-        if(pin2id.count(pin_name) == 0) {
+        if(pin2id.find(pin_name) == pin2id.end()) {
             printf("Pin name %s, Net name %s ,don't in pins\n",
                    pin_name.c_str(), i_term->getNet()->getName().c_str());
             continue;
         }
         int pin_id = pin2id[pin_name];
+        if(pin_id == 0) {
+            printf("debug debug");
+        }
         assert(pin2id.count(pin_name) > 0);
         slack_rise = slack_rise >= 1e8 ? DBL_MAX : slack_rise / this->time_unit;
         slack_fall = slack_fall >= 1e8 ? DBL_MAX : slack_fall / this->time_unit;
@@ -5397,7 +5402,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         }
 
         pin_name = i_term->getName();
-        if(pin2id.count(pin_name) == 0) {
+        if(pin2id.find(pin_name) == pin2id.end()) {
             printf("Pin name %s don't in pins\n", pin_name.c_str());
             continue;
         }
@@ -5494,9 +5499,6 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
                 if(VERBOSE >= 3) {
                     // pessimistic
                     if(rslk_old < -1e-6 && pins[view][i].rslk > 0) {
-                        if(getFullPinName(pins[view][(i)]) == "g46034/B2") {
-                            // printf("debug debug!");
-                        }
                         pin_slack tmp(i, rslk_old - pins[view][i].rslk);
                         rslk_m_delta.insert(tmp);
                     }
@@ -5801,6 +5803,11 @@ void Sizer::GetMaxTranConst(unsigned view) {
             slew_limit /= this->time_unit;
             string full_pin_name =
                 pin_->getInst()->getName() + "/" + mterm->getName();
+            if(pin2id.find(full_pin_name) == pin2id.end()) {
+                printf("Pin %s not in pins\n", full_pin_name.c_str());
+                continue;
+            }
+            assert(pin2id.find(full_pin_name) != pin2id.end());
             int pin_id = pin2id[full_pin_name];
             g_pins[view][pin_id].max_tran = slew_limit;
             if(fabs(slew_limit - 0.32) > 1e-6) {
