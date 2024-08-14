@@ -5,6 +5,7 @@
 #include "ckt.h"
 #include <tcl8.6/tcl.h>
 #include <tcl8.6/tclDecls.h>
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -122,6 +123,7 @@ void Circuit::InitData() {
         _sizer->maxTran.push_back(_maxTran);
         g_nets.push_back(_net);
         _sizer->func_lib_cell_list.push_back(_func_lib_cell_list);
+        _sizer->cap_lib_cell_vec.resize(1);
     }
 }
 
@@ -193,6 +195,7 @@ void Circuit::Parser(string benchmark) {
     std::map< string, list< LibCellInfo* > >::iterator it;
     for(it = _sizer->func_lib_cell_list[t_corner].begin();
         it != _sizer->func_lib_cell_list[t_corner].end(); ++it) {
+        vector< LibCellInfo* > cap_vec;
         printf("Cell main type %s: \n", it->first.c_str());
         for(LibCellInfo* lib_cell_info : it->second) {
             double partial_order = 0;
@@ -206,6 +209,7 @@ void Circuit::Parser(string benchmark) {
                 lib_cell_info->dontTouch = true;
                 _sizer->dontTouchCell.push_back(lib_cell_info->name);
             }
+            cap_vec.push_back(lib_cell_info);
             for(auto& [id, pin] : lib_cell_info->pins) {
                 auto m_term = db_master->findMTerm(pin.name.c_str());
                 if(m_term == nullptr) {
@@ -218,6 +222,15 @@ void Circuit::Parser(string benchmark) {
                 sta::Port* port = network->dbToSta(m_term);
                 sta::LibertyPort* lib_port = network->libertyPort(port);
                 sta::LibertyLibrary* lib = network->defaultLibertyLibrary();
+                double slew_limit =
+                    _sizer->_ckt->_ord_timing->getMaxSlewLimit(m_term) /
+                    _sizer->time_unit;
+                pin.maxTran = slew_limit;
+                if(fabs(slew_limit - 0.32) > 1e-3) {
+                    cout << "not equal to 0.32, slew limit " << slew_limit
+                         << endl;
+                    exit(0);
+                }
                 pin.capacitance = lib_port->capacitance();
                 bool maxCapExist;
                 float maxCap;
@@ -243,6 +256,15 @@ void Circuit::Parser(string benchmark) {
         list.sort([&](LibCellInfo* c1, LibCellInfo* c2) {
             return c1->leakagePower < c2->leakagePower;
         });
+        std::sort(cap_vec.begin(), cap_vec.end(),
+                  [&](LibCellInfo* c1, LibCellInfo* c2) {
+                      return c1->partial_order < c2->partial_order;
+                  });
+        int i = 0;
+        for(auto* lib_info : cap_vec) {
+            lib_info->cap_size = i++;
+        }
+        _sizer->cap_lib_cell_vec[t_corner].insert({it->first, cap_vec});
     }
     // if(!_sizer->mmmcOn) {
     //     cout << "Parsing sdc...     " << _sizer->sdcFile << endl;

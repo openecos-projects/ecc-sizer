@@ -4790,7 +4790,12 @@ void Sizer::AllCorrTest() {
             double rat_ref =
                 min(aat_list[curpin].rise + slack_list[curpin].rise,
                     aat_list[curpin].fall + slack_list[curpin].fall);
-            if(fabs(rat - rat_ref) > 1e-3) {
+            double tran =
+                min(pins[view][curpin].rtran, pins[view][curpin].ftran);
+            double tran_ref =
+                min(tran_list[curpin].rise, tran_list[curpin].fall);
+            double tran_diff = fabs(tran - tran_ref);
+            if(tran_diff > 1e-4) {
                 outfile << getFullPinName(pins[view][curpin]) << " ";
                 outfile << pins[view][curpin].rtran << "/"
                         << tran_list[curpin].rise << " "
@@ -4819,7 +4824,7 @@ void Sizer::AllCorrTest() {
             << neq_num << " / " << numpins << endl;
     printf("Slack not equal num %f , %d / %d\n", 1. * neq_num / numpins,
            neq_num, numpins);
-    // exit(0);
+    exit(0);
     for(unsigned i = 0; i < numpins; ++i) {
         // cout << "before corr " << getFullPinName(pins[view][i])
         //     << " " << pins[view][i].rtran << "/" << tran_list[i].rise << ""
@@ -5020,6 +5025,22 @@ void Sizer::AllCorrTest() {
         //          << " " << pins[view][i].fslk << "/" << slack_list[i].fall
         //          << " " << endl;
         // }
+    }
+
+    for(unsigned i = 0; i < numcells; ++i) {
+        if(!cells[i].isClockCell && !cells[i].isDontTouch) {
+            string old_type = cells[i].type;
+            bool change = cell_resize(cells[i], 1, false);
+            if(change) {
+                // cout << "CHANGE " << cells[i].name << " " << old_type << "
+                // --> "
+                //      << cells[i].type << endl;
+                OneTimer(cells[i], STA_MARGIN);
+                bool change1 = cell_resize(cells[i], -1, false);
+                OneTimer(cells[i], STA_MARGIN);
+            }
+        }
+        OneTimer(cells[i], STA_MARGIN);
     }
 
     for(unsigned i = 0; i < numcells; ++i) {

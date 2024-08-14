@@ -335,7 +335,7 @@ class Sizer {
 
     bool already_built;
     set< entry > targets;
-
+    double  updatePinFast = true;
     vector< unsigned > topolist;
     vector< unsigned > rtopolist;
     vector< unsigned > map2topoidx;
@@ -408,6 +408,7 @@ class Sizer {
                      bool update_cap = true);
     bool cell_resize(CELL &cell, int steps, bool pt_corr = false,
                      bool update_cap = true);
+    bool cell_resize_cap(CELL &cell, int steps, bool pt_corr, bool update_cap);
     bool cell_change(CELL &cell, cell_sizes size, cell_vtypes vt,
                      bool update_cap = true);
     bool cell_change(CELL &cell, CellSol cell_sol, bool update_cap = true);
@@ -574,6 +575,7 @@ class Sizer {
     int getNumRCStage(vector< SUB_NODE > &subNodeVec, unsigned sink);
 
     bool IsTranVio(PIN &pin);
+    bool IsTranVio(PIN &pin, double max_tran) ;
     // JLPWR
     double LookupDeltaSwitchPower(CELL &cell, int factor, int dir,
                                   unsigned view = 0);
@@ -689,7 +691,7 @@ class Sizer {
     vector< vector< string > > funclist;
     // MMMC
     vector< map< string, list< LibCellInfo * > > > func_lib_cell_list;
-
+    vector< map< string, vector< LibCellInfo * > > > cap_lib_cell_vec;
     unsigned numpins, numcells, numnets;
 
     vector< CELL > g_cells;
@@ -978,6 +980,7 @@ class Sizer {
     unsigned BwdFixCapViolation(unsigned view = 0);
     unsigned FwdFixCapViolation(unsigned view = 0);
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);
+    unsigned FwdFixSlewViolationPost(double maxTranRatio, unsigned view = 0);
     int FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
                                 double maxTran, unsigned view = 0);
     unsigned FwdFixSlackViolation(double maxTranRatio, unsigned view);

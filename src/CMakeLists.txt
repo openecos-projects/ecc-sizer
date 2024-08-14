@@ -10,13 +10,13 @@
 # add_subdirectory(thirdparty/OpenROAD)
 # include("openroad")
 # Below references submodule
-set(CMAKE_BUILD_TYPE Debug) # -O0 -Og -fstandalone-debug
-# set(CMAKE_BUILD_TYPE Release) # -O0 -Og -fstandalone-debug
+# set(CMAKE_BUILD_TYPE Debug) # -O0 -Og -fstandalone-debug
+set(CMAKE_BUILD_TYPE Release) # -O0 -Og -fstandalone-debug
 
-set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -Wall -Wextra") # -Wl --start-group
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -Wall -Wextra") # -fsanitize=address -Wl --start-group
 set(CMAKE_C_FLAGS_DEBUG  "${CMAKE_C_FLAGS} -O0 -g -Wall -Wextra")
 
-set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3") # -DNDEBUG -DNDEBUG # -DNDEBUG
+set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -DNDEBUG") #  -DNDEBUG # -DNDEBUG
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O3")
 
 set(OPENROAD_HOME ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/OpenROAD/src/)

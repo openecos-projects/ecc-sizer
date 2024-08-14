@@ -272,7 +272,9 @@ double Sizer::CalcSlewViolation(unsigned view) {
 
             if(t_tran > pins[view][curpin].max_tran) {
                 slew_viol += t_tran - pins[view][curpin].max_tran;
-                ofs << getFullPinName(pins[view][curpin])
+                ofs << "Cell type: " << cells[i].type << " "
+                    << getFullPinName(pins[view][curpin]) << " pin direction: "
+                    << (pin_->isOutputSignal() ? "output" : "input")
                     << " max tran vio: " << t_tran << " "
                     << pins[view][curpin].max_tran << endl;
                 slew_violation_cnt++;

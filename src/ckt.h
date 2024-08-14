@@ -590,6 +590,7 @@ struct LibPinInfo {
     string name;            // pin name
     double capacitance;     // input pin cap (not defined for output pins)
     double maxCapacitance;  // the max load this pin can drive
+    double maxTran;         // the max transition this pin can drive
     bool isInput : 1;       // whether the pin is input pin
     bool isOutput : 1;      // whether the pin is output pin
     bool isClock : 1;       // whether the pin is a clock pin or not
@@ -640,6 +641,7 @@ struct LibCellInfo {
     string footprint;  // only the cells with the same footprint are swappable
     cell_vtypes c_vtype;    // vt
     cell_sizes c_size;      // size
+    int cap_size;           // capacitance size
     double leakagePower;    // cell leakage power
     double area;            // cell area (will not be a metric for ISPD-12)
     double width;           // cell width for minIA
@@ -666,6 +668,8 @@ struct LibCellInfo {
           area(0.0),
           width(0.0),
           isSequential(false),
+          c_size(0),
+          cap_size(0),
           hasQN(false),
           dontTouch(false),
           dontUse(false),
@@ -683,6 +687,8 @@ struct LibCellInfo {
           area(orig.area),
           max_tran(orig.max_tran),
           width(orig.width),
+          c_size(orig.c_size),
+          cap_size(orig.cap_size),
           isSequential(orig.isSequential),
           dontTouch(orig.dontTouch),
           dontUse(orig.dontUse),

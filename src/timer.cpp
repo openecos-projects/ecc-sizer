@@ -3707,6 +3707,17 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                         cout << "REACH PO -- ADD BW PIN "
                              << getFullPinName(pins[view][curpin]) << endl;
                     if(bwpins_set.count(curpin) == 0) {
+                        // unsigned fipin =
+                        //     nets[corner][pins[view][curpin].net].inpin;
+                        // if(fipin != UINT_MAX) {
+                        //     pins[view][fipin].rRAT = pins[view][fipin].fRAT =
+                        //         9999.99;
+                        // }
+                        // else {
+                        //     pins[view][curpin].rRAT = pins[view][curpin].fRAT
+                        //     =
+                        //         9999.99;
+                        // }
                         bwpins.push_back(curpin);
                         bwpins_set.insert(curpin);
                     }
@@ -3727,6 +3738,16 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                                      << getFullPinName(pins[view][curpin])
                                      << endl;
                             if(bwpins_set.count(curpin) == 0) {
+                                // unsigned fipin =
+                                //     nets[corner][pins[view][curpin].net].inpin;
+                                // if(fipin != UINT_MAX) {
+                                //     pins[view][fipin].rRAT =
+                                //         pins[view][fipin].fRAT = 9999.99;
+                                // }
+                                // else {
+                                //     pins[view][curpin].rRAT =
+                                //         pins[view][curpin].fRAT = 9999.99;
+                                // }
                                 bwpins.push_back(curpin);
                                 bwpins_set.insert(curpin);
                             }
@@ -3770,6 +3791,17 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
 
                 if(curfo != UINT_MAX) {
                     if(bwpins_set.count(curpin) == 0) {
+                        // unsigned fipin =
+                        //     nets[corner][pins[view][curpin].net].inpin;
+                        // if(fipin != UINT_MAX) {
+                        //     pins[view][fipin].rRAT = pins[view][fipin].fRAT =
+                        //         9999.99;
+                        // }
+                        // else {
+                        //     pins[view][curpin].rRAT = pins[view][curpin].fRAT
+                        //     =
+                        //         9999.99;
+                        // }
                         bwpins.push_back(curpin);
                         bwpins_set.insert(curpin);
                     }
@@ -3783,6 +3815,17 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                 }
                 else {
                     if(bwpins_set.count(curpin) == 0) {
+                        // unsigned fipin =
+                        //     nets[corner][pins[view][curpin].net].inpin;
+                        // if(fipin != UINT_MAX) {
+                        //     pins[view][fipin].rRAT = pins[view][fipin].fRAT =
+                        //         9999.99;
+                        // }
+                        // else {
+                        //     pins[view][curpin].rRAT = pins[view][curpin].fRAT
+                        //     =
+                        //         9999.99;
+                        // }
                         bwpins.push_back(curpin);
                         bwpins_set.insert(curpin);
                     }
@@ -3918,7 +3961,9 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
     unsigned cur = pin.owner;
     unsigned curnet = pin.net;
     pin.rAAT = pin.fAAT = 0.0;
-    pin.rRAT = pin.fRAT = 9999.99;
+    if(updatePinFast) {
+        pin.rRAT = pin.fRAT = 9999.99;
+    }
     // critical affected time FIXME:
 
     if(VERBOSE >= 3)
@@ -4295,9 +4340,9 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
 
     //    cout << "PIN TRAN / AAT CHANGE "
     //        << diff_tran << " " << diff_AAT << " " << margin << endl;
-    if(pin.rslk > 8000 || pin.fslk > 8000) {
-        return false;
-    }
+    // if(pin.rslk > 8000 || pin.fslk > 8000) {
+    //     return false;
+    // }
     if(diff_tran > margin || diff_AAT > margin)
         return true;
     else
@@ -4357,8 +4402,8 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         // printf("ERROR pin %s not have RAT\n", getFullPinName(pin).c_str());
     }
 
-    // double prv_rslk=pins[view][fipin].rslk;
-    // double prv_fslk=pins[view][fipin].fslk;
+    // double prv_rslk = pins[view][fipin].rslk;
+    // double prv_fslk = pins[view][fipin].fslk;
     if(cur == UINT_MAX) {  // PO
         double fo_delay = 0.0;
         if(outdelays[mode].find(pin.name) != outdelays[mode].end()) {
@@ -4593,7 +4638,8 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         // printf("Error: pin %s RAT is inf!!!!\n",
         // getFullPinName(pin).c_str()); printf("Cell name %s\n", cur ==
         // UINT_MAX
-        //                              ? ("PO " + getFullPinName(pin)).c_str()
+        //                              ? ("PO " +
+        //                              getFullPinName(pin)).c_str()
         //                              : cells[cur].name.c_str());
         return false;
     }
@@ -4962,7 +5008,10 @@ timing_lookup Sizer::get_wire_tran(unsigned netID, unsigned sinkPinID,
         tran.rise = sqrt(pow(in_rtran, 2) + log(9) * pow(wire_delay.rise, 2));
         tran.fall = sqrt(pow(in_ftran, 2) + log(9) * pow(wire_delay.fall, 2));
 
-        // cout << "PERI SLEW " << wire_delay.rise << "/" << wire_delay.fall
+        // tran.rise = sqrt(pow(in_rtran, 2) + pow(log(9) * wire_delay.rise,
+        // 2)); tran.fall = sqrt(pow(in_ftran, 2) + pow(log(9) *
+        // wire_delay.fall, 2)); cout << "PERI SLEW " << wire_delay.rise << "/"
+        // << wire_delay.fall
         //    << " " << in_rtran << "/" << in_ftran
         //    << " " << tran.rise << "/" << tran.fall << endl;
     }
@@ -5345,8 +5394,8 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         }
         pin_name = i_term->getName();
         if(pin2id.find(pin_name) == pin2id.end()) {
-            printf("Pin name %s, Net name %s ,don't in pins\n",
-                   pin_name.c_str(), i_term->getNet()->getName().c_str());
+            // printf("Pin name %s, Net name %s ,don't in pins\n",
+            //        pin_name.c_str(), i_term->getNet()->getName().c_str());
             continue;
         }
         int pin_id = pin2id[pin_name];
@@ -5403,7 +5452,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
 
         pin_name = i_term->getName();
         if(pin2id.find(pin_name) == pin2id.end()) {
-            printf("Pin name %s don't in pins\n", pin_name.c_str());
+            // printf("Pin name %s don't in pins\n", pin_name.c_str());
             continue;
         }
         int pin_id = pin2id[pin_name];
@@ -5759,6 +5808,15 @@ void Sizer::CorrelatePT(unsigned option, unsigned view) {
 
 bool Sizer::IsTranVio(PIN &pin) {
     if(pin.rtran > pin.max_tran || pin.ftran > pin.max_tran) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+bool Sizer::IsTranVio(PIN &pin, double max_tran) {
+    if(pin.rtran > max_tran || pin.ftran > max_tran) {
         return true;
     }
     else {
