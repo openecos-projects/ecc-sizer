@@ -1,7 +1,7 @@
-design_path="/home/zhaoxueyan/code/gpu_gate_sizing/benchmark/iccad24/design/"
+design_path="/home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/"
 directories=$(ls -d ${design_path}*/)
-env_file="/home/zhaoxueyan/code/gpu_gate_sizing/.vscode/env_file"
-bin_exe=/home/zhaoxueyan/code/gpu_gate_sizing/build/TritonSizer
+env_file="/home/zxy/my_code/gpu_gate_sizing/.vscode/env_file"
+bin_exe=/home/zxy/my_code/gpu_gate_sizing/build/src/TritonSizer
 
 if [ ! -f cmd_base_file ]; then
   echo "cmd_base_file 文件不存在"

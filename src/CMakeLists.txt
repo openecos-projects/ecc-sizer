@@ -62,6 +62,7 @@ target_link_libraries(TritonSizer
     OpenSTA
     dbSta
     grt
+    omp
     gui
     -L${ZLIB_HOME} -lz
     -lm -lpthread -ldl

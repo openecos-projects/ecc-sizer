@@ -3626,7 +3626,7 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         }
         double preCap = pins[view][fipin].totcap;
         double loadCap = 0.;
-#pragma omp parallel for reduction(+ : loadCap)
+// #pragma omp parallel for reduction(+ : loadCap)
         for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++)
             loadCap += pins[view][nets[corner][curnet].outpins[j]].cap;
 
