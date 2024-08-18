@@ -979,6 +979,7 @@ class Sizer {
     // sizer main functions
     unsigned BwdFixCapViolation(unsigned view = 0);
     unsigned FwdFixCapViolation(unsigned view = 0);
+    unsigned BwdFixSlewViolation(double maxTranRatio, unsigned view);
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);
     unsigned FwdFixSlewViolationPost(double maxTranRatio, unsigned view = 0);
     int FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
