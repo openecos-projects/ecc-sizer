@@ -46,6 +46,7 @@
 #include "sizer.h"
 #include <limits>
 #include <unordered_map>
+#include <vector>
 #include "float.h"
 #include "utils.h"
 #define __DEBUG
@@ -449,10 +450,10 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                     cout << "CORR PIN TRAN UPDATE "
                          << getFullPinName(pins[view][curpin]) << " "
                          << pins[view][curpin].rtran << "/"
-                         << pins[view][curpin].ftran << " "
-                         << " " << pins[view][curpin].rtran_ofs << "/"
-                         << pins[view][curpin].ftran_ofs << " "
-                         << " " << value_list[curpin].rise << "/"
+                         << pins[view][curpin].ftran << " " << " "
+                         << pins[view][curpin].rtran_ofs << "/"
+                         << pins[view][curpin].ftran_ofs << " " << " "
+                         << value_list[curpin].rise << "/"
                          << value_list[curpin].fall << " " << endl;
                 pins[view][curpin].rtran = value_list[curpin].rise;
                 pins[view][curpin].ftran = value_list[curpin].fall;
@@ -505,10 +506,10 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                 cout << "CORR OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " "
                      << pins[view][curpin].rtran << "/"
-                     << pins[view][curpin].ftran << " "
-                     << " " << pins[view][curpin].rtran_ofs << "/"
-                     << pins[view][curpin].ftran_ofs << " "
-                     << " " << value_list[curpin].rise << "/"
+                     << pins[view][curpin].ftran << " " << " "
+                     << pins[view][curpin].rtran_ofs << "/"
+                     << pins[view][curpin].ftran_ofs << " " << " "
+                     << value_list[curpin].rise << "/"
                      << value_list[curpin].fall << " " << endl;
 
             pins[view][curpin].rtran = value_list[curpin].rise;
@@ -550,10 +551,10 @@ void Sizer::CalcTranCorr(unsigned view, unsigned option,
                     cout << "CORR PIN TRAN UPDATE "
                          << getFullPinName(pins[view][fopin]) << " "
                          << pins[view][fopin].rtran << "/"
-                         << pins[view][fopin].ftran << " "
-                         << " " << pins[view][fopin].rtran_ofs << "/"
-                         << pins[view][fopin].ftran_ofs << " "
-                         << " " << value_list[fopin].rise << "/"
+                         << pins[view][fopin].ftran << " " << " "
+                         << pins[view][fopin].rtran_ofs << "/"
+                         << pins[view][fopin].ftran_ofs << " " << " "
+                         << value_list[fopin].rise << "/"
                          << value_list[fopin].fall << " " << endl;
                 pins[view][fopin].rtran = value_list[fopin].rise;
                 pins[view][fopin].ftran = value_list[fopin].fall;
@@ -572,8 +573,8 @@ void Sizer::CalcTran(unsigned view) {
         if(VERBOSE >= 4)
             cout << "PIN TRAN ORIGNAL " << getFullPinName(pins[view][curpin])
                  << " " << pins[view][curpin].rtran << "/"
-                 << pins[view][curpin].ftran << " "
-                 << " " << pins[view][curpin].rtran_ofs << "/"
+                 << pins[view][curpin].ftran << " " << " "
+                 << pins[view][curpin].rtran_ofs << "/"
                  << pins[view][curpin].ftran_ofs << " " << endl;
         double rtran_1, ftran_1;
         auto pin = pins[view][curpin];
@@ -617,8 +618,8 @@ void Sizer::CalcTran(unsigned view) {
                     cout << "PIN TRAN UPDATE "
                          << getFullPinName(pins[view][curpin]) << " "
                          << pins[view][curpin].rtran << "/"
-                         << pins[view][curpin].ftran << " "
-                         << " " << pins[view][curpin].rtran_ofs << "/"
+                         << pins[view][curpin].ftran << " " << " "
+                         << pins[view][curpin].rtran_ofs << "/"
                          << pins[view][curpin].ftran_ofs << " " << endl;
 
                 pins[view][curpin].rtran += pins[view][curpin].rtran_ofs;
@@ -648,8 +649,8 @@ void Sizer::CalcTran(unsigned view) {
             if(VERBOSE >= 4)
                 cout << "PIN TRAN UPDATE " << getFullPinName(pins[view][fopin])
                      << " " << pins[view][fopin].rtran << "/"
-                     << pins[view][fopin].ftran << " "
-                     << " " << pins[view][fopin].rtran_ofs << "/"
+                     << pins[view][fopin].ftran << " " << " "
+                     << pins[view][fopin].rtran_ofs << "/"
                      << pins[view][fopin].ftran_ofs << " " << endl;
 
             pins[view][fopin].rtran += pins[view][fopin].ftran_ofs;
@@ -673,8 +674,8 @@ void Sizer::CalcTran(unsigned view) {
             if(VERBOSE >= 4)
                 cout << "OUTPIN TRAN UPDATE "
                      << getFullPinName(pins[view][curpin]) << " " << rtran
-                     << "/" << ftran << " "
-                     << " " << pins[view][curpin].rtran_ofs << "/"
+                     << "/" << ftran << " " << " "
+                     << pins[view][curpin].rtran_ofs << "/"
                      << pins[view][curpin].ftran_ofs << " " << endl;
 
             // propagation
@@ -714,8 +715,8 @@ void Sizer::CalcTran(unsigned view) {
                     cout << "PIN TRAN UPDATE "
                          << getFullPinName(pins[view][fopin]) << " "
                          << pins[view][fopin].rtran << "/"
-                         << pins[view][fopin].ftran << " "
-                         << " " << pins[view][fopin].rtran_ofs << "/"
+                         << pins[view][fopin].ftran << " " << " "
+                         << pins[view][fopin].rtran_ofs << "/"
                          << pins[view][fopin].ftran_ofs << " " << endl;
                 pins[view][fopin].rtran += pins[view][fopin].rtran_ofs;
                 pins[view][fopin].ftran += pins[view][fopin].ftran_ofs;
@@ -857,8 +858,8 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                     cout << cell.name << "/" << pins[view][curpin].name << "("
                          << pins[view][curpin].rtran << "/"
                          << pins[view][curpin].ftran << ") "
-                         << "rtran: " << r_rtran << " "
-                         << " ftran: " << r_ftran << " totcap : "
+                         << "rtran: " << r_rtran << " " << " ftran: " << r_ftran
+                         << " totcap : "
                          << pins[view][cell.outpins[i]].ceff + delta_cap
                          << endl;
                 }
@@ -1940,9 +1941,8 @@ double Sizer::EstDeltaDelay(CELL &cell, int steps, int dir, unsigned view) {
                 cout << "DELAY CAL - input transition " << i << "-- " << j
                      << " " << pins[view][fipin].rtran << "/"
                      << pins[view][fipin].ftran << " " << rtran2 << "/"
-                     << ftran2 << " "
-                     << "ceff " << pins[view][fipin].ceff << " "
-                     << "delta cap " << delta_cap << endl;
+                     << ftran2 << " " << "ceff " << pins[view][fipin].ceff
+                     << " " << "delta cap " << delta_cap << endl;
 
             // LibTimingInfo *arc =
             // &curlib->timingArcs[pins[view][cell.inpins[j]].name];
@@ -2275,11 +2275,11 @@ double Sizer::CalSensMMMC(CELL &cell, int steps, int dir, int option,
             double cell_delta_tns = delta_delay * cell_npath;
 
             if(VERBOSE > 0) {
-                cout << "SF " << option << " "
-                     << " " << view1 << " " << cell.name << " " << cell.type
-                     << " " << steps << "/" << dir << " " << delta_power << " "
-                     << delta_delay << " " << cell_delay << " " << cell_slack
-                     << " " << cell_load << endl;
+                cout << "SF " << option << " " << " " << view1 << " "
+                     << cell.name << " " << cell.type << " " << steps << "/"
+                     << dir << " " << delta_power << " " << delta_delay << " "
+                     << cell_delay << " " << cell_slack << " " << cell_load
+                     << endl;
             }
 
             if(cell_delay > 0.0) {
@@ -2531,10 +2531,10 @@ double Sizer::CalSens(CELL &cell, int steps, int dir, int option, double gamma,
             sf = 1e-15 / delta_tns;
         }
         if(VERBOSE > 0)
-            cout << "SF 8 "
-                 << " " << view << " " << cell.name << " " << cell.type << " "
-                 << steps << "/" << dir << " " << delta_power << " "
-                 << delta_tns << " " << sf << " " << 1.0 / sf << endl;
+            cout << "SF 8 " << " " << view << " " << cell.name << " "
+                 << cell.type << " " << steps << "/" << dir << " "
+                 << delta_power << " " << delta_tns << " " << sf << " "
+                 << 1.0 / sf << endl;
         return sf;
     }
     else if(option == 9) {
@@ -2864,8 +2864,7 @@ double Sizer::LookupDeltaLeak(CELL &cell, int steps, int dir, unsigned view) {
 
     if(lib_cell_info == NULL) {
         if(VERBOSE >= 3)
-            cout << "->"
-                 << "no candidate" << endl;
+            cout << "->" << "no candidate" << endl;
         return 0.0;
     }
     if(VERBOSE >= 3)
@@ -2891,8 +2890,7 @@ double Sizer::LookupDeltaTotPowerPT(CELL &cell, int steps, int dir,
 
     if(lib_cell_info == NULL) {
         if(VERBOSE >= 3)
-            cout << "->"
-                 << "no candidate" << endl;
+            cout << "->" << "no candidate" << endl;
         return 0.0;
     }
     T[view]->sizeCell(cell.name, lib_cell_info->name);
@@ -3626,7 +3624,7 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
         }
         double preCap = pins[view][fipin].totcap;
         double loadCap = 0.;
-// #pragma omp parallel for reduction(+ : loadCap)
+        // #pragma omp parallel for reduction(+ : loadCap)
         for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++)
             loadCap += pins[view][nets[corner][curnet].outpins[j]].cap;
 
@@ -3947,12 +3945,11 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
     //     << pin.rAAT << "/" << pin.fAAT << " -> ";
     if(VERBOSE >= 2) {
         cout << "UPDATE PIN AAT - ORIG " << view << " " << getFullPinName(pin)
-             << " (" << pin.rtran << "/" << pin.ftran << ")"
-             << " (" << pin.rslk << "/" << pin.fslk << ")"
-             << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-             << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-             << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+             << " (" << pin.rtran << "/" << pin.ftran << ")" << " (" << pin.rslk
+             << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/" << pin.fRAT
+             << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")" << " ("
+             << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " (" << pin.totcap
+             << "," << pin.slk_gb << ")" << endl;
     }
     double prv_rtran = pin.rtran;
     double prv_ftran = pin.ftran;
@@ -4262,11 +4259,10 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
 
         if(VERBOSE >= 2) {
             cout << "UPDATE PIN AAT - NEW " << getFullPinName(pin) << " ("
-                 << pin.rtran << "/" << pin.ftran << ")"
-                 << " (" << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
+                 << pin.rtran << "/" << pin.ftran << ")" << " (" << pin.rslk
+                 << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/"
+                 << pin.fRAT << ")" << " (" << pin.rAAT << "/" << pin.fAAT
+                 << ")" << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
                  << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
         }
 
@@ -4279,16 +4275,14 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
                 cout << "UPDATE PIN AAT - ORIG "
                      << getFullPinName(pins[view][fopin]) << " ("
                      << pins[view][fopin].rtran << "/"
-                     << pins[view][fopin].ftran << ")"
-                     << " (" << pins[view][fopin].rslk << "/"
-                     << pins[view][fopin].fslk << ")"
-                     << " (" << pins[view][fopin].rRAT << "/"
-                     << pins[view][fopin].fRAT << ")"
-                     << " (" << pins[view][fopin].rAAT << "/"
-                     << pins[view][fopin].fAAT << ")"
-                     << " (" << pins[view][fopin].rslk_ofs << "/"
-                     << pins[view][fopin].fslk_ofs << ")"
-                     << " (" << pins[view][fopin].totcap << ","
+                     << pins[view][fopin].ftran << ")" << " ("
+                     << pins[view][fopin].rslk << "/" << pins[view][fopin].fslk
+                     << ")" << " (" << pins[view][fopin].rRAT << "/"
+                     << pins[view][fopin].fRAT << ")" << " ("
+                     << pins[view][fopin].rAAT << "/" << pins[view][fopin].fAAT
+                     << ")" << " (" << pins[view][fopin].rslk_ofs << "/"
+                     << pins[view][fopin].fslk_ofs << ")" << " ("
+                     << pins[view][fopin].totcap << ","
                      << pins[view][fopin].slk_gb << ")" << endl;
             }
 
@@ -4314,16 +4308,14 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
                 cout << "UPDATE PIN AAT - NEW "
                      << getFullPinName(pins[view][fopin]) << " ("
                      << pins[view][fopin].rtran << "/"
-                     << pins[view][fopin].ftran << ")"
-                     << " (" << pins[view][fopin].rslk << "/"
-                     << pins[view][fopin].fslk << ")"
-                     << " (" << pins[view][fopin].rRAT << "/"
-                     << pins[view][fopin].fRAT << ")"
-                     << " (" << pins[view][fopin].rAAT << "/"
-                     << pins[view][fopin].fAAT << ")"
-                     << " (" << pins[view][fopin].rslk_ofs << "/"
-                     << pins[view][fopin].fslk_ofs << ")"
-                     << " (" << pins[view][fopin].totcap << ","
+                     << pins[view][fopin].ftran << ")" << " ("
+                     << pins[view][fopin].rslk << "/" << pins[view][fopin].fslk
+                     << ")" << " (" << pins[view][fopin].rRAT << "/"
+                     << pins[view][fopin].fRAT << ")" << " ("
+                     << pins[view][fopin].rAAT << "/" << pins[view][fopin].fAAT
+                     << ")" << " (" << pins[view][fopin].rslk_ofs << "/"
+                     << pins[view][fopin].fslk_ofs << ")" << " ("
+                     << pins[view][fopin].totcap << ","
                      << pins[view][fopin].slk_gb << ")" << endl;
             }
         }
@@ -4340,9 +4332,9 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
 
     //    cout << "PIN TRAN / AAT CHANGE "
     //        << diff_tran << " " << diff_AAT << " " << margin << endl;
-    // if(pin.rslk > 8000 || pin.fslk > 8000) {
-    //     return false;
-    // }
+    if(pin.rslk > 8000 || pin.fslk > 8000) {
+        return false;
+    }
     if(diff_tran > margin || diff_AAT > margin)
         return true;
     else
@@ -4376,24 +4368,21 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
     }
     if(VERBOSE >= 2) {
         cout << "UPDATE PIN SLACK - ORIG " << getFullPinName(pin) << " ("
-             << pin.rslk << "/" << pin.fslk << ")"
-             << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-             << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-             << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+             << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/"
+             << pin.fRAT << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")"
+             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " ("
+             << pin.totcap << "," << pin.slk_gb << ")" << endl;
         if(fipin != UINT_MAX) {
             cout << "UPDATE FI PIN SLACK - ORIG "
                  << getFullPinName(pins[view][fipin]) << " ("
                  << pins[view][fipin].rslk << "/" << pins[view][fipin].fslk
-                 << ")"
-                 << " (" << pins[view][fipin].rRAT << "/"
-                 << pins[view][fipin].fRAT << ")"
-                 << " (" << pins[view][fipin].rAAT << "/"
-                 << pins[view][fipin].fAAT << ")"
-                 << " (" << pins[view][fipin].rslk_ofs << "/"
-                 << pins[view][fipin].fslk_ofs << ")"
-                 << " (" << pins[view][fipin].totcap << ","
-                 << pins[view][fipin].slk_gb << ")" << endl;
+                 << ")" << " (" << pins[view][fipin].rRAT << "/"
+                 << pins[view][fipin].fRAT << ")" << " ("
+                 << pins[view][fipin].rAAT << "/" << pins[view][fipin].fAAT
+                 << ")" << " (" << pins[view][fipin].rslk_ofs << "/"
+                 << pins[view][fipin].fslk_ofs << ")" << " ("
+                 << pins[view][fipin].totcap << "," << pins[view][fipin].slk_gb
+                 << ")" << endl;
         }
     }
 
@@ -4603,25 +4592,22 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
             printf("debug debug!\n");
         }
         cout << "UPDATE PIN SLACK - NEW " << getFullPinName(pin) << " ("
-             << pin.rslk << "/" << pin.fslk << ")"
-             << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-             << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-             << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+             << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/"
+             << pin.fRAT << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")"
+             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " ("
+             << pin.totcap << "," << pin.slk_gb << ")" << endl;
 
         if(fipin != UINT_MAX) {
             cout << "UPDATE FI PIN SLACK - NEW "
                  << getFullPinName(pins[view][fipin]) << " ("
                  << pins[view][fipin].rslk << "/" << pins[view][fipin].fslk
-                 << ")"
-                 << " (" << pins[view][fipin].rRAT << "/"
-                 << pins[view][fipin].fRAT << ")"
-                 << " (" << pins[view][fipin].rAAT << "/"
-                 << pins[view][fipin].fAAT << ")"
-                 << " (" << pins[view][fipin].rslk_ofs << "/"
-                 << pins[view][fipin].fslk_ofs << ")"
-                 << " (" << pins[view][fipin].totcap << ","
-                 << pins[view][fipin].slk_gb << ")" << endl;
+                 << ")" << " (" << pins[view][fipin].rRAT << "/"
+                 << pins[view][fipin].fRAT << ")" << " ("
+                 << pins[view][fipin].rAAT << "/" << pins[view][fipin].fAAT
+                 << ")" << " (" << pins[view][fipin].rslk_ofs << "/"
+                 << pins[view][fipin].fslk_ofs << ")" << " ("
+                 << pins[view][fipin].totcap << "," << pins[view][fipin].slk_gb
+                 << ")" << endl;
         }
     }
 
@@ -5368,8 +5354,9 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
     tran_list.resize(numpins);
     aat_list.resize(numpins);
     string pin_name;
-    double slack_rise, slack_fall, tran_rise, tran_fall, aat_rise, aat_fall;
+
     auto _design = _ckt->_ord_design;
+    std::vector< odb::dbITerm * > db_item_list;
     for(auto i_term : _design->getBlock()->getITerms()) {
         if(i_term->getNet() == nullptr ||
            i_term->getNet()->getSigType() == "POWER" ||
@@ -5378,6 +5365,12 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
             // printf("i_term %s is pg or colck\n", i_term->getName().c_str());
             continue;
         }
+        db_item_list.push_back(i_term);
+    }
+    // #pragma omp parallel for num_threads(8) schedule(dynamic)
+    for(int i = 0; i < db_item_list.size(); i++) {
+        auto i_term = db_item_list[i];
+        double slack_rise, slack_fall, tran_rise, tran_fall, aat_rise, aat_fall;
         slack_rise = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Rise,
                                                     ord::Timing::Max);
         slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
@@ -5434,7 +5427,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
            i_term->getNet()->getSigType() == "CLOCK") {
             continue;
         }
-
+        double slack_rise, slack_fall, tran_rise, tran_fall, aat_rise, aat_fall;
         slack_rise = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Rise,
                                                     ord::Timing::Max);
         slack_fall = _ckt->_ord_timing->getPinSlack(i_term, ord::Timing::Fall,
@@ -5784,7 +5777,11 @@ void Sizer::CorrelatePT(unsigned option, unsigned view) {
     vector< timing_lookup > tran_list;
     vector< timing_lookup > aat_list;
     double begin = cpuTime();
-    UpdatePTSizes(option);
+    int count = 0;
+    UpdatePTSizes(option, count);
+    if(count == 0) {
+        return;
+    }
     GetPTValues(option, view, slack_list, ceff_list, tran_list, aat_list);
 
     // transition correlation

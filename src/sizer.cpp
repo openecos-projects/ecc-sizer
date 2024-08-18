@@ -1644,7 +1644,7 @@ bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
     return false;
 }
 
-void Sizer::UpdatePTSizes(unsigned option) {
+void Sizer::UpdatePTSizes(unsigned option, int &count) {
     //    double begin=cpuTime();
     //    for(unsigned i=0 ; i<numcells ; i++) {
     //        if(isff(cells[i])) continue;
@@ -1660,7 +1660,7 @@ void Sizer::UpdatePTSizes(unsigned option) {
     std::cerr << "numcell = " << numcells << std::endl;
     auto db = ord::OpenRoad::openRoad()->getDb();
     auto block = _ckt->_ord_design->getBlock();
-    int count = 0;
+    count = 0;
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
         if(lib_cell_info == NULL)
@@ -3168,6 +3168,469 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
 // It should be invoked only once for all cells.
 // FIXME: calcStats needs to be updated to handle one cell at a time.
 unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
+    unsigned change = 0;
+    unsigned thread_id = 0;
+
+    cout << "Fwd fix slew violation .. for view " << view << endl;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
+    double prev_tns, cur_tns = 0.0;
+
+    for(unsigned i = 0; i < topolist.size(); i++) {
+        unsigned cur = topolist[i];
+
+        // if(cells[cur].isClockCell) {
+        //     continue;
+        // }
+        // if(cells[cur].isDontTouch)
+        //     continue;
+        if(getLibCellInfo(cells[cur], corner) == NULL) {
+            continue;
+        }
+
+        for(unsigned j = 0; j < cells[cur].outpins.size(); j++) {
+            unsigned curpin = cells[cur].outpins[j];
+            unsigned outnet = pins[view][curpin].net;
+
+            if(outnet == UINT_MAX) {
+                continue;
+            }
+
+            if(pins[view][curpin].waiveTran) {
+                continue;
+            }
+            // if(pins[view][fopin].name == "CLK" ||
+            //    pins[view][fopin].name == "clk") {
+            //     continue;
+            // }
+            double cur_max_tran = pins[view][curpin].max_tran;
+            // for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k)
+            // {
+            //     unsigned fopin = nets[corner][outnet].outpins[k];
+            //     timing_lookup wire_delay = get_wire_delay(outnet, fopin,
+            //     view); cur_max_tran =
+            //         std::min(sqrt(pow(pins[view][fopin].max_tran, 2) -
+            //                       pow(log(9) * wire_delay.rise, 2)),
+            //                  cur_max_tran);
+            //     cur_max_tran =
+            //         std::min(sqrt(pow(pins[view][fopin].max_tran, 2) -
+            //                       pow(log(9) * wire_delay.fall, 2)),
+            //                  cur_max_tran);
+            // }
+
+            if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
+                continue;
+            }
+
+            //            cout << "MAX TRAN " <<
+            //            getFullPinName(pins[view][curpin]) << " "
+            //                << max(pins[view][curpin].rtran,
+            //                pins[view][curpin].ftran) << "/" <<
+            //                pins[view][curpin].max_tran << endl;
+
+            // downsizing fanouts
+            for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k) {
+                unsigned focell =
+                    pins[view][nets[corner][outnet].outpins[k]].owner;
+                if(focell == UINT_MAX) {
+                    continue;
+                }
+                if(getLibCellInfo(cells[focell], corner) == NULL) {
+                    continue;
+                }
+                if(cells[focell].isClockCell) {
+                    continue;
+                }
+                if(cells[focell].isDontTouch)
+                    continue;
+                // if(isff(cells[focell])) {
+                //     continue;
+                // }
+                // CalcStats((unsigned)thread_id, false, "", view, false);
+                prev_tns = viewTNS[view];
+
+                if(cell_resize(cells[focell], -1)) {
+                    OneTimer(cells[focell], STA_MARGIN, view);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    cur_tns = viewTNS[view];
+                    change++;
+                    if(cur_tns > prev_tns) {
+                        cell_resize(cells[focell], 1);
+                        cells[focell].isChanged -= 2;
+                        change--;
+                        OneTimer(cells[focell], STA_MARGIN, view);
+                    }
+                    else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
+                        break;
+                    }
+                }
+            }
+
+            // upsizing target cell
+            while(IsTranVio(pins[view][curpin], cur_max_tran)) {
+                if(cells[cur].isDontTouch)
+                    break;
+                if(r_type(cells[cur]) == numVt - 1 && isMax(cells[cur])) {
+                    break;
+                }
+
+                double delta_impact_size = 0.0, delta_impact_type = 0.0;
+                double prev_tran =
+                    max(pins[view][curpin].rtran, pins[view][curpin].ftran);
+                string prev_type = cells[cur].type;
+
+                if(!isMax(cells[cur])) {
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // prev_tns = CalcSlackViolation(view);
+                    prev_tns = viewTNS[view];
+
+                    bool change_size = cell_resize(cells[cur], 1);
+                    if(change_size) {
+                        OneTimer(cells[cur], STA_MARGIN, view);
+                    }
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // cur_tns = CalcSlackViolation(view);
+                    cur_tns = prev_tns;
+                    double delta_tran = 0.0;
+
+                    if(cur_tns > prev_tns) {
+                        delta_tran = 0.0;
+                    }
+                    else {
+                        delta_tran = max(pins[view][curpin].rtran,
+                                         pins[view][curpin].ftran) -
+                                     prev_tran;
+                    }
+
+                    if(delta_tran > 0.0)
+                        delta_tran = 0;
+
+                    if(change_size) {
+                        cell_resize(cells[cur], -1);
+                        cells[cur].isChanged -= 2;
+                        OneTimer(cells[cur], STA_MARGIN, view);
+                    }
+
+                    double delta_sw_power, delta_leak, delta_int;
+
+                    if(ALPHA != 0.0) {
+                        delta_sw_power =
+                            LookupDeltaSwitchPower(cells[cur], 1, 0);
+                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
+                    }
+                    else {
+                        delta_sw_power = 0.0;
+                        delta_int = 0.0;
+                    }
+                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
+
+                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
+                                         (1 - ALPHA) * delta_leak;
+                    delta_impact_size = delta_tran / delta_power;
+                }
+
+                if(r_type(cells[cur]) != (numVt - 1)) {
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    prev_tns = viewTNS[view];
+
+                    bool change_type = cell_retype(cells[cur], 1);
+
+                    OneTimer(cells[cur], STA_MARGIN, view);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    cur_tns = viewTNS[view];
+
+                    double delta_tran = 0.0;
+
+                    if(cur_tns > prev_tns) {
+                        delta_tran = 0.0;
+                    }
+                    else {
+                        delta_tran = max(pins[view][curpin].rtran,
+                                         pins[view][curpin].ftran) -
+                                     prev_tran;
+                    }
+                    if(delta_tran > 0.0)
+                        delta_tran = 0;
+
+                    if(change_type) {
+                        cell_retype(cells[cur], -1);
+                        cells[cur].isChanged -= 2;
+                    }
+
+                    OneTimer(cells[cur], STA_MARGIN, view);
+
+                    double delta_sw_power, delta_leak, delta_int;
+
+                    if(ALPHA != 0.0) {
+                        delta_sw_power =
+                            LookupDeltaSwitchPower(cells[cur], 1, 0);
+                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
+                    }
+                    else {
+                        delta_sw_power = 0.0;
+                        delta_int = 0.0;
+                    }
+                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
+                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
+                                         (1 - ALPHA) * delta_leak;
+                    delta_impact_type = delta_tran / delta_power;
+                }
+
+                if(delta_impact_size == 0 && delta_impact_size == 0) {
+                    break;
+                }
+
+                if(delta_impact_size < delta_impact_type ||
+                   delta_impact_type == 0) {
+                    cell_resize(cells[cur], 1);
+                    change++;
+                    // cout << "UPSIZED CELL " << cells[cur].name << " "
+                    //    << prev_type << " --> " << cells[cur].type << endl;
+                }
+                else {
+                    cell_retype(cells[cur], 1);
+                    change++;
+                    // cout << "UPTYPED CELL " << cells[cur].name << " "
+                    //    << prev_type << " --> " << cells[cur].type << endl;
+                }
+
+                OneTimer(cells[cur], STA_MARGIN, view);
+            }
+            //            cout << "AFTER MAX TRAN " <<
+            //            getFullPinName(pins[view][curpin]) << " "
+            //                << max(pins[view][curpin].rtran,
+            //                pins[view][curpin].ftran) << "/" <<
+            //                pins[view][curpin].max_tran << endl;
+        }
+
+        for(unsigned j = 0; j < cells[cur].inpins.size(); j++) {
+            unsigned curpin = cells[cur].inpins[j];
+
+            if(pins[view][curpin].waiveTran) {
+                continue;
+            }
+
+            if(!IsTranVio(pins[view][curpin])) {
+                continue;
+            }
+            //            cout << "MAX TRAN " <<
+            //            getFullPinName(pins[view][curpin]) << " "
+            //                << max(pins[view][curpin].rtran,
+            //                pins[view][curpin].ftran) << "/" <<
+            //                pins[view][curpin].max_tran << endl;
+
+            int curnet = pins[view][cells[cur].inpins[j]].net;
+            unsigned ficell = UINT_MAX;
+            if(cells[cur].inpins[j] != UINT_MAX) {
+                if(curnet != UINT_MAX) {
+                    if(nets[corner][curnet].inpin != UINT_MAX) {
+                        ficell = pins[view][nets[corner][curnet].inpin].owner;
+                    }
+                }
+            }
+
+            if(ficell == UINT_MAX) {
+                continue;
+            }
+
+            if(getLibCellInfo(cells[ficell], corner) == NULL) {
+                continue;
+            }
+            if(cells[ficell].isClockCell) {
+                continue;
+            }
+            if(cells[ficell].isDontTouch)
+                continue;
+
+            unsigned max_upsize = 5;
+            unsigned iter = 0;
+            // upsizing fanin cell
+            while(IsTranVio(pins[view][curpin])) {
+                if(iter > max_upsize) {
+                    break;
+                }
+
+                iter++;
+
+                if(r_type(cells[ficell]) == numVt - 1 && isMax(cells[ficell])) {
+                    break;
+                }
+
+                double delta_impact_size = 0.0, delta_impact_type = 0.0;
+                double prev_tran =
+                    max(pins[view][curpin].rtran, pins[view][curpin].ftran);
+                string prev_type = cells[ficell].type;
+
+                if(!isMax(cells[ficell])) {
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    prev_tns = viewTNS[view];
+
+                    bool change_size = cell_resize(cells[ficell], 1);
+                    if(change_size) {
+                        OneTimer(cells[ficell], STA_MARGIN, view);
+                    }
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    cur_tns = viewTNS[view];
+
+                    double delta_tran = 0.0;
+
+                    if(cur_tns > prev_tns) {
+                        delta_tran = 0.0;
+                    }
+                    else {
+                        delta_tran = max(pins[view][curpin].rtran,
+                                         pins[view][curpin].ftran) -
+                                     prev_tran;
+                    }
+
+                    if(delta_tran > 0.0)
+                        delta_tran = 0;
+
+                    if(change_size) {
+                        cell_resize(cells[ficell], -1);
+                        cells[ficell].isChanged -= 2;
+                    }
+
+                    OneTimer(cells[ficell], STA_MARGIN, view);
+
+                    double delta_sw_power, delta_leak, delta_int;
+                    if(ALPHA != 0.0) {
+                        delta_sw_power =
+                            LookupDeltaSwitchPower(cells[cur], 1, 0);
+                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
+                    }
+                    else {
+                        delta_sw_power = 0.0;
+                        delta_int = 0.0;
+                    }
+                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
+                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
+                                         (1 - ALPHA) * delta_leak;
+                    delta_impact_size = delta_tran / delta_power;
+                }
+
+                if(r_type(cells[ficell]) != (numVt - 1)) {
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    prev_tns = viewTNS[view];
+
+                    bool change_type = cell_retype(cells[ficell], 1);
+
+                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    cur_tns = viewTNS[view];
+
+                    double delta_tran = 0.0;
+
+                    if(cur_tns > prev_tns) {
+                        delta_tran = 0.0;
+                    }
+                    else {
+                        delta_tran = max(pins[view][curpin].rtran,
+                                         pins[view][curpin].ftran) -
+                                     prev_tran;
+                    }
+                    if(delta_tran > 0.0)
+                        delta_tran = 0;
+
+                    if(change_type) {
+                        cell_retype(cells[ficell], -1);
+                        cells[ficell].isChanged -= 2;
+                    }
+
+                    OneTimer(cells[ficell], STA_MARGIN, view);
+
+                    double delta_sw_power, delta_leak, delta_int;
+
+                    if(ALPHA != 0.0) {
+                        delta_sw_power =
+                            LookupDeltaSwitchPower(cells[cur], 1, 0);
+                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
+                    }
+                    else {
+                        delta_sw_power = 0.0;
+                        delta_int = 0.0;
+                    }
+                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
+                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
+                                         (1 - ALPHA) * delta_leak;
+                    delta_impact_type = delta_tran / delta_power;
+                }
+
+                if(delta_impact_size == 0 && delta_impact_size == 0) {
+                    break;
+                }
+
+                if(delta_impact_size < delta_impact_type ||
+                   delta_impact_type == 0) {
+                    cell_resize(cells[ficell], 1);
+                    change++;
+                    // cout << "UPSIZED CELL " << cells[ficell].name << " "
+                    //    << prev_type << " --> " << cells[ficell].type << endl;
+                }
+                else {
+                    cell_retype(cells[ficell], 1);
+                    change++;
+                    // cout << "UPTYPED CELL " << cells[ficell].name << " "
+                    //    << prev_type << " --> " << cells[ficell].type << endl;
+                }
+
+                OneTimer(cells[ficell], STA_MARGIN, view);
+            }
+#if 0
+            if(curnet == UINT_MAX) {
+                continue;
+            }
+            for(auto brother_pin : nets[corner][curnet].outpins) {
+                if(brother_pin == curpin) {
+                    continue;
+                }
+                unsigned brother_cell = pins[view][brother_pin].owner;
+                if(brother_cell == UINT_MAX) {
+                    continue;
+                }
+                if(getLibCellInfo(cells[brother_cell], corner) == NULL) {
+                    continue;
+                }
+                if(cells[brother_cell].isClockCell) {
+                    continue;
+                }
+                if(cells[brother_cell].isDontTouch) {
+                    continue;
+                }
+                // if(IsTranVio(pins[view][brother_pin])) {
+                //     continue;
+                // }
+                if(cell_resize(cells[brother_cell], -1)) {
+                    OneTimer(cells[brother_cell], STA_MARGIN, view);
+                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    cur_tns = viewTNS[view];
+                    change++;
+                    if(cur_tns > prev_tns) {
+                        cell_resize(cells[brother_cell], 1);
+                        cells[brother_cell].isChanged -= 2;
+                        change--;
+                        OneTimer(cells[brother_cell], STA_MARGIN, view);
+                    }
+                    else if(!IsTranVio(pins[view][curpin])) {
+                        break;
+                    }
+                }
+            }
+#endif
+            // cout << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
+            // << " "
+            //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran) <<
+            //    "/" <<
+            //    pins[view][curpin].max_tran << endl;
+        }
+    }
+    cout << "finished." << endl;
+    return change;
+}
+
+// FIXME: This function invoke calc_stats for each cell. This is not efficient.
+// It should be invoked only once for all cells.
+// FIXME: calcStats needs to be updated to handle one cell at a time.
+unsigned Sizer::BwdFixSlewViolation(double maxTranRatio, unsigned view) {
     unsigned change = 0;
     unsigned thread_id = 0;
 
@@ -7498,7 +7961,8 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     SizeIn(outputDir);
 
     UpdateCapsFromCells();
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     CallTimer();
     CorrelatePT();
     CalcStats();
@@ -7856,9 +8320,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
             // }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns"
-                 << "/" << worst_slack << "ns"
-                 << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns" << "/"
+                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -8009,6 +8472,16 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                 }
                                 all_change += change;
                                 change = 0;
+                            }
+                            if(FIX_CAP) {
+                                change += FwdFixCapViolation(view);
+                                change += BwdFixCapViolation(view);
+                                if(change > 0) {
+                                    CallTimer(view);
+                                    CorrelatePT((unsigned)thread_id, view);
+                                    CalcStats((unsigned)thread_id, true,
+                                              "AFTER_FIX_CAP", view);
+                                }
                             }
                         }
 
@@ -9587,8 +10060,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " "
-                             << " " << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
+                             << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -9701,8 +10174,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept"
-                         << " " << cells[cur].type << endl;
+                    cout << " Accept" << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -11309,14 +11781,12 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -11592,8 +12062,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " "
-             << "#Modes " << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
+             << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;

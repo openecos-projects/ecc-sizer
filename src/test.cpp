@@ -104,14 +104,15 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
     CorrelatePT();
     CalcStats(view);
     // ReportWireTiming(view);
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     // CompareWithPT();
 
     double TMR = cpuTime();
     CallTimer(view);
     TMR = (cpuTime() - TMR);
     cout << "full_STA_time : " << TMR << endl;
-    unsigned count = 0;
+    count = 0;
     unsigned false_count = 0;
     double max_rslk_diff = 0.;
     double max_fslk_diff = 0.;
@@ -183,21 +184,20 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         unsigned i = timerTestMove;
         PIN& pin = pins[view][cells[k].outpins[0]];
         cout << "PREV TIMING - ORIG " << getFullPinName(pin) << " (" << pin.rslk
-             << "/" << pin.fslk << ")"
-             << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-             << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-             << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+             << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/" << pin.fRAT
+             << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")" << " ("
+             << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " (" << pin.totcap
+             << "," << pin.slk_gb << ")" << endl;
         if(i == 0) {
             cell_resize(cells[k], 1, true);
             cout << cells[k].type << " upsized " << endl;
             OneTimer(cells[k], STA_MARGIN);
             cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
 
             cout << cells[k].name << " " << cells[k].type << " --> ";
             cell_resize(cells[k], -1, true);
@@ -205,22 +205,22 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
             OneTimer(cells[k], STA_MARGIN);
 
             cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
         }
         else if(i == 1) {
             cell_resize(cells[k], -1, true);
             cout << cells[k].type << " downsized " << endl;
             OneTimer(cells[k], STA_MARGIN);
             cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
 
             cout << cells[k].name << " " << cells[k].type << " --> ";
             cell_resize(cells[k], 1, true);
@@ -228,22 +228,22 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
             OneTimer(cells[k], STA_MARGIN);
 
             cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
         }
         else if(i == 2) {
             cell_retype(cells[k], 1, true);
             cout << cells[k].type << " uptyped " << endl;
             OneTimer(cells[k], STA_MARGIN);
             cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
 
             cout << cells[k].name << " " << cells[k].type << " --> ";
             cell_retype(cells[k], -1, true);
@@ -251,22 +251,22 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
             OneTimer(cells[k], STA_MARGIN);
 
             cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
         }
         else {
             cell_retype(cells[k], -1, true);
             cout << cells[k].type << " downtyped " << endl;
             OneTimer(cells[k], STA_MARGIN, true);
             cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
 
             cout << cells[k].name << " " << cells[k].type << " --> ";
             cell_retype(cells[k], 1, true);
@@ -274,11 +274,11 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
             OneTimer(cells[k], STA_MARGIN);
 
             cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
-                 << pin.rslk << "/" << pin.fslk << ")"
-                 << " (" << pin.rRAT << "/" << pin.fRAT << ")"
-                 << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-                 << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")"
-                 << " (" << pin.totcap << "," << pin.slk_gb << ")" << endl;
+                 << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
+                 << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
+                 << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+                 << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
+                 << pin.slk_gb << ")" << endl;
         }
         TMR = cpuTime();
         count = 1;
@@ -857,7 +857,8 @@ void Sizer::PTCorrTest(unsigned view) {
     }
     T = PTimer[0];
 
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     UpdateCapsFromCells();
 
 #ifdef USE_CEFF
@@ -868,7 +869,7 @@ void Sizer::PTCorrTest(unsigned view) {
     TMR = (cpuTime() - TMR);
     cout << "full_STA_time : " << TMR << endl;
     CalcStats();
-    unsigned count = 0;
+    count = 0;
     unsigned count_tmp = 0;
     vector< double > one_rslk;
     vector< double > one_fslk;
@@ -1009,12 +1010,13 @@ void Sizer::TimerOffsetTest(unsigned view) {
     double TMR = cpuTime();
     CalcCeff();
     LaunchPTimer(0);
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
 
     // initial correlation with PT
     TMR = (cpuTime() - TMR);
     cout << "full_STA_time : " << TMR << endl;
-    unsigned count = 0;
+    count = 0;
     // unsigned false_count=0;
     // double max_rslk_diff=0.;
     // double max_fslk_diff=0.;
@@ -1128,7 +1130,8 @@ void Sizer::WireDelayTest(unsigned view) {
     T = PTimer[0];
     UpdateCapsFromCells();
     CallTimer();
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
 
     vector< timing_lookup > slack_list;
     vector< timing_lookup > ceff_list;
@@ -1138,19 +1141,13 @@ void Sizer::WireDelayTest(unsigned view) {
     CORR_AAT = true;
     GetPTValues(0, 0, slack_list, ceff_list, tran_list, aat_list);
     ofstream ofs("wire_delay_test.csv");
-    ofs << setw(8) << "NetName"
-        << "," << setw(8) << "InPin"
-        << "," << setw(8) << "OutPin"
-        << "," << setw(8) << fixed << "PtDelayR"
-        << "," << setw(8) << fixed << "PtDelayF"
-        << "," << setw(8) << fixed << "EMDelay"
-        << "," << setw(8) << fixed << "D2MDelay"
-        << "," << setw(8) << fixed << "TriDelay"
-        << "," << setw(8) << fixed << "Err"
-        << "," << setw(8) << fixed << "InSlew"
-        << "," << setw(8) << "NumFanout"
-        << "," << setw(8) << fixed << "InCap"
-        << "," << setw(8) << "Ceff" << endl;
+    ofs << setw(8) << "NetName" << "," << setw(8) << "InPin" << "," << setw(8)
+        << "OutPin" << "," << setw(8) << fixed << "PtDelayR" << "," << setw(8)
+        << fixed << "PtDelayF" << "," << setw(8) << fixed << "EMDelay" << ","
+        << setw(8) << fixed << "D2MDelay" << "," << setw(8) << fixed
+        << "TriDelay" << "," << setw(8) << fixed << "Err" << "," << setw(8)
+        << fixed << "InSlew" << "," << setw(8) << "NumFanout" << "," << setw(8)
+        << fixed << "InCap" << "," << setw(8) << "Ceff" << endl;
 
     double maxErr = 0.0;
 
@@ -1222,33 +1219,21 @@ void Sizer::WireDelayTest(unsigned view) {
                 maxErr = triDelay.rise - ptDelayR;
         }
     }
-    cout << setw(8) << "MaxErr"
-         << "," << setw(8) << ""
-         << "," << setw(8) << ""
-         << "," << setw(8) << fixed << ""
-         << "," << setw(8) << fixed << ""
-         << "," << setw(8) << fixed << ""
-         << "," << setw(8) << fixed << ""
+    cout << setw(8) << "MaxErr" << "," << setw(8) << "" << "," << setw(8) << ""
+         << "," << setw(8) << fixed << "" << "," << setw(8) << fixed << ""
+         << "," << setw(8) << fixed << "" << "," << setw(8) << fixed << ""
          << "," << setw(8) << fixed << maxErr << "," << setw(8) << fixed << ""
-         << "," << setw(8) << ""
-         << "," << setw(8) << ""
-         << "," << setw(8) << fixed << ""
-         << "," << setw(8) << fixed << "" << endl;
+         << "," << setw(8) << "" << "," << setw(8) << "" << "," << setw(8)
+         << fixed << "" << "," << setw(8) << fixed << "" << endl;
 
     ofstream ofs2("cell_delay_test.csv");
-    ofs << setw(8) << "NetName"
-        << "," << setw(8) << "InPin"
-        << "," << setw(8) << "OutPin"
-        << "," << setw(8) << fixed << "PtDelayR"
-        << "," << setw(8) << fixed << "PtDelayF"
-        << "," << setw(8) << fixed << "EMDelay"
-        << "," << setw(8) << fixed << "D2MDelay"
-        << "," << setw(8) << fixed << "TriDelay"
-        << "," << setw(8) << fixed << "Err"
-        << "," << setw(8) << fixed << "InSlew"
-        << "," << setw(8) << "NumFanout"
-        << "," << setw(8) << fixed << "InCap"
-        << "," << setw(8) << "Ceff" << endl;
+    ofs << setw(8) << "NetName" << "," << setw(8) << "InPin" << "," << setw(8)
+        << "OutPin" << "," << setw(8) << fixed << "PtDelayR" << "," << setw(8)
+        << fixed << "PtDelayF" << "," << setw(8) << fixed << "EMDelay" << ","
+        << setw(8) << fixed << "D2MDelay" << "," << setw(8) << fixed
+        << "TriDelay" << "," << setw(8) << fixed << "Err" << "," << setw(8)
+        << fixed << "InSlew" << "," << setw(8) << "NumFanout" << "," << setw(8)
+        << fixed << "InCap" << "," << setw(8) << "Ceff" << endl;
     for(unsigned i = 0; i < PIs.size(); i++) {
         unsigned curpin = PIs[i];
         if(pins[0][curpin].name == clk_port[0])
@@ -1317,9 +1302,8 @@ void Sizer::WireDelayTest(unsigned view) {
                                 pins[view][cells[cur].inpins[k]].fdelay[j])) {
                         std::cout << "From pin "
                                   << pins[view][cells[cur].inpins[k]].name
-                                  << " "
-                                  << "Out pin " << pins[view][fopin].name << " "
-                                  << std::endl;
+                                  << " " << "Out pin " << pins[view][fopin].name
+                                  << " " << std::endl;
                         std::cout
                             << "Error: Comb delay not equal " << cells[cur].name
                             << "/" << cells[cur].type << " " << r_delay << "/"
@@ -1396,27 +1380,19 @@ void Sizer::ReportWireTiming(unsigned view) {
          << endl;
     cout << "------------------------------------------------------------"
          << endl;
-    cout << "NetName\t"
-         << " " << setw(8) << "InPin"
-         << " " << setw(8) << "OutPin"
-         << " " << setw(8) << fixed << "PtSlkR"
-         << " " << setw(8) << fixed << "PtSlkF"
-         << " " << setw(8) << fixed << "TriSlkR"
-         << " " << setw(8) << fixed << "TriSlkF"
-         << " " << setw(8) << fixed << "ErrSlkR"
-         << " " << setw(8) << fixed << "ErrSlkF"
-         << " " << setw(8) << fixed << "PtTranR"
-         << " " << setw(8) << fixed << "PtTranF"
-         << " " << setw(8) << fixed << "TriTranR"
-         << " " << setw(8) << fixed << "TriTranF"
-         << " " << setw(8) << fixed << "ErrTranR"
-         << " " << setw(8) << fixed << "ErrTranF"
-         << " " << setw(8) << fixed << "PtDelayR"
-         << " " << setw(8) << fixed << "PtDelayF"
-         << " " << setw(8) << fixed << "TriDelayR"
-         << " " << setw(8) << fixed << "TriDelayF"
-         << " " << setw(8) << fixed << "ErrDelayR"
-         << " " << setw(8) << fixed << "ErrDelayF" << endl;
+    cout << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
+         << "OutPin" << " " << setw(8) << fixed << "PtSlkR" << " " << setw(8)
+         << fixed << "PtSlkF" << " " << setw(8) << fixed << "TriSlkR" << " "
+         << setw(8) << fixed << "TriSlkF" << " " << setw(8) << fixed
+         << "ErrSlkR" << " " << setw(8) << fixed << "ErrSlkF" << " " << setw(8)
+         << fixed << "PtTranR" << " " << setw(8) << fixed << "PtTranF" << " "
+         << setw(8) << fixed << "TriTranR" << " " << setw(8) << fixed
+         << "TriTranF" << " " << setw(8) << fixed << "ErrTranR" << " "
+         << setw(8) << fixed << "ErrTranF" << " " << setw(8) << fixed
+         << "PtDelayR" << " " << setw(8) << fixed << "PtDelayF" << " "
+         << setw(8) << fixed << "TriDelayR" << " " << setw(8) << fixed
+         << "TriDelayF" << " " << setw(8) << fixed << "ErrDelayR" << " "
+         << setw(8) << fixed << "ErrDelayF" << endl;
 
     double ptDelay;
     timing_lookup triDelay;
@@ -1454,19 +1430,19 @@ void Sizer::ReportWireTiming(unsigned view) {
 
         cout.precision(4);
         cout << nets[corner][i].name << "\t " << setw(8) << "*" + in_pin_name
-             << " " << setw(8) << ""
-             << " " << setw(8) << fixed << ptSlkR << " " << setw(8) << fixed
-             << ptSlkF << " " << setw(8) << fixed << triSlkR << " " << setw(8)
-             << fixed << triSlkF << " " << setw(8) << fixed << triSlkR - ptSlkR
-             << " " << setw(8) << fixed << triSlkF - ptSlkF << " " << setw(8)
-             << fixed << ptTranR << " " << setw(8) << fixed << ptTranF << " "
-             << setw(8) << fixed << triTranR << " " << setw(8) << fixed
-             << triTranF << " " << setw(8) << fixed << triTranR - ptTranR << " "
-             << setw(8) << fixed << triTranF - ptTranF << " " << setw(8)
-             << fixed << ptDelay << " " << setw(8) << fixed << ptDelay << " "
-             << setw(8) << fixed << triDelayR << " " << setw(8) << fixed
-             << triDelayF << " " << setw(8) << fixed << triDelayR - ptDelay
-             << " " << setw(8) << fixed << triDelayF - ptDelay << endl;
+             << " " << setw(8) << "" << " " << setw(8) << fixed << ptSlkR << " "
+             << setw(8) << fixed << ptSlkF << " " << setw(8) << fixed << triSlkR
+             << " " << setw(8) << fixed << triSlkF << " " << setw(8) << fixed
+             << triSlkR - ptSlkR << " " << setw(8) << fixed << triSlkF - ptSlkF
+             << " " << setw(8) << fixed << ptTranR << " " << setw(8) << fixed
+             << ptTranF << " " << setw(8) << fixed << triTranR << " " << setw(8)
+             << fixed << triTranF << " " << setw(8) << fixed
+             << triTranR - ptTranR << " " << setw(8) << fixed
+             << triTranF - ptTranF << " " << setw(8) << fixed << ptDelay << " "
+             << setw(8) << fixed << ptDelay << " " << setw(8) << fixed
+             << triDelayR << " " << setw(8) << fixed << triDelayF << " "
+             << setw(8) << fixed << triDelayR - ptDelay << " " << setw(8)
+             << fixed << triDelayF - ptDelay << endl;
 
         if(abs(maxErrDelay) < abs(triDelayR - ptDelay))
             maxErrDelay = triDelayR - ptDelay;
@@ -1566,27 +1542,19 @@ void Sizer::ReportWireTiming(unsigned view) {
             count += 2;
         }
     }
-    cout << "Summary\t"
-         << " " << setw(8) << ""
-         << " " << setw(8) << ""
-         << " " << setw(8) << fixed << "MaxSlkErr"
-         << " " << setw(8) << fixed << maxErrSlk << " " << setw(8) << fixed
-         << "AvgSlkErr"
-         << " " << setw(8) << fixed << avgErrSlk / (count + 2 * numnets) << " "
-         << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << "MaxTranErr"
-         << " " << setw(8) << fixed << maxErrTran << " " << setw(8) << fixed
-         << "AvgTranErr"
-         << " " << setw(8) << fixed << avgErrTran / (count + 2 * numnets) << " "
-         << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << ""
-         << " " << setw(8) << fixed << "MaxDelayErr"
-         << " " << setw(8) << fixed << maxErrDelay << " " << setw(8) << fixed
-         << "AvgDelayErr"
-         << " " << setw(8) << fixed << avgErrDelay / count << " " << setw(8)
-         << fixed << ""
-         << " " << setw(8) << fixed << "" << endl;
+    cout << "Summary\t" << " " << setw(8) << "" << " " << setw(8) << "" << " "
+         << setw(8) << fixed << "MaxSlkErr" << " " << setw(8) << fixed
+         << maxErrSlk << " " << setw(8) << fixed << "AvgSlkErr" << " "
+         << setw(8) << fixed << avgErrSlk / (count + 2 * numnets) << " "
+         << setw(8) << fixed << "" << " " << setw(8) << fixed << "" << " "
+         << setw(8) << fixed << "MaxTranErr" << " " << setw(8) << fixed
+         << maxErrTran << " " << setw(8) << fixed << "AvgTranErr" << " "
+         << setw(8) << fixed << avgErrTran / (count + 2 * numnets) << " "
+         << setw(8) << fixed << "" << " " << setw(8) << fixed << "" << " "
+         << setw(8) << fixed << "MaxDelayErr" << " " << setw(8) << fixed
+         << maxErrDelay << " " << setw(8) << fixed << "AvgDelayErr" << " "
+         << setw(8) << fixed << avgErrDelay / count << " " << setw(8) << fixed
+         << "" << " " << setw(8) << fixed << "" << endl;
 }
 
 void Sizer::ReportTimingErr(unsigned view) {
@@ -1900,35 +1868,23 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
     if(verbose) {
         cout << setw(4) << "R/F"  //<< " " << setw(8) << "CellName" \
             //
-             << " " << setw(8) << "CellDPt"
-             << " " << setw(8) << "CellDTri"
-             << " " << setw(8) << "CellDErr"
-             << " " << setw(8) << "CellTrPt"
-             << " " << setw(8) << "CellTrTri"
-             << " " << setw(8) << "CellTrErr"
-             << " " << setw(8) << "WireDPt"
-             << " " << setw(8) << "WireDTri"
-             << " " << setw(8) << "WireDErr"
-             << " " << setw(8) << "WireTrPt"
-             << " " << setw(8) << "WireTrTri"
-             << " " << setw(8) << "WireTrErr"
+             << " " << setw(8) << "CellDPt" << " " << setw(8) << "CellDTri"
+             << " " << setw(8) << "CellDErr" << " " << setw(8) << "CellTrPt"
+             << " " << setw(8) << "CellTrTri" << " " << setw(8) << "CellTrErr"
+             << " " << setw(8) << "WireDPt" << " " << setw(8) << "WireDTri"
+             << " " << setw(8) << "WireDErr" << " " << setw(8) << "WireTrPt"
+             << " " << setw(8) << "WireTrTri" << " " << setw(8) << "WireTrErr"
              << " " << setw(8) << "CeffErr" << endl;
     }
     else {
-        cout << setw(8) << "CellDAvg"
-             << " " << setw(8) << "CellDAAvg"
-             << " " << setw(8) << "CellDMax"
-             << " " << setw(8) << "CellTrAvg"
-             << " " << setw(8) << "CellTrAAvg"
-             << " " << setw(8) << "CellTrMax"
-             << " " << setw(8) << "WireDAvg"
-             << " " << setw(8) << "WireDAAvg"
-             << " " << setw(8) << "WireDMax"
-             << " " << setw(8) << "WireTrAvg"
-             << " " << setw(8) << "WireTrAAvg"
-             << " " << setw(8) << "WireTrMax"
-             << " " << setw(8) << "CeffErr"
-             << " " << setw(8) << "TotCap/PtCeff" << endl;
+        cout << setw(8) << "CellDAvg" << " " << setw(8) << "CellDAAvg" << " "
+             << setw(8) << "CellDMax" << " " << setw(8) << "CellTrAvg" << " "
+             << setw(8) << "CellTrAAvg" << " " << setw(8) << "CellTrMax" << " "
+             << setw(8) << "WireDAvg" << " " << setw(8) << "WireDAAvg" << " "
+             << setw(8) << "WireDMax" << " " << setw(8) << "WireTrAvg" << " "
+             << setw(8) << "WireTrAAvg" << " " << setw(8) << "WireTrMax" << " "
+             << setw(8) << "CeffErr" << " " << setw(8) << "TotCap/PtCeff"
+             << endl;
     }
 
     double maxErrCellDelay, avgErrCellDelay, maxErrCellTran, avgErrCellTran,
@@ -2155,13 +2111,12 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
             count += 2;
 
         }  // each arc
-    }      // each net
+    }  // each net
     cout.precision(4);
-    cout << "Summary\t"
-         << " " << setw(8) << fixed << maxErrCellDelay << " " << setw(8)
-         << fixed << avgErrCellDelay / (double)(cell_count) << " " << setw(8)
-         << fixed << absAvgErrCellDelay / (double)(cell_count) << " " << setw(8)
-         << fixed << maxErrCellTran << " " << setw(8) << fixed
+    cout << "Summary\t" << " " << setw(8) << fixed << maxErrCellDelay << " "
+         << setw(8) << fixed << avgErrCellDelay / (double)(cell_count) << " "
+         << setw(8) << fixed << absAvgErrCellDelay / (double)(cell_count) << " "
+         << setw(8) << fixed << maxErrCellTran << " " << setw(8) << fixed
          << avgErrCellTran / (double)(cell_count) << " " << setw(8) << fixed
          << absAvgErrCellTran / (double)(cell_count) << " " << setw(8) << fixed
          << maxErrWireDelay << " " << setw(8) << fixed
@@ -2208,7 +2163,8 @@ void Sizer::ReportTimingStat(unsigned view) {
         }
     }
     T = PTimer[0];
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     cout << "WNS(PT): " << T[view]->getWorstSlack("mclk") << endl;
     // CallTimerTest();
     /*
@@ -2291,13 +2247,14 @@ void Sizer::ReportDeltaTimingStat(unsigned view) {
     CalcStats();
 
     LaunchPTimer(0);
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
 
     // cout << "WNS(PT): " << T[view]->getWorstSlack("mclk") << endl;
 
     // cell move starts
     //
-    int count = 0;
+    count = 0;
 
     for(unsigned j = 0; j < numcells * 10; j++) {
         unsigned i = (unsigned)(rand() % 4);
@@ -2384,7 +2341,8 @@ void Sizer::Test2(unsigned view) {
 
     SizeIn("gtr");
     LaunchPTimer(0);
-    UpdatePTSizes(0);
+    int count = 0;
+    UpdatePTSizes(view, count);
     UpdateCapsFromCells();
     CallTimer();
     CalcStats();
@@ -2397,7 +2355,7 @@ void Sizer::Test2(unsigned view) {
 
     SizeIn("gtr");
     LaunchPTimer(0);
-    UpdatePTSizes(0);
+    UpdatePTSizes(view, count);
     UpdateCapsFromCells();
     CallTimer();
     CalcStats();
@@ -2705,7 +2663,8 @@ void Sizer::ReportDelayAllParam(unsigned view) {
     }
     T = PTimer[0];
 
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     CallTimer();
     UpdateCapsFromCells();
     CalcStats();
@@ -2730,30 +2689,20 @@ void Sizer::ReportDelayAllParam(unsigned view) {
 
 #endif
 
-    cout << "NetName\t"
-         << " " << setw(8) << "InPin"
-         << " " << setw(8) << "OutPin"
-         << " " << setw(3) << "R/F"
-         << " " << setw(8) << fixed << "PtDelay"
-         << " " << setw(8) << fixed << "EMDelay"
-         << " " << setw(8) << fixed << "D2M"
-         << " " << setw(8) << fixed << "DM1"
-         << " " << setw(8) << fixed << "DM2"
-         << " " << setw(8) << fixed << "TriInSlew"
-         << " " << setw(8) << "NumStage"
-         << " " << setw(8) << "NumFanout"
-         << " " << setw(8) << fixed << "InCap"
-         << " " << setw(8) << fixed << "OutCap"
-         << " " << setw(8) << fixed << "TotalRes"
-         << " " << setw(8) << fixed << "TriCeff"
-         << " " << setw(8) << fixed << "TriOutSlew"
-         << " " << setw(8) << fixed << "LE"
-         << " " << setw(8) << fixed << "TriCD"
-         << " " << setw(8) << fixed << "PtCD"
-         << " " << setw(8) << fixed << "TriCTr"
-         << " " << setw(8) << fixed << "PtCTr"
-         << " " << setw(8) << fixed << "PtInSlew"
-         << " " << setw(8) << fixed << "PtOutSlew" << endl;
+    cout << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
+         << "OutPin" << " " << setw(3) << "R/F" << " " << setw(8) << fixed
+         << "PtDelay" << " " << setw(8) << fixed << "EMDelay" << " " << setw(8)
+         << fixed << "D2M" << " " << setw(8) << fixed << "DM1" << " " << setw(8)
+         << fixed << "DM2" << " " << setw(8) << fixed << "TriInSlew" << " "
+         << setw(8) << "NumStage" << " " << setw(8) << "NumFanout" << " "
+         << setw(8) << fixed << "InCap" << " " << setw(8) << fixed << "OutCap"
+         << " " << setw(8) << fixed << "TotalRes" << " " << setw(8) << fixed
+         << "TriCeff" << " " << setw(8) << fixed << "TriOutSlew" << " "
+         << setw(8) << fixed << "LE" << " " << setw(8) << fixed << "TriCD"
+         << " " << setw(8) << fixed << "PtCD" << " " << setw(8) << fixed
+         << "TriCTr" << " " << setw(8) << fixed << "PtCTr" << " " << setw(8)
+         << fixed << "PtInSlew" << " " << setw(8) << fixed << "PtOutSlew"
+         << endl;
 
     for(unsigned i = 0; i < numnets; i++) {
         if(debug_net != "") {
@@ -2869,19 +2818,19 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
         cout.precision(4);
         cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
-             << "R"
-             << " " << setw(8) << fixed << ptDelayR << " " << setw(8) << fixed
-             << DelayEM << " " << setw(8) << fixed << DelayDM0 << " " << setw(8)
-             << fixed << DelayDM1 << " " << setw(8) << fixed << DelayDM2 << " "
-             << setw(8) << fixed << pins[view][nets[corner][netID].inpin].rtran
-             << " " << setw(8) << getNumRCStage(snv, subNodeID) << " "
-             << setw(8) << nets[corner][netID].outpins.size() << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].totcap << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].cap << " "
-             << setw(8) << fixed << snv[subNodeID].totres << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].ceff << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].rtran
-             << " " << setw(8) << fixed << G.rise << " " << setw(8) << fixed
+             << "R" << " " << setw(8) << fixed << ptDelayR << " " << setw(8)
+             << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
+             << setw(8) << fixed << DelayDM1 << " " << setw(8) << fixed
+             << DelayDM2 << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].rtran << " " << setw(8)
+             << getNumRCStage(snv, subNodeID) << " " << setw(8)
+             << nets[corner][netID].outpins.size() << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].totcap << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].cap << " " << setw(8)
+             << fixed << snv[subNodeID].totres << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].ceff << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].rtran << " "
+             << setw(8) << fixed << G.rise << " " << setw(8) << fixed
              << triCellDelay[i].rise << " " << setw(8) << fixed
              << ptCellDelay[i].rise << " " << setw(8) << fixed
              << triCellTran[i].rise << " " << setw(8) << fixed
@@ -2892,19 +2841,19 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
         cout.precision(4);
         cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
-             << "F"
-             << " " << setw(8) << fixed << ptDelayF << " " << setw(8) << fixed
-             << DelayEM << " " << setw(8) << fixed << DelayDM0 << " " << setw(8)
-             << fixed << DelayDM1 << " " << setw(8) << fixed << DelayDM2 << " "
-             << setw(8) << fixed << pins[view][nets[corner][netID].inpin].ftran
-             << " " << setw(8) << getNumRCStage(snv, subNodeID) << " "
-             << setw(8) << nets[corner][netID].outpins.size() << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].totcap << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].cap << " "
-             << setw(8) << fixed << snv[subNodeID].totres << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].ceff << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].ftran
-             << " " << setw(8) << fixed << G.fall << " " << setw(8) << fixed
+             << "F" << " " << setw(8) << fixed << ptDelayF << " " << setw(8)
+             << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
+             << setw(8) << fixed << DelayDM1 << " " << setw(8) << fixed
+             << DelayDM2 << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].ftran << " " << setw(8)
+             << getNumRCStage(snv, subNodeID) << " " << setw(8)
+             << nets[corner][netID].outpins.size() << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].totcap << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].cap << " " << setw(8)
+             << fixed << snv[subNodeID].totres << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].ceff << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].ftran << " "
+             << setw(8) << fixed << G.fall << " " << setw(8) << fixed
              << triCellDelay[i].fall << " " << setw(8) << fixed
              << ptCellDelay[i].fall << " " << setw(8) << fixed
              << triCellTran[i].fall << " " << setw(8) << fixed
@@ -2916,42 +2865,42 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
         cout.precision(4);
         cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
-             << "R"
-             << " " << setw(8) << fixed << ptDelayR << " " << setw(8) << fixed
-             << DelayEM << " " << setw(8) << fixed << DelayDM0 << " " << setw(8)
-             << fixed << DelayDM1 << " " << setw(8) << fixed << DelayDM2 << " "
-             << setw(8) << fixed << pins[view][nets[corner][netID].inpin].rtran
-             << " " << setw(8) << getNumRCStage(snv, subNodeID) << " "
-             << setw(8) << nets[corner][netID].outpins.size() << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].totcap << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].cap << " "
-             << setw(8) << fixed << snv[subNodeID].totres << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].ceff << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].rtran
-             << " " << setw(8) << fixed << G.rise << " " << setw(8) << fixed
-             << 0.0 << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed
-             << 0.0 << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed
+             << "R" << " " << setw(8) << fixed << ptDelayR << " " << setw(8)
+             << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
+             << setw(8) << fixed << DelayDM1 << " " << setw(8) << fixed
+             << DelayDM2 << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].rtran << " " << setw(8)
+             << getNumRCStage(snv, subNodeID) << " " << setw(8)
+             << nets[corner][netID].outpins.size() << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].totcap << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].cap << " " << setw(8)
+             << fixed << snv[subNodeID].totres << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].ceff << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].rtran << " "
+             << setw(8) << fixed << G.rise << " " << setw(8) << fixed << 0.0
+             << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed << 0.0
+             << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed
              << T[view]->getRiseTran(in_pin_name) << " " << setw(8) << fixed
              << T[view]->getRiseTran(out_pin_name) << endl;
 
         cout.precision(4);
         cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
-             << "F"
-             << " " << setw(8) << fixed << ptDelayF << " " << setw(8) << fixed
-             << DelayEM << " " << setw(8) << fixed << DelayDM0 << " " << setw(8)
-             << fixed << DelayDM1 << " " << setw(8) << fixed << DelayDM2 << " "
-             << setw(8) << fixed << pins[view][nets[corner][netID].inpin].ftran
-             << " " << setw(8) << getNumRCStage(snv, subNodeID) << " "
-             << setw(8) << nets[corner][netID].outpins.size() << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].totcap << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].cap << " "
-             << setw(8) << fixed << snv[subNodeID].totres << " " << setw(8)
-             << fixed << pins[view][nets[corner][netID].inpin].ceff << " "
-             << setw(8) << fixed << pins[view][snv[subNodeID].pinId].ftran
-             << " " << setw(8) << fixed << G.fall << " " << setw(8) << fixed
-             << 0.0 << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed
-             << 0.0 << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed
+             << "F" << " " << setw(8) << fixed << ptDelayF << " " << setw(8)
+             << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
+             << setw(8) << fixed << DelayDM1 << " " << setw(8) << fixed
+             << DelayDM2 << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].ftran << " " << setw(8)
+             << getNumRCStage(snv, subNodeID) << " " << setw(8)
+             << nets[corner][netID].outpins.size() << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].totcap << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].cap << " " << setw(8)
+             << fixed << snv[subNodeID].totres << " " << setw(8) << fixed
+             << pins[view][nets[corner][netID].inpin].ceff << " " << setw(8)
+             << fixed << pins[view][snv[subNodeID].pinId].ftran << " "
+             << setw(8) << fixed << G.fall << " " << setw(8) << fixed << 0.0
+             << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed << 0.0
+             << " " << setw(8) << fixed << 0.0 << " " << setw(8) << fixed
              << T[view]->getFallTran(in_pin_name) << " " << setw(8) << fixed
              << T[view]->getFallTran(out_pin_name) << endl;
     }
@@ -2987,7 +2936,8 @@ void Sizer::ReportDeltaTimingAll(unsigned view) {
     CalcStats();
 
     LaunchPTimer(0);
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     CallTimer();
 
 #ifdef WORST_TEST
@@ -3015,32 +2965,20 @@ void Sizer::ReportDeltaTimingAll(unsigned view) {
     cout << "|     Delta Timing Report    |" << endl;
     cout << "------------------------------" << endl;
     cout << endl;
-    cout << "move"
-         << " "
-         << "NetName\t"
-         << " " << setw(8) << "InPin"
-         << " " << setw(8) << "OutPin"
-         << " " << setw(3) << "R/F"
-         << " " << setw(8) << fixed << "PtDelay"
-         << " " << setw(8) << fixed << "EMDelay"
-         << " " << setw(8) << fixed << "D2M"
-         << " " << setw(8) << fixed << "DM1"
-         << " " << setw(8) << fixed << "DM2"
-         << " " << setw(8) << fixed << "TriInSlew"
-         << " " << setw(8) << "NumStage"
-         << " " << setw(8) << "NumFanout"
-         << " " << setw(8) << fixed << "InCap"
-         << " " << setw(8) << fixed << "OutCap"
-         << " " << setw(8) << fixed << "TotalRes"
-         << " " << setw(8) << fixed << "TriCeff"
-         << " " << setw(8) << fixed << "TriOutSlew"
-         << " " << setw(8) << fixed << "LE"
-         << " " << setw(8) << fixed << "TriCD"
-         << " " << setw(8) << fixed << "PtCD"
-         << " " << setw(8) << fixed << "TriCTr"
-         << " " << setw(8) << fixed << "PtCTr"
-         << " " << setw(8) << fixed << "PtInSlew"
-         << " " << setw(8) << fixed << "PtOutSlew" << endl;
+    cout << "move" << " " << "NetName\t" << " " << setw(8) << "InPin" << " "
+         << setw(8) << "OutPin" << " " << setw(3) << "R/F" << " " << setw(8)
+         << fixed << "PtDelay" << " " << setw(8) << fixed << "EMDelay" << " "
+         << setw(8) << fixed << "D2M" << " " << setw(8) << fixed << "DM1" << " "
+         << setw(8) << fixed << "DM2" << " " << setw(8) << fixed << "TriInSlew"
+         << " " << setw(8) << "NumStage" << " " << setw(8) << "NumFanout" << " "
+         << setw(8) << fixed << "InCap" << " " << setw(8) << fixed << "OutCap"
+         << " " << setw(8) << fixed << "TotalRes" << " " << setw(8) << fixed
+         << "TriCeff" << " " << setw(8) << fixed << "TriOutSlew" << " "
+         << setw(8) << fixed << "LE" << " " << setw(8) << fixed << "TriCD"
+         << " " << setw(8) << fixed << "PtCD" << " " << setw(8) << fixed
+         << "TriCTr" << " " << setw(8) << fixed << "PtCTr" << " " << setw(8)
+         << fixed << "PtInSlew" << " " << setw(8) << fixed << "PtOutSlew"
+         << endl;
 
     for(unsigned i = 0; i < numnets; i++) {
         if(nets[corner][i].name == "ispd_clk")
@@ -3123,7 +3061,8 @@ void Sizer::ReportDeltaCellTranTimingAll(unsigned view) {
     CalcStats();
 
     LaunchPTimer(0);
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     CallTimer();
 
 #ifdef WORST_TEST
@@ -3151,19 +3090,11 @@ void Sizer::ReportDeltaCellTranTimingAll(unsigned view) {
     cout << "|     Delta Timing Report    |" << endl;
     cout << "------------------------------" << endl;
     cout << endl;
-    cout << "move"
-         << " "
-         << "Cell"
-         << " "
-         << "InPin"
-         << " "
-         << "R"
-         << " " << setw(8) << fixed << "LE"
-         << " " << setw(8) << fixed << "InTran"
-         << " " << setw(8) << fixed << "Ceff"
-         << " " << setw(8) << fixed << "Ctot"
-         << " " << setw(8) << fixed << "PtOutTran"
-         << " " << setw(8) << fixed << "TriOutTran" << endl;
+    cout << "move" << " " << "Cell" << " " << "InPin" << " " << "R" << " "
+         << setw(8) << fixed << "LE" << " " << setw(8) << fixed << "InTran"
+         << " " << setw(8) << fixed << "Ceff" << " " << setw(8) << fixed
+         << "Ctot" << " " << setw(8) << fixed << "PtOutTran" << " " << setw(8)
+         << fixed << "TriOutTran" << endl;
 
     for(unsigned i = 0; i < numcells; i++) {
         if(isff(cells[i]))
@@ -3480,24 +3411,16 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
     cout << "|     Delta Timing Report    |" << endl;
     cout << "------------------------------" << endl;
     cout << endl;
-    cout << "NetName\t"
-         << " " << setw(8) << "InPin"
-         << " " << setw(8) << "OutPin"
-         << " " << setw(4) << "R/F"
-         << " " << setw(8) << fixed << "OrgCellType"
-         << " " << setw(8) << fixed << "NewCellType"
-         << " " << setw(8) << fixed << "PtCDly"
-         << " " << setw(8) << fixed << "TriCD"
-         << " " << setw(8) << fixed << "ErrCD"
-         << " " << setw(8) << fixed << "PtCTr"
-         << " " << setw(8) << fixed << "TriCTr"
-         << " " << setw(8) << fixed << "ErrCTr"
-         << " " << setw(8) << fixed << "PtWD"
-         << " " << setw(8) << fixed << "TriWD"
-         << " " << setw(8) << fixed << "ErrWD"
-         << " " << setw(8) << fixed << "PtWTr"
-         << " " << setw(8) << fixed << "TriWTr"
-         << " " << setw(8) << fixed << "ErrWTr" << endl;
+    cout << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
+         << "OutPin" << " " << setw(4) << "R/F" << " " << setw(8) << fixed
+         << "OrgCellType" << " " << setw(8) << fixed << "NewCellType" << " "
+         << setw(8) << fixed << "PtCDly" << " " << setw(8) << fixed << "TriCD"
+         << " " << setw(8) << fixed << "ErrCD" << " " << setw(8) << fixed
+         << "PtCTr" << " " << setw(8) << fixed << "TriCTr" << " " << setw(8)
+         << fixed << "ErrCTr" << " " << setw(8) << fixed << "PtWD" << " "
+         << setw(8) << fixed << "TriWD" << " " << setw(8) << fixed << "ErrWD"
+         << " " << setw(8) << fixed << "PtWTr" << " " << setw(8) << fixed
+         << "TriWTr" << " " << setw(8) << fixed << "ErrWTr" << endl;
 
     double maxErrCellDelay, avgErrCellDelay, maxErrCellTran, avgErrCellTran,
         maxErrWireDelay, avgErrWireDelay, maxErrWireTran, avgErrWireTran;
@@ -3991,16 +3914,14 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
             }
 
         }  // each arc
-    }      // each net
+    }  // each net
 
-    cout << "Summary\t"
-         << " " << setw(8) << ""
-         << " " << setw(8) << fixed << maxPtDeltaCellDelay << " " << setw(8)
-         << fixed << maxTriDeltaCellDelay << " " << setw(8) << fixed
-         << maxErrCellDelay << " " << setw(8) << fixed
-         << avgPtDeltaCellDelay / count << " " << setw(8) << fixed
-         << avgTriDeltaCellDelay / count << " " << setw(8) << fixed
-         << avgErrCellDelay / (count) << " " << setw(8) << fixed
+    cout << "Summary\t" << " " << setw(8) << "" << " " << setw(8) << fixed
+         << maxPtDeltaCellDelay << " " << setw(8) << fixed
+         << maxTriDeltaCellDelay << " " << setw(8) << fixed << maxErrCellDelay
+         << " " << setw(8) << fixed << avgPtDeltaCellDelay / count << " "
+         << setw(8) << fixed << avgTriDeltaCellDelay / count << " " << setw(8)
+         << fixed << avgErrCellDelay / (count) << " " << setw(8) << fixed
          << absAvgErrCellDelay / (count)
 
          << " " << setw(8) << fixed << maxPtDeltaCellTran << " " << setw(8)
@@ -4058,7 +3979,8 @@ void Sizer::ReportDeltaTiming(unsigned view) {
     CalcStats();
 
     LaunchPTimer(0);
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     CallTimer();
 
     cout << "=== DRIVER SIZE UP ===" << endl;
@@ -4422,17 +4344,16 @@ void Sizer::AllCorrSTATest() {
 
     for(unsigned i = 0; i < numpins; ++i) {
         cout << "before corr " << getFullPinName(pins[view][i]) << " "
-             << pins[view][i].rtran << "/" << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << "/" << tran_list[i].fall << " "
-             << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-             << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-             << " " << pins[view][i].rRAT << "/"
-             << aat_list[i].rise + slack_list[i].rise << " "
-             << " " << pins[view][i].fRAT << "/"
-             << aat_list[i].fall + slack_list[i].fall << " "
-             << " " << pins[view][i].rslk << "/" << slack_list[i].rise << " "
-             << " " << pins[view][i].fslk << "/" << slack_list[i].fall << " "
-             << endl;
+             << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
+             << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
+             << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
+             << pins[view][i].fAAT << "/" << aat_list[i].fall << " " << " "
+             << pins[view][i].rRAT << "/"
+             << aat_list[i].rise + slack_list[i].rise << " " << " "
+             << pins[view][i].fRAT << "/"
+             << aat_list[i].fall + slack_list[i].fall << " " << " "
+             << pins[view][i].rslk << "/" << slack_list[i].rise << " " << " "
+             << pins[view][i].fslk << "/" << slack_list[i].fall << " " << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
            //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
@@ -4441,17 +4362,14 @@ void Sizer::AllCorrSTATest() {
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
             cout << "before corr mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                 << " "
-                 << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-                 << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-                 << " " << pins[view][i].rRAT << "/"
-                 << aat_list[i].rise + slack_list[i].rise << " "
-                 << " " << pins[view][i].fRAT << "/"
-                 << aat_list[i].fall + slack_list[i].fall << " "
-                 << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                 << " "
+                 << " " << " " << pins[view][i].ftran << "/"
+                 << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
+                 << aat_list[i].rise << " " << " " << pins[view][i].fAAT << "/"
+                 << aat_list[i].fall << " " << " " << pins[view][i].rRAT << "/"
+                 << aat_list[i].rise + slack_list[i].rise << " " << " "
+                 << pins[view][i].fRAT << "/"
+                 << aat_list[i].fall + slack_list[i].fall << " " << " "
+                 << pins[view][i].rslk << "/" << slack_list[i].rise << " "
                  << " " << pins[view][i].fslk << "/" << slack_list[i].fall
                  << " " << endl;
         }
@@ -4460,17 +4378,16 @@ void Sizer::AllCorrSTATest() {
     CorrelatePT(view);
     for(unsigned i = 0; i < numpins; ++i) {
         cout << "after corr " << getFullPinName(pins[view][i]) << " "
-             << pins[view][i].rtran << "/" << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << "/" << tran_list[i].fall << " "
-             << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-             << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-             << " " << pins[view][i].rRAT << "/"
-             << aat_list[i].rise + slack_list[i].rise << " "
-             << " " << pins[view][i].fRAT << "/"
-             << aat_list[i].fall + slack_list[i].fall << " "
-             << " " << pins[view][i].rslk << "/" << slack_list[i].rise << " "
-             << " " << pins[view][i].fslk << "/" << slack_list[i].fall << " "
-             << endl;
+             << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
+             << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
+             << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
+             << pins[view][i].fAAT << "/" << aat_list[i].fall << " " << " "
+             << pins[view][i].rRAT << "/"
+             << aat_list[i].rise + slack_list[i].rise << " " << " "
+             << pins[view][i].fRAT << "/"
+             << aat_list[i].fall + slack_list[i].fall << " " << " "
+             << pins[view][i].rslk << "/" << slack_list[i].rise << " " << " "
+             << pins[view][i].fslk << "/" << slack_list[i].fall << " " << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
            //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
@@ -4479,17 +4396,14 @@ void Sizer::AllCorrSTATest() {
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
             cout << "after corr mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                 << " "
-                 << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-                 << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-                 << " " << pins[view][i].rRAT << "/"
-                 << aat_list[i].rise + slack_list[i].rise << " "
-                 << " " << pins[view][i].fRAT << "/"
-                 << aat_list[i].fall + slack_list[i].fall << " "
-                 << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                 << " "
+                 << " " << " " << pins[view][i].ftran << "/"
+                 << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
+                 << aat_list[i].rise << " " << " " << pins[view][i].fAAT << "/"
+                 << aat_list[i].fall << " " << " " << pins[view][i].rRAT << "/"
+                 << aat_list[i].rise + slack_list[i].rise << " " << " "
+                 << pins[view][i].fRAT << "/"
+                 << aat_list[i].fall + slack_list[i].fall << " " << " "
+                 << pins[view][i].rslk << "/" << slack_list[i].rise << " "
                  << " " << pins[view][i].fslk << "/" << slack_list[i].fall
                  << " " << endl;
         }
@@ -4499,17 +4413,16 @@ void Sizer::AllCorrSTATest() {
 
     for(unsigned i = 0; i < numpins; ++i) {
         cout << "after timer " << getFullPinName(pins[view][i]) << " "
-             << pins[view][i].rtran << "/" << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << "/" << tran_list[i].fall << " "
-             << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-             << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-             << " " << pins[view][i].rRAT << "/"
-             << aat_list[i].rise + slack_list[i].rise << " "
-             << " " << pins[view][i].fRAT << "/"
-             << aat_list[i].fall + slack_list[i].fall << " "
-             << " " << pins[view][i].rslk << "/" << slack_list[i].rise << " "
-             << " " << pins[view][i].fslk << "/" << slack_list[i].fall << " "
-             << endl;
+             << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
+             << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
+             << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
+             << pins[view][i].fAAT << "/" << aat_list[i].fall << " " << " "
+             << pins[view][i].rRAT << "/"
+             << aat_list[i].rise + slack_list[i].rise << " " << " "
+             << pins[view][i].fRAT << "/"
+             << aat_list[i].fall + slack_list[i].fall << " " << " "
+             << pins[view][i].rslk << "/" << slack_list[i].rise << " " << " "
+             << pins[view][i].fslk << "/" << slack_list[i].fall << " " << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
            //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
@@ -4518,17 +4431,14 @@ void Sizer::AllCorrSTATest() {
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
             cout << "after timer mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                 << " "
-                 << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-                 << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-                 << " " << pins[view][i].rRAT << "/"
-                 << aat_list[i].rise + slack_list[i].rise << " "
-                 << " " << pins[view][i].fRAT << "/"
-                 << aat_list[i].fall + slack_list[i].fall << " "
-                 << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                 << " "
+                 << " " << " " << pins[view][i].ftran << "/"
+                 << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
+                 << aat_list[i].rise << " " << " " << pins[view][i].fAAT << "/"
+                 << aat_list[i].fall << " " << " " << pins[view][i].rRAT << "/"
+                 << aat_list[i].rise + slack_list[i].rise << " " << " "
+                 << pins[view][i].fRAT << "/"
+                 << aat_list[i].fall + slack_list[i].fall << " " << " "
+                 << pins[view][i].rslk << "/" << slack_list[i].rise << " "
                  << " " << pins[view][i].fslk << "/" << slack_list[i].fall
                  << " " << endl;
         }
@@ -4609,17 +4519,16 @@ void Sizer::AllCorrSTATest() {
 
     for(unsigned i = 0; i < numpins; ++i) {
         cout << "after one timer " << getFullPinName(pins[view][i]) << " "
-             << pins[view][i].rtran << "/" << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << "/" << tran_list[i].fall << " "
-             << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-             << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-             << " " << pins[view][i].rRAT << "/"
-             << aat_list[i].rise + slack_list[i].rise << " "
-             << " " << pins[view][i].fRAT << "/"
-             << aat_list[i].fall + slack_list[i].fall << " "
-             << " " << pins[view][i].rslk << "/" << slack_list[i].rise << " "
-             << " " << pins[view][i].fslk << "/" << slack_list[i].fall << " "
-             << endl;
+             << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
+             << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
+             << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
+             << pins[view][i].fAAT << "/" << aat_list[i].fall << " " << " "
+             << pins[view][i].rRAT << "/"
+             << aat_list[i].rise + slack_list[i].rise << " " << " "
+             << pins[view][i].fRAT << "/"
+             << aat_list[i].fall + slack_list[i].fall << " " << " "
+             << pins[view][i].rslk << "/" << slack_list[i].rise << " " << " "
+             << pins[view][i].fslk << "/" << slack_list[i].fall << " " << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
            //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
@@ -4628,17 +4537,14 @@ void Sizer::AllCorrSTATest() {
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
             cout << "after one timer mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                 << " "
-                 << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-                 << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-                 << " " << pins[view][i].rRAT << "/"
-                 << aat_list[i].rise + slack_list[i].rise << " "
-                 << " " << pins[view][i].fRAT << "/"
-                 << aat_list[i].fall + slack_list[i].fall << " "
-                 << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                 << " "
+                 << " " << " " << pins[view][i].ftran << "/"
+                 << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
+                 << aat_list[i].rise << " " << " " << pins[view][i].fAAT << "/"
+                 << aat_list[i].fall << " " << " " << pins[view][i].rRAT << "/"
+                 << aat_list[i].rise + slack_list[i].rise << " " << " "
+                 << pins[view][i].fRAT << "/"
+                 << aat_list[i].fall + slack_list[i].fall << " " << " "
+                 << pins[view][i].rslk << "/" << slack_list[i].rise << " "
                  << " " << pins[view][i].fslk << "/" << slack_list[i].fall
                  << " " << endl;
         }
@@ -4687,7 +4593,8 @@ void Sizer::AllCorrTest() {
             nets[i][j] = g_nets[i][j];
         }
     }
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     UpdateCapsFromCells();
     double initial_tns = T[view]->getTNS();
     printf("Initial TNS %f\n", initial_tns);
@@ -4798,22 +4705,21 @@ void Sizer::AllCorrTest() {
             if(tran_diff > 1e-4) {
                 outfile << getFullPinName(pins[view][curpin]) << " ";
                 outfile << pins[view][curpin].rtran << "/"
-                        << tran_list[curpin].rise << " "
-                        << " " << pins[view][curpin].ftran << "/"
+                        << tran_list[curpin].rise << " " << " "
+                        << pins[view][curpin].ftran << "/"
                         << tran_list[curpin].fall << " ";
                 outfile << " " << pins[view][curpin].rAAT << "/"
-                        << aat_list[curpin].rise << " "
-                        << " " << pins[view][curpin].fAAT << "/"
+                        << aat_list[curpin].rise << " " << " "
+                        << pins[view][curpin].fAAT << "/"
                         << aat_list[curpin].fall << " ";
                 outfile << " " << pins[view][curpin].rRAT << "/"
                         << aat_list[curpin].rise + slack_list[curpin].rise
-                        << " "
-                        << " " << pins[view][curpin].fRAT << "/"
+                        << " " << " " << pins[view][curpin].fRAT << "/"
                         << aat_list[curpin].fall + slack_list[curpin].fall
                         << " ";
                 outfile << " " << pins[view][curpin].rslk << "/"
-                        << slack_list[curpin].rise << " "
-                        << " " << pins[view][curpin].fslk << "/"
+                        << slack_list[curpin].rise << " " << " "
+                        << pins[view][curpin].fslk << "/"
                         << slack_list[curpin].fall << " " << endl;
                 neq_num++;
             }
@@ -4863,17 +4769,15 @@ void Sizer::AllCorrTest() {
                     << " " << pins[view][i].ftran << "/" << tran_list[i].fall
                     << " ";
             outfile << " " << pins[view][i].rAAT << "/" << aat_list[i].rise
-                    << " "
-                    << " " << pins[view][i].fAAT << "/" << aat_list[i].fall
-                    << " ";
+                    << " " << " " << pins[view][i].fAAT << "/"
+                    << aat_list[i].fall << " ";
             outfile << " " << pins[view][i].rRAT << "/"
-                    << aat_list[i].rise + slack_list[i].rise << " "
-                    << " " << pins[view][i].fRAT << "/"
+                    << aat_list[i].rise + slack_list[i].rise << " " << " "
+                    << pins[view][i].fRAT << "/"
                     << aat_list[i].fall + slack_list[i].fall << " ";
             outfile << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                    << " "
-                    << " " << pins[view][i].fslk << "/" << slack_list[i].fall
-                    << " " << endl;
+                    << " " << " " << pins[view][i].fslk << "/"
+                    << slack_list[i].fall << " " << endl;
             neq_num++;
         }
     }
@@ -4965,19 +4869,15 @@ void Sizer::AllCorrTest() {
             !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
             outfile << "after corr mismatch " << getFullPinName(pins[view][i])
                     << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                    << " "
-                    << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                    << " "
-                    << " " << pins[view][i].rAAT << "/" << aat_list[i].rise
-                    << " "
-                    << " " << pins[view][i].fAAT << "/" << aat_list[i].fall
-                    << " "
+                    << " " << " " << pins[view][i].ftran << "/"
+                    << tran_list[i].fall << " " << " " << pins[view][i].rAAT
+                    << "/" << aat_list[i].rise << " " << " "
+                    << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
                     << " " << pins[view][i].rRAT << "/"
-                    << aat_list[i].rise + slack_list[i].rise << " "
-                    << " " << pins[view][i].fRAT << "/"
-                    << aat_list[i].fall + slack_list[i].fall << " "
-                    << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                    << " "
+                    << aat_list[i].rise + slack_list[i].rise << " " << " "
+                    << pins[view][i].fRAT << "/"
+                    << aat_list[i].fall + slack_list[i].fall << " " << " "
+                    << pins[view][i].rslk << "/" << slack_list[i].rise << " "
                     << " " << pins[view][i].fslk << "/" << slack_list[i].fall
                     << " " << endl;
             neq_num++;
@@ -5071,17 +4971,14 @@ void Sizer::AllCorrTest() {
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
             cout << "after one timer mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-                 << " "
-                 << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
-                 << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << " "
-                 << " " << pins[view][i].rRAT << "/"
-                 << aat_list[i].rise + slack_list[i].rise << " "
-                 << " " << pins[view][i].fRAT << "/"
-                 << aat_list[i].fall + slack_list[i].fall << " "
-                 << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-                 << " "
+                 << " " << " " << pins[view][i].ftran << "/"
+                 << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
+                 << aat_list[i].rise << " " << " " << pins[view][i].fAAT << "/"
+                 << aat_list[i].fall << " " << " " << pins[view][i].rRAT << "/"
+                 << aat_list[i].rise + slack_list[i].rise << " " << " "
+                 << pins[view][i].fRAT << "/"
+                 << aat_list[i].fall + slack_list[i].fall << " " << " "
+                 << pins[view][i].rslk << "/" << slack_list[i].rise << " "
                  << " " << pins[view][i].fslk << "/" << slack_list[i].fall
                  << "slack_ofs " << pins[view][i].fslk_ofs << "/"
                  << pins[view][i].rslk_ofs << " " << endl;
@@ -5165,16 +5062,15 @@ void Sizer::TranCorrTest() {
 
     for(unsigned i = 0; i < numpins; ++i) {
         cout << "slew before corr " << getFullPinName(pins[view][i]) << " "
-             << pins[view][i].rtran << " " << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << " " << tran_list[i].fall << " "
-             << endl;
+             << pins[view][i].rtran << " " << tran_list[i].rise << " " << " "
+             << pins[view][i].ftran << " " << tran_list[i].fall << " " << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall)) {
             cout << "slew before corr mismatch "
                  << getFullPinName(pins[view][i]) << " " << pins[view][i].rtran
-                 << " " << tran_list[i].rise << " "
-                 << " " << pins[view][i].ftran << " " << tran_list[i].fall
-                 << " " << endl;
+                 << " " << tran_list[i].rise << " " << " "
+                 << pins[view][i].ftran << " " << tran_list[i].fall << " "
+                 << endl;
         }
     }
 
@@ -5183,16 +5079,16 @@ void Sizer::TranCorrTest() {
     for(unsigned i = 0; i < numpins; ++i) {
         cout << "slew after corr " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << " " << pins[view][i].rtran_ofs << " "
-             << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << " " << pins[view][i].ftran_ofs
-             << " " << tran_list[i].fall << " " << endl;
+             << tran_list[i].rise << " " << " " << pins[view][i].ftran << " "
+             << pins[view][i].ftran_ofs << " " << tran_list[i].fall << " "
+             << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall)) {
             cout << "slew after corr mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << " " << pins[view][i].rtran_ofs
-                 << " " << tran_list[i].rise << " "
-                 << " " << pins[view][i].ftran << " " << pins[view][i].ftran_ofs
-                 << " " << tran_list[i].fall << " " << endl;
+                 << " " << tran_list[i].rise << " " << " "
+                 << pins[view][i].ftran << " " << pins[view][i].ftran_ofs << " "
+                 << tran_list[i].fall << " " << endl;
         }
     }
 
@@ -5200,17 +5096,17 @@ void Sizer::TranCorrTest() {
     for(unsigned i = 0; i < numpins; ++i) {
         cout << "slew after timer " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << " " << pins[view][i].rtran_ofs << " "
-             << tran_list[i].rise << " "
-             << " " << pins[view][i].ftran << " " << pins[view][i].ftran_ofs
-             << " " << tran_list[i].fall << " " << endl;
+             << tran_list[i].rise << " " << " " << pins[view][i].ftran << " "
+             << pins[view][i].ftran_ofs << " " << tran_list[i].fall << " "
+             << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall)) {
             cout << "slew after timer mismatch "
                  << getFullPinName(pins[view][i]) << " " << pins[view][i].rtran
                  << " " << pins[view][i].rtran_ofs << " " << tran_list[i].rise
-                 << " "
-                 << " " << pins[view][i].ftran << " " << pins[view][i].ftran_ofs
-                 << " " << tran_list[i].fall << " " << endl;
+                 << " " << " " << pins[view][i].ftran << " "
+                 << pins[view][i].ftran_ofs << " " << tran_list[i].fall << " "
+                 << endl;
         }
     }
 
@@ -5282,7 +5178,8 @@ void Sizer::HLTest() {
     UpdateCapsFromCells();
     CallTimer(view);
     CalcStats();
-    UpdatePTSizes();
+    int count = 0;
+    UpdatePTSizes(view, count);
     cout << "WNS(PT): " << T[view]->getWorstSlack(clk_name[0]) << endl;
     CompareWithPT();
     for(unsigned i = 0; i < numcells; i++) {
@@ -5409,18 +5306,13 @@ void Sizer::ReportCellTran(unsigned view) {
     CallTimer();
 
     LaunchPTimer(0);
-    UpdatePTSizes();
-    cout << "Cell"
-         << " "
-         << "InPin"
-         << " "
-         << "R"
-         << " " << setw(8) << fixed << "LE"
-         << " " << setw(8) << fixed << "InTran"
-         << " " << setw(8) << fixed << "Ceff"
-         << " " << setw(8) << fixed << "Ctot"
-         << " " << setw(8) << fixed << "PtOutTran"
-         << " " << setw(8) << fixed << "TriOutTran" << endl;
+    int count = 0;
+    UpdatePTSizes(view, count);
+    cout << "Cell" << " " << "InPin" << " " << "R" << " " << setw(8) << fixed
+         << "LE" << " " << setw(8) << fixed << "InTran" << " " << setw(8)
+         << fixed << "Ceff" << " " << setw(8) << fixed << "Ctot" << " "
+         << setw(8) << fixed << "PtOutTran" << " " << setw(8) << fixed
+         << "TriOutTran" << endl;
     for(unsigned i = 0; i < numcells; i++) {
         double max_rise_tran, max_fall_tran;
         max_rise_tran = max_fall_tran = 0.0;
@@ -5464,17 +5356,15 @@ void Sizer::ReportCellTran(unsigned view) {
         LookupST(cells[i], 0, &tri_rise_tran, &tri_fall_tran, 0, 0.0);
         cout.precision(4);
         cout << cells[i].type << " " << pins[view][max_fall_pin].name << " "
-             << "R"
-             << " " << setw(8) << fixed << G.fall << " " << setw(8) << fixed
-             << max_fall_tran << " " << setw(8) << fixed << ceff << " "
+             << "R" << " " << setw(8) << fixed << G.fall << " " << setw(8)
+             << fixed << max_fall_tran << " " << setw(8) << fixed << ceff << " "
              << setw(8) << fixed << pins[view][cells[i].outpin].totcap << " "
              << setw(8) << fixed << pt_rise_tran << " " << setw(8) << fixed
              << tri_rise_tran << endl;
 
         cout << cells[i].type << " " << pins[view][max_rise_pin].name << " "
-             << "F"
-             << " " << setw(8) << fixed << G.rise << " " << setw(8) << fixed
-             << max_rise_tran << " " << setw(8) << fixed << ceff << " "
+             << "F" << " " << setw(8) << fixed << G.rise << " " << setw(8)
+             << fixed << max_rise_tran << " " << setw(8) << fixed << ceff << " "
              << setw(8) << fixed << pins[view][cells[i].outpin].totcap << " "
              << setw(8) << fixed << pt_fall_tran << " " << setw(8) << fixed
              << tri_fall_tran << endl;
@@ -5529,20 +5419,16 @@ void Sizer::ReportCellTran(unsigned cellID, string prefix, unsigned view) {
     LookupST(cells[cellID], 0, &tri_rise_tran, &tri_fall_tran, 0, 0.0);
     cout.precision(4);
     cout << prefix << " " << cells[cellID].type << " "
-         << pins[view][max_fall_pin].name << " "
-         << "R"
-         << " " << setw(8) << fixed << G.fall << " " << setw(8) << fixed
-         << max_fall_tran << " " << setw(8) << fixed << ceff << " " << setw(8)
-         << fixed << pins[view][cells[cellID].outpin].totcap << " " << setw(8)
-         << fixed << pt_rise_tran << " " << setw(8) << fixed << tri_rise_tran
-         << endl;
+         << pins[view][max_fall_pin].name << " " << "R" << " " << setw(8)
+         << fixed << G.fall << " " << setw(8) << fixed << max_fall_tran << " "
+         << setw(8) << fixed << ceff << " " << setw(8) << fixed
+         << pins[view][cells[cellID].outpin].totcap << " " << setw(8) << fixed
+         << pt_rise_tran << " " << setw(8) << fixed << tri_rise_tran << endl;
 
     cout << prefix << " " << cells[cellID].type << " "
-         << pins[view][max_rise_pin].name << " "
-         << "F"
-         << " " << setw(8) << fixed << G.rise << " " << setw(8) << fixed
-         << max_rise_tran << " " << setw(8) << fixed << ceff << " " << setw(8)
-         << fixed << pins[view][cells[cellID].outpin].totcap << " " << setw(8)
-         << fixed << pt_fall_tran << " " << setw(8) << fixed << tri_fall_tran
-         << endl;
+         << pins[view][max_rise_pin].name << " " << "F" << " " << setw(8)
+         << fixed << G.rise << " " << setw(8) << fixed << max_rise_tran << " "
+         << setw(8) << fixed << ceff << " " << setw(8) << fixed
+         << pins[view][cells[cellID].outpin].totcap << " " << setw(8) << fixed
+         << pt_fall_tran << " " << setw(8) << fixed << tri_fall_tran << endl;
 }

@@ -623,19 +623,15 @@ void Circuit::assignLibPinId() {
                 }
 
                 if(pin_index != UINT_MAX && NO_CLKBUF_OPT) {
-                    vector< bool > visited;
-                    visited.resize(g_pins.size());
-                    for(unsigned k = 0; k < g_pins.size(); ++k) {
-                        visited[k] = false;
-                    }
+                    set< bool > visited;
 
                     while(!g_pins[pin_index].isPI) {
-                        if(visited[pin_index]) {
+                        if(visited.count(pin_index)) {
                             cout << "The pin is already visited!" << endl;
                             break;
                         }
-
-                        visited[pin_index] = true;
+                        visited.insert(pin_index);
+                        // visited[pin_index] = true;
 
                         if(g_cells[g_pins[pin_index].owner].isFF) {
                             // cout << "Found a sequential cell!" << endl;

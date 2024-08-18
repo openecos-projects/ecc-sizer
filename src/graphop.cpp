@@ -37,6 +37,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <algorithm>
 #include "sizer.h"
 #include "utils.h"
 
@@ -59,9 +60,8 @@ void Sizer::InitNets() {
 // topological sort
 void Sizer::SortTopo() {
     vector< bool > check;
-
-    for(unsigned i = 0; i < numcells; i++)
-        check.push_back(false);
+    check.resize(numcells);
+    std::fill(check.begin(), check.end(), false);
 
     unsigned corner = 0;
     unsigned view = 0;
@@ -147,12 +147,14 @@ void Sizer::SortTopo() {
     for(unsigned i = 0; i < numcells; i++) {
         if(net_cnt[i] == 0) {
             noincomes.push(i);
+            check[i] = true;
             // cout << "pi pushed " << g_cells[i].name << endl;
         }
     }
     for(unsigned i = 0; i < numcells; i++) {
         if(net_cnt[i] != 0 && isff(g_cells[i])) {
             noincomes.push(i);
+            check[i] = true;
             //  cout << "ff pushed " << g_cells[i].name << endl;
         }
     }
@@ -193,7 +195,13 @@ void Sizer::SortTopo() {
     //        << net_cnt2[i] << endl;
     //    }
     //}
-
+    for(unsigned i = 0; i < numcells; i++) {
+        if(!check[i]) {
+            // cout << g_cells[i].name << " " << g_cells[i].type << endl;
+            topolist.push_back(i);
+        }
+    }
+    std::fill(check.begin(), check.end(), false);
     // assert(topolist.size() == numcells);
     // map2topoidx.resize(topolist.size());
     map2topoidx.resize(numcells);
@@ -206,19 +214,25 @@ void Sizer::SortTopo() {
         net_cnt[i] = g_cells[i].fos.size();
 
     queue< unsigned > nooutgoes;
-    for(unsigned i = 0; i < numcells; i++)
-        if(net_cnt[i] == 0)
+    for(unsigned i = 0; i < numcells; i++) {
+        if(net_cnt[i] == 0) {
             nooutgoes.push(i);
-    for(unsigned i = 0; i < numcells; i++)
-        if(net_cnt[i] != 0 && isff(g_cells[i]))
+        }
+    }
+    for(unsigned i = 0; i < numcells; i++) {
+        if(net_cnt[i] != 0 && isff(g_cells[i])) {
             nooutgoes.push(i);
+        }
+    }
 
     int fo_lvl = 0;
     while(!nooutgoes.empty()) {
         unsigned cur = nooutgoes.front();
         nooutgoes.pop();
-        if(g_cells[cur].inpins.size() != 0)
+        if(g_cells[cur].inpins.size() != 0) {
             rtopolist.push_back(cur);
+            check[cur] = true;
+        }
         if(isff(g_cells[cur])) {
             fo_lvl = 1;
         }
@@ -237,7 +251,12 @@ void Sizer::SortTopo() {
                 nooutgoes.push(curcell);
         }
     }
-
+    for(unsigned i = 0; i < numcells; i++) {
+        if(!check[i]) {
+            // cout << g_cells[i].name << " " << g_cells[i].type << endl;
+            rtopolist.push_back(i);
+        }
+    }
     cout << "RTOPO " << rtopolist.size() << " " << numcells << endl;
     // assert(rtopolist.size() == numcells);
 
@@ -249,7 +268,7 @@ void Sizer::SortTopo() {
 }
 
 void Sizer::CountNPaths(unsigned view) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
 
     return;
 
@@ -339,7 +358,7 @@ void Sizer::CountNPaths(unsigned view) {
 }
 
 void Sizer::CountPathsLesserThanSlack(unsigned view, double slack) {
-    unsigned corner = 0; // mmmcViewList[view].corner;
+    unsigned corner = 0;  // mmmcViewList[view].corner;
 
     // Initialize
     for(unsigned i = 0; i < numpins; i++) {

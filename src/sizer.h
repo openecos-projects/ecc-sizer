@@ -945,7 +945,7 @@ class Sizer {
     void ExitPTimer();
     void InitPTSizes();
     void InitPowerBeforeUpdate(vector< CELL > &c);
-    void UpdatePTSizes(unsigned option = 0);
+    void UpdatePTSizes(unsigned option, int &count);
     void UpdatePTSizes(vector< CELL > &c, unsigned option = 0);
     void CheckPTSizes(unsigned option = 0);
     void CheckCorrPT(unsigned option = 0, CorrPTMetric pt_metric = SLK,
