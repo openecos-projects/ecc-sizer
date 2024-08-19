@@ -335,7 +335,7 @@ class Sizer {
 
     bool already_built;
     set< entry > targets;
-    double  updatePinFast = true;
+    double updatePinFast = true;
     vector< unsigned > topolist;
     vector< unsigned > rtopolist;
     vector< unsigned > map2topoidx;
@@ -501,6 +501,8 @@ class Sizer {
                                     unsigned corner = 0);
     void LookupST(CELL &cell, int factor, double *rtran, double *ftran, int dir,
                   double delta_cap, unsigned view = 0);
+    int FindMaxInputST(CELL &cell, int output_id, int dir, double delta_cap,
+                       unsigned view = 0);
     void LookupDT(CELL &cell, int factor, vector< double > &rdelay,
                   vector< double > &fdelay, int dir, double delta_cap,
                   unsigned view = 0);
@@ -575,7 +577,7 @@ class Sizer {
     int getNumRCStage(vector< SUB_NODE > &subNodeVec, unsigned sink);
 
     bool IsTranVio(PIN &pin);
-    bool IsTranVio(PIN &pin, double max_tran) ;
+    bool IsTranVio(PIN &pin, double max_tran);
     // JLPWR
     double LookupDeltaSwitchPower(CELL &cell, int factor, int dir,
                                   unsigned view = 0);
@@ -978,6 +980,8 @@ class Sizer {
 
     // sizer main functions
     unsigned BwdFixCapViolation(unsigned view = 0);
+    unsigned FindAvailablePreCell(unsigned prev_cell_input_pin, int max_depth,
+                             int view);
     unsigned FwdFixCapViolation(unsigned view = 0);
     unsigned BwdFixSlewViolation(double maxTranRatio, unsigned view);
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);

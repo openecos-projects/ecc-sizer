@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <cstdio>
 #include <sstream>
 #include "ckt.h"
@@ -725,6 +726,106 @@ void Sizer::CalcTran(unsigned view) {
     }
 }
 
+unsigned Sizer::FindAvailablePreCell(unsigned prev_cell_input_pin,
+                                     int max_depth, int view) {
+    unsigned res_cell = UINT_MAX;
+    for(int depth = 0; depth < max_depth; depth++) {
+        unsigned net_id = pins[view][prev_cell_input_pin].net;
+        if(net_id == UINT_MAX) {
+            break;
+        }
+        unsigned cell_output_pin = nets[view][net_id].inpin;
+        if(cell_output_pin == UINT_MAX) {
+            break;
+        }
+        unsigned cell_id = pins[view][cell_output_pin].owner;
+        if(cell_id == UINT_MAX) {
+            break;
+        }
+        auto &t_cell = cells[cell_id];
+        if(isff(cells[cell_id]) || cells[cell_id].isDontTouch) {
+            break;
+        }
+        if(!isMax(cells[cell_id])) {
+            res_cell = cell_id;
+            return res_cell;
+        }
+        unsigned next_cell_input_pin = UINT_MAX;
+        double t_max_tran = 0.0;
+        unsigned outpinidx = pins[view][cell_output_pin].lib_pin * 100;
+
+        for(int i = 0; i < t_cell.inpins.size(); i++) {
+            int in_pin = t_cell.inpins[i];
+            if(in_pin == UINT_MAX || pins[view][in_pin].net == UINT_MAX) {
+                // res_cell = cell_id;
+                continue;
+            }
+            int net_id = pins[view][in_pin].net;
+            if(nets[view][net_id].inpin == UINT_MAX ||
+               pins[view][nets[view][net_id].inpin].owner == UINT_MAX) {
+                continue;
+            }
+
+            int prev_cell_id = pins[view][nets[view][net_id].inpin].owner;
+            if(prev_cell_id == UINT_MAX) {
+                continue;
+            }
+            if(isff(cells[prev_cell_id]) || cells[prev_cell_id].isDontTouch) {
+                continue;
+            }
+            assert(getLibCellInfo(t_cell, view) != NULL);
+            auto cur = getLibCellInfo(t_cell, view);
+            LibPinInfo &lib_pin_info = cur->pins[pins[view][in_pin].lib_pin];
+
+            unsigned idx = outpinidx + pins[view][in_pin].lib_pin;
+            LibTimingInfo *arc = &cur->timingArcs[idx];
+
+            bool arc_error = false;
+
+            if(arc == NULL) {
+                arc_error = true;
+            }
+
+            if(arc->fromPin != pins[view][in_pin].name) {
+                if(VERBOSE >= 3)
+                    cout << "timing arc error : " << arc->fromPin
+                         << " != " << pins[view][in_pin].name << endl;
+                arc_error = true;
+            }
+
+            double r_rtran, r_ftran;
+            r_rtran = r_ftran = 0.0;
+
+            if(arc_error) {
+                printf("ss");
+                assert(0);
+            }
+
+            if(arc->timingSense == 'n') {
+                // T[view]->getPinTran(
+                //     r_rtran, r_ftran,
+                //     getFullPinName(pins[view][curpin]));
+                r_rtran = r_entry(arc->riseTransition, pins[view][in_pin].ftran,
+                                  pins[view][cell_output_pin].ceff);
+                r_ftran = r_entry(arc->fallTransition, pins[view][in_pin].rtran,
+                                  pins[view][cell_output_pin].ceff);
+            }
+            else {
+                r_rtran = r_entry(arc->riseTransition, pins[view][in_pin].rtran,
+                                  pins[view][cell_output_pin].ceff);
+                r_ftran = r_entry(arc->fallTransition, pins[view][in_pin].ftran,
+                                  pins[view][cell_output_pin].ceff);
+            }
+            double t_tran = max(r_ftran, r_rtran);
+            if(t_tran > t_max_tran) {
+                t_max_tran = t_tran;
+                next_cell_input_pin = in_pin;
+            }
+        }
+        prev_cell_input_pin = next_cell_input_pin;
+    }
+    return res_cell;
+}
 // delta_cap should be a vector, since there are multiple outputs
 void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                      int dir, double delta_cap, unsigned view) {
