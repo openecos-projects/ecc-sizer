@@ -981,7 +981,9 @@ class Sizer {
     // sizer main functions
     unsigned BwdFixCapViolation(unsigned view = 0);
     unsigned FindAvailablePreCell(unsigned prev_cell_input_pin, int max_depth,
-                             int view);
+                                  int view);
+    unsigned FindAvailableNextCell(unsigned prev_cell_input_pin, int max_depth,
+                                  int view);
     unsigned FwdFixCapViolation(unsigned view = 0);
     unsigned BwdFixSlewViolation(double maxTranRatio, unsigned view);
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);

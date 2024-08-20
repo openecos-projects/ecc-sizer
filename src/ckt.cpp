@@ -627,7 +627,7 @@ void Circuit::assignLibPinId() {
 
                     while(!g_pins[pin_index].isPI) {
                         if(visited.count(pin_index)) {
-                            cout << "The pin is already visited!" << endl;
+                            // cout << "The pin is already visited!" << endl;
                             break;
                         }
                         visited.insert(pin_index);

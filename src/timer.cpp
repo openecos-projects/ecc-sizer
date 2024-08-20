@@ -822,10 +822,87 @@ unsigned Sizer::FindAvailablePreCell(unsigned prev_cell_input_pin,
                 next_cell_input_pin = in_pin;
             }
         }
+        if(next_cell_input_pin == UINT_MAX) {
+            break;
+        }
         prev_cell_input_pin = next_cell_input_pin;
     }
     return res_cell;
 }
+#if 0
+unsigned Sizer::FindAvailableNextCell(unsigned prev_cell_input_pin,
+                                     int max_depth, int view) {
+    unsigned res_cell = UINT_MAX;
+    for(int depth = 0; depth < max_depth; depth++) {
+        unsigned net_id = pins[view][prev_cell_input_pin].net;
+        if(net_id == UINT_MAX) {
+            break;
+        }
+        unsigned cell_output_pin = nets[view][net_id].inpin;
+        if(cell_output_pin == UINT_MAX) {
+            break;
+        }
+        unsigned cell_id = pins[view][cell_output_pin].owner;
+        if(cell_id == UINT_MAX) {
+            break;
+        }
+        auto &t_cell = cells[cell_id];
+        if(isff(cells[cell_id]) || cells[cell_id].isDontTouch) {
+            break;
+        }
+        if(!isMax(cells[cell_id])) {
+            res_cell = cell_id;
+            return res_cell;
+        }
+        unsigned next_cell_input_pin = UINT_MAX;
+        double t_max_tran = 0.0;
+        unsigned outpinidx = pins[view][cell_output_pin].lib_pin * 100;
+
+        // downsizing fanouts
+        for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k) {
+            unsigned focell = pins[view][nets[corner][outnet].outpins[k]].owner;
+            if(focell == UINT_MAX) {
+                continue;
+            }
+            if(getLibCellInfo(cells[focell], corner) == NULL) {
+                continue;
+            }
+            if(cells[focell].isClockCell) {
+                continue;
+            }
+            if(cells[focell].isDontTouch)
+                continue;
+            // if(isff(cells[focell])) {
+            //     continue;
+            // }
+            // CalcStats((unsigned)thread_id, false, "", view, false);
+            prev_tns = viewTNS[view];
+
+            if(cell_resize(cells[focell], -1)) {
+                OneTimer(cells[focell], STA_MARGIN, view);
+                // CalcStats((unsigned)thread_id, false, "", view, false);
+                cur_tns = viewTNS[view];
+                change++;
+                if(cur_tns > prev_tns) {
+                    cell_resize(cells[focell], 1);
+                    cells[focell].isChanged -= 2;
+                    change--;
+                    OneTimer(cells[focell], STA_MARGIN, view);
+                }
+                else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
+                    break;
+                }
+            }
+        }
+        if(next_cell_input_pin == UINT_MAX) {
+            break;
+        }
+        prev_cell_input_pin = next_cell_input_pin;
+    }
+    return res_cell;
+}
+#endif
+
 // delta_cap should be a vector, since there are multiple outputs
 void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                      int dir, double delta_cap, unsigned view) {
@@ -5092,8 +5169,8 @@ timing_lookup Sizer::get_wire_tran(unsigned netID, unsigned sinkPinID,
     timing_lookup tran;
 
     if(SLEW_METRIC == PERI) {
-        tran.rise = sqrt(pow(in_rtran, 2) + log(9) * pow(wire_delay.rise, 2));
-        tran.fall = sqrt(pow(in_ftran, 2) + log(9) * pow(wire_delay.fall, 2));
+        tran.rise = sqrt(pow(in_rtran, 2) + pow(log(9) * wire_delay.rise, 2));
+        tran.fall = sqrt(pow(in_ftran, 2) + pow(log(9) * wire_delay.fall, 2));
 
         // tran.rise = sqrt(pow(in_rtran, 2) + pow(log(9) * wire_delay.rise,
         // 2)); tran.fall = sqrt(pow(in_ftran, 2) + pow(log(9) *

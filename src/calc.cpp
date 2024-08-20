@@ -37,6 +37,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <sys/param.h>
 #include <algorithm>
 #include <cassert>
 #include <climits>
@@ -234,6 +235,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
     slew_violation_cnt = 0;
     slew_violation_wst = 0;
     ofstream ofs("our_tran_vio.txt");
+    double slew_bound = 0.;
     for(unsigned i = 0; i < numcells; i++) {
         std::vector< unsigned > pin_id_list;
         for(unsigned j = 0; j < cells[i].inpins.size(); j++) {
@@ -277,6 +279,45 @@ double Sizer::CalcSlewViolation(unsigned view) {
                     << (pin_->isOutputSignal() ? "output" : "input")
                     << " max tran vio: " << t_tran << " "
                     << pins[view][curpin].max_tran << endl;
+                if(!pin_->isOutputSignal()) {
+                    int net_id = pins[view][curpin].net;
+                    if(net_id != UINT_MAX &&
+                       nets[corner][net_id].inpin != UINT_MAX) {
+                        int cell_opin = nets[corner][net_id].inpin;
+                        int cell_id = pins[view][cell_opin].owner;
+                        unsigned fopin = curpin;
+                        timing_lookup wire_delay =
+                            get_wire_delay(net_id, fopin, view);
+                        double cur_max_tran = DBL_MAX;
+
+                        cur_max_tran =
+                            std::min(sqrt(pow(pins[view][fopin].max_tran -
+                                                  pins[view][fopin].rtran_ofs,
+                                              2) -
+                                          pow(log(9) * wire_delay.rise, 2)),
+                                     cur_max_tran);
+
+                        cur_max_tran =
+                            std::min(sqrt(pow(pins[view][fopin].max_tran -
+                                                  pins[view][fopin].ftran_ofs,
+                                              2) -
+                                          pow(log(9) * wire_delay.fall, 2)),
+                                     cur_max_tran);
+                        if(fabs(pins[view][cell_opin].rtran - 0.0001) < 1e-5) {
+                            slew_bound += t_tran - pins[view][curpin].max_tran;
+                        }
+                        ofs << "pre Cell type: " << cells[cell_id].type
+                            << " Cell name " << cells[cell_id].name << " "
+                            << "pre pin tran: "
+                            << max(pins[view][cell_opin].rtran,
+                                   pins[view][cell_opin].ftran)
+                            << " " << "pre pin need max tran: " << cur_max_tran
+                            << " " << "net cap: " << nets[corner][net_id].cap
+                            << " " << "net delay "
+                            << max(wire_delay.rise, wire_delay.fall) << " "
+                            << endl;
+                    }
+                }
                 slew_violation_cnt++;
             }
             slew_violation_wst =
@@ -309,6 +350,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
 #endif
     printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
            slew_violation_wst);
+    printf("Minimum slew_bound %f\n", slew_bound);
     return slew_viol;
 }
 
