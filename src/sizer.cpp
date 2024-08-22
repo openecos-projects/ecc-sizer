@@ -3523,7 +3523,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             bool restore = false;
             if(!CHECK_ALL_VIEW) {
                 // ista for the new solution
-                OneTimer(cells[cur], STA_MARGIN, view);
+                OneTimer(cells[cur], STA_MARGIN, true);
 
                 new_slack = min(GetCellSlack(cells[cur], view),
                                 GetFICellSlack(cells[cur], view));
@@ -3594,7 +3594,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 
                 // ista with the restored solution
                 if(!CHECK_ALL_VIEW) {
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                    OneTimer(cells[cur], STA_MARGIN, true);
                 }
                 else {
                     for(unsigned view1 = 0; view1 < numViews; ++view1) {

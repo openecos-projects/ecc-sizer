@@ -202,7 +202,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                         cell_retype(cells[cur], -1);
                     }
 
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                    OneTimer(cells[cur], STA_MARGIN, true);
 
                     delta_target += it->tie_break;
                     if(delta_target < 0) {
@@ -427,7 +427,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 prev_tns = viewTNS[view];
 
                 if(cell_resize(cells[focell], -1)) {
-                    OneTimer(cells[focell], STA_MARGIN, view);
+                    OneTimer(cells[focell], STA_MARGIN, true);
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
                     change++;
@@ -435,7 +435,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                         cell_resize(cells[focell], 1);
                         cells[focell].isChanged -= 2;
                         change--;
-                        OneTimer(cells[focell], STA_MARGIN, view);
+                        OneTimer(cells[focell], STA_MARGIN, true);
                     }
                     else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
                         break;
@@ -463,7 +463,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                     bool change_size = cell_resize(cells[cur], 1);
                     if(change_size) {
-                        OneTimer(cells[cur], STA_MARGIN, view);
+                        OneTimer(cells[cur], STA_MARGIN, true);
                     }
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     // cur_tns = CalcSlackViolation(view);
@@ -485,7 +485,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     if(change_size) {
                         cell_resize(cells[cur], -1);
                         cells[cur].isChanged -= 2;
-                        OneTimer(cells[cur], STA_MARGIN, view);
+                        OneTimer(cells[cur], STA_MARGIN, true);
                     }
 
                     double delta_sw_power, delta_leak, delta_int;
@@ -512,7 +512,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                     bool change_type = cell_retype(cells[cur], 1);
 
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                    OneTimer(cells[cur], STA_MARGIN, true);
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
@@ -534,7 +534,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                         cells[cur].isChanged -= 2;
                     }
 
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                    OneTimer(cells[cur], STA_MARGIN, true);
 
                     double delta_sw_power, delta_leak, delta_int;
 
@@ -571,7 +571,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     //    << prev_type << " --> " << cells[cur].type << endl;
                 }
 
-                OneTimer(cells[cur], STA_MARGIN, view);
+                OneTimer(cells[cur], STA_MARGIN, true);
             }
             //            cout << "AFTER MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
@@ -644,7 +644,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                     bool change_size = cell_resize(cells[ficell], 1);
                     if(change_size) {
-                        OneTimer(cells[ficell], STA_MARGIN, view);
+                        OneTimer(cells[ficell], STA_MARGIN, true);
                     }
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
@@ -668,7 +668,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                         cells[ficell].isChanged -= 2;
                     }
 
-                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    OneTimer(cells[ficell], STA_MARGIN, true);
 
                     double delta_sw_power, delta_leak, delta_int;
                     if(ALPHA != 0.0) {
@@ -692,7 +692,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                     bool change_type = cell_retype(cells[ficell], 1);
 
-                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    OneTimer(cells[ficell], STA_MARGIN, true);
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
@@ -714,7 +714,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                         cells[ficell].isChanged -= 2;
                     }
 
-                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    OneTimer(cells[ficell], STA_MARGIN, true);
 
                     double delta_sw_power, delta_leak, delta_int;
 
@@ -751,7 +751,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     //    << prev_type << " --> " << cells[ficell].type << endl;
                 }
 
-                OneTimer(cells[ficell], STA_MARGIN, view);
+                OneTimer(cells[ficell], STA_MARGIN, true);
             }
 #if 0
             if(curnet == UINT_MAX) {
@@ -865,13 +865,13 @@ unsigned Sizer::BwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                     bool change_size = cell_resize(cells[ficell], 1);
                     if(change_size) {
-                        OneTimer(cells[ficell], STA_MARGIN, view);
+                        OneTimer(cells[ficell], STA_MARGIN, true);
                     }
                     change += 1;
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                 }
 
-                // OneTimer(cells[ficell], STA_MARGIN, view);
+                // OneTimer(cells[ficell], STA_MARGIN, true);
             }
             // cout << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
             // << " "
@@ -928,7 +928,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             wire_delay = get_wire_delay(outnet, curpin, view);
             r_tran = log(9) * wire_delay.rise + pins[view][curpin].rtran_ofs;
             f_tran = log(9) * wire_delay.fall + pins[view][curpin].ftran_ofs;
-            int max_iter = 10;
+            int max_iter = 5;
             int iter = 0;
             while(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
                   pins[view][curpin].max_tran) {
@@ -938,6 +938,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                 // downsizing fanouts
                 set< entry > targets;
                 for(int step = 1; step <= 2; step++) {
+                    // int step = 1;
+                    bool ok = false;
                     for(unsigned k = 0; k < nets[corner][outnet].outpins.size();
                         ++k) {
                         unsigned focell =
@@ -965,7 +967,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                         bool change_size = cell_resize(cells[focell], -step);
 
                         if(change_size) {
-                            OneTimer(cells[focell], STA_MARGIN, view);
+                            OneTimer(cells[focell], STA_MARGIN, true);
                         }
                         else {
                             continue;
@@ -982,27 +984,37 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                                      max(r_tran, f_tran);
 
                         double delta_slack = cur_slack - prev_slack;
-                        if(change_size) {
-                            cell_resize(cells[focell], step);
-                            cells[focell].isChanged -= 2;
-                            OneTimer(cells[focell], STA_MARGIN, view);
-                        }
+
                         if(-delta_slack + slew_gamma * delta_tran < 0) {
                             tmpEntry.delta_impact = -delta_slack + slew_gamma;
                             targets.insert(tmpEntry);
+                            ok = true;
                         }
+                        // else {
+                        if(change_size) {
+                            cell_resize(cells[focell], step);
+                            cells[focell].isChanged -= 2;
+                            OneTimer(cells[focell], STA_MARGIN, true);
+                        }
+                        // }
                     }
                 }
-
                 if(targets.size() == 0) {
                     break;
                 }
-                auto target = targets.begin();
-
-                if(cell_resize(cells[target->id], target->step)) {
-                    OneTimer(cells[target->id], STA_MARGIN, view);
-                    change++;
+                int ii = 0;
+                for(auto target : targets) {
+                    if(target.change == DNSIZE) {
+                        if(cell_resize(cells[target.id], target.step)) {
+                            change++;
+                            // ok = true;
+                        }
+                    }
+                    if(++ii > 10) {
+                        break;
+                    }
                 }
+                // }
             }
         }
     }
@@ -1079,7 +1091,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                 prev_tns = viewTNS[view];
 
                 if(cell_resize(cells[focell], -1)) {
-                    OneTimer(cells[focell], STA_MARGIN, view);
+                    OneTimer(cells[focell], STA_MARGIN, true);
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
                     change++;
@@ -1087,7 +1099,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                         cell_resize(cells[focell], 1);
                         cells[focell].isChanged -= 2;
                         change--;
-                        OneTimer(cells[focell], STA_MARGIN, view);
+                        OneTimer(cells[focell], STA_MARGIN, true);
                     }
                     else if(!IsTranVio(pins[view][curpin])) {
                         break;
@@ -1113,7 +1125,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
 
                     bool change_size = cell_resize(cells[cur], 1);
                     if(change_size) {
-                        OneTimer(cells[cur], STA_MARGIN, view);
+                        OneTimer(cells[cur], STA_MARGIN, true);
                     }
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     // cur_tns = CalcSlackViolation(view);
@@ -1135,7 +1147,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                     if(change_size) {
                         cell_resize(cells[cur], -1);
                         cells[cur].isChanged -= 2;
-                        OneTimer(cells[cur], STA_MARGIN, view);
+                        OneTimer(cells[cur], STA_MARGIN, true);
                     }
 
                     double delta_sw_power, delta_leak, delta_int;
@@ -1162,7 +1174,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
 
                     bool change_type = cell_retype(cells[cur], 1);
 
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                    OneTimer(cells[cur], STA_MARGIN, true);
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
@@ -1184,7 +1196,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                         cells[cur].isChanged -= 2;
                     }
 
-                    OneTimer(cells[cur], STA_MARGIN, view);
+                    OneTimer(cells[cur], STA_MARGIN, true);
 
                     double delta_sw_power, delta_leak, delta_int;
 
@@ -1221,7 +1233,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                     //    << prev_type << " --> " << cells[cur].type << endl;
                 }
 
-                OneTimer(cells[cur], STA_MARGIN, view);
+                OneTimer(cells[cur], STA_MARGIN, true);
             }
             //            cout << "AFTER MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
@@ -1298,7 +1310,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
 
                     bool change_size = cell_resize(cells[ficell], 1);
                     if(change_size) {
-                        OneTimer(cells[ficell], STA_MARGIN, view);
+                        OneTimer(cells[ficell], STA_MARGIN, true);
                     }
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
@@ -1322,7 +1334,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                         cells[ficell].isChanged -= 2;
                     }
 
-                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    OneTimer(cells[ficell], STA_MARGIN, true);
 
                     double delta_sw_power, delta_leak, delta_int;
                     if(ALPHA != 0.0) {
@@ -1346,7 +1358,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
 
                     bool change_type = cell_retype(cells[ficell], 1);
 
-                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    OneTimer(cells[ficell], STA_MARGIN, true);
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     cur_tns = viewTNS[view];
 
@@ -1368,7 +1380,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                         cells[ficell].isChanged -= 2;
                     }
 
-                    OneTimer(cells[ficell], STA_MARGIN, view);
+                    OneTimer(cells[ficell], STA_MARGIN, true);
 
                     double delta_sw_power, delta_leak, delta_int;
 
@@ -1405,7 +1417,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                     //    << prev_type << " --> " << cells[ficell].type << endl;
                 }
 
-                OneTimer(cells[ficell], STA_MARGIN, view);
+                OneTimer(cells[ficell], STA_MARGIN, true);
             }
             // cout << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
             // << " "

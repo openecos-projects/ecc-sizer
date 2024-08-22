@@ -879,7 +879,7 @@ unsigned Sizer::FindAvailableNextCell(unsigned prev_cell_input_pin,
             prev_tns = viewTNS[view];
 
             if(cell_resize(cells[focell], -1)) {
-                OneTimer(cells[focell], STA_MARGIN, view);
+                OneTimer(cells[focell], STA_MARGIN, true);
                 // CalcStats((unsigned)thread_id, false, "", view, false);
                 cur_tns = viewTNS[view];
                 change++;
@@ -887,7 +887,7 @@ unsigned Sizer::FindAvailableNextCell(unsigned prev_cell_input_pin,
                     cell_resize(cells[focell], 1);
                     cells[focell].isChanged -= 2;
                     change--;
-                    OneTimer(cells[focell], STA_MARGIN, view);
+                    OneTimer(cells[focell], STA_MARGIN, true);
                 }
                 else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
                     break;
