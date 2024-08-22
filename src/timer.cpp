@@ -4136,9 +4136,8 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
     unsigned cur = pin.owner;
     unsigned curnet = pin.net;
     pin.rAAT = pin.fAAT = 0.0;
-    if(updatePinFast) {
-        pin.rRAT = pin.fRAT = 9999.99;
-    }
+    pin.rRAT = pin.fRAT = 9999.99;
+
     // critical affected time FIXME:
 
     if(VERBOSE >= 3)
@@ -4510,8 +4509,10 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
 
     //    cout << "PIN TRAN / AAT CHANGE "
     //        << diff_tran << " " << diff_AAT << " " << margin << endl;
-    if(pin.rslk > 8000 || pin.fslk > 8000) {
-        return false;
+    if(updatePinFast) {
+        if(pin.rslk > 8000 || pin.fslk > 8000) {
+            return false;
+        }
     }
     if(diff_tran > margin || diff_AAT > margin)
         return true;
@@ -5545,7 +5546,7 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
         }
         db_item_list.push_back(i_term);
     }
-    // #pragma omp parallel for num_threads(8) schedule(dynamic)
+    // #pragma omp parallel for num_threads(2) schedule(dynamic)
     for(int i = 0; i < db_item_list.size(); i++) {
         auto i_term = db_item_list[i];
         double slack_rise, slack_fall, tran_rise, tran_fall, aat_rise, aat_fall;
@@ -5570,9 +5571,9 @@ void Sizer::GetPTValues(unsigned option, unsigned view,
             continue;
         }
         int pin_id = pin2id[pin_name];
-        if(pin_id == 0) {
-            printf("debug debug");
-        }
+        // if(pin_id == 0) {
+        //     printf("debug debug");
+        // }
         assert(pin2id.count(pin_name) > 0);
         slack_rise = slack_rise >= 1e8 ? DBL_MAX : slack_rise / this->time_unit;
         slack_fall = slack_fall >= 1e8 ? DBL_MAX : slack_fall / this->time_unit;
@@ -5957,9 +5958,9 @@ void Sizer::CorrelatePT(unsigned option, unsigned view) {
     double begin = cpuTime();
     int count = 0;
     UpdatePTSizes(option, count);
-    if(count == 0) {
-        return;
-    }
+    // if(count == 0) {
+    //     return;
+    // }
     GetPTValues(option, view, slack_list, ceff_list, tran_list, aat_list);
 
     // transition correlation

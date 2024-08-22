@@ -95,6 +95,28 @@
 
 #define DBL_MAX 1.7976931348623158e+308 /* max value */
 
+#define TIMER_RUNS_BACKGROUND
+
+#define GLOBAL 0
+#define LEGALIZE 1
+#define DETAIL 2
+#define FINESWAP 3
+#define FINEFIX 4
+#define CRIT_LEGALIZE 2
+#define CRIT_RESET 3
+
+#define UPSIZE 0
+#define UPTYPE 1
+#define DNSIZE 2
+#define DNTYPE 3
+#define OPT_SLEW 4
+
+#define SLK_MARGIN 0.0
+#define LEAK_IMPACT -0.0001
+#define NUM_OPTS 5
+#define STUCK_RATIO 0.05
+#define FIX_RATIO 0.01  // downsize fo cells for x% critical paths
+
 using namespace std;
 
 // wire delay metrics

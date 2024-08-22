@@ -260,10 +260,9 @@ double Sizer::CalcSlewViolation(unsigned view) {
             string pin_name = getFullPinName(pins[view][curpin]);
             auto pin_ =
                 _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
-            // assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER"
-            // &&
-            //        pin_->getNet()->getSigType() != "GROUND" &&
-            //        pin_->getNet()->getSigType() != "CLOCK");
+            assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+                   pin_->getNet()->getSigType() != "GROUND" &&
+                   pin_->getNet()->getSigType() != "CLOCK");
             // if(pins[view][curpin].max_tran == 0) {
             //     printf("Pin name %s max_tran %f\n",
             //            pins[view][curpin].name.c_str(),
@@ -280,11 +279,13 @@ double Sizer::CalcSlewViolation(unsigned view) {
                     << " max tran vio: " << t_tran << " "
                     << pins[view][curpin].max_tran << endl;
                 if(!pin_->isOutputSignal()) {
-                    int net_id = pins[view][curpin].net;
+                    unsigned net_id = pins[view][curpin].net;
                     if(net_id != UINT_MAX &&
-                       nets[corner][net_id].inpin != UINT_MAX) {
-                        int cell_opin = nets[corner][net_id].inpin;
-                        int cell_id = pins[view][cell_opin].owner;
+                       nets[corner][net_id].inpin != UINT_MAX &&
+                       pins[view][nets[corner][net_id].inpin].owner !=
+                           UINT_MAX) {
+                        unsigned cell_opin = nets[corner][net_id].inpin;
+                        unsigned cell_id = pins[view][cell_opin].owner;
                         unsigned fopin = curpin;
                         timing_lookup wire_delay =
                             get_wire_delay(net_id, fopin, view);
@@ -303,8 +304,10 @@ double Sizer::CalcSlewViolation(unsigned view) {
                                               2) -
                                           pow(log(9) * wire_delay.fall, 2)),
                                      cur_max_tran);
-                        if(fabs(pins[view][cell_opin].rtran - 0.0001) < 1e-5) {
-                            slew_bound += t_tran - pins[view][curpin].max_tran;
+                        if(log(9) * wire_delay.fall >
+                           pins[view][curpin].max_tran) {
+                            slew_bound += log(9) * wire_delay.fall -
+                                          pins[view][curpin].max_tran;
                         }
                         ofs << "pre Cell type: " << cells[cell_id].type
                             << " Cell name " << cells[cell_id].name << " "
