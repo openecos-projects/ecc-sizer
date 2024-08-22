@@ -707,7 +707,7 @@ class Sizer {
     unsigned numCorners;
     unsigned numModes;
     unsigned numViews;
-
+    double slew_gamma = 10;
     // JL: data structures for lib parser
     map< string, LibInfo > LIBs;
 

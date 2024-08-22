@@ -907,8 +907,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             continue;
         }
 
-        for(unsigned j = 0; j < cells[cur].outpins.size(); j++) {
-            unsigned curpin = cells[cur].outpins[j];
+        for(unsigned j = 0; j < cells[cur].inpins.size(); j++) {
+            unsigned curpin = cells[cur].inpins[j];
             unsigned outnet = pins[view][curpin].net;
 
             if(outnet == UINT_MAX) {
@@ -922,373 +922,91 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             if(!IsTranVio(pins[view][curpin])) {
                 continue;
             }
-            // downsizing fanouts
-            for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k) {
-                unsigned focell =
-                    pins[view][nets[corner][outnet].outpins[k]].owner;
-                if(focell == UINT_MAX) {
-                    continue;
-                }
-                if(getLibCellInfo(cells[focell], corner) == NULL) {
-                    continue;
-                }
-                if(cells[focell].isClockCell) {
-                    continue;
-                }
-                if(cells[focell].isDontTouch)
-                    continue;
-                // if(isff(cells[focell])) {
-                //     continue;
-                // }
-                // CalcStats((unsigned)thread_id, false, "", view, false);
-                prev_tns = viewTNS[view];
-
-                if(cell_resize(cells[focell], -1)) {
-                    OneTimer(cells[focell], STA_MARGIN, view);
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    cur_tns = viewTNS[view];
-                    change++;
-                    if(cur_tns > prev_tns) {
-                        cell_resize(cells[focell], 1);
-                        cells[focell].isChanged -= 2;
-                        change--;
-                        OneTimer(cells[focell], STA_MARGIN, view);
-                    }
-                    else if(!IsTranVio(pins[view][curpin])) {
-                        break;
-                    }
-                }
-            }
-
-            // upsizing target cell
-            while(IsTranVio(pins[view][curpin])) {
-                if(cells[cur].isDontTouch)
-                    break;
-                if(r_type(cells[cur]) == numVt - 1 && isMax(cells[cur])) {
+            timing_lookup wire_delay;
+            double r_tran, f_tran = 0.0;
+            // calc_one_net_delay(outnet, WIRE_METRIC, true, view);
+            wire_delay = get_wire_delay(outnet, curpin, view);
+            r_tran = log(9) * wire_delay.rise + pins[view][curpin].rtran_ofs;
+            f_tran = log(9) * wire_delay.fall + pins[view][curpin].ftran_ofs;
+            int max_iter = 10;
+            int iter = 0;
+            while(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
+                  pins[view][curpin].max_tran) {
+                if(++iter > max_iter) {
                     break;
                 }
+                // downsizing fanouts
+                set< entry > targets;
+                for(int step = 1; step <= 2; step++) {
+                    for(unsigned k = 0; k < nets[corner][outnet].outpins.size();
+                        ++k) {
+                        unsigned focell =
+                            pins[view][nets[corner][outnet].outpins[k]].owner;
+                        if(focell == UINT_MAX) {
+                            continue;
+                        }
+                        if(getLibCellInfo(cells[focell], corner) == NULL) {
+                            continue;
+                        }
+                        if(cells[focell].isClockCell) {
+                            continue;
+                        }
+                        if(cells[focell].isDontTouch)
+                            continue;
+                        entry tmpEntry;
+                        tmpEntry.id = focell;
+                        tmpEntry.change = DNSIZE;
+                        tmpEntry.step = -step;
+                        tmpEntry.delta_impact = 0.0;
 
-                double delta_impact_size = 0.0, delta_impact_type = 0.0;
-                double prev_tran =
-                    max(pins[view][curpin].rtran, pins[view][curpin].ftran);
-                string prev_type = cells[cur].type;
+                        double prev_slack =
+                            min(GetCellSlack(cells[focell], view),
+                                GetFICellSlack(cells[focell], view));
+                        bool change_size = cell_resize(cells[focell], -step);
 
-                if(!isMax(cells[cur])) {
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    // prev_tns = CalcSlackViolation(view);
-                    prev_tns = viewTNS[view];
+                        if(change_size) {
+                            OneTimer(cells[focell], STA_MARGIN, view);
+                        }
+                        else {
+                            continue;
+                        }
+                        double cur_slack =
+                            min(GetCellSlack(cells[focell], view),
+                                GetFICellSlack(cells[focell], view));
 
-                    bool change_size = cell_resize(cells[cur], 1);
-                    if(change_size) {
-                        OneTimer(cells[cur], STA_MARGIN, view);
-                    }
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    // cur_tns = CalcSlackViolation(view);
-                    cur_tns = prev_tns;
-                    double delta_tran = 0.0;
+                        cur_tns = prev_tns;
+                        double delta_tran = 0.0;
 
-                    if(cur_tns > prev_tns) {
-                        delta_tran = 0.0;
-                    }
-                    else {
                         delta_tran = max(pins[view][curpin].rtran,
                                          pins[view][curpin].ftran) -
-                                     prev_tran;
+                                     max(r_tran, f_tran);
+
+                        double delta_slack = cur_slack - prev_slack;
+                        if(change_size) {
+                            cell_resize(cells[focell], step);
+                            cells[focell].isChanged -= 2;
+                            OneTimer(cells[focell], STA_MARGIN, view);
+                        }
+                        if(-delta_slack + slew_gamma * delta_tran < 0) {
+                            tmpEntry.delta_impact = -delta_slack + slew_gamma;
+                            targets.insert(tmpEntry);
+                        }
                     }
-
-                    if(delta_tran > 0.0)
-                        delta_tran = 0;
-
-                    if(change_size) {
-                        cell_resize(cells[cur], -1);
-                        cells[cur].isChanged -= 2;
-                        OneTimer(cells[cur], STA_MARGIN, view);
-                    }
-
-                    double delta_sw_power, delta_leak, delta_int;
-
-                    if(ALPHA != 0.0) {
-                        delta_sw_power =
-                            LookupDeltaSwitchPower(cells[cur], 1, 0);
-                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
-                    }
-                    else {
-                        delta_sw_power = 0.0;
-                        delta_int = 0.0;
-                    }
-                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
-
-                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
-                                         (1 - ALPHA) * delta_leak;
-                    delta_impact_size = delta_tran / delta_power;
                 }
 
-                if(r_type(cells[cur]) != (numVt - 1)) {
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    prev_tns = viewTNS[view];
-
-                    bool change_type = cell_retype(cells[cur], 1);
-
-                    OneTimer(cells[cur], STA_MARGIN, view);
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    cur_tns = viewTNS[view];
-
-                    double delta_tran = 0.0;
-
-                    if(cur_tns > prev_tns) {
-                        delta_tran = 0.0;
-                    }
-                    else {
-                        delta_tran = max(pins[view][curpin].rtran,
-                                         pins[view][curpin].ftran) -
-                                     prev_tran;
-                    }
-                    if(delta_tran > 0.0)
-                        delta_tran = 0;
-
-                    if(change_type) {
-                        cell_retype(cells[cur], -1);
-                        cells[cur].isChanged -= 2;
-                    }
-
-                    OneTimer(cells[cur], STA_MARGIN, view);
-
-                    double delta_sw_power, delta_leak, delta_int;
-
-                    if(ALPHA != 0.0) {
-                        delta_sw_power =
-                            LookupDeltaSwitchPower(cells[cur], 1, 0);
-                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
-                    }
-                    else {
-                        delta_sw_power = 0.0;
-                        delta_int = 0.0;
-                    }
-                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
-                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
-                                         (1 - ALPHA) * delta_leak;
-                    delta_impact_type = delta_tran / delta_power;
-                }
-
-                if(delta_impact_size == 0 && delta_impact_size == 0) {
+                if(targets.size() == 0) {
                     break;
                 }
+                auto target = targets.begin();
 
-                if(delta_impact_size < delta_impact_type ||
-                   delta_impact_type == 0) {
-                    cell_resize(cells[cur], 1);
+                if(cell_resize(cells[target->id], target->step)) {
+                    OneTimer(cells[target->id], STA_MARGIN, view);
                     change++;
-                    // cout << "UPSIZED CELL " << cells[cur].name << " "
-                    //    << prev_type << " --> " << cells[cur].type << endl;
-                }
-                else {
-                    cell_retype(cells[cur], 1);
-                    change++;
-                    // cout << "UPTYPED CELL " << cells[cur].name << " "
-                    //    << prev_type << " --> " << cells[cur].type << endl;
-                }
-
-                OneTimer(cells[cur], STA_MARGIN, view);
-            }
-            //            cout << "AFTER MAX TRAN " <<
-            //            getFullPinName(pins[view][curpin]) << " "
-            //                << max(pins[view][curpin].rtran,
-            //                pins[view][curpin].ftran) << "/" <<
-            //                pins[view][curpin].max_tran << endl;
-        }
-
-        for(unsigned j = 0; j < cells[cur].inpins.size(); j++) {
-            unsigned curpin = cells[cur].inpins[j];
-
-            if(pins[view][curpin].waiveTran) {
-                continue;
-            }
-
-            if(!IsTranVio(pins[view][curpin])) {
-                continue;
-            }
-            //            cout << "MAX TRAN " <<
-            //            getFullPinName(pins[view][curpin]) << " "
-            //                << max(pins[view][curpin].rtran,
-            //                pins[view][curpin].ftran) << "/" <<
-            //                pins[view][curpin].max_tran << endl;
-            int curnet = pins[view][cells[cur].inpins[j]].net;
-            unsigned ficell = UINT_MAX;
-            if(cells[cur].inpins[j] != UINT_MAX) {
-                if(curnet != UINT_MAX) {
-                    if(nets[corner][curnet].inpin != UINT_MAX) {
-                        ficell = pins[view][nets[corner][curnet].inpin].owner;
-                    }
                 }
             }
-
-            if(ficell == UINT_MAX) {
-                continue;
-            }
-
-            if(getLibCellInfo(cells[ficell], corner) == NULL) {
-                continue;
-            }
-            if(cells[ficell].isClockCell) {
-                continue;
-            }
-            if(cells[ficell].isDontTouch)
-                continue;
-
-            unsigned max_upsize = 5;
-            unsigned iter = 0;
-            // upsizing fanin cell
-            while(IsTranVio(pins[view][curpin])) {
-                if(iter > max_upsize) {
-                    break;
-                }
-
-                iter++;
-
-                if(r_type(cells[ficell]) == numVt - 1 && isMax(cells[ficell])) {
-                    break;
-                }
-
-                double delta_impact_size = 0.0, delta_impact_type = 0.0;
-                double prev_tran =
-                    max(pins[view][curpin].rtran, pins[view][curpin].ftran);
-                string prev_type = cells[ficell].type;
-
-                if(!isMax(cells[ficell])) {
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    prev_tns = viewTNS[view];
-
-                    bool change_size = cell_resize(cells[ficell], 1);
-                    if(change_size) {
-                        OneTimer(cells[ficell], STA_MARGIN, view);
-                    }
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    cur_tns = viewTNS[view];
-
-                    double delta_tran = 0.0;
-
-                    if(cur_tns > prev_tns) {
-                        delta_tran = 0.0;
-                    }
-                    else {
-                        delta_tran = max(pins[view][curpin].rtran,
-                                         pins[view][curpin].ftran) -
-                                     prev_tran;
-                    }
-
-                    if(delta_tran > 0.0)
-                        delta_tran = 0;
-
-                    if(change_size) {
-                        cell_resize(cells[ficell], -1);
-                        cells[ficell].isChanged -= 2;
-                    }
-
-                    OneTimer(cells[ficell], STA_MARGIN, view);
-
-                    double delta_sw_power, delta_leak, delta_int;
-                    if(ALPHA != 0.0) {
-                        delta_sw_power =
-                            LookupDeltaSwitchPower(cells[cur], 1, 0);
-                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
-                    }
-                    else {
-                        delta_sw_power = 0.0;
-                        delta_int = 0.0;
-                    }
-                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
-                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
-                                         (1 - ALPHA) * delta_leak;
-                    delta_impact_size = delta_tran / delta_power;
-                }
-
-                if(r_type(cells[ficell]) != (numVt - 1)) {
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    prev_tns = viewTNS[view];
-
-                    bool change_type = cell_retype(cells[ficell], 1);
-
-                    OneTimer(cells[ficell], STA_MARGIN, view);
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    cur_tns = viewTNS[view];
-
-                    double delta_tran = 0.0;
-
-                    if(cur_tns > prev_tns) {
-                        delta_tran = 0.0;
-                    }
-                    else {
-                        delta_tran = max(pins[view][curpin].rtran,
-                                         pins[view][curpin].ftran) -
-                                     prev_tran;
-                    }
-                    if(delta_tran > 0.0)
-                        delta_tran = 0;
-
-                    if(change_type) {
-                        cell_retype(cells[ficell], -1);
-                        cells[ficell].isChanged -= 2;
-                    }
-
-                    OneTimer(cells[ficell], STA_MARGIN, view);
-
-                    double delta_sw_power, delta_leak, delta_int;
-
-                    if(ALPHA != 0.0) {
-                        delta_sw_power =
-                            LookupDeltaSwitchPower(cells[cur], 1, 0);
-                        delta_int = LookupDeltaIntPower(cells[cur], 1, 0);
-                    }
-                    else {
-                        delta_sw_power = 0.0;
-                        delta_int = 0.0;
-                    }
-                    delta_leak = LookupDeltaLeak(cells[cur], 1, 0);
-                    double delta_power = ALPHA * (delta_sw_power + delta_int) +
-                                         (1 - ALPHA) * delta_leak;
-                    delta_impact_type = delta_tran / delta_power;
-                }
-
-                if(delta_impact_size == 0 && delta_impact_size == 0) {
-                    break;
-                }
-
-                if(delta_impact_size < delta_impact_type ||
-                   delta_impact_type == 0) {
-                    cell_resize(cells[ficell], 1);
-                    change++;
-                    // cout << "UPSIZED CELL " << cells[ficell].name << " "
-                    //    << prev_type << " --> " << cells[ficell].type <<
-                    // endl;
-                }
-                else {
-                    cell_retype(cells[ficell], 1);
-                    change++;
-                    // cout << "UPTYPED CELL " << cells[ficell].name << " "
-                    //    << prev_type << " --> " << cells[ficell].type <<
-                    // endl;
-                }
-
-                OneTimer(cells[ficell], STA_MARGIN, view);
-            }
-            // cout << "AFTER MAX TRAN " <<
-            getFullPinName(pins[view][curpin]);
-            // << " "
-            //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran)
-            // <<
-            //    "/" <<
-            //    pins[view][curpin].max_tran << endl;
         }
     }
+    cout << "Post fix slew " << change << " cells were changed." << endl;
     cout << "finished." << endl;
     return change;
 }

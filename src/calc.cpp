@@ -281,9 +281,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
                 if(!pin_->isOutputSignal()) {
                     unsigned net_id = pins[view][curpin].net;
                     if(net_id != UINT_MAX &&
-                       nets[corner][net_id].inpin != UINT_MAX &&
-                       pins[view][nets[corner][net_id].inpin].owner !=
-                           UINT_MAX) {
+                       nets[corner][net_id].inpin != UINT_MAX) {
                         unsigned cell_opin = nets[corner][net_id].inpin;
                         unsigned cell_id = pins[view][cell_opin].owner;
                         unsigned fopin = curpin;
@@ -306,12 +304,18 @@ double Sizer::CalcSlewViolation(unsigned view) {
                                      cur_max_tran);
                         if(log(9) * wire_delay.fall >
                            pins[view][curpin].max_tran) {
-                            slew_bound += log(9) * wire_delay.fall -
-                                          pins[view][curpin].max_tran;
+                            slew_bound += max(log(9) * wire_delay.fall +
+                                                  pins[view][curpin].ftran_ofs -
+                                                  pins[view][curpin].max_tran,
+                                              0.0);
                         }
-                        ofs << "pre Cell type: " << cells[cell_id].type
-                            << " Cell name " << cells[cell_id].name << " "
-                            << "pre pin tran: "
+                        ofs << "pre Cell type: "
+                            << (cell_id == UINT_MAX ? "isPI"
+                                                    : cells[cell_id].type)
+                            << " Cell name "
+                            << (cell_id == UINT_MAX ? pins[view][cell_opin].name
+                                                    : cells[cell_id].name)
+                            << " " << "pre pin tran: "
                             << max(pins[view][cell_opin].rtran,
                                    pins[view][cell_opin].ftran)
                             << " " << "pre pin need max tran: " << cur_max_tran
