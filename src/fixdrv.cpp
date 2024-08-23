@@ -964,6 +964,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                         double prev_slack =
                             min(GetCellSlack(cells[focell], view),
                                 GetFICellSlack(cells[focell], view));
+                        double prev_tran = GetCellTran(cells[focell], view) +
+                                           GetFICellTran(cells[focell], view);
                         bool change_size = cell_resize(cells[focell], -step);
 
                         if(change_size) {
@@ -977,11 +979,11 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                                 GetFICellSlack(cells[focell], view));
 
                         cur_tns = prev_tns;
-                        double delta_tran = 0.0;
+                        // double delta_tran = ;
+                        double now_tran = GetCellTran(cells[focell], view) +
+                                          GetFICellTran(cells[focell], view);
 
-                        delta_tran = max(pins[view][curpin].rtran,
-                                         pins[view][curpin].ftran) -
-                                     max(r_tran, f_tran);
+                        double delta_tran = now_tran - prev_tran;
 
                         double delta_slack = cur_slack - prev_slack;
 
@@ -1003,17 +1005,18 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                     break;
                 }
                 int ii = 0;
-                for(auto target : targets) {
-                    if(target.change == DNSIZE) {
-                        if(cell_resize(cells[target.id], target.step)) {
-                            change++;
-                            // ok = true;
-                        }
-                    }
-                    if(++ii > 10) {
-                        break;
-                    }
+                auto target = targets.begin();
+                // for(auto target : targets) {
+                //     if(target.change == DNSIZE) {
+                if(cell_resize(cells[target->id], target->step)) {
+                    change++;
+                    // ok = true;
                 }
+                // }
+                // if(++ii > 10) {
+                //     break;
+                // }
+                // }
                 // }
             }
         }

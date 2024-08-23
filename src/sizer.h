@@ -707,7 +707,7 @@ class Sizer {
     unsigned numCorners;
     unsigned numModes;
     unsigned numViews;
-    double slew_gamma = 10;
+    double slew_gamma = 2;
     // JL: data structures for lib parser
     map< string, LibInfo > LIBs;
 
@@ -1095,6 +1095,8 @@ class Sizer {
     ulong GetCellNPathsLessThanSlack(CELL &cell, unsigned view = 0);
     double GetCellLeak(CELL &cell, unsigned view = 0);
     double GetCellSlack(CELL &cell);
+    double GetCellTran(CELL &cell, unsigned view);
+    double GetFICellTran(CELL &cell, unsigned view);
     double GetCellSlack(CELL &cell, unsigned view);
     double GetCellTranSlack(CELL &cell, unsigned view = 0, bool temp = false);
     double GetCellInTran(CELL &cell, unsigned view = 0, bool temp = false);

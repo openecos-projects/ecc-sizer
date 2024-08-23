@@ -191,6 +191,30 @@ double Sizer::GetCellSlack(CELL &cell, unsigned view) {
     return slack;
 }
 
+double Sizer::GetCellTran(CELL &cell, unsigned view) {
+    double tot_tran = 0;
+    for(unsigned i = 0; i < cell.outpins.size(); ++i) {
+        if(cell.outpins[i] == UINT_MAX)
+            continue;
+        double tran = max(pins[view][cell.outpins[i]].rtran,
+                          pins[view][cell.outpins[i]].ftran);
+        if(tran > pins[view][cell.outpins[i]].max_tran) {
+            tot_tran += tran - pins[view][cell.outpins[i]].max_tran;
+        }
+    }
+    for(unsigned i = 0; i < cell.inpins.size(); ++i) {
+        if(cell.inpins[i] == UINT_MAX)
+            continue;
+        double tran = max(pins[view][cell.inpins[i]].rtran,
+                          pins[view][cell.inpins[i]].ftran);
+        if(tran > pins[view][cell.inpins[i]].max_tran) {
+            tot_tran += tran - pins[view][cell.inpins[i]].max_tran;
+        }
+    }
+
+    return tot_tran;
+}
+
 ulong Sizer::GetCellNPathsLessThanSlack(CELL &cell, unsigned view) {
     ulong npath = 1;
     for(unsigned i = 0; i < cell.outpins.size(); ++i) {
@@ -279,6 +303,16 @@ double Sizer::GetFICellSlack(CELL &cell, unsigned view) {
     }
 
     return slack;
+}
+double Sizer::GetFICellTran(CELL &cell, unsigned view) {
+    double tot_tran = 0;
+    for(unsigned m = 0; m < cell.fis.size(); m++) {
+        unsigned fi = cell.fis[m];
+        double fi_tran = GetCellTran(cells[fi], view);
+        tot_tran += fi_tran;
+    }
+
+    return tot_tran;
 }
 // has a bug?
 LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,

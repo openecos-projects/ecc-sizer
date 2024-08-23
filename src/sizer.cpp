@@ -6301,7 +6301,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(FIX_SLEW) {
                             change += FwdFixSlewViolation(1.0, view);
                             change += BwdFixSlewViolation(1.0, view);
-                            change += FwdFixSlewViolationPost(1.0, view);
+                            if(iter % 2 == 0) {
+                                // change += FwdFixSlewViolationPost(1.0, view);
+                            }
                             if(change > 0) {
                                 CallTimer(view);
                                 CorrelatePT((unsigned)thread_id, view);
@@ -6347,7 +6349,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             if(FIX_SLEW) {
                                 change += FwdFixSlewViolation(1.0, view);
                                 change += BwdFixSlewViolation(1.0, view);
-                                change += FwdFixSlewViolationPost(1.0, view);
+                                // change += FwdFixSlewViolationPost(1.0, view);
                                 if(change > 0) {
                                     CallTimer(view);
                                     CorrelatePT((unsigned)thread_id, view);
