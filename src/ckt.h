@@ -478,7 +478,7 @@ struct CELL {
           isFF(orig.isFF),
           isClockCell(orig.isClockCell),
           isDontTouch(orig.isDontTouch),
-          isChanged(1),
+          isChanged(orig.isChanged),
           depth(orig.depth),
           max_tran(orig.max_tran),
           touched(orig.touched),

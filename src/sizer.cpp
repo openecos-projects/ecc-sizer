@@ -5594,8 +5594,6 @@ void Sizer::Parallel_Sizer_Launcher() {
                         if(lib_cell_info == NULL ||
                            best_cells_poweropt[i].isDontTouch)
                             continue;
-                        if(!PT_FULL_UPDATE && !best_cells_poweropt[i].isChanged)
-                            continue;
                         auto inst = block->findInst(
                             best_cells_poweropt[i].name.c_str());
                         auto new_master =
@@ -5821,27 +5819,9 @@ void Sizer::Parallel_Sizer_Launcher() {
         auto _sta = ord::OpenRoad::openRoad()->getSta();
         _sta->networkChanged();
         int inst_iter = 0;
-        for(auto db_inst : block->getInsts()) {
-            int inst_x, inst_y;
-            int old_x, old_y;
-            db_inst->getLocation(old_x, old_y);
-            if((old_x != _ckt->old_localtion_x[inst_iter] ||
-                old_y != _ckt->old_localtion_y[inst_iter]) &&
-               !db_inst->getPlacementStatus().isFixed()) {
-                db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
-                                     _ckt->old_localtion_y[inst_iter]);
-                cout << "Move " << db_inst->getName() << " from (" << old_x
-                     << ", " << old_y << ") to ("
-                     << _ckt->old_localtion_x[inst_iter] << ", "
-                     << _ckt->old_localtion_y[inst_iter] << ")" << endl;
-            }
-            inst_iter++;
-        }
         for(unsigned i = 0; i < numcells; i++) {
             LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
             if(lib_cell_info == NULL || best_cells_poweropt[i].isDontTouch)
-                continue;
-            if(!PT_FULL_UPDATE && !best_cells_poweropt[i].isChanged)
                 continue;
             auto inst = block->findInst(best_cells_poweropt[i].name.c_str());
             auto new_master = _ord_design->getTech()->getDB()->findMaster(
@@ -5855,7 +5835,23 @@ void Sizer::Parallel_Sizer_Launcher() {
             else {
                 best_cells_poweropt[i].isStaticChanged = false;
             }
-            best_cells_poweropt[i].isChanged = 0;
+            best_cells_poweropt[i].isChanged = 1;
+        }
+        for(auto db_inst : block->getInsts()) {
+            int inst_x, inst_y;
+            int old_x, old_y;
+            db_inst->getLocation(old_x, old_y);
+            if((old_x != _ckt->old_localtion_x[inst_iter] ||
+                old_y != _ckt->old_localtion_y[inst_iter]) &&
+               !db_inst->getPlacementStatus().isFixed()) {
+                db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
+                                     _ckt->old_localtion_y[inst_iter]);
+                // cout << "Move " << db_inst->getName() << " from (" << old_x
+                //      << ", " << old_y << ") to ("
+                //      << _ckt->old_localtion_x[inst_iter] << ", "
+                //      << _ckt->old_localtion_y[inst_iter] << ")" << endl;
+            }
+            inst_iter++;
         }
         auto site = _ord_design->getBlock()->getRows().begin()->getSite();
         auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
