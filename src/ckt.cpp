@@ -3252,7 +3252,7 @@ void Circuit::init_opensta() {
     grt->setAdjustment(0.5);
     grt->setVerbose(true);
     printf("Run Global Routing...\n");
-    grt->globalRoute(false);
+    grt->globalRoute(false, true);
     printf("Run Global Routing Time %f\n", cpuTime() - begin);
     begin = cpuTime();
     _ord_design->evalTclString("estimate_parasitics -global_routing");
@@ -3637,8 +3637,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 
 void Circuit::readSpef_opensta(sta::dbSta* _sta) {
     cout << "[opensta] reading spef..." << endl;
+    node2id.clear();
     Parasitics* parasitics = _sta->parasitics();
-
     Corner* _corner = _sta->corners()->corners()[0];
     const MinMax* cnst_min_max;
     ParasiticAnalysisPt* ap;

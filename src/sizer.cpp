@@ -3523,7 +3523,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             bool restore = false;
             if(!CHECK_ALL_VIEW) {
                 // ista for the new solution
-                OneTimer(cells[cur], STA_MARGIN, true);
+                OneTimer(cells[cur], STA_MARGIN, false);
 
                 new_slack = min(GetCellSlack(cells[cur], view),
                                 GetFICellSlack(cells[cur], view));
@@ -3594,7 +3594,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 
                 // ista with the restored solution
                 if(!CHECK_ALL_VIEW) {
-                    OneTimer(cells[cur], STA_MARGIN, true);
+                    OneTimer(cells[cur], STA_MARGIN, false);
                 }
                 else {
                     for(unsigned view1 = 0; view1 < numViews; ++view1) {
@@ -5644,7 +5644,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                     grt->setAdjustment(0.5);
                     grt->setVerbose(true);
                     printf("Run Global Routing...\n");
-                    grt->globalRoute(false);
+                    grt->globalRoute(false, false);
                     printf("Run Global Routing Time %f\n", cpuTime() - begin);
                     begin = cpuTime();
                     _ord_design->evalTclString(
@@ -5812,6 +5812,132 @@ void Sizer::Parallel_Sizer_Launcher() {
             PostWNSOpt("final");
         }
 #endif
+    }
+    if(true) {
+        //
+        auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
+        auto _ord_design = _ckt->_ord_design;
+        auto block = _ord_design->getBlock();
+        auto _sta = ord::OpenRoad::openRoad()->getSta();
+        _sta->networkChanged();
+        int inst_iter = 0;
+        for(auto db_inst : block->getInsts()) {
+            int inst_x, inst_y;
+            int old_x, old_y;
+            db_inst->getLocation(old_x, old_y);
+            if((old_x != _ckt->old_localtion_x[inst_iter] ||
+                old_y != _ckt->old_localtion_y[inst_iter]) &&
+               !db_inst->getPlacementStatus().isFixed()) {
+                db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
+                                     _ckt->old_localtion_y[inst_iter]);
+                cout << "Move " << db_inst->getName() << " from (" << old_x
+                     << ", " << old_y << ") to ("
+                     << _ckt->old_localtion_x[inst_iter] << ", "
+                     << _ckt->old_localtion_y[inst_iter] << ")" << endl;
+            }
+            inst_iter++;
+        }
+        for(unsigned i = 0; i < numcells; i++) {
+            LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
+            if(lib_cell_info == NULL || best_cells_poweropt[i].isDontTouch)
+                continue;
+            if(!PT_FULL_UPDATE && !best_cells_poweropt[i].isChanged)
+                continue;
+            auto inst = block->findInst(best_cells_poweropt[i].name.c_str());
+            auto new_master = _ord_design->getTech()->getDB()->findMaster(
+                best_cells_poweropt[i].type.c_str());
+            if(inst->getMaster()->getName() != best_cells_poweropt[i].type) {
+                printf("Change %s %s\n", inst->getMaster()->getName().c_str(),
+                       best_cells_poweropt[i].type.c_str());
+                inst->swapMaster(new_master);
+                best_cells_poweropt[i].isStaticChanged = true;
+            }
+            else {
+                best_cells_poweropt[i].isStaticChanged = false;
+            }
+            best_cells_poweropt[i].isChanged = 0;
+        }
+        auto site = _ord_design->getBlock()->getRows().begin()->getSite();
+        auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
+        auto max_disp_y =
+            int(_ord_design->micronToDBU(0.1) / site->getHeight());
+        _sta = ord::OpenRoad::openRoad()->getSta();
+        _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
+                                                    false);
+        // Global Route and Estimate Global Route RC
+        double begin = cpuTime();
+        auto db_tech = _ord_design->getTech()->getDB()->getTech();
+        auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
+        auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+        auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
+        auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+        auto grt = _ord_design->getGlobalRouter();
+        grt->clear();
+        grt->setAllowCongestion(true);
+        grt->setMinRoutingLayer(signal_low_layer);
+        grt->setMaxRoutingLayer(signal_high_layer);
+        grt->setMinLayerForClock(clk_low_layer);
+        grt->setMaxLayerForClock(clk_high_layer);
+        grt->setAdjustment(0.5);
+        grt->setVerbose(true);
+        printf("Run Global Routing...\n");
+        grt->globalRoute(false, false);
+        printf("Run Global Routing Time %f\n", cpuTime() - begin);
+        begin = cpuTime();
+        _ord_design->evalTclString("estimate_parasitics -global_routing");
+        _sta->findRequireds();
+        _ckt->readSpef_opensta(_sta);
+        int corner = 0;
+        for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
+            g_nets[corner][i].cap =
+                _ckt->g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
+
+            if(VERBOSE > 4)
+                cout << "CORNER " << corner << " NETS --- " << i << " "
+                     << g_nets[corner][i].name << endl;
+            int sink_num = 0;
+            for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
+                if(sn.isSink) {
+                    sn.pinId = pin2id[sn.pin_name];
+                    g_pins[corner][sn.pinId].spef_pin = sn.id;
+                }
+                sink_num += sn.isSink;
+            }
+            g_nets[corner][i].subNodeVec = _ckt->g_nets[corner][i].subNodeVec;
+            g_nets[corner][i].subNodeResVec =
+                _ckt->g_nets[corner][i].subNodeResVec;
+        }
+        InitNets();
+        max_time_recovery_iter -= 4;
+        max_time_recovery_iter = std::max(max_time_recovery_iter, 1);
+        // ATTACK_RATIO -= 20;
+        ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
+        int view = 0;
+        GetSwitchPowerCoef(view);
+        GetMaxTranConst(view);
+        cells = new CELL[numcells];
+        for(unsigned i = 0; i < numcells; i++)
+            cells[i] = best_cells_poweropt[i];
+        pins = new PIN *[numViews];
+        for(unsigned i = 0; i < numViews; ++i) {
+            pins[i] = new PIN[numpins];
+            for(unsigned j = 0; j < numpins; j++)
+                pins[i][j] = g_pins[i][j];
+        }
+
+        nets = new NET *[numCorners];
+        for(unsigned i = 0; i < numCorners; ++i) {
+            nets[i] = new NET[numnets];
+            for(unsigned j = 0; j < numnets; j++) {
+                nets[i][j] = g_nets[i][j];
+            }
+        }
+        int count = 0;
+        UpdatePTSizes(view, count);
+        UpdateCapsFromCells();
+        CallTimer(view);
+        CorrelatePT(view);
+        CalcStats(0);
     }
 
     ExitPTimer();
