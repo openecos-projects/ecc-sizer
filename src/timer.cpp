@@ -4552,11 +4552,11 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
 
     //    cout << "PIN TRAN / AAT CHANGE "
     //        << diff_tran << " " << diff_AAT << " " << margin << endl;
-    // if(updatePinFast) {
-    if(pin.rslk > 8000 || pin.fslk > 8000) {
-        return false;
+    if(updatePinFast) {
+        if(pin.rslk > 8000 || pin.fslk > 8000) {
+            return false;
+        }
     }
-    // }
     if(diff_tran > margin || diff_AAT > margin)
         return true;
     else

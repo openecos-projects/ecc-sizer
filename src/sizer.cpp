@@ -5670,23 +5670,6 @@ void Sizer::Parallel_Sizer_Launcher() {
                             _ckt->g_nets[corner][i].subNodeVec;
                         g_nets[corner][i].subNodeResVec =
                             _ckt->g_nets[corner][i].subNodeResVec;
-                        // vector< SUB_NODE > *subNodeVecPtr =
-                        //     &g_nets[corner][i].subNodeVec;
-                        // std::vector< SUB_NODE >::iterator subNodeIter;
-
-                        // for(subNodeIter = subNodeVecPtr->begin();
-                        //     subNodeIter != subNodeVecPtr->end();
-                        //     ++subNodeIter) {
-                        //     subNodeIter->cap =
-                        //         subNodeIter->cap;  // * 1e-12 /
-                        //         _sizer->cap_unit
-                        //     for(unsigned int j = 0; j <
-                        //     subNodeIter->adj.size();
-                        //         ++j) {
-                        //         subNodeIter->res[j] =
-                        //             subNodeIter->res[j] / this->res_unit;
-                        //     }
-                        // }
                     }
                     InitNets();
                     max_time_recovery_iter -= 4;
@@ -6424,8 +6407,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(FIX_SLEW) {
                             change += FwdFixSlewViolation(1.0, view);
                             change += BwdFixSlewViolation(1.0, view);
+                            change += FwdFixSlewViolationPost(1.0, view);
                             if(iter % 2 == 0) {
-                                // change += FwdFixSlewViolationPost(1.0, view);
                             }
                             if(change > 0) {
                                 CallTimer(view);
