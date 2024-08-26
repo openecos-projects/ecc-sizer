@@ -890,7 +890,8 @@ unsigned Sizer::BwdFixSlewViolation(double maxTranRatio, unsigned view) {
 unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
     unsigned change = 0;
     unsigned thread_id = 0;
-
+    bool old_updatePinAcc = updatePinAcc;
+    updatePinAcc = true;
     cout << "Fwd fix slew violation .. for view " << view << endl;
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
@@ -960,7 +961,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                         min(GetCellSlack(cells[focell], view),
                             GetFICellSlack(cells[focell], view));
                     double prev_tran = GetCellTran(cells[focell], view) +
-                                       GetFICellTran(cells[focell], view);
+                                       GetFICellTran(cells[focell], view) +
+                                       GetFOCellTran(cells[focell], view);
                     bool change_size = cell_resize(cells[focell], -step);
 
                     if(change_size) {
@@ -972,8 +974,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                     cur_tns = prev_tns;
 
                     double now_tran = GetCellTran(cells[focell], view) +
-                                      GetFICellTran(cells[focell], view);
-
+                                      GetFICellTran(cells[focell], view) +
+                                      GetFOCellTran(cells[focell], view);
                     double delta_tran = now_tran - prev_tran;
                     double delta_slack = cur_slack - prev_slack;
                     double benefit = -delta_slack + slew_gamma * delta_tran;
@@ -1010,7 +1012,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                         min(GetCellSlack(cells[focell], view),
                             GetFICellSlack(cells[focell], view));
                     double prev_tran = GetCellTran(cells[focell], view) +
-                                       GetFICellTran(cells[focell], view);
+                                       GetFICellTran(cells[focell], view) +
+                                       GetFOCellTran(cells[focell], view);
                     bool change_size = cell_resize(cells[focell], target.step);
 
                     if(change_size) {
@@ -1021,13 +1024,14 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
 
                     cur_tns = prev_tns;
                     double now_tran = GetCellTran(cells[focell], view) +
-                                      GetFICellTran(cells[focell], view);
+                                      GetFICellTran(cells[focell], view) +
+                                      GetFOCellTran(cells[focell], view);
 
                     double delta_tran = now_tran - prev_tran;
 
                     double delta_slack = cur_slack - prev_slack;
 
-                    if(-delta_slack + slew_gamma * delta_tran > 0) {
+                    if(-delta_slack + slew_gamma * delta_tran > -0.005) {
                         change_size =
                             cell_resize(cells[target.id], -target.step);
                         OneTimer(cells[focell], 1, true);
@@ -1039,6 +1043,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             }
         }
     }
+    updatePinAcc = old_updatePinAcc;
     cout << "Post fix slew " << change << " cells were changed." << endl;
     cout << "finished." << endl;
     return change;

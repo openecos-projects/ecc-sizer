@@ -314,6 +314,16 @@ double Sizer::GetFICellTran(CELL &cell, unsigned view) {
 
     return tot_tran;
 }
+
+double Sizer::GetFOCellTran(CELL &cell, unsigned view) {
+    double tot_tran = 0;
+    for(unsigned m = 0; m < cell.fos.size(); m++) {
+        unsigned fo = cell.fos[m];
+        double fo_tran = GetCellTran(cells[fo], view);
+        tot_tran += fo_tran;
+    }
+    return tot_tran;
+}
 // has a bug?
 LibCellInfo *Sizer::sizing_progression(CELL &cell, int steps, int dir,
                                        unsigned view) {
@@ -4169,8 +4179,9 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
     double prv_fAAT = pin.fAAT;
     unsigned cur = pin.owner;
     unsigned curnet = pin.net;
-    pin.rAAT = pin.fAAT = 0.0;
-    pin.rRAT = pin.fRAT = 9999.99;
+    if(!updatePinAcc) {
+        pin.rRAT = pin.fRAT = 9999.99;
+    }
 
     // critical affected time FIXME:
 
