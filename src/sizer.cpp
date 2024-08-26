@@ -6474,8 +6474,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(time_recovery_iter == max_time_recovery_iter - 1) {
                             if(FIX_SLEW) {
                                 change += FwdFixSlewViolation(1.0, view);
-                                change += BwdFixSlewViolation(1.0, view);
-                                // change += FwdFixSlewViolationPost(1.0, view);
+                                // change += BwdFixSlewViolation(1.0, view);
+                                change += FwdFixSlewViolationPost(1.0, view);
                                 if(change > 0) {
                                     CallTimer(view);
                                     CorrelatePT((unsigned)thread_id, view);
