@@ -918,7 +918,9 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             if(pins[view][curpin].waiveTran) {
                 continue;
             }
-
+            if(nets[corner][outnet].is_clock) {
+                continue;
+            }
             if(!IsTranVio(pins[view][curpin])) {
                 continue;
             }
@@ -928,96 +930,112 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             wire_delay = get_wire_delay(outnet, curpin, view);
             r_tran = log(9) * wire_delay.rise + pins[view][curpin].rtran_ofs;
             f_tran = log(9) * wire_delay.fall + pins[view][curpin].ftran_ofs;
-            int max_iter = 5;
-            int iter = 0;
-            while(max(pins[view][curpin].rtran, pins[view][curpin].ftran) >
-                  pins[view][curpin].max_tran) {
-                if(++iter > max_iter) {
-                    break;
-                }
-                // downsizing fanouts
-                set< entry > targets;
+
+            // downsizing fanouts
+            set< entry > targets;
+            for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k) {
+                // int step = 1;
+                unsigned focell =
+                    pins[view][nets[corner][outnet].outpins[k]].owner;
+                bool ok = false;
+                entry tmpEntry;
+                tmpEntry.id = focell;
+                tmpEntry.change = DNSIZE;
+                tmpEntry.delta_impact = DBL_MAX;
                 for(int step = 1; step <= 2; step++) {
-                    // int step = 1;
-                    bool ok = false;
-                    for(unsigned k = 0; k < nets[corner][outnet].outpins.size();
-                        ++k) {
-                        unsigned focell =
-                            pins[view][nets[corner][outnet].outpins[k]].owner;
-                        if(focell == UINT_MAX) {
-                            continue;
-                        }
-                        if(getLibCellInfo(cells[focell], corner) == NULL) {
-                            continue;
-                        }
-                        if(cells[focell].isClockCell) {
-                            continue;
-                        }
-                        if(cells[focell].isDontTouch)
-                            continue;
-                        entry tmpEntry;
-                        tmpEntry.id = focell;
-                        tmpEntry.change = DNSIZE;
+                    if(focell == UINT_MAX || focell == cur) {
+                        continue;
+                    }
+                    if(getLibCellInfo(cells[focell], corner) == NULL ||
+                       cells[focell].c_size == 0) {
+                        continue;
+                    }
+                    if(cells[focell].isClockCell) {
+                        continue;
+                    }
+                    if(cells[focell].isDontTouch)
+                        continue;
+
+                    double prev_slack =
+                        min(GetCellSlack(cells[focell], view),
+                            GetFICellSlack(cells[focell], view));
+                    double prev_tran = GetCellTran(cells[focell], view) +
+                                       GetFICellTran(cells[focell], view);
+                    bool change_size = cell_resize(cells[focell], -step);
+
+                    if(change_size) {
+                        OneTimer(cells[focell], 1, true);
+                    }
+                    double cur_slack = min(GetCellSlack(cells[focell], view),
+                                           GetFICellSlack(cells[focell], view));
+
+                    cur_tns = prev_tns;
+
+                    double now_tran = GetCellTran(cells[focell], view) +
+                                      GetFICellTran(cells[focell], view);
+
+                    double delta_tran = now_tran - prev_tran;
+                    double delta_slack = cur_slack - prev_slack;
+                    double benefit = -delta_slack + slew_gamma * delta_tran;
+                    if(benefit < tmpEntry.delta_impact) {
+                        tmpEntry.delta_impact = benefit;
                         tmpEntry.step = -step;
-                        tmpEntry.delta_impact = 0.0;
-
-                        double prev_slack =
-                            min(GetCellSlack(cells[focell], view),
-                                GetFICellSlack(cells[focell], view));
-                        double prev_tran = GetCellTran(cells[focell], view) +
-                                           GetFICellTran(cells[focell], view);
-                        bool change_size = cell_resize(cells[focell], -step);
-
-                        if(change_size) {
-                            OneTimer(cells[focell], STA_MARGIN, true);
-                        }
-                        else {
-                            continue;
-                        }
-                        double cur_slack =
-                            min(GetCellSlack(cells[focell], view),
-                                GetFICellSlack(cells[focell], view));
-
-                        cur_tns = prev_tns;
-                        // double delta_tran = ;
-                        double now_tran = GetCellTran(cells[focell], view) +
-                                          GetFICellTran(cells[focell], view);
-
-                        double delta_tran = now_tran - prev_tran;
-
-                        double delta_slack = cur_slack - prev_slack;
-
-                        if(-delta_slack + slew_gamma * delta_tran < 0) {
-                            tmpEntry.delta_impact = -delta_slack + slew_gamma;
-                            targets.insert(tmpEntry);
-                            ok = true;
-                        }
-                        // else {
-                        if(change_size) {
-                            cell_resize(cells[focell], step);
-                            cells[focell].isChanged -= 2;
-                            OneTimer(cells[focell], STA_MARGIN, true);
-                        }
-                        // }
+                    }
+                    if(change_size) {
+                        cell_resize(cells[focell], step);
+                        cells[focell].isChanged -= 2;
+                        OneTimer(cells[focell], 1, true);
                     }
                 }
-                if(targets.size() == 0) {
+                if(tmpEntry.delta_impact < 0) {
+                    targets.insert(tmpEntry);
+                }
+            }
+            if(targets.size() == 0) {
+                break;
+            }
+            int ii = 0;
+            for(int kk = 0; kk < 5; kk++) {
+                int iter = 0;
+                int max_iter = 10;
+                if(!IsTranVio(pins[view][curpin])) {
                     break;
                 }
-                int ii = 0;
-                auto target = targets.begin();
-                // for(auto target : targets) {
-                //     if(target.change == DNSIZE) {
-                if(cell_resize(cells[target->id], target->step)) {
-                    change++;
-                    // ok = true;
+                for(auto &target : targets) {
+                    unsigned focell = target.id;
+                    if(iter++ > max_iter) {
+                        break;
+                    }
+                    double prev_slack =
+                        min(GetCellSlack(cells[focell], view),
+                            GetFICellSlack(cells[focell], view));
+                    double prev_tran = GetCellTran(cells[focell], view) +
+                                       GetFICellTran(cells[focell], view);
+                    bool change_size = cell_resize(cells[focell], target.step);
+
+                    if(change_size) {
+                        OneTimer(cells[focell], 1, true);
+                    }
+                    double cur_slack = min(GetCellSlack(cells[focell], view),
+                                           GetFICellSlack(cells[focell], view));
+
+                    cur_tns = prev_tns;
+                    double now_tran = GetCellTran(cells[focell], view) +
+                                      GetFICellTran(cells[focell], view);
+
+                    double delta_tran = now_tran - prev_tran;
+
+                    double delta_slack = cur_slack - prev_slack;
+
+                    if(-delta_slack + slew_gamma * delta_tran > 0) {
+                        change_size =
+                            cell_resize(cells[target.id], -target.step);
+                        OneTimer(cells[focell], 1, true);
+                    }
+                    else {
+                        change++;
+                    }
                 }
-                // }
-                // if(++ii > 10) {
-                //     break;
-                // }
-                // }
-                // }
             }
         }
     }
