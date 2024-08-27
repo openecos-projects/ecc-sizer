@@ -357,7 +357,7 @@ class Sizer {
 
     bool already_built;
     set< entry > targets;
-    double updatePinFast = false;
+    double updatePinFast = true;
     vector< unsigned > topolist;
     vector< unsigned > rtopolist;
     vector< unsigned > map2topoidx;
@@ -416,6 +416,7 @@ class Sizer {
    public:
     CELL *cells = nullptr;
     double cap_margin = 0.0;
+    bool use_margin = true;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
     std::vector< std::vector< string > > EquaivaID2cellNames;
@@ -603,6 +604,7 @@ class Sizer {
     // JLPWR
     double LookupDeltaSwitchPower(CELL &cell, int factor, int dir,
                                   unsigned view = 0);
+
     void GetMaxTranConst(unsigned view);
     void GetSwitchPowerCoef(unsigned view = 0);
     double LookupIntPower(CELL &cell, LibCellInfo *lib_cell, unsigned view = 0);

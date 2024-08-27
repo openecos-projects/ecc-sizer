@@ -186,7 +186,6 @@ void Sizer::SortTopo() {
         }
     }
 
-    // cout << "TOPO " << topolist.size() <<  " " << numcells <<endl;
     // for(unsigned i=0 ; i<numcells ; i++) {
     //    if ( !check[i] ) {
     //        //cout << g_cells[i].name << " " << g_cells[i].type << endl;
@@ -201,6 +200,7 @@ void Sizer::SortTopo() {
             topolist.push_back(i);
         }
     }
+    cout << "TOPO " << topolist.size() <<  " " << numcells <<endl;
     std::fill(check.begin(), check.end(), false);
     // assert(topolist.size() == numcells);
     // map2topoidx.resize(topolist.size());

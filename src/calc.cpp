@@ -623,19 +623,19 @@ double Sizer::CalcCapViolation(unsigned view) {
                     _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
                     cap_unit;
                 if(!isEqual(nets[corner][outnet].cap, wire_cap2)) {
-                    printf("Net %s, wire cap not equal %f, %f\n",
-                           netNameStr.c_str(), nets[corner][outnet].cap,
-                           wire_cap2);
+                    // printf("Net %s, wire cap not equal %f, %f\n",
+                    //        netNameStr.c_str(), nets[corner][outnet].cap,
+                    //        wire_cap2);
                     // diff_cap++;
                 }
                 if(fabs(pin_cap2 - loadCap) > 0.05) {
-                    printf("Pin name %s, pin cap not equal %f, %f\n",
-                           pin_name.c_str(), loadCap, pin_cap2);
+                    // printf("Pin name %s, pin cap not equal %f, %f\n",
+                    //        pin_name.c_str(), loadCap, pin_cap2);
                     // diff_cap++;
                 }
                 if(!isEqual(maxCap, cap_limit)) {
-                    printf("Pin name %s, CapLimit not equal %f, %f\n",
-                           pin_name.c_str(), cap_limit, maxCap);
+                    // printf("Pin name %s, CapLimit not equal %f, %f\n",
+                    //        pin_name.c_str(), cap_limit, maxCap);
                     // diff_cap++;
                 }
             }

@@ -6,6 +6,8 @@
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <ostream>
 #include <sstream>
 #include "ckt.h"
 #include "odb/db.h"
@@ -33,12 +35,12 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned change = 0;
 
-    cout << "Fwd fix cap violation .. for view " << view << " ";
+    cout << "Fwd fix cap violation .. for view " << view << " " << std::endl;
 
     double remains = 0.0;
     double origins = 0.0;  // origin is not always the same current cap. fix can
                            // create additional violations.
-
+    ofstream ofs("fwdFixCap.log");
     for(unsigned i = 0; i < topolist.size(); i++) {
         unsigned cur = topolist[i];
 
@@ -64,8 +66,25 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
             if(nets[corner][outnet].is_clock) {
                 continue;
             }
-            if(pins[view][out_pin_id].totcap > maxCap)
+            double loadCap = 0;
+            for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++) {
+                loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
+            }
+            // if(fabs(nets[corner][outnet].cap + loadCap -
+            //         pins[view][cells[cur].outpins[k]].totcap) > 1e-3) {
+            //     printf(
+            //         "Error: totcap not equal to net cap totcap %f, recalc
+            //         %f\n", pins[view][cells[cur].outpins[k]].totcap,
+            //         nets[corner][outnet].cap + loadCap);
+            // }
+
+            if(pins[view][out_pin_id].totcap > maxCap) {
                 origins += (pins[view][out_pin_id].totcap - maxCap);
+                ofs << getFullPinName(pins[view][out_pin_id])
+                    << " max cap vio: " << pins[view][out_pin_id].totcap << " "
+                    << nets[corner][outnet].cap << " "
+                    << nets[corner][outnet].name << " " << maxCap << endl;
+            }
 
             while(pins[view][out_pin_id].totcap > maxCap) {
                 double delta_target = pins[view][out_pin_id].totcap - maxCap;
@@ -243,8 +262,15 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 #endif
         }
     }
+    ofs.close();
+
     printf("Fwd FixCap %d cells were changed\n", change);
     cout << remains << " fF remains, origins " << origins << " fF . " << endl;
+    if(fabs(cap_violation - origins) > 3) {
+        printf("cap violation %f, origins %f\n", cap_violation, origins);
+        printf("fwd fix cap not equal to remains\n");
+        // exit(0);
+    }
     cap_violation = remains;
     return change;
 }
@@ -352,7 +378,8 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
     cout << "Fwd fix slew violation .. for view " << view << endl;
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
-
+    bool old_updatePinAcc = updatePinAcc;
+    updatePinAcc = true;
     for(unsigned i = 0; i < topolist.size(); i++) {
         unsigned cur = topolist[i];
 
@@ -427,15 +454,16 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 prev_tns = viewTNS[view];
 
                 if(cell_resize(cells[focell], -1)) {
-                    OneTimer(cells[focell], STA_MARGIN, true);
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    OneTimer(cells[focell], 1, true);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     cur_tns = viewTNS[view];
                     change++;
                     if(cur_tns > prev_tns) {
                         cell_resize(cells[focell], 1);
                         cells[focell].isChanged -= 2;
                         change--;
-                        OneTimer(cells[focell], STA_MARGIN, true);
+                        OneTimer(cells[focell], 1, true);
                     }
                     else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
                         break;
@@ -801,6 +829,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
             //    pins[view][curpin].max_tran << endl;
         }
     }
+    updatePinAcc = old_updatePinAcc;
     cout << "finished." << endl;
     return change;
 }
@@ -927,10 +956,10 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             }
             timing_lookup wire_delay;
             double r_tran, f_tran = 0.0;
-            // calc_one_net_delay(outnet, WIRE_METRIC, true, view);
+            calc_one_net_delay(outnet, WIRE_METRIC, true, view);
             wire_delay = get_wire_delay(outnet, curpin, view);
-            r_tran = log(9) * wire_delay.rise + pins[view][curpin].rtran_ofs;
-            f_tran = log(9) * wire_delay.fall + pins[view][curpin].ftran_ofs;
+            r_tran = log(9) * wire_delay.rise;
+            f_tran = log(9) * wire_delay.fall;
 
             // downsizing fanouts
             set< entry > targets;
@@ -943,7 +972,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                 tmpEntry.id = focell;
                 tmpEntry.change = DNSIZE;
                 tmpEntry.delta_impact = DBL_MAX;
-                for(int step = 1; step <= 2; step++) {
+                for(int step = 1; step <= 1; step++) {
                     if(focell == UINT_MAX || focell == cur) {
                         continue;
                     }
@@ -964,7 +993,11 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                                        GetFICellTran(cells[focell], view) +
                                        GetFOCellTran(cells[focell], view);
                     bool change_size = cell_resize(cells[focell], -step);
-
+                    calc_one_net_delay(outnet, WIRE_METRIC, true, view);
+                    timing_lookup new_wire_delay =
+                        get_wire_delay(outnet, curpin, view);
+                    double new_r_tran = log(9) * new_wire_delay.rise;
+                    double new_f_tran = log(9) * new_wire_delay.fall;
                     if(change_size) {
                         OneTimer(cells[focell], 1, true);
                     }
@@ -1031,7 +1064,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
 
                     double delta_slack = cur_slack - prev_slack;
 
-                    if(-delta_slack + slew_gamma * delta_tran > -0.005) {
+                    if(-delta_slack + slew_gamma * delta_tran > -0.001) {
                         change_size =
                             cell_resize(cells[target.id], -target.step);
                         OneTimer(cells[focell], 1, true);

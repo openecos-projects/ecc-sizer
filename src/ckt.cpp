@@ -3694,7 +3694,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         }
 
         double t_cap = wire_cap / _sizer->cap_unit;
-
+        if(_sizer->use_margin) {
+            t_cap *= 1.1;
+        }
         g_nets[corner][i].cap = t_cap;
         if(net_parasitic == nullptr) {  //||
             // ord_net->getName().find("tile_id_i") != string::npos ||
@@ -3814,6 +3816,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 node2id.find(fromNodeNameStr);
             float value_cap =
                 node->capacitance() / _sizer->cap_unit;  // FIXME:?
+            if(_sizer->use_margin) {
+                value_cap *= 1.1;
+            }
             // totcap += value_cap;
             if(node2IdIter1 != node2id.end()) {
                 subNodeVecPtr->at(node2IdIter1->second).cap = value_cap;

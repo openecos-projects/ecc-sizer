@@ -6080,6 +6080,9 @@ void Sizer::GetMaxTranConst(unsigned view) {
             auto mterm = pin_->getMTerm();
             double slew_limit = this->_ckt->_ord_timing->getMaxSlewLimit(mterm);
             slew_limit /= this->time_unit;
+            if(use_margin){
+                slew_limit *= 0.9;
+            }
             string full_pin_name =
                 pin_->getInst()->getName() + "/" + mterm->getName();
             if(pin2id.find(full_pin_name) == pin2id.end()) {
@@ -6089,10 +6092,10 @@ void Sizer::GetMaxTranConst(unsigned view) {
             assert(pin2id.find(full_pin_name) != pin2id.end());
             int pin_id = pin2id[full_pin_name];
             g_pins[view][pin_id].max_tran = slew_limit;
-            if(fabs(slew_limit - 0.32) > 1e-6) {
-                printf("Pin %s max_tran %f\n", full_pin_name.c_str(),
-                       slew_limit);
-            }
+            // if(fabs(slew_limit - 0.32) > 1e-6) {
+            //     printf("Pin %s max_tran %f\n", full_pin_name.c_str(),
+            //            slew_limit);
+            // }
             // tot += slew_diff;
         }
     }
