@@ -3695,7 +3695,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
         double t_cap = wire_cap / _sizer->cap_unit;
         if(_sizer->use_margin) {
-            t_cap *= 1.1;
+            t_cap *= 1.2;
         }
         g_nets[corner][i].cap = t_cap;
         if(net_parasitic == nullptr) {  //||
@@ -3817,7 +3817,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             float value_cap =
                 node->capacitance() / _sizer->cap_unit;  // FIXME:?
             if(_sizer->use_margin) {
-                value_cap *= 1.1;
+                value_cap *= 1.2;
             }
             // totcap += value_cap;
             if(node2IdIter1 != node2id.end()) {

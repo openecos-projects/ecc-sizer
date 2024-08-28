@@ -416,7 +416,7 @@ class Sizer {
    public:
     CELL *cells = nullptr;
     double cap_margin = 0.0;
-    bool use_margin = true;
+    bool use_margin = false;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
     std::vector< std::vector< string > > EquaivaID2cellNames;
@@ -1007,7 +1007,7 @@ class Sizer {
     unsigned FindAvailablePreCell(unsigned prev_cell_input_pin, int max_depth,
                                   int view);
     unsigned FindAvailableNextCell(unsigned prev_cell_input_pin, int max_depth,
-                                  int view);
+                                   int view);
     unsigned FwdFixCapViolation(unsigned view = 0);
     unsigned BwdFixSlewViolation(double maxTranRatio, unsigned view);
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);

@@ -45,6 +45,7 @@
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 #include "ckt.h"
 #include "odb/db.h"
@@ -5856,6 +5857,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
         auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
         auto grt = _ord_design->getGlobalRouter();
+        grt->setOverflowIterations(50);
         grt->clear();
         grt->setAllowCongestion(true);
         grt->setMinRoutingLayer(signal_low_layer);
@@ -5872,10 +5874,16 @@ void Sizer::Parallel_Sizer_Launcher() {
         _sta->findRequireds();
         _ckt->readSpef_opensta(_sta);
         int corner = 0;
+        ofstream ofs("net_changed.log");
         for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
+            double old_cap = g_nets[corner][i].cap;
             g_nets[corner][i].cap =
                 _ckt->g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
-
+            if(fabs(g_nets[corner][i].cap - old_cap) > 1e-6) {
+                ofs << "CAP CHANGE " << g_nets[corner][i].name << " "
+                    << g_nets[corner][i].cap << " " << old_cap << " "
+                    << g_nets[corner][i].outpins.size() << endl;
+            }
             if(VERBOSE > 4)
                 cout << "CORNER " << corner << " NETS --- " << i << " "
                      << g_nets[corner][i].name << endl;
@@ -5891,6 +5899,7 @@ void Sizer::Parallel_Sizer_Launcher() {
             g_nets[corner][i].subNodeResVec =
                 _ckt->g_nets[corner][i].subNodeResVec;
         }
+        ofs.close();
         InitNets();
         max_time_recovery_iter -= 4;
         max_time_recovery_iter = std::max(max_time_recovery_iter, 1);
@@ -6329,7 +6338,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     break;
                 }
                 if(time_recovery_iter >= 4 && updatePinFast) {
-                    updatePinFast = false;
+                    updatePinFast = true;
                 }
                 for(unsigned j = 0; j < numcells; j++)
                     cells[j].touched = false;

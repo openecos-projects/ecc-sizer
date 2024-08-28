@@ -972,7 +972,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                 tmpEntry.id = focell;
                 tmpEntry.change = DNSIZE;
                 tmpEntry.delta_impact = DBL_MAX;
-                for(int step = 1; step <= 1; step++) {
+                for(int step = 1; step <= 2; step++) {
                     if(focell == UINT_MAX || focell == cur) {
                         continue;
                     }
