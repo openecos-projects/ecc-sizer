@@ -309,7 +309,10 @@ double Sizer::CalcSlewViolation(unsigned view) {
                                                   pins[view][curpin].max_tran,
                                               0.0);
                         }
-                        ofs << "pre Cell type: "
+                        ofs << "now cell type: " << cells[i].type << " "
+                            << "now cell name: " << cells[i].name << " "
+                            << "now cell size " << cells[i].c_size << " "
+                            << "pre Cell type: "
                             << (cell_id == UINT_MAX ? "isPI"
                                                     : cells[cell_id].type)
                             << " Cell name "

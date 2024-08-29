@@ -315,6 +315,30 @@ double Sizer::GetFICellTran(CELL &cell, unsigned view) {
     return tot_tran;
 }
 
+double Sizer::GetNetFOTran(int net_id, unsigned view) {
+    double tot_tran = 0;
+    int corner = 0;
+    int in_pin = nets[corner][net_id].inpin;
+    if(in_pin != UINT_MAX) {
+        unsigned focell = pins[view][in_pin].owner;
+        if(focell != UINT_MAX) {
+            double fi_tran = GetCellTran(cells[focell], view);
+            tot_tran += fi_tran;
+        }
+    }
+    for(unsigned k = 0; k < nets[corner][net_id].outpins.size(); ++k) {
+        // int step = 1;
+        unsigned focell = pins[view][nets[corner][net_id].outpins[k]].owner;
+        if(focell == UINT_MAX) {  //|| focell != cur
+            continue;
+        }
+        double fi_tran = GetCellTran(cells[focell], view);
+        tot_tran += fi_tran;
+    }
+
+    return tot_tran;
+}
+
 double Sizer::GetFOCellTran(CELL &cell, unsigned view) {
     double tot_tran = 0;
     for(unsigned m = 0; m < cell.fos.size(); m++) {
@@ -6080,7 +6104,7 @@ void Sizer::GetMaxTranConst(unsigned view) {
             auto mterm = pin_->getMTerm();
             double slew_limit = this->_ckt->_ord_timing->getMaxSlewLimit(mterm);
             slew_limit /= this->time_unit;
-            if(use_margin){
+            if(use_margin) {
                 slew_limit *= 0.8;
             }
             string full_pin_name =

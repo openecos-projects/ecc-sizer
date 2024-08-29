@@ -3251,6 +3251,7 @@ void Circuit::init_opensta() {
     grt->setMaxLayerForClock(clk_high_layer);
     grt->setAdjustment(0.5);
     grt->setVerbose(true);
+    grt->setOverflowIterations(10);
     printf("Run Global Routing...\n");
     grt->globalRoute(false, true);
     printf("Run Global Routing Time %f\n", cpuTime() - begin);

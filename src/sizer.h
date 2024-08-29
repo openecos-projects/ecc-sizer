@@ -1101,6 +1101,7 @@ class Sizer {
     double GetCellTran(CELL &cell, unsigned view);
     double GetFICellTran(CELL &cell, unsigned view);
     double GetFOCellTran(CELL &cell, unsigned view);
+    double GetNetFOTran(int net_id, unsigned view);
     double GetCellSlack(CELL &cell, unsigned view);
     double GetCellTranSlack(CELL &cell, unsigned view = 0, bool temp = false);
     double GetCellInTran(CELL &cell, unsigned view = 0, bool temp = false);
