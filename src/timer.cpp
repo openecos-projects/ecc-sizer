@@ -6146,7 +6146,7 @@ void Sizer::GetMaxTranConst(unsigned view) {
             double slew_limit = this->_ckt->_ord_timing->getMaxSlewLimit(mterm);
             slew_limit /= this->time_unit;
             if(use_margin) {
-                slew_limit *= 0.9;
+                slew_limit *= slew_margin;
             }
             string full_pin_name =
                 pin_->getInst()->getName() + "/" + mterm->getName();

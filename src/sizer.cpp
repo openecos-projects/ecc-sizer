@@ -3795,7 +3795,9 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
             maxCap =
                 lib_cell_info->pins[pins[view][cells[cur].outpins[k]].lib_pin]
                     .maxCapacitance;
-            maxCap -= cap_margin;
+            if(use_margin) {
+                maxCap *= cap_margin;
+            }
             curCap = pins[view][cells[cur].outpins[k]].totcap;
             if(curCap > maxCap) {
                 restore_flag = true;
@@ -3946,7 +3948,9 @@ int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
         double maxCap =
             lib_cell_info->pins[pins[view][cells[cur].outpin].lib_pin]
                 .maxCapacitance;
-        maxCap -= cap_margin;
+        if(use_margin) {
+            maxCap *= cap_margin;
+        }
         double curCap = pins[view][cells[cur].outpin].totcap;
 
         if(pin_slack < WNS + gb || maxCap < curCap || revert) {  // restore
@@ -4917,7 +4921,9 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                                                [cells[path[start + l]].outpin]
                                                    .lib_pin]
                                     .maxCapacitance;
-                            maxCap -= cap_margin;
+                            if(use_margin) {
+                                maxCap *= cap_margin;
+                            }
                         }
                         if(pins[view][cells[path[start + l]].outpin].totcap +
                                nets[corner]
@@ -4949,7 +4955,9 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                                                    [cells[fanin_cell].outpin]
                                                        .lib_pin]
                                         .maxCapacitance;
-                                maxCap -= cap_margin;
+                                if(use_margin) {
+                                    maxCap *= cap_margin;
+                                }
                             }
                             if(pins[view][cells[fanin_cell].outpin].totcap +
                                    nets[corner]
@@ -5129,7 +5137,9 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
                     double maxCap =
                         lib_cell_info->pins[pins[view][cells[i].outpin].lib_pin]
                             .maxCapacitance;
-                    maxCap -= cap_margin;
+                    if(use_margin) {
+                        maxCap *= cap_margin;
+                    }
                     if(lib_cell_info &&
                        pins[view][cells[i].outpin].totcap > maxCap && change)
                         cell_retype(cells[i], 1);
@@ -5143,7 +5153,9 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
                     double maxCap =
                         lib_cell_info->pins[pins[view][cells[i].outpin].lib_pin]
                             .maxCapacitance;
-                    maxCap -= cap_margin;
+                    if(use_margin) {
+                        maxCap *= cap_margin;
+                    }
                     if(lib_cell_info &&
                        pins[view][cells[i].outpin].totcap > maxCap && change)
                         cell_resize(cells[i], 1);
@@ -5566,7 +5578,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 
                 if(j != PRFT_PTNUM - 1) {
                     //
-                    use_margin = false;
+                    use_margin = true;
                     auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
                     auto _ord_design = _ckt->_ord_design;
                     auto block = _ord_design->getBlock();
@@ -8118,7 +8130,9 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         lib_cell_info
                             ->pins[pins[view1][cells[cur].outpins[k]].lib_pin]
                             .maxCapacitance;
-                    maxCap -= cap_margin;
+                    if(use_margin) {
+                        maxCap *= cap_margin;
+                    }
                     curCap = pins[view1][cells[cur].outpins[k]].totcap;
                     if(curCap > maxCap) {
                         if(VERBOSE >= 1)
@@ -8531,7 +8545,9 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                                      ->pins[pins[view1][cells[cur].outpins[k]]
                                                 .lib_pin]
                                      .maxCapacitance;
-                        maxCap -= cap_margin;
+                        if(use_margin) {
+                            maxCap *= cap_margin;
+                        }
                         curCap = pins[view1][cells[cur].outpins[k]].totcap;
                         if(curCap > maxCap) {
                             if(VERBOSE >= 1)
@@ -8694,7 +8710,9 @@ bool Sizer::CheckMaxCap(CELL &cell) {
         for(unsigned view = 0; view < numViews; ++view) {
             maxCap = lib_cell_info->pins[pins[view][cell.outpins[k]].lib_pin]
                          .maxCapacitance;
-            maxCap -= cap_margin;
+            if(use_margin) {
+                maxCap *= cap_margin;
+            }
             curCap = pins[view][cell.outpins[k]].totcap;
             if(curCap > maxCap) {
                 return false;

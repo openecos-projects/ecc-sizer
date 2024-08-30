@@ -415,8 +415,9 @@ class Sizer {
 
    public:
     CELL *cells = nullptr;
-    double cap_margin = 0.0;
-    bool use_margin = false;
+    double cap_margin = 0.95;
+    double slew_margin = 0.93;
+    bool use_margin = true;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
     std::vector< std::vector< string > > EquaivaID2cellNames;

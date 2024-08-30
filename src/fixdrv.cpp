@@ -60,8 +60,9 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 
             maxCap = lib_cell_info->pins[pins[view][out_pin_id].lib_pin]
                          .maxCapacitance;
-
-            maxCap -= cap_margin;
+            if(use_margin) {
+                maxCap *= cap_margin;
+            }
             unsigned outnet = pins[view][out_pin_id].net;
             if(nets[corner][outnet].is_clock) {
                 continue;
@@ -307,7 +308,9 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
             maxCap =
                 lib_cell_info->pins[pins[view][cells[cur].outpins[k]].lib_pin]
                     .maxCapacitance;
-            maxCap -= cap_margin;
+            if(use_margin) {
+                maxCap *= cap_margin;
+            }
             unsigned outnet = pins[view][cells[cur].outpins[k]].net;
             if(nets[corner][outnet].is_clock) {
                 continue;
@@ -349,7 +352,9 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
                         lib_cell_info
                             ->pins[pins[view][cells[cur].outpins[k]].lib_pin]
                             .maxCapacitance;
-                    maxCap -= cap_margin;
+                    if(use_margin) {
+                        maxCap *= cap_margin;
+                    }
                 }
             }
 #ifdef DEBUG
