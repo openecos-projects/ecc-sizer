@@ -221,7 +221,7 @@ extern int PTNUM;
 extern int PRFT_PTNUM;
 extern int DIFFICULTY;
 extern int MAX_TRAN_CONST;
-extern const int VERBOSE;
+extern int VERBOSE;
 extern bool NO_LOG;
 extern bool USE_PT;
 extern bool CORR_PT;

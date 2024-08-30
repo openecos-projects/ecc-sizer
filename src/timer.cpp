@@ -157,6 +157,25 @@ double r_entry(const LibLUT &liblut, const double tran, const double cap) {
            w_i * w_j * liblut.tableVals[i2][j2];
 }
 
+/*
+
+    double w_i;
+    if(cap < liblut.loadIndices[0]) {
+        w_i = cap / liblut.loadIndices[i1];
+    }
+    else {
+        w_i = (cap - liblut.loadIndices[i1]) /
+              (liblut.loadIndices[i2] - liblut.loadIndices[i1]);
+    }
+    double w_j;
+    if(tran < liblut.transitionIndices[0]) {
+        w_j = tran / liblut.transitionIndices[j1];
+    }
+    else {
+        w_j = (tran - liblut.transitionIndices[j1]) /
+              (liblut.transitionIndices[j2] - liblut.transitionIndices[j1]);
+    }
+*/
 double Sizer::GetCellSlack(CELL &cell) {
     double slack = DBL_MAX;
     for(unsigned view = 0; view < numViews; ++view) {
@@ -319,13 +338,13 @@ double Sizer::GetNetFOTran(int net_id, unsigned view) {
     double tot_tran = 0;
     int corner = 0;
     int in_pin = nets[corner][net_id].inpin;
-    if(in_pin != UINT_MAX) {
-        unsigned focell = pins[view][in_pin].owner;
-        if(focell != UINT_MAX) {
-            double fi_tran = GetCellTran(cells[focell], view);
-            tot_tran += fi_tran;
-        }
-    }
+    // if(in_pin != UINT_MAX) {
+    //     unsigned focell = pins[view][in_pin].owner;
+    //     if(focell != UINT_MAX) {
+    //         double fi_tran = GetCellTran(cells[focell], view);
+    //         tot_tran += fi_tran;
+    //     }
+    // }
     for(unsigned k = 0; k < nets[corner][net_id].outpins.size(); ++k) {
         // int step = 1;
         unsigned focell = pins[view][nets[corner][net_id].outpins[k]].owner;
@@ -1109,6 +1128,11 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                          << pins[view][cell.outpins[i]].ceff + delta_cap
                          << endl;
                 }
+                if(r_ftran < 0 || r_rtran < 0) {
+                    cout << "ERROR in tran calc: " << cell.name << " "
+                         << cell.type << " " << pins[view][curpin].name << " "
+                         << r_rtran << " " << r_ftran << endl;
+                }
                 *rtran = max(r_rtran, *rtran);
                 *ftran = max(r_ftran, *ftran);
             }
@@ -1351,6 +1375,23 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                          << " delta_cap = " << delta_cap << endl;
                 }
                 if(r_fdelay < 0 || r_fdelay < 0) {
+                    cout << "-----------------------------" << endl;
+                    cout << cur->name << endl;
+                    cout << r_type(cell) << " - " << r_size(cell) << endl;
+                    cout << cell.name << "-delay, totcap = "
+                         << pins[view][cell.outpins[i]].totcap << endl;
+                    cout << cell.name << " input pin "
+                         << pins[view][curpin].name << " " << " output pin "
+                         << pins[view][cell.outpins[i]].name
+                         << "  input ftran = " << pins[view][curpin].ftran
+                         << endl;
+                    cout << cell.name
+                         << "  input rtran = " << pins[view][curpin].rtran
+                         << endl;
+                    cout << "  r_rdelay = " << r_rdelay
+                         << " r_fdelay = " << r_fdelay << endl;
+                    cout << "  ceff = " << pins[view][cell.outpins[i]].ceff
+                         << " delta_cap = " << delta_cap << endl;
                     printf("Error in delay calculation\n");
                 }
                 rdelay.push_back(r_rdelay);
@@ -6105,7 +6146,7 @@ void Sizer::GetMaxTranConst(unsigned view) {
             double slew_limit = this->_ckt->_ord_timing->getMaxSlewLimit(mterm);
             slew_limit /= this->time_unit;
             if(use_margin) {
-                slew_limit *= 0.8;
+                slew_limit *= 0.9;
             }
             string full_pin_name =
                 pin_->getInst()->getName() + "/" + mterm->getName();

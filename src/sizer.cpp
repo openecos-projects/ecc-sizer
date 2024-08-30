@@ -169,7 +169,7 @@ unsigned THRESHOLD = 50;
 double ratio_sweep = 5;
 int PTNUM = 1;
 int PRFT_PTNUM = 1;
-const int VERBOSE = 1;
+int VERBOSE = 1;
 bool USE_PT = true;
 // bool CORR_PT = true;
 bool CORR_PT = false;
@@ -5566,6 +5566,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 
                 if(j != PRFT_PTNUM - 1) {
                     //
+                    use_margin = false;
                     auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
                     auto _ord_design = _ckt->_ord_design;
                     auto block = _ord_design->getBlock();
@@ -5642,6 +5643,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                     grt->setMinLayerForClock(clk_low_layer);
                     grt->setMaxLayerForClock(clk_high_layer);
                     grt->setAdjustment(0.5);
+                    grt->setOverflowIterations(50);
                     grt->setVerbose(true);
                     printf("Run Global Routing...\n");
                     grt->globalRoute(false, false);
@@ -5670,8 +5672,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                         }
                         g_nets[corner][i].subNodeVec =
                             _ckt->g_nets[corner][i].subNodeVec;
-                        g_nets[corner][i].subNodeResVec =
-                            _ckt->g_nets[corner][i].subNodeResVec;
+                        g_nets[corner][i].subNodeResVec;
                     }
                     InitNets();
                     max_time_recovery_iter = 3;
@@ -5896,8 +5897,6 @@ void Sizer::Parallel_Sizer_Launcher() {
                 sink_num += sn.isSink;
             }
             g_nets[corner][i].subNodeVec = _ckt->g_nets[corner][i].subNodeVec;
-            g_nets[corner][i].subNodeResVec =
-                _ckt->g_nets[corner][i].subNodeResVec;
         }
         ofs.close();
         InitNets();
@@ -6496,6 +6495,24 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                     CalcStats((unsigned)thread_id, true,
                                               "AFTER_FIX_CAP", view);
                                 }
+                            }
+                            if(score < best_score_local) {
+                                cout << "(" << thread_id
+                                     << ") Local best score is updated "
+                                        "(inside of power opt loop) "
+                                     << best_score_local << "/" << score
+                                     << endl;
+                                best_score_local = score;
+                                best_alpha_local = local_alpha;
+                                string temp =
+                                    (string)opt_str + "_best_infeasible";
+                                // pthread_mutex_lock(&mutex1);
+                                SizeOut(outputDir);
+                                // pthread_mutex_unlock(&mutex1);
+                                for(unsigned j = 0; j < numcells; ++j) {
+                                    best_cells_local[j] = cells[j];
+                                }
+                                updated_local = true;
                             }
                             if(FIX_SLEW) {
                                 change += FwdFixSlewViolation(1.0, view);
@@ -9202,7 +9219,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
         }
 
         if(line.find("-verbose ") != string::npos) {
-            // VERBOSE = getTokenI(line, "-verbose ");
+            VERBOSE = getTokenI(line, "-verbose ");
         }
 
         if(line.find("-corr_dyn") != string::npos) {

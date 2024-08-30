@@ -1201,7 +1201,9 @@ void Circuit::lib_parser(string filename, unsigned corner) {
                 cell.c_vtype = s;
             }
             cells.push_back(cell);
-
+            if(cell.name == "NAND3x2_ASAP7_75t_R") {
+                report_cell(cell);
+            }
             if(VERBOSE > 1) {
                 report_cell(cell);
             }
@@ -3251,7 +3253,7 @@ void Circuit::init_opensta() {
     grt->setMaxLayerForClock(clk_high_layer);
     grt->setAdjustment(0.5);
     grt->setVerbose(true);
-    grt->setOverflowIterations(10);
+    grt->setOverflowIterations(50);
     printf("Run Global Routing...\n");
     grt->globalRoute(false, true);
     printf("Run Global Routing Time %f\n", cpuTime() - begin);
@@ -3685,18 +3687,19 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
         // double t_cap = wire_cap / _sizer->cap_unit;
         // g_nets[corner][i].cap = t_cap;
-        // if(ord_net->getName() == _sizer->clk_name[0]) {
-        //    g_nets[corner][i].is_clock = true;
-        //    continue;
-        //}
         if(ord_net->getSigType() == "CLOCK") {
+            // printf("net %s is clock\n", netNameStr.c_str());
+            g_nets[corner][i].is_clock = true;
+            // continue;
+        }
+        if(ord_net->getName() == _sizer->clk_name[0]) {
             g_nets[corner][i].is_clock = true;
             continue;
         }
 
         double t_cap = wire_cap / _sizer->cap_unit;
         if(_sizer->use_margin) {
-            t_cap *= 1.2;
+            t_cap *= 1.1;
         }
         g_nets[corner][i].cap = t_cap;
         if(net_parasitic == nullptr) {  //||
@@ -3818,7 +3821,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             float value_cap =
                 node->capacitance() / _sizer->cap_unit;  // FIXME:?
             if(_sizer->use_margin) {
-                value_cap *= 1.2;
+                value_cap *= 1.1;
             }
             // totcap += value_cap;
             if(node2IdIter1 != node2id.end()) {

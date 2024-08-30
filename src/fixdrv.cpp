@@ -433,43 +433,44 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
             //                pins[view][curpin].max_tran << endl;
 
             // downsizing fanouts
-            for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k) {
-                unsigned focell =
-                    pins[view][nets[corner][outnet].outpins[k]].owner;
-                if(focell == UINT_MAX) {
-                    continue;
-                }
-                if(getLibCellInfo(cells[focell], corner) == NULL) {
-                    continue;
-                }
-                if(cells[focell].isClockCell) {
-                    continue;
-                }
-                if(cells[focell].isDontTouch)
-                    continue;
-                // if(isff(cells[focell])) {
-                //     continue;
-                // }
-                // CalcStats((unsigned)thread_id, false, "", view, false);
-                prev_tns = viewTNS[view];
+            // for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k)
+            // {
+            //     unsigned focell =
+            //         pins[view][nets[corner][outnet].outpins[k]].owner;
+            //     if(focell == UINT_MAX) {
+            //         continue;
+            //     }
+            //     if(getLibCellInfo(cells[focell], corner) == NULL) {
+            //         continue;
+            //     }
+            //     if(cells[focell].isClockCell) {
+            //         continue;
+            //     }
+            //     if(cells[focell].isDontTouch)
+            //         continue;
+            //     // if(isff(cells[focell])) {
+            //     //     continue;
+            //     // }
+            //     // CalcStats((unsigned)thread_id, false, "", view, false);
+            //     prev_tns = viewTNS[view];
 
-                if(cell_resize(cells[focell], -1)) {
-                    OneTimer(cells[focell], 1, true);
-                    // CalcStats((unsigned)thread_id, false, "", view,
-                    // false);
-                    cur_tns = viewTNS[view];
-                    change++;
-                    if(cur_tns > prev_tns) {
-                        cell_resize(cells[focell], 1);
-                        cells[focell].isChanged -= 2;
-                        change--;
-                        OneTimer(cells[focell], 1, true);
-                    }
-                    else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
-                        break;
-                    }
-                }
-            }
+            //     if(cell_resize(cells[focell], -1)) {
+            //         OneTimer(cells[focell], 1, true);
+            //         // CalcStats((unsigned)thread_id, false, "", view,
+            //         // false);
+            //         cur_tns = viewTNS[view];
+            //         change++;
+            //         if(cur_tns > prev_tns) {
+            //             cell_resize(cells[focell], 1);
+            //             cells[focell].isChanged -= 2;
+            //             change--;
+            //             OneTimer(cells[focell], 1, true);
+            //         }
+            //         else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
+            //             break;
+            //         }
+            //     }
+            // }
 
             // upsizing target cell
             while(IsTranVio(pins[view][curpin], cur_max_tran)) {
@@ -986,7 +987,10 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
 
                 double prev_slack = min(GetCellSlack(cells[focell], view),
                                         GetFICellSlack(cells[focell], view));
-                double prev_tran = GetNetFOTran(outnet, view);
+                double prev_tran = GetCellTran(cells[focell], view) +
+                                   GetFICellTran(cells[focell], view) +
+                                   GetFOCellTran(cells[focell], view) +
+                                   GetNetFOTran(outnet, view);
                 //    GetFOCellTran(cells[focell], view);
                 int size_num =
                     main_lib_cell_tables[corner][cells[focell].main_lib_cell_id]
@@ -1013,7 +1017,10 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
 
                     cur_tns = prev_tns;
 
-                    double now_tran = GetNetFOTran(outnet, view);
+                    double now_tran = GetCellTran(cells[focell], view) +
+                                      GetFICellTran(cells[focell], view) +
+                                      GetFOCellTran(cells[focell], view) +
+                                      GetNetFOTran(outnet, view);
                     //   GetFOCellTran(cells[focell], view);
                     double delta_tran =
                         now_tran - prev_tran;  // + new_tran - old_tran;
