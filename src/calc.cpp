@@ -575,7 +575,9 @@ double Sizer::CalcCapViolation(unsigned view) {
                     maxCap = cap_limit;
                 }
             }
-            maxCap -= cap_margin;
+            if(use_margin) {
+                maxCap *= cap_margin;
+            }
             float loadCap = 0.;
             unsigned outnet = pins[view][cells[i].outpins[k]].net;
             if(nets[corner][outnet].is_clock) {

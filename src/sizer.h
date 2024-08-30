@@ -417,7 +417,7 @@ class Sizer {
     CELL *cells = nullptr;
     double cap_margin = 0.95;
     double slew_margin = 0.93;
-    bool use_margin = true;
+    bool use_margin = false;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
     std::vector< std::vector< string > > EquaivaID2cellNames;
@@ -1100,6 +1100,7 @@ class Sizer {
     double GetCellLeak(CELL &cell, unsigned view = 0);
     double GetCellSlack(CELL &cell);
     double GetCellTran(CELL &cell, unsigned view);
+    double GetCellCapVio(CELL &cell, unsigned view);
     double GetFICellTran(CELL &cell, unsigned view);
     double GetFOCellTran(CELL &cell, unsigned view);
     double GetNetFOTran(int net_id, unsigned view);

@@ -234,6 +234,39 @@ double Sizer::GetCellTran(CELL &cell, unsigned view) {
     return tot_tran;
 }
 
+double Sizer::GetCellCapVio(CELL &cell, unsigned view) {
+    double tot_tran = 0;
+    for(unsigned i = 0; i < cell.outpins.size(); ++i) {
+        if(cell.outpins[i] == UINT_MAX)
+            continue;
+        double maxCap = 0.0;
+        LibCellInfo *lib_cell_info = getLibCellInfo(cell);
+        if(lib_cell_info) {
+            maxCap = lib_cell_info->pins[pins[view][cell.outpins[i]].lib_pin]
+                         .maxCapacitance;
+            if(maxCap == std::numeric_limits< double >::max()) {
+                string pin_name = getFullPinName(pins[view][cell.outpins[i]]);
+                auto pin_ =
+                    _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+                double cap_limit =
+                    _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
+                    cap_unit;
+                lib_cell_info->pins[pins[view][cell.outpins[i]].lib_pin]
+                    .maxCapacitance = cap_limit;
+                maxCap = cap_limit;
+            }
+        }
+        if(use_margin) {
+            maxCap *= cap_margin;
+        }
+
+        if(pins[view][cell.outpins[i]].totcap > maxCap) {
+            tot_tran += max(pins[view][cell.outpins[i]].totcap - maxCap, 0.0);
+        }
+    }
+    return tot_tran;
+}
+
 ulong Sizer::GetCellNPathsLessThanSlack(CELL &cell, unsigned view) {
     ulong npath = 1;
     for(unsigned i = 0; i < cell.outpins.size(); ++i) {

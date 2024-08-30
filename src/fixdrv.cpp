@@ -995,7 +995,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                 double prev_tran = GetCellTran(cells[focell], view) +
                                    GetFICellTran(cells[focell], view) +
                                    GetFOCellTran(cells[focell], view) +
-                                   GetNetFOTran(outnet, view);
+                                   GetNetFOTran(outnet, view) +
+                                   GetCellCapVio(cells[focell], view);
                 //    GetFOCellTran(cells[focell], view);
                 int size_num =
                     main_lib_cell_tables[corner][cells[focell].main_lib_cell_id]
@@ -1025,7 +1026,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                     double now_tran = GetCellTran(cells[focell], view) +
                                       GetFICellTran(cells[focell], view) +
                                       GetFOCellTran(cells[focell], view) +
-                                      GetNetFOTran(outnet, view);
+                                      GetNetFOTran(outnet, view) +
+                                      GetCellCapVio(cells[focell], view);
                     //   GetFOCellTran(cells[focell], view);
                     double delta_tran =
                         now_tran - prev_tran;  // + new_tran - old_tran;

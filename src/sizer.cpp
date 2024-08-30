@@ -6419,7 +6419,27 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                           "AFTER_FIX_CAP", view);
                             }
                         }
-
+                        printf(
+                            "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
+                            "score: %f\n",
+                            skew_violation, slew_violation, cap_violation,
+                            power, score);
+                        if(score < best_score_local) {
+                            cout << "(" << thread_id
+                                 << ") Local best score is updated "
+                                    "(inside of power opt loop) "
+                                 << best_score_local << "/" << score << endl;
+                            best_score_local = score;
+                            best_alpha_local = local_alpha;
+                            string temp = (string)opt_str + "_best_infeasible";
+                            // pthread_mutex_lock(&mutex1);
+                            SizeOut(outputDir);
+                            // pthread_mutex_unlock(&mutex1);
+                            for(unsigned j = 0; j < numcells; ++j) {
+                                best_cells_local[j] = cells[j];
+                            }
+                            updated_local = true;
+                        }
                         if(toler <= worst_slack && slew_violation == 0.0) {
                             break;
                         }
@@ -6444,13 +6464,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             }
                         }
 
-                        if(toler <= worst_slack && slew_violation == 0.0) {
-                            break;
-                        }
-
-                        if(skew_violation == 0.0 && slew_violation == 0.0) {
-                            break;
-                        }
                         printf(
                             "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
                             "score: %f\n",
@@ -6472,6 +6485,15 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             }
                             updated_local = true;
                         }
+
+                        if(toler <= worst_slack && slew_violation == 0.0) {
+                            break;
+                        }
+
+                        if(skew_violation == 0.0 && slew_violation == 0.0) {
+                            break;
+                        }
+
                         if(sensFuncT == 8 || sensFuncT == 9)
                             CountNPaths(view);
 
@@ -6540,7 +6562,28 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                 change = 0;
                             }
                         }
+                        printf(
+                            "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
+                            "score: %f\n",
+                            skew_violation, slew_violation, cap_violation,
+                            power, score);
 
+                        if(score < best_score_local) {
+                            cout << "(" << thread_id
+                                 << ") Local best score is updated "
+                                    "(inside of power opt loop) "
+                                 << best_score_local << "/" << score << endl;
+                            best_score_local = score;
+                            best_alpha_local = local_alpha;
+                            string temp = (string)opt_str + "_best_infeasible";
+                            // pthread_mutex_lock(&mutex1);
+                            SizeOut(outputDir);
+                            // pthread_mutex_unlock(&mutex1);
+                            for(unsigned j = 0; j < numcells; ++j) {
+                                best_cells_local[j] = cells[j];
+                            }
+                            updated_local = true;
+                        }
                         double wns;
                         wns = min(max_neg_rslk, max_neg_fslk);
 
@@ -6573,32 +6616,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(curr_ss == 0) {
                             break;
                         }
-                        // double t_score_local =
-                        //     calcScore(power, skew_violation, slew_violation,
-                        //               cap_violation);
-                        printf(
-                            "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
-                            "score: %f\n",
-                            skew_violation, slew_violation, cap_violation,
-                            power, score);
 
-                        if(score < best_score_local) {
-                            cout << "(" << thread_id
-                                 << ") Local best score is updated "
-                                    "(inside of power opt loop) "
-                                 << best_score_local << "/" << score << endl;
-                            best_score_local = score;
-                            best_alpha_local = local_alpha;
-                            string temp = (string)opt_str + "_best_infeasible";
-                            // pthread_mutex_lock(&mutex1);
-                            SizeOut(outputDir);
-                            // pthread_mutex_unlock(&mutex1);
-                            for(unsigned j = 0; j < numcells; ++j) {
-                                best_cells_local[j] = cells[j];
-                            }
-                            updated_local = true;
-                        }
-                        //}
                         if(all_change == 0 ||
                            (prev_best_score < 0.97 * best_score_local)) {
                             break;
@@ -6610,8 +6628,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
                          << " : " << viewRuntime[view] << " sec. ("
                          << viewRuntime[view] / 60 << " min. )" << endl;
                 }
-                if((skew_violation != 0.0) || (worst_slack < 0.0)) {
-                    all_feasible = false;
+                if(skew_violation < 1) {
+                    all_feasible = true;
                 }
                 Profile();
             }
