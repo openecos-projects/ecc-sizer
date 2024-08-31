@@ -6494,8 +6494,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             break;
                         }
 
-                        if(sensFuncT == 8 || sensFuncT == 9)
+                        if(sensFuncT == 5 || sensFuncT == 8 || sensFuncT == 9) {
                             CountNPaths(view);
+                        }
 
                         if(FIX_GLOBAL) {
                             change += Attack(i + 1, GLOBAL, ATTACK_RATIO, 1.0,

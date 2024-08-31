@@ -270,7 +270,7 @@ void Sizer::SortTopo() {
 void Sizer::CountNPaths(unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
 
-    return;
+    // return;
 
     if(topolist.size() != numcells || rtopolist.size() != numcells)
         return;
