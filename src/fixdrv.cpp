@@ -458,14 +458,23 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 // }
                 // CalcStats((unsigned)thread_id, false, "", view, false);
                 prev_tns = viewTNS[view];
-
+                double prev_tran = GetCellTran(cells[focell], view) +
+                                   GetFICellTran(cells[focell], view) +
+                                   GetFOCellTran(cells[focell], view) +
+                                   GetNetFOTran(outnet, view) +
+                                   GetCellCapVio(cells[focell], view);
                 if(cell_resize(cells[focell], -1)) {
                     OneTimer(cells[focell], 1, true);
                     // CalcStats((unsigned)thread_id, false, "", view,
                     // false);
                     cur_tns = viewTNS[view];
+                    double now_tran = GetCellTran(cells[focell], view) +
+                                      GetFICellTran(cells[focell], view) +
+                                      GetFOCellTran(cells[focell], view) +
+                                      GetNetFOTran(outnet, view) +
+                                      GetCellCapVio(cells[focell], view);
                     change++;
-                    if(cur_tns > prev_tns) {
+                    if(now_tran > prev_tran) {
                         cell_resize(cells[focell], 1);
                         cells[focell].isChanged -= 2;
                         change--;
