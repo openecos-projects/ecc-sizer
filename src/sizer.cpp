@@ -143,6 +143,7 @@ bool VT_ONLY = false;
 bool SIZE_ONLY = false;
 bool FIX_CAP = false;
 bool FIX_SLEW = false;
+bool FIX_SLEW_POST = false;
 bool FIX_GLOBAL = false;
 int GWTW_MAX = 1;
 int GWTW_DIV = 4;
@@ -6453,7 +6454,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(FIX_SLEW) {
                             change += FwdFixSlewViolation(1.0, view);
                             // change += BwdFixSlewViolation(1.0, view);
-                            change += FwdFixSlewViolationPost(1.0, view);
+                            if(FIX_SLEW_POST) {
+                                change += FwdFixSlewViolationPost(1.0, view);
+                            }
                             if(iter % 2 == 0) {
                             }
                             if(change > 0) {
@@ -6552,7 +6555,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             if(FIX_SLEW) {
                                 change += FwdFixSlewViolation(1.0, view);
                                 // change += BwdFixSlewViolation(1.0, view);
-                                change += FwdFixSlewViolationPost(1.0, view);
+                                if(FIX_SLEW_POST) {
+                                    change +=
+                                        FwdFixSlewViolationPost(1.0, view);
+                                }
                                 if(change > 0) {
                                     CallTimer(view);
                                     CorrelatePT((unsigned)thread_id, view);

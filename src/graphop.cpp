@@ -200,7 +200,7 @@ void Sizer::SortTopo() {
             topolist.push_back(i);
         }
     }
-    cout << "TOPO " << topolist.size() <<  " " << numcells <<endl;
+    cout << "TOPO " << topolist.size() << " " << numcells << endl;
     std::fill(check.begin(), check.end(), false);
     // assert(topolist.size() == numcells);
     // map2topoidx.resize(topolist.size());
@@ -344,8 +344,8 @@ void Sizer::CountNPaths(unsigned view) {
         }
     }
     for(unsigned i = 0; i < numpins; i++) {
-        pins[view][i].NPaths = (ulong)(sqrt(NfromPI[i]) * sqrt(NtoPO[i]));
-// pins[view][i].NPaths=(NfromPI[i])*(NtoPO[i])+1;
+        pins[view][i].NPaths = (ulong)(sqrt(NfromPI[i]) * sqrt(NtoPO[i])) + 1;
+        // pins[view][i].NPaths = (NfromPI[i]) * (NtoPO[i]) + 1;
 #ifdef DEBUG
         if(pins[view][i].owner != UINT_MAX)
             cout << cells[pins[view][i].owner].name << "/" << pins[view][i].name

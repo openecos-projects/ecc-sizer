@@ -357,7 +357,7 @@ class Sizer {
 
     bool already_built;
     set< entry > targets;
-    double updatePinFast = true;
+    double updatePinFast = false;
     vector< unsigned > topolist;
     vector< unsigned > rtopolist;
     vector< unsigned > map2topoidx;
