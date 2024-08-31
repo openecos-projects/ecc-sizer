@@ -67,10 +67,11 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
             if(nets[corner][outnet].is_clock) {
                 continue;
             }
-            double loadCap = 0;
-            for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++) {
-                loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
-            }
+            // double loadCap = 0;
+            // for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++)
+            // {
+            //     loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
+            // }
             // if(fabs(nets[corner][outnet].cap + loadCap -
             //         pins[view][cells[cur].outpins[k]].totcap) > 1e-3) {
             //     printf(
@@ -384,7 +385,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
     bool old_updatePinAcc = updatePinAcc;
-    updatePinAcc = true;
+    // updatePinAcc = true;
     for(unsigned i = 0; i < topolist.size(); i++) {
         unsigned cur = topolist[i];
 
@@ -438,44 +439,43 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
             //                pins[view][curpin].max_tran << endl;
 
             // downsizing fanouts
-            // for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k)
-            // {
-            //     unsigned focell =
-            //         pins[view][nets[corner][outnet].outpins[k]].owner;
-            //     if(focell == UINT_MAX) {
-            //         continue;
-            //     }
-            //     if(getLibCellInfo(cells[focell], corner) == NULL) {
-            //         continue;
-            //     }
-            //     if(cells[focell].isClockCell) {
-            //         continue;
-            //     }
-            //     if(cells[focell].isDontTouch)
-            //         continue;
-            //     // if(isff(cells[focell])) {
-            //     //     continue;
-            //     // }
-            //     // CalcStats((unsigned)thread_id, false, "", view, false);
-            //     prev_tns = viewTNS[view];
+            for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k) {
+                unsigned focell =
+                    pins[view][nets[corner][outnet].outpins[k]].owner;
+                if(focell == UINT_MAX) {
+                    continue;
+                }
+                if(getLibCellInfo(cells[focell], corner) == NULL) {
+                    continue;
+                }
+                if(cells[focell].isClockCell) {
+                    continue;
+                }
+                if(cells[focell].isDontTouch)
+                    continue;
+                // if(isff(cells[focell])) {
+                //     continue;
+                // }
+                // CalcStats((unsigned)thread_id, false, "", view, false);
+                prev_tns = viewTNS[view];
 
-            //     if(cell_resize(cells[focell], -1)) {
-            //         OneTimer(cells[focell], 1, true);
-            //         // CalcStats((unsigned)thread_id, false, "", view,
-            //         // false);
-            //         cur_tns = viewTNS[view];
-            //         change++;
-            //         if(cur_tns > prev_tns) {
-            //             cell_resize(cells[focell], 1);
-            //             cells[focell].isChanged -= 2;
-            //             change--;
-            //             OneTimer(cells[focell], 1, true);
-            //         }
-            //         else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
-            //             break;
-            //         }
-            //     }
-            // }
+                if(cell_resize(cells[focell], -1)) {
+                    OneTimer(cells[focell], 1, true);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
+                    cur_tns = viewTNS[view];
+                    change++;
+                    if(cur_tns > prev_tns) {
+                        cell_resize(cells[focell], 1);
+                        cells[focell].isChanged -= 2;
+                        change--;
+                        OneTimer(cells[focell], 1, true);
+                    }
+                    else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
+                        break;
+                    }
+                }
+            }
 
             // upsizing target cell
             while(IsTranVio(pins[view][curpin], cur_max_tran)) {

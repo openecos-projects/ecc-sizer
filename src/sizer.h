@@ -354,7 +354,7 @@ class Sizer {
     int second_best_kick;
     designTiming ***PTimer;
     designTiming *PNR;
-
+    bool use_count_npath = false;
     bool already_built;
     set< entry > targets;
     double updatePinFast = false;

@@ -143,7 +143,7 @@ bool VT_ONLY = false;
 bool SIZE_ONLY = false;
 bool FIX_CAP = false;
 bool FIX_SLEW = false;
-bool FIX_SLEW_POST = false;
+bool FIX_SLEW_POST = true;
 bool FIX_GLOBAL = false;
 int GWTW_MAX = 1;
 int GWTW_DIV = 4;
@@ -6409,8 +6409,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
 
                         if(FIX_CAP) {
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_FIX_CAP", view);
+                            // CalcStats((unsigned)thread_id, true,
+                            //           "AFTER_FIX_CAP", view);
                             change += FwdFixCapViolation(view);
                             change += BwdFixCapViolation(view);
                             if(change > 500) {
@@ -6496,9 +6496,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(skew_violation == 0.0 && slew_violation == 0.0) {
                             break;
                         }
-
-                        if(sensFuncT == 5 || sensFuncT == 8 || sensFuncT == 9) {
-                            CountNPaths(view);
+                        if(use_count_npath) {
+                            if(sensFuncT == 5 || sensFuncT == 8 ||
+                               sensFuncT == 9) {
+                                CountNPaths(view);
+                            }
                         }
 
                         if(FIX_GLOBAL) {
