@@ -5815,6 +5815,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     }
     if(true) {
         //
+
         use_margin = false;
         auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
         auto _ord_design = _ckt->_ord_design;
@@ -5943,6 +5944,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         CallTimer(view);
         CorrelatePT(view);
         CalcStats(0);
+        showAllSlew(0, "after_tran.csv");
     }
 
     ExitPTimer();
@@ -6637,9 +6639,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                          << " : " << viewRuntime[view] << " sec. ("
                          << viewRuntime[view] / 60 << " min. )" << endl;
                 }
-                if(skew_violation < 1) {
-                    all_feasible = true;
-                }
+                // if(skew_violation < 1) {
+                    // all_feasible = true;
+                // }
                 Profile();
             }
             for(unsigned j = 0; j < numcells; j++)
@@ -6943,6 +6945,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 #endif
         // pthread_mutex_unlock(&mutex1);
     }
+    showAllSlew(0, "before_tran.csv");
     cout << "start delete" << endl;
     delete[] cells;
     cout << "delete cells done" << endl;

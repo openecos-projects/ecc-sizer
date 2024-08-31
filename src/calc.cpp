@@ -364,6 +364,103 @@ double Sizer::CalcSlewViolation(unsigned view) {
     return slew_viol;
 }
 
+double Sizer::showAllSlew(unsigned view, string filename) {
+    unsigned corner = 0;  // mmmcViewList[view].corner;
+    double slew_viol = 0.;
+    slew_violation_cnt = 0;
+    slew_violation_wst = 0;
+    ofstream ofs(filename);
+    double slew_bound = 0.;
+    ofs << "Cell name, Pin name, rtran, ftran, rslk, fslk" << endl;
+    for(unsigned i = 0; i < numpins; i++) {
+        unsigned curpin = i;
+
+        if(curpin == UINT_MAX) {
+            continue;
+        }
+        if(pins[view][curpin].name == "CLK" ||
+           pins[view][curpin].name == "clk" ||
+           pins[view][curpin].owner == UINT_MAX) {
+            continue;
+            // printf("Pin name %s\n", pins[view][curpin].name.c_str());
+        }
+        // string name = cells[i].name;
+        string pin_name = getFullPinName(pins[view][curpin]);
+        // auto pin_ =
+        // _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+        // assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+        //        pin_->getNet()->getSigType() != "GROUND" &&
+        //        pin_->getNet()->getSigType() != "CLOCK");
+
+        auto pin_ = _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+        assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+               pin_->getNet()->getSigType() != "GROUND" &&
+               pin_->getNet()->getSigType() != "CLOCK");
+        double t_tran = max(pins[view][curpin].rtran, pins[view][curpin].ftran);
+
+        if(t_tran > pins[view][curpin].max_tran) {
+            slew_viol += t_tran - pins[view][curpin].max_tran;
+            ofs << "Cell type: " << cells[i].type << " "
+                << getFullPinName(pins[view][curpin]) << " pin direction: "
+                << (pin_->isOutputSignal() ? "output" : "input")
+                << " max tran vio: " << t_tran << " "
+                << pins[view][curpin].max_tran << endl;
+            if(!pin_->isOutputSignal()) {
+                unsigned net_id = pins[view][curpin].net;
+                if(net_id != UINT_MAX &&
+                   nets[corner][net_id].inpin != UINT_MAX) {
+                    unsigned cell_opin = nets[corner][net_id].inpin;
+                    unsigned cell_id = pins[view][cell_opin].owner;
+                    unsigned fopin = curpin;
+                    timing_lookup wire_delay =
+                        get_wire_delay(net_id, fopin, view);
+                    double cur_max_tran = DBL_MAX;
+
+                    cur_max_tran =
+                        std::min(sqrt(pow(pins[view][fopin].max_tran -
+                                              pins[view][fopin].rtran_ofs,
+                                          2) -
+                                      pow(log(9) * wire_delay.rise, 2)),
+                                 cur_max_tran);
+
+                    cur_max_tran =
+                        std::min(sqrt(pow(pins[view][fopin].max_tran -
+                                              pins[view][fopin].ftran_ofs,
+                                          2) -
+                                      pow(log(9) * wire_delay.fall, 2)),
+                                 cur_max_tran);
+                    if(log(9) * wire_delay.fall > pins[view][curpin].max_tran) {
+                        slew_bound += max(log(9) * wire_delay.fall +
+                                              pins[view][curpin].ftran_ofs -
+                                              pins[view][curpin].max_tran,
+                                          0.0);
+                    }
+                    ofs << "now cell type: " << cells[i].type << " "
+                        << "now cell name: " << cells[i].name << " "
+                        << "now cell size " << cells[i].c_size << " "
+                        << "pre Cell type: "
+                        << (cell_id == UINT_MAX ? "isPI" : cells[cell_id].type)
+                        << " Cell name "
+                        << (cell_id == UINT_MAX ? pins[view][cell_opin].name
+                                                : cells[cell_id].name)
+                        << " " << "pre pin tran: "
+                        << max(pins[view][cell_opin].rtran,
+                               pins[view][cell_opin].ftran)
+                        << " " << "pre pin need max tran: " << cur_max_tran
+                        << " " << "net cap: " << nets[corner][net_id].cap << " "
+                        << "net delay " << max(wire_delay.rise, wire_delay.fall)
+                        << " " << endl;
+                }
+            }
+            slew_violation_cnt++;
+        }
+    }
+    ofs.close();
+    printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
+           slew_violation_wst);
+    printf("Minimum slew_bound %f\n", slew_bound);
+    return slew_viol;
+}
 double Sizer::CalcSlackViolation(unsigned view) {
     // worst_slack = worst timing slack; could be positive
     // max_neg_{r,f}slk = worst negative timing slack; could be only

@@ -357,7 +357,7 @@ class Sizer {
     bool use_count_npath = false;
     bool already_built;
     set< entry > targets;
-    double updatePinFast = false;
+    double updatePinFast = true;
     vector< unsigned > topolist;
     vector< unsigned > rtopolist;
     vector< unsigned > map2topoidx;
@@ -634,6 +634,7 @@ class Sizer {
     double CalcSlackViolation(unsigned view = 0);
     double CompareWithSim();
     void UpdateCapsFromCells();
+    double showAllSlew(unsigned view, string filename);
 
    public:
     sta::Sta *_sta;
