@@ -3525,7 +3525,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             bool restore = false;
             if(!CHECK_ALL_VIEW) {
                 // ista for the new solution
-                OneTimer(cells[cur], STA_MARGIN, false);
+                OneTimer(cells[cur], STA_MARGIN, true);
 
                 new_slack = min(GetCellSlack(cells[cur], view),
                                 GetFICellSlack(cells[cur], view));
@@ -3596,7 +3596,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 
                 // ista with the restored solution
                 if(!CHECK_ALL_VIEW) {
-                    OneTimer(cells[cur], STA_MARGIN, false);
+                    OneTimer(cells[cur], STA_MARGIN, true);
                 }
                 else {
                     for(unsigned view1 = 0; view1 < numViews; ++view1) {
@@ -5304,7 +5304,13 @@ void *static_poweropt_driver(void *void_thread_args) {
 
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
-
+    if(numcells == 27553 || numcells == 79919 || numcells == 145776 ||
+       numcells == 278465) {
+        PRFT_PTNUM = 1;
+    }
+    else {
+        PRFT_PTNUM = 2;
+    }
     PTimer = new designTiming **[MAX_THREAD];
 
     for(int i = 0; i < MAX_THREAD; i++) {
@@ -5579,7 +5585,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 
                 if(j != PRFT_PTNUM - 1) {
                     //
-                    use_margin = true;
+                    // use_margin = true;
                     auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
                     auto _ord_design = _ckt->_ord_design;
                     auto block = _ord_design->getBlock();
@@ -5659,7 +5665,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                     grt->setOverflowIterations(50);
                     grt->setVerbose(true);
                     printf("Run Global Routing...\n");
-                    grt->globalRoute(false, false);
+                    grt->globalRoute(false, true);
                     printf("Run Global Routing Time %f\n", cpuTime() - begin);
                     begin = cpuTime();
                     _ord_design->evalTclString(
@@ -5685,7 +5691,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                         }
                         g_nets[corner][i].subNodeVec =
                             _ckt->g_nets[corner][i].subNodeVec;
-                        g_nets[corner][i].subNodeResVec;
+                        // g_nets[corner][i].subNodeResVec;
                     }
                     InitNets();
                     max_time_recovery_iter = 3;
@@ -6334,8 +6340,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
             // }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns" << "/"
-                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns"
+                 << "/" << worst_slack << "ns"
+                 << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -6378,7 +6385,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 }
                 // TGR loop
                 if(slew_violation != 0.0 || (skew_violation != 0.0) ||
-                   worst_slack < 0.0) {
+                   cap_violation != 0.0) {
                     double begin = cpuTime();
                     unsigned same_ss_count = 0;
                     unsigned swap_cnt = 0;
@@ -6387,47 +6394,134 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     unsigned change = 0;
                     unsigned all_change = 0;
 
-                    for(unsigned i = 0; i < 1; i++) {
-                        change = 0;
-                        all_change = 0;
-                        double prev_best_score = best_score_local;
-                        if(INIT_WORST_PATH && init_wns[view] > 0) {
-                            if(viewVioCnt[view] < 30 && viewVioCnt[view] > 0) {
-                                change += InitWNSPath(view, 1);
-                            }
-                            if(change > 0) {
-                                CallTimer(view);
-                                CorrelatePT((unsigned)thread_id, view);
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_INIT_PATH", view);
-                            }
+                    change = 0;
+                    all_change = 0;
+                    double prev_best_score = best_score_local;
+                    if(INIT_WORST_PATH && init_wns[view] > 0) {
+                        if(viewVioCnt[view] < 30 && viewVioCnt[view] > 0) {
+                            change += InitWNSPath(view, 1);
                         }
-
-                        if(toler <= worst_slack && slew_violation == 0.0) {
-                            break;
+                        if(change > 0) {
+                            CallTimer(view);
+                            CorrelatePT((unsigned)thread_id, view);
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_INIT_PATH", view);
                         }
+                    }
 
-                        if(skew_violation == 0.0 && slew_violation == 0.0) {
-                            break;
+                    if(FIX_CAP && cap_violation != 0) {
+                        // CalcStats((unsigned)thread_id, true,
+                        //           "AFTER_FIX_CAP", view);
+                        change += FwdFixCapViolation(view);
+                        change += BwdFixCapViolation(view);
+                        if(change > 500) {
+                            CallTimer(view);
+                            CorrelatePT((unsigned)thread_id, view);
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_FIX_CAP", view);
                         }
+                    }
+                    printf(
+                        "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
+                        "score: %f\n",
+                        skew_violation, slew_violation, cap_violation, power,
+                        score);
+                    if(score < best_score_local) {
+                        cout << "(" << thread_id
+                             << ") Local best score is updated "
+                                "(inside of power opt loop) "
+                             << best_score_local << "/" << score << endl;
+                        best_score_local = score;
+                        best_alpha_local = local_alpha;
+                        string temp = (string)opt_str + "_best_infeasible";
+                        // pthread_mutex_lock(&mutex1);
+                        SizeOut(outputDir);
+                        // pthread_mutex_unlock(&mutex1);
+                        for(unsigned j = 0; j < numcells; ++j) {
+                            best_cells_local[j] = cells[j];
+                        }
+                        updated_local = true;
+                    }
 
+                    all_change += change;
+                    change = 0;
+                    if(FIX_SLEW && slew_violation != 0.0) {
+                        change += FwdFixSlewViolation(1.0, view);
+                        // change += BwdFixSlewViolation(1.0, view);
+                        if(FIX_SLEW_POST) {
+                            change += FwdFixSlewViolationPost(1.0, view);
+                        }
+                        if(iter % 2 == 0) {
+                        }
+                        if(change > 0) {
+                            CallTimer(view);
+                            CorrelatePT((unsigned)thread_id, view);
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_FIX_SLEW", view);
+                        }
+                    }
+
+                    printf(
+                        "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
+                        "score: %f\n",
+                        skew_violation, slew_violation, cap_violation, power,
+                        score);
+                    if(score < best_score_local) {
+                        cout << "(" << thread_id
+                             << ") Local best score is updated "
+                                "(inside of power opt loop) "
+                             << best_score_local << "/" << score << endl;
+                        best_score_local = score;
+                        best_alpha_local = local_alpha;
+                        string temp = (string)opt_str + "_best_infeasible";
+                        // pthread_mutex_lock(&mutex1);
+                        SizeOut(outputDir);
+                        // pthread_mutex_unlock(&mutex1);
+                        for(unsigned j = 0; j < numcells; ++j) {
+                            best_cells_local[j] = cells[j];
+                        }
+                        updated_local = true;
+                    }
+
+                    if(use_count_npath) {
+                        if(sensFuncT == 5 || sensFuncT == 8 || sensFuncT == 9) {
+                            CountNPaths(view);
+                        }
+                    }
+
+                    if(FIX_GLOBAL) {
+                        change += Attack(i + 1, GLOBAL, ATTACK_RATIO, 1.0,
+                                         local_alpha, 1.0, thread_id,
+                                         TIMING_OPT_GB, view);
+                    }
+
+                    all_change += change;
+                    // change +=
+                    //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
+                    //            thread_id, TIMING_OPT_GB, view);
+
+                    if(change > 0) {
+                        // for(int i = 0; i < numcells; i++) {
+                        //     assert(change[i] == cells[i].isChanged);
+                        // }
+                        // printf();
+                        CallTimer(view);
+                        CorrelatePT((unsigned)thread_id, view);
+                        CalcStats((unsigned)thread_id, true, "AFTER_TIM_REC",
+                                  view);
+                    }
+                    change = 0;
+                    if(time_recovery_iter == max_time_recovery_iter - 1) {
                         if(FIX_CAP) {
-                            // CalcStats((unsigned)thread_id, true,
-                            //           "AFTER_FIX_CAP", view);
                             change += FwdFixCapViolation(view);
                             change += BwdFixCapViolation(view);
-                            if(change > 500) {
+                            if(change > 0) {
                                 CallTimer(view);
                                 CorrelatePT((unsigned)thread_id, view);
                                 CalcStats((unsigned)thread_id, true,
                                           "AFTER_FIX_CAP", view);
                             }
                         }
-                        printf(
-                            "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
-                            "score: %f\n",
-                            skew_violation, slew_violation, cap_violation,
-                            power, score);
                         if(score < best_score_local) {
                             cout << "(" << thread_id
                                  << ") Local best score is updated "
@@ -6444,23 +6538,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             }
                             updated_local = true;
                         }
-                        if(toler <= worst_slack && slew_violation == 0.0) {
-                            break;
-                        }
-
-                        if(skew_violation == 0.0 && slew_violation == 0.0) {
-                            break;
-                        }
-
-                        all_change += change;
-                        change = 0;
                         if(FIX_SLEW) {
                             change += FwdFixSlewViolation(1.0, view);
                             // change += BwdFixSlewViolation(1.0, view);
                             if(FIX_SLEW_POST) {
                                 change += FwdFixSlewViolationPost(1.0, view);
-                            }
-                            if(iter % 2 == 0) {
                             }
                             if(change > 0) {
                                 CallTimer(view);
@@ -6468,171 +6550,61 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                 CalcStats((unsigned)thread_id, true,
                                           "AFTER_FIX_SLEW", view);
                             }
+                            all_change += change;
+                            change = 0;
                         }
+                    }
+                    printf(
+                        "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
+                        "score: %f\n",
+                        skew_violation, slew_violation, cap_violation, power,
+                        score);
 
-                        printf(
-                            "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
-                            "score: %f\n",
-                            skew_violation, slew_violation, cap_violation,
-                            power, score);
-                        if(score < best_score_local) {
-                            cout << "(" << thread_id
-                                 << ") Local best score is updated "
-                                    "(inside of power opt loop) "
-                                 << best_score_local << "/" << score << endl;
-                            best_score_local = score;
-                            best_alpha_local = local_alpha;
-                            string temp = (string)opt_str + "_best_infeasible";
-                            // pthread_mutex_lock(&mutex1);
-                            SizeOut(outputDir);
-                            // pthread_mutex_unlock(&mutex1);
-                            for(unsigned j = 0; j < numcells; ++j) {
-                                best_cells_local[j] = cells[j];
-                            }
-                            updated_local = true;
+                    if(score < best_score_local) {
+                        cout << "(" << thread_id
+                             << ") Local best score is updated "
+                                "(inside of power opt loop) "
+                             << best_score_local << "/" << score << endl;
+                        best_score_local = score;
+                        best_alpha_local = local_alpha;
+                        string temp = (string)opt_str + "_best_infeasible";
+                        // pthread_mutex_lock(&mutex1);
+                        SizeOut(outputDir);
+                        // pthread_mutex_unlock(&mutex1);
+                        for(unsigned j = 0; j < numcells; ++j) {
+                            best_cells_local[j] = cells[j];
                         }
+                        updated_local = true;
+                    }
+                    double wns;
+                    wns = min(max_neg_rslk, max_neg_fslk);
 
-                        if(toler <= worst_slack && slew_violation == 0.0) {
-                            break;
-                        }
+                    cout << "TIM_REC_LOOP " << thread_id
+                         << " view/itr/wns/TNS/PWR/swap : " << view << " " << i
+                         << " " << wns << " " << skew_violation << " " << power
+                         << " " << all_change << " " << same_ss_count << endl;
 
-                        if(skew_violation == 0.0 && slew_violation == 0.0) {
-                            break;
-                        }
-                        if(use_count_npath) {
-                            if(sensFuncT == 5 || sensFuncT == 8 ||
-                               sensFuncT == 9) {
-                                CountNPaths(view);
-                            }
-                        }
+                    prev_ss = curr_ss;
+                    curr_ss = skew_violation;
 
-                        if(FIX_GLOBAL) {
-                            change += Attack(i + 1, GLOBAL, ATTACK_RATIO, 1.0,
-                                             local_alpha, 1.0, thread_id,
-                                             TIMING_OPT_GB, view);
-                        }
+                    same_ss_count =
+                        (prev_ss > curr_ss && all_change > 0)
+                            ? 0
+                            : same_ss_count + 1;  // slack degradation
 
-                        all_change += change;
-                        // change +=
-                        //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
-                        //            thread_id, TIMING_OPT_GB, view);
+                    cout << "CURRENT BEST TNS " << cur_best_tns << " "
+                         << curr_ss << endl;
+                    if(curr_ss != 0 && cur_best_tns > curr_ss) {
+                        cout << "UPDATE BEST TNS..." << endl;
+                        cur_best_tns = curr_ss;
+                        for(unsigned j = 0; j < numcells; j++)
+                            int_best_cells[j] = cells[j];
+                        updated_int_best_cells = true;
+                    }
 
-                        if(change > 0) {
-                            // for(int i = 0; i < numcells; i++) {
-                            //     assert(change[i] == cells[i].isChanged);
-                            // }
-                            // printf();
-                            CallTimer(view);
-                            CorrelatePT((unsigned)thread_id, view);
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_TIM_REC", view);
-                        }
-                        change = 0;
-                        if(time_recovery_iter == max_time_recovery_iter - 1) {
-                            if(FIX_CAP) {
-                                change += FwdFixCapViolation(view);
-                                change += BwdFixCapViolation(view);
-                                if(change > 0) {
-                                    CallTimer(view);
-                                    CorrelatePT((unsigned)thread_id, view);
-                                    CalcStats((unsigned)thread_id, true,
-                                              "AFTER_FIX_CAP", view);
-                                }
-                            }
-                            if(score < best_score_local) {
-                                cout << "(" << thread_id
-                                     << ") Local best score is updated "
-                                        "(inside of power opt loop) "
-                                     << best_score_local << "/" << score
-                                     << endl;
-                                best_score_local = score;
-                                best_alpha_local = local_alpha;
-                                string temp =
-                                    (string)opt_str + "_best_infeasible";
-                                // pthread_mutex_lock(&mutex1);
-                                SizeOut(outputDir);
-                                // pthread_mutex_unlock(&mutex1);
-                                for(unsigned j = 0; j < numcells; ++j) {
-                                    best_cells_local[j] = cells[j];
-                                }
-                                updated_local = true;
-                            }
-                            if(FIX_SLEW) {
-                                change += FwdFixSlewViolation(1.0, view);
-                                // change += BwdFixSlewViolation(1.0, view);
-                                if(FIX_SLEW_POST) {
-                                    change +=
-                                        FwdFixSlewViolationPost(1.0, view);
-                                }
-                                if(change > 0) {
-                                    CallTimer(view);
-                                    CorrelatePT((unsigned)thread_id, view);
-                                    CalcStats((unsigned)thread_id, true,
-                                              "AFTER_FIX_SLEW", view);
-                                }
-                                all_change += change;
-                                change = 0;
-                            }
-                        }
-                        printf(
-                            "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
-                            "score: %f\n",
-                            skew_violation, slew_violation, cap_violation,
-                            power, score);
-
-                        if(score < best_score_local) {
-                            cout << "(" << thread_id
-                                 << ") Local best score is updated "
-                                    "(inside of power opt loop) "
-                                 << best_score_local << "/" << score << endl;
-                            best_score_local = score;
-                            best_alpha_local = local_alpha;
-                            string temp = (string)opt_str + "_best_infeasible";
-                            // pthread_mutex_lock(&mutex1);
-                            SizeOut(outputDir);
-                            // pthread_mutex_unlock(&mutex1);
-                            for(unsigned j = 0; j < numcells; ++j) {
-                                best_cells_local[j] = cells[j];
-                            }
-                            updated_local = true;
-                        }
-                        double wns;
-                        wns = min(max_neg_rslk, max_neg_fslk);
-
-                        cout << "TIM_REC_LOOP " << thread_id
-                             << " view/itr/wns/TNS/PWR/swap : " << view << " "
-                             << i << " " << wns << " " << skew_violation << " "
-                             << power << " " << all_change << " "
-                             << same_ss_count << endl;
-
-                        prev_ss = curr_ss;
-                        curr_ss = skew_violation;
-
-                        same_ss_count =
-                            (prev_ss > curr_ss && all_change > 0)
-                                ? 0
-                                : same_ss_count + 1;  // slack degradation
-
-                        cout << "CURRENT BEST TNS " << cur_best_tns << " "
-                             << curr_ss << endl;
-                        if(curr_ss != 0 && cur_best_tns > curr_ss) {
-                            cout << "UPDATE BEST TNS..." << endl;
-                            cur_best_tns = curr_ss;
-                            for(unsigned j = 0; j < numcells; j++)
-                                int_best_cells[j] = cells[j];
-                            updated_int_best_cells = true;
-                        }
-
-                        if(same_ss_count > SAME_SS_LIMIT)
-                            break;
-                        if(curr_ss == 0) {
-                            break;
-                        }
-
-                        if(all_change == 0 ||
-                           (prev_best_score < 0.97 * best_score_local)) {
-                            break;
-                        }
+                    if(all_change == 0 ||
+                       (prev_best_score < 0.97 * best_score_local)) {
+                        break;
                     }
 
                     viewRuntime[view] += cpuTime() - begin;
@@ -6640,9 +6612,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
                          << " : " << viewRuntime[view] << " sec. ("
                          << viewRuntime[view] / 60 << " min. )" << endl;
                 }
-                // if(skew_violation < 1) {
-                    // all_feasible = true;
-                // }
+                if(skew_violation < 1 && slew_violation < 1 &&
+                   cap_violation < 1) {
+                    all_feasible = true;
+                }
                 Profile();
             }
             for(unsigned j = 0; j < numcells; j++)
@@ -8148,8 +8121,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
-                             << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " "
+                             << " " << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -8264,7 +8237,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept" << " " << cells[cur].type << endl;
+                    cout << " Accept"
+                         << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -9875,12 +9849,14 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -10156,8 +10132,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
-             << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " "
+             << "#Modes " << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;

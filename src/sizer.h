@@ -416,7 +416,7 @@ class Sizer {
    public:
     CELL *cells = nullptr;
     double cap_margin = 0.95;
-    double slew_margin = 0.93;
+    double slew_margin = 0.85;
     bool use_margin = false;
     bool use_slew_margin = true;
     designTiming **T;
