@@ -45,6 +45,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include "sizer.h"
 #include "db_sta/dbNetwork.hh"
@@ -316,16 +317,32 @@ double Sizer::CalcSlewViolation(unsigned view) {
                             << (cell_id == UINT_MAX ? "isPI"
                                                     : cells[cell_id].type)
                             << " Cell name "
-                            << (cell_id == UINT_MAX ? pins[view][cell_opin].name
+                            << (cell_id == UINT_MAX ? nets[view][net_id].name
                                                     : cells[cell_id].name)
-                            << " " << "pre pin tran: "
+                            << " "
+                            << "pre pin tran: "
                             << max(pins[view][cell_opin].rtran,
                                    pins[view][cell_opin].ftran)
-                            << " " << "pre pin need max tran: " << cur_max_tran
-                            << " " << "net cap: " << nets[corner][net_id].cap
-                            << " " << "net delay "
+                            << " "
+                            << "pre pin need max tran: " << cur_max_tran << " "
+                            << "net cap: " << nets[corner][net_id].cap << " "
+                            << "net delay "
                             << max(wire_delay.rise, wire_delay.fall) << " "
                             << endl;
+
+                        if(cell_id == UINT_MAX) {
+                            double loadCap = 0.0;
+                            for(unsigned j = 0;
+                                j < nets[corner][net_id].outpins.size(); j++) {
+                                unsigned fopin =
+                                    nets[corner][net_id].outpins[j];
+                                loadCap += pins[view][fopin].cap;
+                            }
+                            std::cout << "Too large PI net name: "
+                                      << nets[view][net_id].name << " net cap "
+                                      << nets[corner][net_id].cap << "load cap "
+                                      << loadCap << std::endl;
+                        }
                     }
                 }
                 slew_violation_cnt++;
@@ -441,13 +458,15 @@ double Sizer::showAllSlew(unsigned view, string filename) {
                         << "pre Cell type: "
                         << (cell_id == UINT_MAX ? "isPI" : cells[cell_id].type)
                         << " Cell name "
-                        << (cell_id == UINT_MAX ? pins[view][cell_opin].name
+                        << (cell_id == UINT_MAX ? nets[view][net_id].name
                                                 : cells[cell_id].name)
-                        << " " << "pre pin tran: "
+                        << " "
+                        << "pre pin tran: "
                         << max(pins[view][cell_opin].rtran,
                                pins[view][cell_opin].ftran)
-                        << " " << "pre pin need max tran: " << cur_max_tran
-                        << " " << "net cap: " << nets[corner][net_id].cap << " "
+                        << " "
+                        << "pre pin need max tran: " << cur_max_tran << " "
+                        << "net cap: " << nets[corner][net_id].cap << " "
                         << "net delay " << max(wire_delay.rise, wire_delay.fall)
                         << " " << endl;
                 }

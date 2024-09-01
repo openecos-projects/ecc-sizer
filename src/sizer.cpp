@@ -5817,6 +5817,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         //
 
         use_margin = false;
+        use_slew_margin = false;
         auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
         auto _ord_design = _ckt->_ord_design;
         auto block = _ord_design->getBlock();
