@@ -417,7 +417,7 @@ double Sizer::showAllSlew(unsigned view, string filename) {
 
         if(t_tran > pins[view][curpin].max_tran) {
             slew_viol += t_tran - pins[view][curpin].max_tran;
-            ofs << "Cell type: " << cells[i].type << " "
+            ofs << "Cell type: " << cells[pins[view][curpin].owner].type << " "
                 << getFullPinName(pins[view][curpin]) << " pin direction: "
                 << (pin_->isOutputSignal() ? "output" : "input")
                 << " max tran vio: " << t_tran << " "
