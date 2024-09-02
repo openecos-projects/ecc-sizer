@@ -237,7 +237,7 @@ struct PIN {
     unsigned net;
     unsigned lib_pin;
     string name;
-    bool waiveTran;
+    bool waiveTran = false;
     bool waiveSlack;
     double cap, totcap, ceff;
     double max_tran;
