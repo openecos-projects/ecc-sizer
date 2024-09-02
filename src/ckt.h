@@ -427,7 +427,7 @@ struct CELL {
 
     int main_lib_cell_id;
     cell_vtypes c_vtype;
-    cell_sizes c_size;
+    int c_size;
     unsigned critical;
     map< string, unsigned > pinchar;
     vector< unsigned > inpins;
