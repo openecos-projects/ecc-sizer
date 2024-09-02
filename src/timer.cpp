@@ -380,6 +380,9 @@ double Sizer::GetNetFOTran(int net_id, unsigned view) {
     // }
     for(unsigned k = 0; k < nets[corner][net_id].outpins.size(); ++k) {
         // int step = 1;
+        if(nets[corner][net_id].outpins[k] == UINT_MAX) {
+            continue;
+        }
         unsigned focell = pins[view][nets[corner][net_id].outpins[k]].owner;
         if(focell == UINT_MAX) {  //|| focell != cur
             continue;
