@@ -1576,6 +1576,75 @@ int Sizer::FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
     return swap_cell_cnt;
 }
 
+entry Sizer::calcCellBestEntry(CELL &cell, int cell_id, int sensFunc,
+                               double gamma, double alpha, int view) {
+    entry tmpEntry;
+    int i = cell_id;
+    tmpEntry.id = i;
+
+    double npaths = 0.0;
+    double totcaps = 0.0;
+
+    for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+        npaths += pins[view][cells[i].outpins[j]].NPaths;
+        totcaps += (double)pins[view][cells[i].outpins[j]].totcap;
+    }
+    auto &cap_vec = cap_lib_cell_vec[view][cell.type];
+    if(GTR_METRIC2 == SF5) {
+        if(NO_TOPO) {
+            tmpEntry.tie_break = i;
+        }
+        else
+            tmpEntry.tie_break = map2topoidx[i];
+    }
+    else if(GTR_METRIC2 == SF6) {
+        tmpEntry.tie_break = (double)(r_size(cells[i]) + 1) / npaths;
+    }
+    else {
+        tmpEntry.tie_break = (double)(r_size(cells[i]) + 1) / totcaps;
+    }
+
+    vector< double > delta_impact_size, delta_impact_type;
+    vector< int > size_step, type_step;
+
+    for(int k = 1; k <= MULTI_STEP; ++k) {
+        // upsizing
+        if(isSizable(cells[i], k) && !cells[i].touched) {
+            double sf = 0.0;
+            if(!mmmcOn) {
+                sf = CalSens(cells[i], k, 0, sensFunc, gamma, alpha, view);
+            }
+            else {
+                sf = CalSensMMMC(cells[i], k, 0, sensFunc, gamma, alpha, true);
+            }
+            // double delta_width =
+            // cout << "UPSIZING SF " << sf << endl;
+            if(sf != 0.0) {
+                delta_impact_size.push_back(1.0 / sf);
+                size_step.push_back(k);
+            }
+        }
+    }
+
+    double max_delta_impact_size = 0.0;
+    double max_delta_impact_type = 0.0;
+    int max_step_size = 0;
+    int max_step_type = 0;
+
+    for(unsigned k = 0; k < delta_impact_size.size(); ++k) {
+        if(max_delta_impact_size > delta_impact_size[k]) {
+            max_step_size = size_step[k];
+            max_delta_impact_size = delta_impact_size[k];
+        }
+    }
+
+    tmpEntry.delta_impact = max_delta_impact_size;
+    tmpEntry.step = max_step_size;
+    tmpEntry.change = UPSIZE;
+
+    return tmpEntry;
+}
+
 // slack/slew optimization
 unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
                           double leak_exponent, double alpha,
@@ -1654,86 +1723,8 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
                     continue;
                 // FIX : shouldn't it be checked first in loop_i ?
 
-                entry tmpEntry;
-                tmpEntry.id = i;
-
-                double npaths = 0.0;
-                double totcaps = 0.0;
-
-                for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
-                    npaths += pins[view][cells[i].outpins[j]].NPaths;
-                    totcaps += (double)pins[view][cells[i].outpins[j]].totcap;
-                }
-
-                if(GTR_METRIC2 == SF5) {
-                    if(NO_TOPO) {
-                        tmpEntry.tie_break = i;
-                    }
-                    else
-                        tmpEntry.tie_break = map2topoidx[i];
-                }
-                else if(GTR_METRIC2 == SF6) {
-                    tmpEntry.tie_break =
-                        (double)(r_size(cells[i]) + 1) / npaths;
-                }
-                else {
-                    tmpEntry.tie_break =
-                        (double)(r_size(cells[i]) + 1) / totcaps;
-                }
-
-                vector< double > delta_impact_size, delta_impact_type;
-                vector< int > size_step, type_step;
-
-                for(int k = 1; k <= MULTI_STEP; ++k) {
-                    // upsizing
-                    if(isSizable(cells[i], k) && !cells[i].touched) {
-                        double sf = 0.0;
-                        if(!mmmcOn) {
-                            sf = CalSens(cells[i], k, 0, sensFuncT,
-                                         leak_exponent, alpha, view);
-                        }
-                        else {
-                            sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
-                                             leak_exponent, alpha, true);
-                        }
-                        // cout << "UPSIZING SF " << sf << endl;
-                        if(sf != 0.0) {
-                            delta_impact_size.push_back(1.0 / sf);
-                            size_step.push_back(k);
-                        }
-                    }
-                }
-
-                double max_delta_impact_size = 0.0;
-                double max_delta_impact_type = 0.0;
-                int max_step_size = 0;
-                int max_step_type = 0;
-
-                for(unsigned k = 0; k < delta_impact_size.size(); ++k) {
-                    if(max_delta_impact_size > delta_impact_size[k]) {
-                        max_step_size = size_step[k];
-                        max_delta_impact_size = delta_impact_size[k];
-                    }
-                }
-
-                for(unsigned k = 0; k < delta_impact_type.size(); ++k) {
-                    if(max_delta_impact_type > delta_impact_type[k]) {
-                        max_step_type = type_step[k];
-                        max_delta_impact_type = delta_impact_type[k];
-                    }
-                }
-
-                tmpEntry.delta_impact = max_delta_impact_size;
-                tmpEntry.step = max_step_size;
-                tmpEntry.change = UPSIZE;
-
-                if(tmpEntry.delta_impact < 0.0)
-                    targets.insert(tmpEntry);
-
-                tmpEntry.delta_impact = max_delta_impact_type;
-                tmpEntry.step = max_step_type;
-                tmpEntry.change = UPTYPE;
-
+                entry tmpEntry = calcCellBestEntry(cells[i], i, sensFuncT,
+                                                   leak_exponent, alpha, view);
                 if(tmpEntry.delta_impact < 0.0)
                     targets.insert(tmpEntry);
 
@@ -1870,73 +1861,8 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
                 swap_cnt++;
                 int i = it->id;
                 if(!isMax(cells[i])) {
-                    entry tmpEntry;
-                    tmpEntry.id = i;
-
-                    double npaths = 0.0;
-                    double totcaps = 0.0;
-
-                    for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
-                        npaths += pins[view][cells[i].outpins[j]].NPaths;
-                        totcaps +=
-                            (double)pins[view][cells[i].outpins[j]].totcap;
-                    }
-
-                    if(GTR_METRIC2 == SF5) {
-                        if(NO_TOPO) {
-                            tmpEntry.tie_break = i;
-                        }
-                        else
-                            tmpEntry.tie_break = map2topoidx[i];
-                    }
-                    else if(GTR_METRIC2 == SF6) {
-                        tmpEntry.tie_break =
-                            (double)(r_size(cells[i]) + 1) / npaths;
-                    }
-                    else {
-                        tmpEntry.tie_break =
-                            (double)(r_size(cells[i]) + 1) / totcaps;
-                    }
-
-                    vector< double > delta_impact_size, delta_impact_type;
-                    vector< int > size_step, type_step;
-
-                    for(int k = 1; k <= MULTI_STEP; ++k) {
-                        // upsizing
-                        if(isSizable(cells[i], k) && !cells[i].touched) {
-                            double sf = 0.0;
-                            if(!mmmcOn) {
-                                sf = CalSens(cells[i], k, 0, sensFuncT,
-                                             leak_exponent, alpha, view);
-                            }
-                            else {
-                                sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
-                                                 leak_exponent, alpha, true);
-                            }
-                            // cout << "UPSIZING SF " << sf << endl;
-                            if(sf != 0.0) {
-                                delta_impact_size.push_back(1.0 / sf);
-                                size_step.push_back(k);
-                            }
-                        }
-                    }
-
-                    double max_delta_impact_size = 0.0;
-                    double max_delta_impact_type = 0.0;
-                    int max_step_size = 0;
-                    int max_step_type = 0;
-
-                    for(unsigned k = 0; k < delta_impact_size.size(); ++k) {
-                        if(max_delta_impact_size > delta_impact_size[k]) {
-                            max_step_size = size_step[k];
-                            max_delta_impact_size = delta_impact_size[k];
-                        }
-                    }
-
-                    tmpEntry.delta_impact = max_delta_impact_size;
-                    tmpEntry.step = max_step_size;
-                    tmpEntry.change = UPSIZE;
-
+                    entry tmpEntry = calcCellBestEntry(
+                        cells[i], i, sensFuncT, leak_exponent, alpha, view);
                     if(tmpEntry.delta_impact < 0.0)
                         targets.insert(tmpEntry);
 

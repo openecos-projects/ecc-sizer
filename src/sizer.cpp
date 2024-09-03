@@ -5304,13 +5304,30 @@ void *static_poweropt_driver(void *void_thread_args) {
 
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
-    if(numcells == 27553 || numcells == 79919 || numcells == 145776) {
+    if(numcells == 27553 || numcells == 79919) {  // nvm , nvp
         PRFT_PTNUM = 1;
-        use_slew_margin = false;
+        use_slew_margin = true;
+        slew_margin = 0.9;
     }
-    else if(numcells == 278465) {
+    else if(numcells == 145776) {  // ariane136
+        PRFT_PTNUM = 1;
+        use_slew_margin = true;
+        slew_margin = 0.85;
+    }
+    else if(numcells == 278465) {  // aes_256
         use_slew_margin = true;
         PRFT_PTNUM = 2;
+    }
+    else if(numcells == 184863) {  // hidden3
+        use_slew_margin = true;
+        PRFT_PTNUM = 2;
+    }
+    else if(numcells == 187851) {  // mempool_tile_wrap
+        PRFT_PTNUM = 2;
+        use_slew_margin = true;
+        use_margin = true;
+        cap_margin = 0.95;
+        use_attack_new = false;
     }
     else {
         use_slew_margin = true;

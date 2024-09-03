@@ -1023,6 +1023,8 @@ class Sizer {
                     double leak_exponent, double alpha = -1,
                     double break_ratio = 0.1, unsigned thread_id = 0,
                     double toler = .0, unsigned view = 0);
+    entry calcCellBestEntry(CELL &cell, int cell_id, int sensFunc, double gamma,
+                            double alpha, int view);
     unsigned AttackNew(unsigned iter, unsigned STAGE, double RATIO,
                        double leak_exponent, double alpha, double break_ratio,
                        unsigned thread_id, double toler, unsigned view);
