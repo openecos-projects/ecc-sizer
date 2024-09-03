@@ -1031,6 +1031,7 @@ class Sizer {
     void Release(bool success, unsigned STAGE, unsigned view = 0);
     void ReducePower(int thread_id, int option);
     void FinalPowerOpt(double slk_th, unsigned thread_id);
+    void FinalReport();
     unsigned ReducePowerLegal(int thread_id, int option, int iter, double alpha,
                               double toler, bool isPeephole,
                               bool &updated_local,

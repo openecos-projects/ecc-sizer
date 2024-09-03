@@ -5824,142 +5824,141 @@ void Sizer::Parallel_Sizer_Launcher() {
         }
 #endif
     }
-    if(true) {
-        //
 
-        use_margin = false;
-        use_slew_margin = false;
-        auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
-        auto _ord_design = _ckt->_ord_design;
-        auto block = _ord_design->getBlock();
-        auto _sta = ord::OpenRoad::openRoad()->getSta();
-        _sta->networkChanged();
-        int inst_iter = 0;
-        for(unsigned i = 0; i < numcells; i++) {
-            LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
-            if(lib_cell_info == NULL || best_cells_poweropt[i].isDontTouch)
-                continue;
-            auto inst = block->findInst(best_cells_poweropt[i].name.c_str());
-            auto new_master = _ord_design->getTech()->getDB()->findMaster(
-                best_cells_poweropt[i].type.c_str());
-            if(inst->getMaster()->getName() != best_cells_poweropt[i].type) {
-                printf("Change %s %s\n", inst->getMaster()->getName().c_str(),
-                       best_cells_poweropt[i].type.c_str());
-                inst->swapMaster(new_master);
-                best_cells_poweropt[i].isStaticChanged = true;
-            }
-            else {
-                best_cells_poweropt[i].isStaticChanged = false;
-            }
-            best_cells_poweropt[i].isChanged = 1;
-        }
-        for(auto db_inst : block->getInsts()) {
-            int inst_x, inst_y;
-            int old_x, old_y;
-            db_inst->getLocation(old_x, old_y);
-            if((old_x != _ckt->old_localtion_x[inst_iter] ||
-                old_y != _ckt->old_localtion_y[inst_iter]) &&
-               !db_inst->getPlacementStatus().isFixed()) {
-                db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
-                                     _ckt->old_localtion_y[inst_iter]);
-                // cout << "Move " << db_inst->getName() << " from (" << old_x
-                //      << ", " << old_y << ") to ("
-                //      << _ckt->old_localtion_x[inst_iter] << ", "
-                //      << _ckt->old_localtion_y[inst_iter] << ")" << endl;
-            }
-            inst_iter++;
-        }
-        auto site = _ord_design->getBlock()->getRows().begin()->getSite();
-        auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
-        auto max_disp_y =
-            int(_ord_design->micronToDBU(0.1) / site->getHeight());
-        _sta = ord::OpenRoad::openRoad()->getSta();
-        _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
-                                                    false);
-        // Global Route and Estimate Global Route RC
-        double begin = cpuTime();
-        auto db_tech = _ord_design->getTech()->getDB()->getTech();
-        auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-        auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
-        auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-        auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
-        auto grt = _ord_design->getGlobalRouter();
-        grt->setOverflowIterations(50);
-        grt->clear();
-        grt->setAllowCongestion(true);
-        grt->setMinRoutingLayer(signal_low_layer);
-        grt->setMaxRoutingLayer(signal_high_layer);
-        grt->setMinLayerForClock(clk_low_layer);
-        grt->setMaxLayerForClock(clk_high_layer);
-        grt->setAdjustment(0.5);
-        grt->setVerbose(true);
-        printf("Run Global Routing...\n");
-        grt->globalRoute(false, false);
-        printf("Run Global Routing Time %f\n", cpuTime() - begin);
-        begin = cpuTime();
-        _ord_design->evalTclString("estimate_parasitics -global_routing");
-        _sta->findRequireds();
-        _ckt->readSpef_opensta(_sta);
-        int corner = 0;
-        ofstream ofs("net_changed.log");
-        for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
-            double old_cap = g_nets[corner][i].cap;
-            g_nets[corner][i].cap =
-                _ckt->g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
-            if(fabs(g_nets[corner][i].cap - old_cap) > 1e-6) {
-                ofs << "CAP CHANGE " << g_nets[corner][i].name << " "
-                    << g_nets[corner][i].cap << " " << old_cap << " "
-                    << g_nets[corner][i].outpins.size() << endl;
-            }
-            if(VERBOSE > 4)
-                cout << "CORNER " << corner << " NETS --- " << i << " "
-                     << g_nets[corner][i].name << endl;
-            int sink_num = 0;
-            for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
-                if(sn.isSink) {
-                    sn.pinId = pin2id[sn.pin_name];
-                    g_pins[corner][sn.pinId].spef_pin = sn.id;
-                }
-                sink_num += sn.isSink;
-            }
-            g_nets[corner][i].subNodeVec = _ckt->g_nets[corner][i].subNodeVec;
-        }
-        ofs.close();
-        InitNets();
-        max_time_recovery_iter -= 4;
-        max_time_recovery_iter = std::max(max_time_recovery_iter, 1);
-        // ATTACK_RATIO -= 20;
-        ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
-        int view = 0;
-        GetSwitchPowerCoef(view);
-        GetMaxTranConst(view);
-        cells = new CELL[numcells];
-        for(unsigned i = 0; i < numcells; i++)
-            cells[i] = best_cells_poweropt[i];
-        pins = new PIN *[numViews];
-        for(unsigned i = 0; i < numViews; ++i) {
-            pins[i] = new PIN[numpins];
-            for(unsigned j = 0; j < numpins; j++)
-                pins[i][j] = g_pins[i][j];
-        }
+    // ExitPTimer();
+}
+void Sizer::FinalReport() {
+    //
 
-        nets = new NET *[numCorners];
-        for(unsigned i = 0; i < numCorners; ++i) {
-            nets[i] = new NET[numnets];
-            for(unsigned j = 0; j < numnets; j++) {
-                nets[i][j] = g_nets[i][j];
-            }
+    use_margin = false;
+    use_slew_margin = false;
+    auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
+    auto _ord_design = _ckt->_ord_design;
+    auto block = _ord_design->getBlock();
+    auto _sta = ord::OpenRoad::openRoad()->getSta();
+    _sta->networkChanged();
+    int inst_iter = 0;
+    for(unsigned i = 0; i < numcells; i++) {
+        LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
+        if(lib_cell_info == NULL || best_cells_poweropt[i].isDontTouch)
+            continue;
+        auto inst = block->findInst(best_cells_poweropt[i].name.c_str());
+        auto new_master = _ord_design->getTech()->getDB()->findMaster(
+            best_cells_poweropt[i].type.c_str());
+        if(inst->getMaster()->getName() != best_cells_poweropt[i].type) {
+            printf("Change %s %s\n", inst->getMaster()->getName().c_str(),
+                   best_cells_poweropt[i].type.c_str());
+            inst->swapMaster(new_master);
+            best_cells_poweropt[i].isStaticChanged = true;
         }
-        int count = 0;
-        UpdatePTSizes(view, count);
-        UpdateCapsFromCells();
-        CallTimer(view);
-        CorrelatePT(view);
-        CalcStats(0);
-        showAllSlew(0, "after_tran.csv");
+        else {
+            best_cells_poweropt[i].isStaticChanged = false;
+        }
+        best_cells_poweropt[i].isChanged = 1;
+    }
+    for(auto db_inst : block->getInsts()) {
+        int inst_x, inst_y;
+        int old_x, old_y;
+        db_inst->getLocation(old_x, old_y);
+        if((old_x != _ckt->old_localtion_x[inst_iter] ||
+            old_y != _ckt->old_localtion_y[inst_iter]) &&
+           !db_inst->getPlacementStatus().isFixed()) {
+            db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
+                                 _ckt->old_localtion_y[inst_iter]);
+            // cout << "Move " << db_inst->getName() << " from (" << old_x
+            //      << ", " << old_y << ") to ("
+            //      << _ckt->old_localtion_x[inst_iter] << ", "
+            //      << _ckt->old_localtion_y[inst_iter] << ")" << endl;
+        }
+        inst_iter++;
+    }
+    auto site = _ord_design->getBlock()->getRows().begin()->getSite();
+    auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
+    auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
+    _sta = ord::OpenRoad::openRoad()->getSta();
+    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
+                                                false);
+    // Global Route and Estimate Global Route RC
+    double begin = cpuTime();
+    auto db_tech = _ord_design->getTech()->getDB()->getTech();
+    auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
+    auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+    auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
+    auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+    auto grt = _ord_design->getGlobalRouter();
+    grt->setOverflowIterations(50);
+    grt->clear();
+    grt->setAllowCongestion(true);
+    grt->setMinRoutingLayer(signal_low_layer);
+    grt->setMaxRoutingLayer(signal_high_layer);
+    grt->setMinLayerForClock(clk_low_layer);
+    grt->setMaxLayerForClock(clk_high_layer);
+    grt->setAdjustment(0.5);
+    grt->setVerbose(true);
+    printf("Run Global Routing...\n");
+    grt->globalRoute(false, false);
+    printf("Run Global Routing Time %f\n", cpuTime() - begin);
+    begin = cpuTime();
+    _ord_design->evalTclString("estimate_parasitics -global_routing");
+    _sta->findRequireds();
+    _ckt->readSpef_opensta(_sta);
+    int corner = 0;
+    ofstream ofs("net_changed.log");
+    for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
+        double old_cap = g_nets[corner][i].cap;
+        g_nets[corner][i].cap =
+            _ckt->g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
+        if(fabs(g_nets[corner][i].cap - old_cap) > 1e-6) {
+            ofs << "CAP CHANGE " << g_nets[corner][i].name << " "
+                << g_nets[corner][i].cap << " " << old_cap << " "
+                << g_nets[corner][i].outpins.size() << endl;
+        }
+        if(VERBOSE > 4)
+            cout << "CORNER " << corner << " NETS --- " << i << " "
+                 << g_nets[corner][i].name << endl;
+        int sink_num = 0;
+        for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
+            if(sn.isSink) {
+                sn.pinId = pin2id[sn.pin_name];
+                g_pins[corner][sn.pinId].spef_pin = sn.id;
+            }
+            sink_num += sn.isSink;
+        }
+        g_nets[corner][i].subNodeVec = _ckt->g_nets[corner][i].subNodeVec;
+    }
+    ofs.close();
+    InitNets();
+    max_time_recovery_iter -= 4;
+    max_time_recovery_iter = std::max(max_time_recovery_iter, 1);
+    // ATTACK_RATIO -= 20;
+    ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
+    int view = 0;
+    GetSwitchPowerCoef(view);
+    GetMaxTranConst(view);
+    cells = new CELL[numcells];
+    for(unsigned i = 0; i < numcells; i++)
+        cells[i] = best_cells_poweropt[i];
+    pins = new PIN *[numViews];
+    for(unsigned i = 0; i < numViews; ++i) {
+        pins[i] = new PIN[numpins];
+        for(unsigned j = 0; j < numpins; j++)
+            pins[i][j] = g_pins[i][j];
     }
 
-    ExitPTimer();
+    nets = new NET *[numCorners];
+    for(unsigned i = 0; i < numCorners; ++i) {
+        nets[i] = new NET[numnets];
+        for(unsigned j = 0; j < numnets; j++) {
+            nets[i][j] = g_nets[i][j];
+        }
+    }
+    int count = 0;
+    UpdatePTSizes(view, count);
+    UpdateCapsFromCells();
+    CallTimer(view);
+    CorrelatePT(view);
+    CalcStats(0);
+    showAllSlew(0, "after_tran.csv");
 }
 
 void Sizer::PostWNSOpt(string input, unsigned view) {
@@ -6345,8 +6344,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
             // }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns" << "/"
-                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns"
+                 << "/" << worst_slack << "ns"
+                 << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -8146,8 +8146,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
-                             << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " "
+                             << " " << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -8262,7 +8262,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept" << " " << cells[cur].type << endl;
+                    cout << " Accept"
+                         << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -9873,12 +9874,14 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -10154,8 +10157,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
-             << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " "
+             << "#Modes " << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;
@@ -10314,7 +10317,7 @@ int main(int argc, char **argv) {
          << " / " << _sizer.count_CallTimer << endl;
 #endif
     printMemoryUsage();
-
+    _sizer.FinalReport();
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
