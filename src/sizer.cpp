@@ -195,7 +195,7 @@ string CMD_FI = "";
 bool LEAKOPT = true;
 int DIFFICULTY = 0;
 int MAX_TRAN_CONST = 0;
-double CORR_RATIO = 0.3;
+double CORR_RATIO = 0.1;
 double PWR_CORR_RATIO = 0.01;
 bool GTRWPT_ONLY = false;
 double X_IN = 0.0;
@@ -203,7 +203,7 @@ double EXP_IN = 0.0;
 unsigned MIN_IA_MODE = 0;
 unsigned tabuNum = 0;
 int RATIO2 = 30;
-int ATTACK_RATIO = 30;
+int ATTACK_RATIO = 25;
 #ifdef ALPHA_BIN
 bool BACKGROUND = true;
 #else
@@ -1324,11 +1324,11 @@ void Sizer::ExitPTimer() {
             tot_timer_time += PTimer[i][view]->pt_time;
             // PTimer[i][view]->Exit();
             cout << "Exit PrimeTime number " << i << " " << view << endl;
-            delete PTimer[i][view];
+            // delete PTimer[i][view];
         }
-        delete[] PTimer[i];
+        // delete[] PTimer[i];
     }
-    delete[] PTimer;
+    // delete[] PTimer;
 }
 
 designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
@@ -3408,8 +3408,9 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             changed[i] = false;
 
         // CallTimer(view);
-        CalcStats((unsigned)thread_id, false, "After Initial TIMING_RECOVERY",
-                  view);
+        // CalcStats((unsigned)thread_id, false, "After Initial
+        // TIMING_RECOVERY",
+        //           view);
         double prev_tns, new_tns = 0.0;
         int num = targets.size();
         int iter = 0;
@@ -5306,7 +5307,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
     if(numcells == 27553 || numcells == 79919) {  // nvm , nvp
         PRFT_PTNUM = 1;
-        use_slew_margin = true;
+        use_slew_margin = false;
         slew_margin = 0.9;
     }
     else if(numcells == 145776) {  // ariane136
@@ -5316,7 +5317,8 @@ void Sizer::Parallel_Sizer_Launcher() {
     }
     else if(numcells == 278465) {  // aes_256
         use_slew_margin = true;
-        PRFT_PTNUM = 2;
+        PRFT_PTNUM = 1;
+        slew_margin = 0.85;
     }
     else if(numcells == 184863) {  // hidden3
         use_slew_margin = true;
@@ -5842,7 +5844,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 #endif
     }
 
-    // ExitPTimer();
+    ExitPTimer();
 }
 void Sizer::FinalReport() {
     //
@@ -5926,9 +5928,13 @@ void Sizer::FinalReport() {
         g_nets[corner][i].cap =
             _ckt->g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
         if(fabs(g_nets[corner][i].cap - old_cap) > 1e-6) {
-            ofs << "CAP CHANGE " << g_nets[corner][i].name << " "
-                << g_nets[corner][i].cap << " " << old_cap << " "
-                << g_nets[corner][i].outpins.size() << endl;
+            ofs << "CAP CHANGE " << g_nets[corner][i].name << ","
+                << g_nets[corner][i].cap << "," << old_cap << ","
+                << g_nets[corner][i].outpins.size() << ",";
+            if(_ckt->g_nets[corner][i].inpin != UINT_MAX) {
+                ofs << getFullPinName(g_pins[0][_ckt->g_nets[corner][i].inpin]);
+            }
+            ofs << endl;
         }
         if(VERBOSE > 4)
             cout << "CORNER " << corner << " NETS --- " << i << " "
@@ -6361,9 +6367,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
             // }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns"
-                 << "/" << worst_slack << "ns"
-                 << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns" << "/"
+                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -6474,7 +6479,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                         if(iter % 2 == 0) {
                         }
-                        if(change > 0) {
+                        if(change > 100) {
                             CallTimer(view);
                             CorrelatePT((unsigned)thread_id, view);
                             CalcStats((unsigned)thread_id, true,
@@ -6510,9 +6515,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                     }
                     if(time_recovery_iter == 0 && use_attack_new) {
-                        change += AttackNew(i + 1, GLOBAL, ATTACK_RATIO, 1.0,
-                                            local_alpha, 1.0, thread_id,
-                                            TIMING_OPT_GB, view);
+                        change +=
+                            AttackNew(i + 1, GLOBAL, 80, 1.0, local_alpha, 1.0,
+                                      thread_id, TIMING_OPT_GB, view);
                         if(change > 0) {
                             // for(int i = 0; i < numcells; i++) {
                             //     assert(change[i] == cells[i].isChanged);
@@ -8163,8 +8168,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " "
-                             << " " << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
+                             << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -8279,8 +8284,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept"
-                         << " " << cells[cur].type << endl;
+                    cout << " Accept" << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -9891,14 +9895,12 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -10174,8 +10176,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " "
-             << "#Modes " << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
+             << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;

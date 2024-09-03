@@ -72,6 +72,7 @@
 #include <set>
 #include <stack>
 #include <string>
+#include <utility>
 #include <vector>
 #include "ord/Timing.h"
 #include "ord/Tech.h"
@@ -885,6 +886,7 @@ class Circuit {
     Tcl_Interp* sta_interp = nullptr;
     std::vector< int > old_localtion_x;
     std::vector< int > old_localtion_y;
+    std::vector< string > old_master_map;
 
    private:
     std::ifstream is;
@@ -1002,6 +1004,7 @@ class Circuit {
 
     // etc
     void generate_sizelookup();
+    void runGR();
 
     map< string, unsigned > generateLibCellTable();
     void assignLibCellTables(map< string, unsigned > check_map);

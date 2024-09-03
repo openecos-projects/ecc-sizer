@@ -1746,7 +1746,7 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
         changed.resize(numcells);
         for(unsigned i = 0; i < numcells; i++)  // FIX???
             changed[i] = false;
-
+        CallTimer(view);
         CalcStats((unsigned)thread_id, false, "After Initial TIMING_RECOVERY",
                   view);
         double prev_tns, new_tns = 0.0;
@@ -1760,15 +1760,15 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
                 printf("Attack targets %d/%d\n", iter, num);
             }
             iter++;
-            if(update_cnt > (numcells * CORR_RATIO) && CORR_PT) {
+            if(update_cnt > (numcells * CORR_RATIO)) {
                 CallTimer(view);
                 CalcStats((unsigned)thread_id, false, "Corr TIMING_RECOVERY",
                           view);
                 update_cnt = 0;
             }
-            if(update_cnt > (targets.size() * break_ratio)) {
-                break;
-            }
+            // if(update_cnt > (targets.size() * break_ratio)) {
+            //     break;
+            // }
 
             if(skew_violation_worst == 0.0 || worst_slack_worst >= toler) {
                 break;
@@ -1776,7 +1776,7 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
 
             unsigned cur = it->id;
             if(changed[cur]) {
-                std::cout << "Attack again " << cells[cur].name << std::endl;
+                // std::cout << "Attack again " << cells[cur].name << std::endl;
             }
 
             double prev_slack = min(GetCellSlack(cells[cur], view),

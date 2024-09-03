@@ -422,6 +422,7 @@ void Circuit::Parser(string benchmark) {
         }
     }
 
+    runGR();
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
         if(!_sizer->noSPEF) {
             if(_sizer->mmmcOn)
@@ -434,6 +435,7 @@ void Circuit::Parser(string benchmark) {
 
             node2id.clear();
         }
+
         for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
             // g_nets[corner][i].cap =
             //     g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
@@ -3091,6 +3093,103 @@ void Circuit::merge_powerTables(LibPowerInfo& power1, LibPowerInfo& power2) {
         ++power1.cnt;
     }
 }
+void Circuit::runGR() {
+    auto corner = _ord_timing->getCorners()[0];
+    auto block = _ord_design->getBlock();
+    for(auto db_inst : block->getInsts()) {
+        int inst_x, inst_y;
+        db_inst->getLocation(inst_x, inst_y);
+        old_localtion_x.push_back(inst_x);
+        old_localtion_y.push_back(inst_y);
+    }
+    for(auto db_inst : block->getInsts()) {
+        string old_type = db_inst->getMaster()->getName();
+        old_master_map.push_back(old_type);
+        if(!_sizer->cellName2EquaivaID.count(old_type)) {
+            printf("Error in gr: not found %s\n", old_type.c_str());
+        }
+        int main_id = _sizer->cellName2EquaivaID[old_type];
+        auto libcell_table = _sizer->main_lib_cell_tables[0][main_id];
+        if(_sizer->libs[0].count(old_type) == 0) {
+            printf("Error in gr: not found %s\n", old_type.c_str());
+        }
+        auto lib_cell = &_sizer->libs[0][old_type];
+        int size_num = libcell_table->lib_vt_size_table.size();
+        int old_size = lib_cell->c_size;
+        int new_size = size_num - 1;
+        string new_libcell_str =
+            libcell_table->lib_vt_size_table[new_size][0]->name;
+        auto new_master = _ord_design->getTech()->getDB()->findMaster(
+            new_libcell_str.c_str());
+        printf("Swap %s to %s\n", old_type.c_str(), new_libcell_str.c_str());
+        if(!db_inst->isBlock() &&
+           !_ord_design->isSequential(db_inst->getMaster())) {
+            db_inst->swapMaster(new_master);
+        }
+    }
+    // Global connect
+    auto VDDNet = _ord_design->getBlock()->findNet("VDD");
+    VDDNet->setSpecial();
+    VDDNet->setSigType("POWER");
+    auto VSSNet = _ord_design->getBlock()->findNet("VSS");
+    VSSNet->setSpecial();
+    VSSNet->setSigType("GROUND");
+    _ord_design->getBlock()->addGlobalConnect(nullptr, ".*", "VDD", VDDNet,
+                                              true);
+    _ord_design->getBlock()->addGlobalConnect(nullptr, ".*", "VSS", VSSNet,
+                                              true);
+    _ord_design->getBlock()->globalConnect();
+
+    // _sta->networkChanged();
+    // Legalization
+    auto site = _ord_design->getBlock()
+                    ->getRows()
+                    .begin()
+                    ->getSite();  //->getBlock()->getRows()[0].getSite()
+    auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
+    auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
+    printf("Legalizing...\n");
+
+    // _ord_design->getOpendp()->VERBOSE
+    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
+                                                false);
+    // Global Route and Estimate Global Route RC
+    double begin = cpuTime();
+    auto db_tech = _ord_design->getTech()->getDB()->getTech();
+    auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
+    auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+    auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
+    auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+    auto grt = _ord_design->getGlobalRouter();
+    grt->clear();
+    grt->setAllowCongestion(true);
+    grt->setMinRoutingLayer(signal_low_layer);
+    grt->setMaxRoutingLayer(signal_high_layer);
+    grt->setMinLayerForClock(clk_low_layer);
+    grt->setMaxLayerForClock(clk_high_layer);
+    grt->setAdjustment(0.5);
+    grt->setVerbose(true);
+    grt->setOverflowIterations(50);
+    printf("Run Global Routing...\n");
+    grt->globalRoute(false, true);
+    int iter = 0;
+    for(auto db_inst : block->getInsts()) {
+        string old_type = old_master_map[iter];
+        string new_libcell_str = old_type;
+        auto new_master = _ord_design->getTech()->getDB()->findMaster(
+            new_libcell_str.c_str());
+        if(!db_inst->isBlock() &&
+           !_ord_design->isSequential(db_inst->getMaster())) {
+            db_inst->swapMaster(new_master);
+        }
+        iter++;
+    }
+    printf("Run Global Routing Time %f\n", cpuTime() - begin);
+    begin = cpuTime();
+    _ord_design->evalTclString("estimate_parasitics -global_routing");
+    _sta->findRequireds();
+    printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);
+}
 
 void Circuit::init_opensta() {
     string netlistFileName = _sizer->verilogFile;
@@ -3202,65 +3301,8 @@ void Circuit::init_opensta() {
     _ord_design->evalTclString("source " + libPath + "/../setRC.tcl");
     printf("sdc file %s,  setRC file %s \n", _sizer->sdcFile.c_str(),
            (libPath + "/../setRC.tcl").c_str());
-    // Global connect
-    auto VDDNet = _ord_design->getBlock()->findNet("VDD");
-    VDDNet->setSpecial();
-    VDDNet->setSigType("POWER");
-    auto VSSNet = _ord_design->getBlock()->findNet("VSS");
-    VSSNet->setSpecial();
-    VSSNet->setSigType("GROUND");
-    _ord_design->getBlock()->addGlobalConnect(nullptr, ".*", "VDD", VDDNet,
-                                              true);
-    _ord_design->getBlock()->addGlobalConnect(nullptr, ".*", "VSS", VSSNet,
-                                              true);
-    _ord_design->getBlock()->globalConnect();
-
     _ord_timing = new ord::Timing(_ord_design);
-    auto corner = _ord_timing->getCorners()[0];
-    auto block = _ord_design->getBlock();
     _sta = ord::OpenRoad::openRoad()->getSta();
-    // _sta->networkChanged();
-    // Legalization
-    auto site = _ord_design->getBlock()
-                    ->getRows()
-                    .begin()
-                    ->getSite();  //->getBlock()->getRows()[0].getSite()
-    auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
-    auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
-    printf("Legalizing...\n");
-    for(auto db_inst : block->getInsts()) {
-        int inst_x, inst_y;
-        db_inst->getLocation(inst_x, inst_y);
-        old_localtion_x.push_back(inst_x);
-        old_localtion_y.push_back(inst_y);
-    }
-    // _ord_design->getOpendp()->VERBOSE
-    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
-                                                false);
-    // Global Route and Estimate Global Route RC
-    double begin = cpuTime();
-    auto db_tech = _ord_design->getTech()->getDB()->getTech();
-    auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-    auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
-    auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-    auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
-    auto grt = _ord_design->getGlobalRouter();
-    grt->clear();
-    grt->setAllowCongestion(true);
-    grt->setMinRoutingLayer(signal_low_layer);
-    grt->setMaxRoutingLayer(signal_high_layer);
-    grt->setMinLayerForClock(clk_low_layer);
-    grt->setMaxLayerForClock(clk_high_layer);
-    grt->setAdjustment(0.5);
-    grt->setVerbose(true);
-    grt->setOverflowIterations(50);
-    printf("Run Global Routing...\n");
-    grt->globalRoute(false, true);
-    printf("Run Global Routing Time %f\n", cpuTime() - begin);
-    begin = cpuTime();
-    _ord_design->evalTclString("estimate_parasitics -global_routing");
-    _sta->findRequireds();
-    printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
 
     // _ord_design->evalTclString("sta::set_delay_calculator lumped_cap");
