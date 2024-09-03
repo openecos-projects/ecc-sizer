@@ -1022,6 +1022,9 @@ class Sizer {
                     double leak_exponent, double alpha = -1,
                     double break_ratio = 0.1, unsigned thread_id = 0,
                     double toler = .0, unsigned view = 0);
+    unsigned AttackNew(unsigned iter, unsigned STAGE, double RATIO,
+                       double leak_exponent, double alpha, double break_ratio,
+                       unsigned thread_id, double toler, unsigned view);
     void AttackPT(unsigned round, unsigned STAGE, double RATIO,
                   double leak_exponent);
     void Release(bool success, unsigned STAGE, unsigned view = 0);

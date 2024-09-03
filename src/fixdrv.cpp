@@ -67,11 +67,6 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
             if(nets[corner][outnet].is_clock) {
                 continue;
             }
-            // double loadCap = 0;
-            // for(unsigned j = 0; j < nets[corner][outnet].outpins.size(); j++)
-            // {
-            //     loadCap += pins[view][nets[corner][outnet].outpins[j]].cap;
-            // }
             // if(fabs(nets[corner][outnet].cap + loadCap -
             //         pins[view][cells[cur].outpins[k]].totcap) > 1e-3) {
             //     printf(
@@ -127,7 +122,8 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                             CELL &cell = cells[curfo];
                             // double delta_slack = EstDeltaSlackNEW(cell, -1,
                             // 0, view);
-
+                            LibCellInfo *old_cell =
+                                getLibCellInfo(cell, corner);
                             LibCellInfo *lib_cell_info =
                                 sizing_progression(cell, -1, 0, view);
 
@@ -137,6 +133,19 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                                         ->pins[pins[view][curinpin].lib_pin]
                                         .capacitance -
                                     pins[view][curinpin].cap;
+                                double old_vio = max(
+                                    0.0,
+                                    pins[view][curinpin].totcap -
+                                        old_cell
+                                            ->pins[pins[view][curinpin].lib_pin]
+                                            .maxCapacitance);
+                                double new_vio = max(
+                                    0.0,
+                                    pins[view][curinpin].totcap -
+                                        lib_cell_info
+                                            ->pins[pins[view][curinpin].lib_pin]
+                                            .maxCapacitance);
+                                delta_cap_size += new_vio - old_vio;
                             }
                             else {
                                 delta_cap_size = 0.0;
@@ -210,7 +219,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                     }
                 }
 
-                change = targets.size();
+                change += targets.size();
 
                 for(set< entry >::iterator it = targets.begin();
                     it != targets.end(); it++) {
@@ -1565,4 +1574,398 @@ int Sizer::FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
         }
     }
     return swap_cell_cnt;
+}
+
+// slack/slew optimization
+unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
+                          double leak_exponent, double alpha,
+                          double break_ratio, unsigned thread_id, double toler,
+                          unsigned view) {
+    if(alpha == -1) {
+        alpha = ALPHA;
+    }
+    unsigned swap_cnt = 0;
+    if(STAGE == GLOBAL || STAGE == FINESWAP) {
+        if(STAGE == GLOBAL) {
+            cout << endl
+                 << "(" << thread_id << ") Start global opt.. round " << iter
+                 << endl;
+        }
+        else {
+            cout << endl
+                 << "(" << thread_id
+                 << ") Start global opt (fine swap) .. round " << iter << endl;
+        }
+        // CallTimer(view);
+        // CorrelatePT((unsigned)thread_id, view);
+        // CalcStats((unsigned)thread_id, false, "Initial TIMING_RECOVERY",
+        // view);
+
+        for(unsigned view1 = 0; view1 < numViews; ++view1) {
+            unsigned mode1 = mmmcViewList[view1].mode;
+            if(viewTNS[view1] == 0.0) {
+                viewWeightTime[view1] = 0.0;
+            }
+            else {
+                if(NORM_SFT == 1) {
+                    viewWeightTime[view1] = 1.0 / clk_period[mode1];
+                }
+                else if(NORM_SFT == 2) {
+                    viewWeightTime[view1] = viewTNS[view1] / clk_period[mode1];
+                }
+                else if(NORM_SFT == 3) {
+                    viewWeightTime[view1] = -viewWNS[view1] / clk_period[mode1];
+                }
+                else if(NORM_SFT == 4) {
+                    viewWeightTime[view1] = viewWeight[view1];
+                }
+            }
+        }
+        // set< entry > targets;
+        // if(!already_built) {
+        //     buildTargets(iter, STAGE, RATIO, leak_exponent, alpha,
+        //     break_ratio,
+        //                  thread_id, toler, view);
+        //     already_built = true;
+        // }
+
+        for(unsigned i = 0; i < numcells; i++) {
+            if(cells[i].isClockCell)
+                continue;
+            if(cells[i].isDontTouch)
+                continue;
+            if(isff(cells[i])) {
+                continue;
+            }
+            bool attack = false;
+            // if(i % 100 == 0) {
+            //     printf("Attack %d/%d\n", i, numcells);
+            // }
+            for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+                if(pins[view][cells[i].outpins[j]].rslk < toler ||
+                   pins[view][cells[i].outpins[j]].fslk < toler) {
+                    attack = true;
+                    break;
+                }
+            }
+
+            if(attack) {
+                if(r_type(cells[i]) == (numVt - 1) && isMax(cells[i]))
+                    continue;
+                // FIX : shouldn't it be checked first in loop_i ?
+
+                entry tmpEntry;
+                tmpEntry.id = i;
+
+                double npaths = 0.0;
+                double totcaps = 0.0;
+
+                for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+                    npaths += pins[view][cells[i].outpins[j]].NPaths;
+                    totcaps += (double)pins[view][cells[i].outpins[j]].totcap;
+                }
+
+                if(GTR_METRIC2 == SF5) {
+                    if(NO_TOPO) {
+                        tmpEntry.tie_break = i;
+                    }
+                    else
+                        tmpEntry.tie_break = map2topoidx[i];
+                }
+                else if(GTR_METRIC2 == SF6) {
+                    tmpEntry.tie_break =
+                        (double)(r_size(cells[i]) + 1) / npaths;
+                }
+                else {
+                    tmpEntry.tie_break =
+                        (double)(r_size(cells[i]) + 1) / totcaps;
+                }
+
+                vector< double > delta_impact_size, delta_impact_type;
+                vector< int > size_step, type_step;
+
+                for(int k = 1; k <= MULTI_STEP; ++k) {
+                    // upsizing
+                    if(isSizable(cells[i], k) && !cells[i].touched) {
+                        double sf = 0.0;
+                        if(!mmmcOn) {
+                            sf = CalSens(cells[i], k, 0, sensFuncT,
+                                         leak_exponent, alpha, view);
+                        }
+                        else {
+                            sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
+                                             leak_exponent, alpha, true);
+                        }
+                        // cout << "UPSIZING SF " << sf << endl;
+                        if(sf != 0.0) {
+                            delta_impact_size.push_back(1.0 / sf);
+                            size_step.push_back(k);
+                        }
+                    }
+                }
+
+                double max_delta_impact_size = 0.0;
+                double max_delta_impact_type = 0.0;
+                int max_step_size = 0;
+                int max_step_type = 0;
+
+                for(unsigned k = 0; k < delta_impact_size.size(); ++k) {
+                    if(max_delta_impact_size > delta_impact_size[k]) {
+                        max_step_size = size_step[k];
+                        max_delta_impact_size = delta_impact_size[k];
+                    }
+                }
+
+                for(unsigned k = 0; k < delta_impact_type.size(); ++k) {
+                    if(max_delta_impact_type > delta_impact_type[k]) {
+                        max_step_type = type_step[k];
+                        max_delta_impact_type = delta_impact_type[k];
+                    }
+                }
+
+                tmpEntry.delta_impact = max_delta_impact_size;
+                tmpEntry.step = max_step_size;
+                tmpEntry.change = UPSIZE;
+
+                if(tmpEntry.delta_impact < 0.0)
+                    targets.insert(tmpEntry);
+
+                tmpEntry.delta_impact = max_delta_impact_type;
+                tmpEntry.step = max_step_type;
+                tmpEntry.change = UPTYPE;
+
+                if(tmpEntry.delta_impact < 0.0)
+                    targets.insert(tmpEntry);
+
+                // cout << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
+            }
+        }
+        cout << "# priority targets  : " << targets.size() << endl;
+
+        if(targets.size() == 0) {
+            // it's stuck. let's release some of cells
+            // Release(false, CRIT_LEGALIZE);
+            return 0;
+        }
+
+        unsigned count = 0;
+        unsigned update_cnt = 0;
+
+        vector< bool > changed;
+        changed.resize(numcells);
+        for(unsigned i = 0; i < numcells; i++)  // FIX???
+            changed[i] = false;
+
+        CalcStats((unsigned)thread_id, false, "After Initial TIMING_RECOVERY",
+                  view);
+        double prev_tns, new_tns = 0.0;
+        int num = targets.size();
+        int iter = 0;
+        while(targets.size() > 0) {
+            auto it = targets.begin();
+            if(iter % 100 == 0) {
+                printf("Attack targets %d/%d\n", iter, num);
+            }
+            iter++;
+            if(update_cnt > (numcells * CORR_RATIO) && CORR_PT) {
+                CallTimer(view);
+                CalcStats((unsigned)thread_id, false, "Corr TIMING_RECOVERY",
+                          view);
+                update_cnt = 0;
+            }
+            if(update_cnt > (targets.size() * break_ratio)) {
+                break;
+            }
+
+            if(skew_violation_worst == 0.0 || worst_slack_worst >= toler) {
+                break;
+            }
+
+            unsigned cur = it->id;
+            if(changed[cur])
+                continue;
+
+            double prev_slack = min(GetCellSlack(cells[cur], view),
+                                    GetFICellSlack(cells[cur], view));
+            double new_slack = prev_slack;
+
+            if(prev_slack > toler)
+                continue;
+
+            double delta_delay = 0.0;
+
+            bool change = false;
+            if(it->change == UPSIZE) {
+                if(STAGE == GLOBAL) {
+                    if(VERBOSE >= 4)
+                        cout << "GLOBAL TARGET = UPSIZE (" << it->step
+                             << "): " << cells[cur].name << " "
+                             << cells[cur].type;
+                }
+                else {
+                    if(VERBOSE >= 4)
+                        cout << "FINESWAP TARGET = UPSIZE (" << it->step
+                             << "): " << cells[cur].name << " "
+                             << cells[cur].type;
+                }
+
+                if(HOLD_CHECK) {
+                    delta_delay = EstDeltaDelay(cells[cur], it->step, view);
+                }
+
+                change = cell_resize(cells[cur], it->step);
+            }
+
+            //// check timing after cell change
+
+            bool restore = false;
+            if(!CHECK_ALL_VIEW) {
+                // ista for the new solution
+                OneTimer(cells[cur], STA_MARGIN, true);
+
+                new_slack = min(GetCellSlack(cells[cur], view),
+                                GetFICellSlack(cells[cur], view));
+
+                if(prev_slack > new_slack && new_slack < 0.0)
+                    restore = true;
+
+                if(!restore && HOLD_CHECK) {
+                    if(EstHoldVio(cells[cur], delta_delay, view)) {
+                        restore = true;
+                    }
+                }
+            }
+
+            if(restore && change) {  // restore
+                if(it->change == UPSIZE) {
+                    cell_resize(cells[cur], -it->step);
+                }
+                else {
+                    cell_retype(cells[cur], -it->step);
+                }
+
+                // ista with the restored solution
+                if(!CHECK_ALL_VIEW) {
+                    OneTimer(cells[cur], STA_MARGIN, true);
+                }
+                else {
+                    for(unsigned view1 = 0; view1 < numViews; ++view1) {
+                        OneTimer(cells[cur], STA_MARGIN, true);
+                    }
+                }
+
+                if(VERBOSE >= 4)
+                    cout << "-> " << cells[cur].type << " -- Restored" << endl;
+                cells[cur].isChanged -= 2;
+            }
+            else {  // accept
+                changed[cur] = true;
+                if(VERBOSE >= 4)
+                    cout << "-> " << cells[cur].type << " -- Accepted" << endl;
+                count++;
+                update_cnt++;
+                swap_cnt++;
+                int i = it->id;
+                if(r_type(cells[i]) == (numVt - 1) && isMax(cells[i]))
+                    continue;
+                // FIX : shouldn't it be checked first in loop_i ?
+
+                entry tmpEntry;
+                tmpEntry.id = i;
+
+                double npaths = 0.0;
+                double totcaps = 0.0;
+
+                for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
+                    npaths += pins[view][cells[i].outpins[j]].NPaths;
+                    totcaps += (double)pins[view][cells[i].outpins[j]].totcap;
+                }
+
+                if(GTR_METRIC2 == SF5) {
+                    if(NO_TOPO) {
+                        tmpEntry.tie_break = i;
+                    }
+                    else
+                        tmpEntry.tie_break = map2topoidx[i];
+                }
+                else if(GTR_METRIC2 == SF6) {
+                    tmpEntry.tie_break =
+                        (double)(r_size(cells[i]) + 1) / npaths;
+                }
+                else {
+                    tmpEntry.tie_break =
+                        (double)(r_size(cells[i]) + 1) / totcaps;
+                }
+
+                vector< double > delta_impact_size, delta_impact_type;
+                vector< int > size_step, type_step;
+
+                for(int k = 1; k <= MULTI_STEP; ++k) {
+                    // upsizing
+                    if(isSizable(cells[i], k) && !cells[i].touched) {
+                        double sf = 0.0;
+                        if(!mmmcOn) {
+                            sf = CalSens(cells[i], k, 0, sensFuncT,
+                                         leak_exponent, alpha, view);
+                        }
+                        else {
+                            sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
+                                             leak_exponent, alpha, true);
+                        }
+                        // cout << "UPSIZING SF " << sf << endl;
+                        if(sf != 0.0) {
+                            delta_impact_size.push_back(1.0 / sf);
+                            size_step.push_back(k);
+                        }
+                    }
+                }
+
+                double max_delta_impact_size = 0.0;
+                double max_delta_impact_type = 0.0;
+                int max_step_size = 0;
+                int max_step_type = 0;
+
+                for(unsigned k = 0; k < delta_impact_size.size(); ++k) {
+                    if(max_delta_impact_size > delta_impact_size[k]) {
+                        max_step_size = size_step[k];
+                        max_delta_impact_size = delta_impact_size[k];
+                    }
+                }
+
+                for(unsigned k = 0; k < delta_impact_type.size(); ++k) {
+                    if(max_delta_impact_type > delta_impact_type[k]) {
+                        max_step_type = type_step[k];
+                        max_delta_impact_type = delta_impact_type[k];
+                    }
+                }
+
+                tmpEntry.delta_impact = max_delta_impact_size;
+                tmpEntry.step = max_step_size;
+                tmpEntry.change = UPSIZE;
+
+                if(tmpEntry.delta_impact < 0.0)
+                    targets.insert(tmpEntry);
+
+                tmpEntry.delta_impact = max_delta_impact_type;
+                tmpEntry.step = max_step_type;
+                tmpEntry.change = UPTYPE;
+
+                if(tmpEntry.delta_impact < 0.0)
+                    targets.insert(tmpEntry);
+
+                // cells[cur].isChanged++;
+                // CalcStats((unsigned)thread_id, false, "After accept
+                // TIMING_RECOVERY", view);
+            }
+
+            cells[cur].critical++;
+
+            if(count > (double)targets.size() * RATIO * 0.01)
+                break;
+        }
+        targets.clear();
+    }
+    cout << "swap count = " << swap_cnt << endl;
+
+    return swap_cnt;
 }

@@ -319,14 +319,12 @@ double Sizer::CalcSlewViolation(unsigned view) {
                             << " Cell name "
                             << (cell_id == UINT_MAX ? nets[view][net_id].name
                                                     : cells[cell_id].name)
-                            << " "
-                            << "pre pin tran: "
+                            << " " << "pre pin tran: "
                             << max(pins[view][cell_opin].rtran,
                                    pins[view][cell_opin].ftran)
-                            << " "
-                            << "pre pin need max tran: " << cur_max_tran << " "
-                            << "net cap: " << nets[corner][net_id].cap << " "
-                            << "net delay "
+                            << " " << "pre pin need max tran: " << cur_max_tran
+                            << " " << "net cap: " << nets[corner][net_id].cap
+                            << " " << "net delay "
                             << max(wire_delay.rise, wire_delay.fall) << " "
                             << endl;
 
@@ -460,13 +458,11 @@ double Sizer::showAllSlew(unsigned view, string filename) {
                         << " Cell name "
                         << (cell_id == UINT_MAX ? nets[view][net_id].name
                                                 : cells[cell_id].name)
-                        << " "
-                        << "pre pin tran: "
+                        << " " << "pre pin tran: "
                         << max(pins[view][cell_opin].rtran,
                                pins[view][cell_opin].ftran)
-                        << " "
-                        << "pre pin need max tran: " << cur_max_tran << " "
-                        << "net cap: " << nets[corner][net_id].cap << " "
+                        << " " << "pre pin need max tran: " << cur_max_tran
+                        << " " << "net cap: " << nets[corner][net_id].cap << " "
                         << "net delay " << max(wire_delay.rise, wire_delay.fall)
                         << " " << endl;
                 }

@@ -3407,7 +3407,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
         for(unsigned i = 0; i < numcells; i++)  // FIX???
             changed[i] = false;
 
-        CallTimer(view);
+        // CallTimer(view);
         CalcStats((unsigned)thread_id, false, "After Initial TIMING_RECOVERY",
                   view);
         double prev_tns, new_tns = 0.0;
@@ -5304,11 +5304,16 @@ void *static_poweropt_driver(void *void_thread_args) {
 
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
-    if(numcells == 27553 || numcells == 79919 || numcells == 145776 ||
-       numcells == 278465) {
+    if(numcells == 27553 || numcells == 79919 || numcells == 145776) {
         PRFT_PTNUM = 1;
+        use_slew_margin = false;
+    }
+    else if(numcells == 278465) {
+        use_slew_margin = true;
+        PRFT_PTNUM = 2;
     }
     else {
+        use_slew_margin = true;
         PRFT_PTNUM = 2;
     }
     PTimer = new designTiming **[MAX_THREAD];
@@ -6340,9 +6345,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
             // }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns"
-                 << "/" << worst_slack << "ns"
-                 << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns" << "/"
+                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -8121,8 +8125,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " "
-                             << " " << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
+                             << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -8237,8 +8241,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept"
-                         << " " << cells[cur].type << endl;
+                    cout << " Accept" << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -9849,14 +9852,12 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " "
-                         << " " << skew_violation << " " << power << " "
+                         << " " << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -10132,8 +10133,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " "
-             << "#Modes " << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
+             << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;
