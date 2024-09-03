@@ -319,12 +319,14 @@ double Sizer::CalcSlewViolation(unsigned view) {
                             << " Cell name "
                             << (cell_id == UINT_MAX ? nets[view][net_id].name
                                                     : cells[cell_id].name)
-                            << " " << "pre pin tran: "
+                            << " "
+                            << "pre pin tran: "
                             << max(pins[view][cell_opin].rtran,
                                    pins[view][cell_opin].ftran)
-                            << " " << "pre pin need max tran: " << cur_max_tran
-                            << " " << "net cap: " << nets[corner][net_id].cap
-                            << " " << "net delay "
+                            << " "
+                            << "pre pin need max tran: " << cur_max_tran << " "
+                            << "net cap: " << nets[corner][net_id].cap << " "
+                            << "net delay "
                             << max(wire_delay.rise, wire_delay.fall) << " "
                             << endl;
 
@@ -450,19 +452,24 @@ double Sizer::showAllSlew(unsigned view, string filename) {
                                               pins[view][curpin].max_tran,
                                           0.0);
                     }
-                    ofs << "now cell type: " << cells[i].type << " "
-                        << "now cell name: " << cells[i].name << " "
-                        << "now cell size " << cells[i].c_size << " "
+                    ofs << "now cell type: "
+                        << cells[pins[view][curpin].owner].type << " "
+                        << "now cell name: "
+                        << cells[pins[view][curpin].owner].name << " "
+                        << "now cell size "
+                        << cells[pins[view][curpin].owner].c_size << " "
                         << "pre Cell type: "
                         << (cell_id == UINT_MAX ? "isPI" : cells[cell_id].type)
                         << " Cell name "
                         << (cell_id == UINT_MAX ? nets[view][net_id].name
                                                 : cells[cell_id].name)
-                        << " " << "pre pin tran: "
+                        << " "
+                        << "pre pin tran: "
                         << max(pins[view][cell_opin].rtran,
                                pins[view][cell_opin].ftran)
-                        << " " << "pre pin need max tran: " << cur_max_tran
-                        << " " << "net cap: " << nets[corner][net_id].cap << " "
+                        << " "
+                        << "pre pin need max tran: " << cur_max_tran << " "
+                        << "net cap: " << nets[corner][net_id].cap << " "
                         << "net delay " << max(wire_delay.rise, wire_delay.fall)
                         << " " << endl;
                 }
