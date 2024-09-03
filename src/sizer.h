@@ -418,6 +418,7 @@ class Sizer {
     double cap_margin = 0.95;
     double slew_margin = 0.85;
     bool use_margin = false;
+    bool use_attack_new = true;
     bool use_slew_margin = true;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;

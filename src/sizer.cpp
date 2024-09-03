@@ -6492,11 +6492,42 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             CountNPaths(view);
                         }
                     }
-
-                    if(FIX_GLOBAL) {
-                        change += Attack(i + 1, GLOBAL, ATTACK_RATIO, 1.0,
-                                         local_alpha, 1.0, thread_id,
-                                         TIMING_OPT_GB, view);
+                    if(time_recovery_iter == 0 && use_attack_new) {
+                        change += AttackNew(i + 1, GLOBAL, ATTACK_RATIO, 1.0,
+                                            local_alpha, 1.0, thread_id,
+                                            TIMING_OPT_GB, view);
+                        if(change > 0) {
+                            // for(int i = 0; i < numcells; i++) {
+                            //     assert(change[i] == cells[i].isChanged);
+                            // }
+                            // printf();
+                            CallTimer(view);
+                            CorrelatePT((unsigned)thread_id, view);
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_TIM_REC", view);
+                        }
+                        use_attack_new = false;
+                    }
+                    else {
+                        if(FIX_GLOBAL) {
+                            change += Attack(i + 1, GLOBAL, ATTACK_RATIO, 1.0,
+                                             local_alpha, 1.0, thread_id,
+                                             TIMING_OPT_GB, view);
+                            // change += Attack(i + 1, GLOBAL,
+                            // ATTACK_RATIO, 1.0,
+                            //                  local_alpha, 1.0, thread_id,
+                            //                  TIMING_OPT_GB, view);
+                        }
+                        if(change > 0) {
+                            // for(int i = 0; i < numcells; i++) {
+                            //     assert(change[i] == cells[i].isChanged);
+                            // }
+                            // printf();
+                            CallTimer(view);
+                            CorrelatePT((unsigned)thread_id, view);
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_TIM_REC", view);
+                        }
                     }
 
                     all_change += change;
@@ -6504,16 +6535,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     //     Attack(i + 1, FINESWAP, 30, 1.0, local_alpha,
                     //            thread_id, TIMING_OPT_GB, view);
 
-                    if(change > 0) {
-                        // for(int i = 0; i < numcells; i++) {
-                        //     assert(change[i] == cells[i].isChanged);
-                        // }
-                        // printf();
-                        CallTimer(view);
-                        CorrelatePT((unsigned)thread_id, view);
-                        CalcStats((unsigned)thread_id, true, "AFTER_TIM_REC",
-                                  view);
-                    }
                     change = 0;
                     if(time_recovery_iter == max_time_recovery_iter - 1) {
                         if(FIX_CAP) {
