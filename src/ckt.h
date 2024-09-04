@@ -857,7 +857,7 @@ class Circuit {
     }
 
     friend class Sizer;
-
+    map< string, unsigned > check_map;
     string getFullPinName(PIN& pin);
     void Parser(string benchmark);
     void Print_Stats();

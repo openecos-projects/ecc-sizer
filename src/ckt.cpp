@@ -307,7 +307,7 @@ void Circuit::Parser(string benchmark) {
         }
     }
 
-    map< string, unsigned > check_map = generateLibCellTable();
+    check_map = generateLibCellTable();
 
     assignLibCellTables(check_map);
     assignMaxTrans();
@@ -3108,15 +3108,16 @@ void Circuit::runGR() {
         if(!_sizer->cellName2EquaivaID.count(old_type)) {
             printf("Error in gr: not found %s\n", old_type.c_str());
         }
-        int main_id = _sizer->cellName2EquaivaID[old_type];
-        auto libcell_table = _sizer->main_lib_cell_tables[0][main_id];
+        string footprint = to_string(_sizer->cellName2EquaivaID[old_type]);
+        auto libcell_table =
+            _sizer->main_lib_cell_tables[0][check_map[footprint]];
         if(_sizer->libs[0].count(old_type) == 0) {
             printf("Error in gr: not found %s\n", old_type.c_str());
         }
         auto lib_cell = &_sizer->libs[0][old_type];
         int size_num = libcell_table->lib_vt_size_table.size();
         int old_size = lib_cell->c_size;
-        int new_size = size_num - 1;
+        int new_size = std::min(size_num - 1, old_size + 3);
         string new_libcell_str =
             libcell_table->lib_vt_size_table[new_size][0]->name;
         auto new_master = _ord_design->getTech()->getDB()->findMaster(
