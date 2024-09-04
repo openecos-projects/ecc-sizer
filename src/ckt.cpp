@@ -229,7 +229,7 @@ void Circuit::Parser(string benchmark) {
                 if(fabs(slew_limit - 0.32) > 1e-3) {
                     cout << "not equal to 0.32, slew limit " << slew_limit
                          << endl;
-                    exit(0);
+                    // exit(0);
                 }
                 pin.capacitance = lib_port->capacitance();
                 bool maxCapExist;

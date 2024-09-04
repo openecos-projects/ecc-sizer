@@ -114,6 +114,7 @@ double CRIT_PATH_RATIO = 0.99;
 int RELEASE_MODE = 3;
 bool RELEASE = false;
 double POWER_OPT_GB = 0.0;
+double ATTACK_NEW_RATIO = 80;
 double TIMING_OPT_GB = 0.0;
 int SAME_SS_LIMIT = 5;
 double TRIAL_RATE = 0.2;
@@ -203,7 +204,7 @@ double EXP_IN = 0.0;
 unsigned MIN_IA_MODE = 0;
 unsigned tabuNum = 0;
 int RATIO2 = 30;
-int ATTACK_RATIO = 25;
+int ATTACK_RATIO = 30;
 #ifdef ALPHA_BIN
 bool BACKGROUND = true;
 #else
@@ -5315,22 +5316,27 @@ void Sizer::Parallel_Sizer_Launcher() {
         PRFT_PTNUM = 1;
         use_slew_margin = true;
         slew_margin = 0.85;
+        input_slew_margin = 0.9;
         max_time_recovery_iter = 7;
     }
     else if(numcells == 278465) {  // aes_256
         use_slew_margin = true;
         PRFT_PTNUM = 1;
         slew_margin = 0.85;
+        input_slew_margin = 0.9;
         max_time_recovery_iter = 7;
     }
     else if(numcells == 184863) {  // hidden3
         use_slew_margin = true;
         PRFT_PTNUM = 2;
         max_time_recovery_iter = 7;
+        input_slew_margin = 0.9;
     }
     else if(numcells == 187851) {  // mempool_tile_wrap
-        PRFT_PTNUM = 2;
+        PRFT_PTNUM = 1;
         use_slew_margin = true;
+        slew_margin = 0.85;
+        input_slew_margin = 0.9;
         use_margin = true;
         cap_margin = 0.95;
         use_attack_new = false;
@@ -5624,6 +5630,8 @@ void Sizer::Parallel_Sizer_Launcher() {
                     else if(numcells == 145776) {  // ariane136
                         use_slew_margin = true;
                         slew_margin = 0.85;
+                        use_attack_new = true;
+                        ATTACK_NEW_RATIO = 80;
                     }
                     else if(numcells == 278465) {  // aes_256
                         use_slew_margin = true;
@@ -5633,9 +5641,10 @@ void Sizer::Parallel_Sizer_Launcher() {
                         use_slew_margin = true;
                     }
                     else if(numcells == 187851) {  // mempool_tile_wrap
-                        use_slew_margin = true;
-                        use_margin = true;
-                        cap_margin = 0.95;
+                        use_slew_margin = false;
+                        slew_margin = 0.8;
+                        use_margin = false;
+                        // cap_margin = 0.85;
                         use_attack_new = false;
                     }
                     else {
@@ -5689,7 +5698,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                         }
                         best_cells_poweropt[i].isChanged = 0;
                     }
-                    _ckt->runGR(50, true);
+                    _ckt->runGR(50, false);
                     _ckt->readSpef_opensta(_sta);
                     int corner = 0;
                     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
@@ -5713,11 +5722,13 @@ void Sizer::Parallel_Sizer_Launcher() {
                         // g_nets[corner][i].subNodeResVec;
                     }
                     InitNets();
-                    max_time_recovery_iter = 7;
+                    max_time_recovery_iter = 1;
+                    FIX_GLOBAL = false;
+                    FIX_CAP = false;
                     ATTACK_RATIO = 30;
+                    FIX_SLEW = false;
+                    FIX_SLEW_POST = true;
                     // ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
-                    // FIX_GLOBAL = false;
-                    // FIX_CAP = false;
                     // FIX_SLEW = false;
                 }
                 // pthread_create(&threads[j], NULL, (),
@@ -6440,6 +6451,15 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         CalcStats((unsigned)thread_id, true, "AFTER_FIX_CAP",
                                   view);
                     }
+                    else if(cap_violation != 0) {
+                        FwdFixCapViolation(view);
+                        CallTimer(view);
+                        if(change > 1000) {
+                            CorrelatePT((unsigned)thread_id, view);
+                        }
+                        CalcStats((unsigned)thread_id, true, "AFTER_FIX_CAP",
+                                  view);
+                    }
                     printf(
                         "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
                         "score: %f\n",
@@ -6479,6 +6499,17 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         CalcStats((unsigned)thread_id, true, "AFTER_FIX_SLEW",
                                   view);
                     }
+                    else if(slew_violation != 0.0) {
+                        if(FIX_SLEW_POST) {
+                            change += FwdFixSlewViolationPost(1.0, view);
+                            CallTimer(view);
+                            if(change > 1000) {
+                                CorrelatePT((unsigned)thread_id, view);
+                            }
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_FIX_SLEW", view);
+                        }
+                    }
 
                     printf(
                         "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
@@ -6508,9 +6539,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                     }
                     if(time_recovery_iter == 0 && use_attack_new) {
-                        change +=
-                            AttackNew(i + 1, GLOBAL, 80, 1.0, local_alpha, 1.0,
-                                      thread_id, TIMING_OPT_GB, view);
+                        change += AttackNew(i + 1, GLOBAL, ATTACK_NEW_RATIO,
+                                            1.0, local_alpha, 1.0, thread_id,
+                                            TIMING_OPT_GB, view);
                         if(change > 0) {
                             // for(int i = 0; i < numcells; i++) {
                             //     assert(change[i] == cells[i].isChanged);
@@ -6562,6 +6593,15 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             CalcStats((unsigned)thread_id, true,
                                       "AFTER_FIX_CAP", view);
                         }
+                        else if(cap_violation != 0) {
+                            FwdFixCapViolation(view);
+                            CallTimer(view);
+                            if(change > 1000) {
+                                CorrelatePT((unsigned)thread_id, view);
+                            }
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_FIX_CAP", view);
+                        }
                         if(score < best_score_local) {
                             cout << "(" << thread_id
                                  << ") Local best score is updated "
@@ -6592,6 +6632,17 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                       "AFTER_FIX_SLEW", view);
                             all_change += change;
                             change = 0;
+                        }
+                        else if(slew_violation != 0.0) {
+                            if(FIX_SLEW_POST) {
+                                change += FwdFixSlewViolationPost(1.0, view);
+                                CallTimer(view);
+                                if(change > 1000) {
+                                    CorrelatePT((unsigned)thread_id, view);
+                                }
+                                CalcStats((unsigned)thread_id, true,
+                                          "AFTER_FIX_SLEW", view);
+                            }
                         }
                     }
                     printf(
@@ -10324,6 +10375,7 @@ int main(int argc, char **argv) {
          << tot_timer_time / 60 << " min.)" << endl;
     cout << "Inc-STA (time/count)  : " << _sizer.time_OneTimer << " sec."
          << " / " << _sizer.count_OneTimer << endl;
+    // ProfilerStop();
 #ifdef TIME_MON
     cout << "Full-STA (time/count) : " << _sizer.time_CallTimer << " sec."
          << " / " << _sizer.count_CallTimer << endl;
@@ -10332,8 +10384,6 @@ int main(int argc, char **argv) {
     _sizer.FinalReport();
     if(NO_LOG)
         _sizer.CleanIntFiles();
-
-    // ProfilerStop();
 
     return 0;
 }

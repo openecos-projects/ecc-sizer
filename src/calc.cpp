@@ -338,10 +338,10 @@ double Sizer::CalcSlewViolation(unsigned view) {
                                     nets[corner][net_id].outpins[j];
                                 loadCap += pins[view][fopin].cap;
                             }
-                            std::cout << "Too large PI net name: "
-                                      << nets[view][net_id].name << " net cap "
-                                      << nets[corner][net_id].cap << "load cap "
-                                      << loadCap << std::endl;
+                            // std::cout << "Too large PI net name: "
+                            //           << nets[view][net_id].name << " net cap "
+                            //           << nets[corner][net_id].cap << "load cap "
+                            //           << loadCap << std::endl;
                         }
                     }
                 }

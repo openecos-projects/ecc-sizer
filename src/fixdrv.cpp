@@ -379,10 +379,95 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
         }
     }
     cout << remains << " fF out of " << origins << " fF remains. " << endl;
+    cout << "cells changed: " << change << endl;
     cap_violation = remains;
     return change;
 }
 
+// FIXME: need to update in the FWD fix slew violation
+#if 0
+            // upsizing target cell
+            while(IsTranVio(pins[view][curpin])) {
+                if(cells[cur].isDontTouch)
+                    break;
+
+                double delta_impact_size = 0.0, delta_impact_type = 0.0;
+                double prev_tran = GetCellTran(cells[cur], view) +
+                                   GetFICellTran(cells[cur], view) +
+                                   GetCellTran(cells[cur], view) +
+                                   GetCellCapVio(cells[cur], view);
+                string prev_type = cells[cur].type;
+                auto lib_cell_info = getLibCellInfo(cells[cur], corner);
+                double prev_width = lib_cell_info->width;
+                int size_num =
+                    main_lib_cell_tables[corner][cells[cur].main_lib_cell_id]
+                        ->lib_vt_size_table.size();
+                entry tmpEntry;
+                tmpEntry.id = cur;
+                for(int new_size = 0; new_size < size_num; new_size++) {
+                    int step = new_size - cells[cur].c_size;
+                    if(step == 0) {
+                        continue;
+                    }
+                    bool change_size = cell_resize(cells[cur], step);
+
+                    if(change_size) {
+                        OneTimer(cells[cur], 0.1, true);
+                    }
+
+                    double cur_slack = min(GetCellSlack(cells[cur], view),
+                                           GetFICellSlack(cells[cur], view));
+
+                    cur_tns = prev_tns;
+
+                    double now_tran = GetCellTran(cells[cur], view) +
+                                      GetFICellTran(cells[cur], view) +
+                                      GetCellTran(cells[cur], view) +
+                                      GetCellCapVio(cells[cur], view);
+                    double now_width =
+                        getLibCellInfo(cells[cur], corner)->width;
+                    //   GetcurTran(cells[cur], view);
+                    double delta_tran =
+                        now_tran - prev_tran;  // + new_tran - old_tran;
+                    double delta_width = now_width - prev_width;
+                    double benefit = 0;
+                    if(delta_tran < 0) {
+                        benefit = 0;
+                    }
+                    else {
+                        if(delta_width <= 0) {
+                            printf("Error: not defined delta_width\n");
+                            benefit = delta_tran;
+                        }
+                        else {
+                            benefit = delta_tran / delta_width;
+                        }
+                    }
+                    if(benefit < tmpEntry.delta_impact) {
+                        tmpEntry.delta_impact = benefit;
+                        tmpEntry.step = step;
+                    }
+                    if(change_size) {
+                        cell_resize(cells[cur], -step);
+                        cells[cur].isChanged -= 2;
+                        OneTimer(cells[cur], 0.1, true);
+                    }
+                }
+                if(tmpEntry.delta_impact < -0.001) {
+                    printf("cell %s size %d, step %d, delta_impact %f\n",
+                           cells[cur].name.c_str(), cells[cur].c_size,
+                           tmpEntry.step, tmpEntry.delta_impact);
+                    bool change_size =
+                        cell_resize(cells[tmpEntry.id], tmpEntry.step);
+                    OneTimer(cells[cur], 0.1, true);
+                    change++;
+                    // targets.insert(tmpEntry);
+                }
+                else {
+                    break;
+                }
+            }
+#endif
 // FIXME: This function invoke calc_stats for each cell. This is not efficient.
 // It should be invoked only once for all cells.
 // FIXME: calcStats needs to be updated to handle one cell at a time.
@@ -855,6 +940,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
     }
     updatePinAcc = old_updatePinAcc;
     cout << "finished." << endl;
+    cout << "cells changed: " << change << endl;
     return change;
 }
 
@@ -949,18 +1035,102 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
 
-    for(unsigned i = 0; i < rtopolist.size(); i++) {
-        unsigned cur = rtopolist[i];
+    for(unsigned i = 0; i < topolist.size(); i++) {
+        unsigned cur = topolist[i];
 
         // if(cells[cur].isClockCell) {
         //     continue;
         // }
-        // if(cells[cur].isDontTouch)
-        //     continue;
         if(getLibCellInfo(cells[cur], corner) == NULL) {
             continue;
         }
+        for(unsigned j = 0; j < cells[cur].outpins.size(); j++) {
+            if(cells[cur].isDontTouch)
+                break;
+            unsigned curpin = cells[cur].outpins[j];
+            unsigned outnet = pins[view][curpin].net;
+            // upsizing target cell
+            while(IsTranVio(pins[view][curpin])) {
+                if(cells[cur].isDontTouch)
+                    break;
 
+                double delta_impact_size = 0.0, delta_impact_type = 0.0;
+                double prev_tran = GetCellTran(cells[cur], view) +
+                                   GetFICellTran(cells[cur], view) +
+                                   GetCellTran(cells[cur], view) +
+                                   GetCellCapVio(cells[cur], view);
+                string prev_type = cells[cur].type;
+                auto lib_cell_info = getLibCellInfo(cells[cur], corner);
+                double prev_width = lib_cell_info->width;
+                int size_num =
+                    main_lib_cell_tables[corner][cells[cur].main_lib_cell_id]
+                        ->lib_vt_size_table.size();
+                entry tmpEntry;
+                tmpEntry.id = cur;
+                for(int new_size = 0; new_size < size_num; new_size++) {
+                    int step = new_size - cells[cur].c_size;
+                    if(step == 0) {
+                        continue;
+                    }
+                    bool change_size = cell_resize(cells[cur], step);
+
+                    if(change_size) {
+                        OneTimer(cells[cur], 0.1, true);
+                    }
+
+                    double cur_slack = min(GetCellSlack(cells[cur], view),
+                                           GetFICellSlack(cells[cur], view));
+
+                    cur_tns = prev_tns;
+
+                    double now_tran = GetCellTran(cells[cur], view) +
+                                      GetFICellTran(cells[cur], view) +
+                                      GetCellTran(cells[cur], view) +
+                                      GetCellCapVio(cells[cur], view);
+                    double now_width =
+                        getLibCellInfo(cells[cur], corner)->width;
+                    //   GetcurTran(cells[cur], view);
+                    double delta_tran =
+                        now_tran - prev_tran;  // + new_tran - old_tran;
+                    double delta_width = now_width - prev_width;
+                    double benefit = 0;
+                    if(delta_tran < 0) {
+                        benefit = 0;
+                    }
+                    else {
+                        if(delta_width <= 0) {
+                            printf("Error: not defined delta_width\n");
+                            benefit = delta_tran;
+                        }
+                        else {
+                            benefit = delta_tran / delta_width;
+                        }
+                    }
+                    if(benefit < tmpEntry.delta_impact) {
+                        tmpEntry.delta_impact = benefit;
+                        tmpEntry.step = step;
+                    }
+                    if(change_size) {
+                        cell_resize(cells[cur], -step);
+                        cells[cur].isChanged -= 2;
+                        OneTimer(cells[cur], 0.1, true);
+                    }
+                }
+                if(tmpEntry.delta_impact < -0.001) {
+                    printf("cell %s size %d, step %d, delta_impact %f\n",
+                           cells[cur].name.c_str(), cells[cur].c_size,
+                           tmpEntry.step, tmpEntry.delta_impact);
+                    bool change_size =
+                        cell_resize(cells[tmpEntry.id], tmpEntry.step);
+                    OneTimer(cells[cur], 0.1, true);
+                    change++;
+                    // targets.insert(tmpEntry);
+                }
+                else {
+                    break;
+                }
+            }
+        }
         for(unsigned j = 0; j < cells[cur].inpins.size(); j++) {
             unsigned curpin = cells[cur].inpins[j];
             unsigned outnet = pins[view][curpin].net;
@@ -973,6 +1143,9 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                 continue;
             }
             if(nets[corner][outnet].is_clock) {
+                continue;
+            }
+            if(nets[corner][outnet].inpin == UINT_MAX) {
                 continue;
             }
             if(!IsTranVio(pins[view][curpin])) {
@@ -1091,22 +1264,25 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
             //             min(GetCellSlack(cells[focell], view),
             //                 GetFICellSlack(cells[focell], view));
             //         double prev_tran = GetCellTran(cells[focell], view) +
-            //                            GetFICellTran(cells[focell], view) +
-            //                            GetFOCellTran(cells[focell], view);
+            //                            GetFICellTran(cells[focell], view)
+            //                            + GetFOCellTran(cells[focell],
+            //                            view);
             //         bool change_size = cell_resize(cells[focell],
             //         target.step);
 
             //         if(change_size) {
             //             OneTimer(cells[focell], 1, true);
             //         }
-            //         double cur_slack = min(GetCellSlack(cells[focell], view),
+            //         double cur_slack = min(GetCellSlack(cells[focell],
+            //         view),
             //                                GetFICellSlack(cells[focell],
             //                                view));
 
             //         cur_tns = prev_tns;
             //         double now_tran = GetCellTran(cells[focell], view) +
-            //                           GetFICellTran(cells[focell], view) +
-            //                           GetFOCellTran(cells[focell], view);
+            //                           GetFICellTran(cells[focell], view)
+            //                           + GetFOCellTran(cells[focell],
+            //                           view);
 
             //         double delta_tran = now_tran - prev_tran;
 
@@ -1130,8 +1306,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
     return change;
 }
 
-// FIXME: This function invoke calc_stats for each cell. This is not efficient.
-// It should be invoked only once for all cells.
+// FIXME: This function invoke calc_stats for each cell. This is not
+// efficient. It should be invoked only once for all cells.
 // FIXME: calcStats needs to be updated to handle one cell at a time.
 unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
     unsigned change = 0;
@@ -1199,7 +1375,8 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
 
                 if(cell_resize(cells[focell], -1)) {
                     OneTimer(cells[focell], STA_MARGIN, true);
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     cur_tns = viewTNS[view];
                     change++;
                     if(cur_tns > prev_tns) {
@@ -1226,16 +1403,16 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                 string prev_type = cells[cur].type;
 
                 if(!isMax(cells[cur])) {
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
-                    // prev_tns = CalcSlackViolation(view);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false); prev_tns = CalcSlackViolation(view);
                     prev_tns = viewTNS[view];
 
                     bool change_size = cell_resize(cells[cur], 1);
                     if(change_size) {
                         OneTimer(cells[cur], STA_MARGIN, true);
                     }
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
-                    // cur_tns = CalcSlackViolation(view);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false); cur_tns = CalcSlackViolation(view);
                     cur_tns = prev_tns;
                     double delta_tran = 0.0;
 
@@ -1276,13 +1453,15 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                 }
 
                 if(r_type(cells[cur]) != (numVt - 1)) {
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     prev_tns = viewTNS[view];
 
                     bool change_type = cell_retype(cells[cur], 1);
 
                     OneTimer(cells[cur], STA_MARGIN, true);
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     cur_tns = viewTNS[view];
 
                     double delta_tran = 0.0;
@@ -1331,13 +1510,15 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                     cell_resize(cells[cur], 1);
                     change++;
                     // cout << "UPSIZED CELL " << cells[cur].name << " "
-                    //    << prev_type << " --> " << cells[cur].type << endl;
+                    //    << prev_type << " --> " << cells[cur].type <<
+                    //    endl;
                 }
                 else {
                     cell_retype(cells[cur], 1);
                     change++;
                     // cout << "UPTYPED CELL " << cells[cur].name << " "
-                    //    << prev_type << " --> " << cells[cur].type << endl;
+                    //    << prev_type << " --> " << cells[cur].type <<
+                    //    endl;
                 }
 
                 OneTimer(cells[cur], STA_MARGIN, true);
@@ -1412,14 +1593,16 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                 string prev_type = cells[ficell].type;
 
                 if(!isMax(cells[ficell])) {
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     prev_tns = viewTNS[view];
 
                     bool change_size = cell_resize(cells[ficell], 1);
                     if(change_size) {
                         OneTimer(cells[ficell], STA_MARGIN, true);
                     }
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     cur_tns = viewTNS[view];
 
                     double delta_tran = 0.0;
@@ -1460,13 +1643,15 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                 }
 
                 if(r_type(cells[ficell]) != (numVt - 1)) {
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     prev_tns = viewTNS[view];
 
                     bool change_type = cell_retype(cells[ficell], 1);
 
                     OneTimer(cells[ficell], STA_MARGIN, true);
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
+                    // CalcStats((unsigned)thread_id, false, "", view,
+                    // false);
                     cur_tns = viewTNS[view];
 
                     double delta_tran = 0.0;
@@ -1515,20 +1700,24 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                     cell_resize(cells[ficell], 1);
                     change++;
                     // cout << "UPSIZED CELL " << cells[ficell].name << " "
-                    //    << prev_type << " --> " << cells[ficell].type << endl;
+                    //    << prev_type << " --> " << cells[ficell].type <<
+                    //    endl;
                 }
                 else {
                     cell_retype(cells[ficell], 1);
                     change++;
                     // cout << "UPTYPED CELL " << cells[ficell].name << " "
-                    //    << prev_type << " --> " << cells[ficell].type << endl;
+                    //    << prev_type << " --> " << cells[ficell].type <<
+                    //    endl;
                 }
 
                 OneTimer(cells[ficell], STA_MARGIN, true);
             }
-            // cout << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
+            // cout << "AFTER MAX TRAN " <<
+            // getFullPinName(pins[view][curpin])
             // << " "
-            //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran) <<
+            //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran)
+            //    <<
             //    "/" <<
             //    pins[view][curpin].max_tran << endl;
         }
@@ -1776,7 +1965,8 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
 
             unsigned cur = it->id;
             if(changed[cur]) {
-                // std::cout << "Attack again " << cells[cur].name << std::endl;
+                // std::cout << "Attack again " << cells[cur].name <<
+                // std::endl;
             }
 
             double prev_slack = min(GetCellSlack(cells[cur], view),
