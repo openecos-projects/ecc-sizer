@@ -1004,7 +1004,7 @@ class Circuit {
 
     // etc
     void generate_sizelookup();
-    void runGR();
+    void runGR(int gr_overflow_iterations, bool fast);
 
     map< string, unsigned > generateLibCellTable();
     void assignLibCellTables(map< string, unsigned > check_map);

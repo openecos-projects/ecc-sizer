@@ -5309,20 +5309,24 @@ void Sizer::Parallel_Sizer_Launcher() {
         PRFT_PTNUM = 1;
         use_slew_margin = false;
         slew_margin = 0.9;
+        max_time_recovery_iter = 7;
     }
     else if(numcells == 145776) {  // ariane136
         PRFT_PTNUM = 1;
         use_slew_margin = true;
         slew_margin = 0.85;
+        max_time_recovery_iter = 7;
     }
     else if(numcells == 278465) {  // aes_256
         use_slew_margin = true;
         PRFT_PTNUM = 1;
         slew_margin = 0.85;
+        max_time_recovery_iter = 7;
     }
     else if(numcells == 184863) {  // hidden3
         use_slew_margin = true;
         PRFT_PTNUM = 2;
+        max_time_recovery_iter = 7;
     }
     else if(numcells == 187851) {  // mempool_tile_wrap
         PRFT_PTNUM = 2;
@@ -5330,10 +5334,12 @@ void Sizer::Parallel_Sizer_Launcher() {
         use_margin = true;
         cap_margin = 0.95;
         use_attack_new = false;
+        max_time_recovery_iter = 7;
     }
     else {
         use_slew_margin = true;
         PRFT_PTNUM = 2;
+        max_time_recovery_iter = 7;
     }
     PTimer = new designTiming **[MAX_THREAD];
 
@@ -5602,6 +5608,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                 tmp_thread_args.thread_id = j;
                 thread_args.push_back(tmp_thread_args);
             }
+
             // poweropt + kickopt
             for(int j = 0; j < PRFT_PTNUM; j++) {
                 // thread_args[0].thread_id = j;
@@ -5610,6 +5617,30 @@ void Sizer::Parallel_Sizer_Launcher() {
                 if(j != PRFT_PTNUM - 1) {
                     //
                     // use_margin = true;
+                    if(numcells == 27553 || numcells == 79919) {  // nvm , nvp
+                        use_slew_margin = false;
+                        slew_margin = 0.9;
+                    }
+                    else if(numcells == 145776) {  // ariane136
+                        use_slew_margin = true;
+                        slew_margin = 0.85;
+                    }
+                    else if(numcells == 278465) {  // aes_256
+                        use_slew_margin = true;
+                        slew_margin = 0.85;
+                    }
+                    else if(numcells == 184863) {  // hidden3
+                        use_slew_margin = true;
+                    }
+                    else if(numcells == 187851) {  // mempool_tile_wrap
+                        use_slew_margin = true;
+                        use_margin = true;
+                        cap_margin = 0.95;
+                        use_attack_new = false;
+                    }
+                    else {
+                        use_slew_margin = true;
+                    }
                     auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
                     auto _ord_design = _ckt->_ord_design;
                     auto block = _ord_design->getBlock();
@@ -5658,43 +5689,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                         }
                         best_cells_poweropt[i].isChanged = 0;
                     }
-                    auto site =
-                        _ord_design->getBlock()->getRows().begin()->getSite();
-                    auto max_disp_x =
-                        int(_ord_design->micronToDBU(0.1) / site->getWidth());
-                    auto max_disp_y =
-                        int(_ord_design->micronToDBU(0.1) / site->getHeight());
-                    _sta = ord::OpenRoad::openRoad()->getSta();
-                    _ord_design->getOpendp()->detailedPlacement(
-                        max_disp_x, max_disp_y, "", false);
-                    // Global Route and Estimate Global Route RC
-                    double begin = cpuTime();
-                    auto db_tech = _ord_design->getTech()->getDB()->getTech();
-                    auto signal_low_layer =
-                        db_tech->findLayer("M1")->getRoutingLevel();
-                    auto signal_high_layer =
-                        db_tech->findLayer("M7")->getRoutingLevel();
-                    auto clk_low_layer =
-                        db_tech->findLayer("M1")->getRoutingLevel();
-                    auto clk_high_layer =
-                        db_tech->findLayer("M7")->getRoutingLevel();
-                    auto grt = _ord_design->getGlobalRouter();
-                    grt->clear();
-                    grt->setAllowCongestion(true);
-                    grt->setMinRoutingLayer(signal_low_layer);
-                    grt->setMaxRoutingLayer(signal_high_layer);
-                    grt->setMinLayerForClock(clk_low_layer);
-                    grt->setMaxLayerForClock(clk_high_layer);
-                    grt->setAdjustment(0.5);
-                    grt->setOverflowIterations(50);
-                    grt->setVerbose(true);
-                    printf("Run Global Routing...\n");
-                    grt->globalRoute(false, true);
-                    printf("Run Global Routing Time %f\n", cpuTime() - begin);
-                    begin = cpuTime();
-                    _ord_design->evalTclString(
-                        "estimate_parasitics -global_routing");
-                    _sta->findRequireds();
+                    _ckt->runGR(50, true);
                     _ckt->readSpef_opensta(_sta);
                     int corner = 0;
                     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
@@ -5718,11 +5713,9 @@ void Sizer::Parallel_Sizer_Launcher() {
                         // g_nets[corner][i].subNodeResVec;
                     }
                     InitNets();
-                    max_time_recovery_iter = 3;
-                    max_time_recovery_iter =
-                        std::max(max_time_recovery_iter, 1);
-                    ATTACK_RATIO -= 20;
-                    ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
+                    max_time_recovery_iter = 7;
+                    ATTACK_RATIO = 30;
+                    // ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
                     // FIX_GLOBAL = false;
                     // FIX_CAP = false;
                     // FIX_SLEW = false;
@@ -6440,12 +6433,12 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         //           "AFTER_FIX_CAP", view);
                         change += FwdFixCapViolation(view);
                         change += BwdFixCapViolation(view);
-                        if(change > 500) {
-                            CallTimer(view);
+                        CallTimer(view);
+                        if(change > 1000) {
                             CorrelatePT((unsigned)thread_id, view);
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_FIX_CAP", view);
                         }
+                        CalcStats((unsigned)thread_id, true, "AFTER_FIX_CAP",
+                                  view);
                     }
                     printf(
                         "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
@@ -6479,12 +6472,12 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                         if(iter % 2 == 0) {
                         }
-                        if(change > 100) {
-                            CallTimer(view);
+                        CallTimer(view);
+                        if(change > 1000) {
                             CorrelatePT((unsigned)thread_id, view);
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_FIX_SLEW", view);
                         }
+                        CalcStats((unsigned)thread_id, true, "AFTER_FIX_SLEW",
+                                  view);
                     }
 
                     printf(
@@ -6562,12 +6555,12 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         if(FIX_CAP) {
                             change += FwdFixCapViolation(view);
                             change += BwdFixCapViolation(view);
-                            if(change > 0) {
-                                CallTimer(view);
+                            CallTimer(view);
+                            if(change > 0 && time_recovery_iter != 0) {
                                 CorrelatePT((unsigned)thread_id, view);
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_FIX_CAP", view);
                             }
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_FIX_CAP", view);
                         }
                         if(score < best_score_local) {
                             cout << "(" << thread_id
@@ -6591,12 +6584,12 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             if(FIX_SLEW_POST) {
                                 change += FwdFixSlewViolationPost(1.0, view);
                             }
-                            if(change > 0) {
-                                CallTimer(view);
+                            CallTimer(view);
+                            if(change > 0 && time_recovery_iter != 0) {
                                 CorrelatePT((unsigned)thread_id, view);
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_FIX_SLEW", view);
                             }
+                            CalcStats((unsigned)thread_id, true,
+                                      "AFTER_FIX_SLEW", view);
                             all_change += change;
                             change = 0;
                         }
