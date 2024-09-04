@@ -3102,30 +3102,59 @@ void Circuit::runGR() {
         old_localtion_x.push_back(inst_x);
         old_localtion_y.push_back(inst_y);
     }
-    for(auto db_inst : block->getInsts()) {
-        string old_type = db_inst->getMaster()->getName();
-        old_master_map.push_back(old_type);
-        if(!_sizer->cellName2EquaivaID.count(old_type)) {
-            printf("Error in gr: not found %s\n", old_type.c_str());
-        }
-        string footprint = to_string(_sizer->cellName2EquaivaID[old_type]);
-        auto libcell_table =
-            _sizer->main_lib_cell_tables[0][check_map[footprint]];
-        if(_sizer->libs[0].count(old_type) == 0) {
-            printf("Error in gr: not found %s\n", old_type.c_str());
-        }
-        auto lib_cell = &_sizer->libs[0][old_type];
-        int size_num = libcell_table->lib_vt_size_table.size();
-        int old_size = lib_cell->c_size;
-        int new_size = std::min(size_num - 1, old_size + 3);
-        string new_libcell_str =
-            libcell_table->lib_vt_size_table[new_size][0]->name;
-        auto new_master = _ord_design->getTech()->getDB()->findMaster(
-            new_libcell_str.c_str());
-        printf("Swap %s to %s\n", old_type.c_str(), new_libcell_str.c_str());
-        if(!db_inst->isBlock() &&
-           !_ord_design->isSequential(db_inst->getMaster())) {
-            db_inst->swapMaster(new_master);
+    bool use_gr_correlation = false;
+    int cor_step = 0;
+    if(numcells == 27553 || numcells == 79919) {  // nvm , nvp
+        use_gr_correlation = false;
+        cor_step = 0;
+    }
+    else if(numcells == 145776) {  // ariane136
+        use_gr_correlation = true;
+        cor_step = 3;
+    }
+    else if(numcells == 278465) {  // aes_256
+        use_gr_correlation = false;
+        cor_step = 2;
+    }
+    else if(numcells == 184863) {  // hidden3
+        use_gr_correlation = false;
+        cor_step = 2;
+    }
+    else if(numcells == 187851) {  // mempool_tile_wrap
+        use_gr_correlation = true;
+        cor_step = 2;
+    }
+    else {
+        use_gr_correlation = false;
+        cor_step = 2;
+    }
+    if(use_gr_correlation) {
+        for(auto db_inst : block->getInsts()) {
+            string old_type = db_inst->getMaster()->getName();
+            old_master_map.push_back(old_type);
+            if(!_sizer->cellName2EquaivaID.count(old_type)) {
+                printf("Error in gr: not found %s\n", old_type.c_str());
+            }
+            string footprint = to_string(_sizer->cellName2EquaivaID[old_type]);
+            auto libcell_table =
+                _sizer->main_lib_cell_tables[0][check_map[footprint]];
+            if(_sizer->libs[0].count(old_type) == 0) {
+                printf("Error in gr: not found %s\n", old_type.c_str());
+            }
+            auto lib_cell = &_sizer->libs[0][old_type];
+            int size_num = libcell_table->lib_vt_size_table.size();
+            int old_size = lib_cell->c_size;
+            int new_size = std::min(size_num - 1, old_size + cor_step);
+            string new_libcell_str =
+                libcell_table->lib_vt_size_table[new_size][0]->name;
+            auto new_master = _ord_design->getTech()->getDB()->findMaster(
+                new_libcell_str.c_str());
+            printf("Swap %s to %s\n", old_type.c_str(),
+                   new_libcell_str.c_str());
+            if(!db_inst->isBlock() &&
+               !_ord_design->isSequential(db_inst->getMaster())) {
+                db_inst->swapMaster(new_master);
+            }
         }
     }
     // Global connect
@@ -3174,16 +3203,18 @@ void Circuit::runGR() {
     printf("Run Global Routing...\n");
     grt->globalRoute(false, true);
     int iter = 0;
-    for(auto db_inst : block->getInsts()) {
-        string old_type = old_master_map[iter];
-        string new_libcell_str = old_type;
-        auto new_master = _ord_design->getTech()->getDB()->findMaster(
-            new_libcell_str.c_str());
-        if(!db_inst->isBlock() &&
-           !_ord_design->isSequential(db_inst->getMaster())) {
-            db_inst->swapMaster(new_master);
+    if(use_gr_correlation) {
+        for(auto db_inst : block->getInsts()) {
+            string old_type = old_master_map[iter];
+            string new_libcell_str = old_type;
+            auto new_master = _ord_design->getTech()->getDB()->findMaster(
+                new_libcell_str.c_str());
+            if(!db_inst->isBlock() &&
+               !_ord_design->isSequential(db_inst->getMaster())) {
+                db_inst->swapMaster(new_master);
+            }
+            iter++;
         }
-        iter++;
     }
     printf("Run Global Routing Time %f\n", cpuTime() - begin);
     begin = cpuTime();
