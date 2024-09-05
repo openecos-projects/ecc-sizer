@@ -5357,20 +5357,30 @@ void Sizer::Parallel_Sizer_Launcher() {
         SetGB(0.001);
     }
     else if(numcells == 278465) {  // aes_256
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 0.9;
-        input_slew_margin = 1.0;
-        max_time_recovery_iter = 7;
-        post_slew_opt_output = false;
-        // attack new
-        use_attack_new = true;
+        // PRFT_PTNUM = 1;
+        // use_slew_margin = true;
+        // slew_margin = 0.9;
+        // input_slew_margin = 1.0;
+        // max_time_recovery_iter = 7;
+        // post_slew_opt_output = false;
+        PRFT_PTNUM = 2;
+        // // attack new
+        use_attack_new = false;
         ATTACK_NEW_RATIO = 40;
-        //
+        // //
         ATTACK_RATIO = 25;
         MULTI_STEP = 3;
-        STA_MARGIN = 0.001;
-        SetGB(0.001);
+        SetGB(-0.001);
+
+        //
+        use_slew_margin = true;
+        slew_margin = 0.9;
+        input_slew_margin = 0.9;
+        //
+        use_margin = true;
+        cap_margin = 0.9;
+        STA_MARGIN = 0.005;
+        max_time_recovery_iter = 3;
     }
     else if(numcells == 187851) {  // mempool_tile_wrap
         PRFT_PTNUM = 1;
@@ -5719,7 +5729,12 @@ void Sizer::Parallel_Sizer_Launcher() {
                     }
                     else if(numcells == 278465) {  // aes_256
                         use_slew_margin = true;
-                        slew_margin = 0.85;
+                        slew_margin = 0.9;
+                        input_slew_margin = 1.0;
+                        STA_MARGIN = 0.005;
+                        use_margin = true;
+                        cap_margin = 0.95;
+                        max_time_recovery_iter = 2;
                     }
                     else if(numcells == 184863) {  // hidden3
                         use_slew_margin = true;
@@ -6787,8 +6802,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
                          << " : " << viewRuntime[view] << " sec. ("
                          << viewRuntime[view] / 60 << " min. )" << endl;
                 }
-                if(skew_violation < 1 && slew_violation < 1 &&
-                   cap_violation < 1) {
+                if(skew_violation < 0.03 && slew_violation < 0.03 &&
+                   cap_violation < 0.03) {
                     all_feasible = true;
                 }
                 Profile();
