@@ -5393,22 +5393,6 @@ void Sizer::Parallel_Sizer_Launcher() {
         max_time_recovery_iter = 7;
         STA_MARGIN = 0.0;
     }
-    else if(numcells == 184863) {  // hidden3
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 0.9;
-        input_slew_margin = 1.0;
-        max_time_recovery_iter = 7;
-        // attack new
-        use_attack_new = true;
-        ATTACK_NEW_RATIO = 40;
-        //
-        ATTACK_RATIO = 25;
-        MULTI_STEP = 3;
-        STA_MARGIN = 0.001;
-        // slack_margin = 0.001;
-        SetGB(0.001);
-    }
     else if(numcells < 184863) {  // hidden 1-2
         PRFT_PTNUM = 1;
         use_slew_margin = true;
@@ -5422,7 +5406,6 @@ void Sizer::Parallel_Sizer_Launcher() {
         ATTACK_RATIO = 25;
         MULTI_STEP = 3;
         STA_MARGIN = 0.001;
-        // slack_margin = 0.001;
         SetGB(0.001);
     }
     else {  // hidden 4-5
@@ -5434,6 +5417,8 @@ void Sizer::Parallel_Sizer_Launcher() {
         // attack new
         use_attack_new = true;
         ATTACK_NEW_RATIO = 40;
+        use_margin = true;
+        cap_margin = 0.95;
         //
         ATTACK_RATIO = 25;
         MULTI_STEP = 3;
