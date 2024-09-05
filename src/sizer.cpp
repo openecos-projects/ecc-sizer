@@ -121,9 +121,9 @@ double TRIAL_RATE = 0.2;
 bool NO_TOPO = false;
 double COMMON_THRESH = 0.6;
 double TIMEOUT = 864000;
-int SLK_TH = 0.02;
+double SLK_TH = 0.02;
 int ALPHA_STUCK = 2;
-int STUCK_THRES = 0.005;
+double STUCK_THRES = 0.005;
 bool MIN_VT = false;
 bool FINAL_PWR_OPT = false;
 bool MIN_SIZE = false;
@@ -5306,7 +5306,13 @@ void *static_poweropt_driver(void *void_thread_args) {
 
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
-    if(numcells == 27553 || numcells == 79919) {  // nvm , nvp
+    if(numcells == 27553) {  // nvm , nvp
+        PRFT_PTNUM = 1;
+        use_slew_margin = false;
+        slew_margin = 0.9;
+        max_time_recovery_iter = 7;
+    }
+    else if(numcells == 79919) {
         PRFT_PTNUM = 1;
         use_slew_margin = false;
         slew_margin = 0.9;
@@ -5315,9 +5321,18 @@ void Sizer::Parallel_Sizer_Launcher() {
     else if(numcells == 145776) {  // ariane136
         PRFT_PTNUM = 1;
         use_slew_margin = true;
-        slew_margin = 0.85;
-        input_slew_margin = 0.9;
+        slew_margin = 0.9;
+        input_slew_margin = 1.0;
         max_time_recovery_iter = 7;
+        // attack new
+        use_attack_new = true;
+        ATTACK_NEW_RATIO = 40;
+        //
+        ATTACK_RATIO = 25;
+        MULTI_STEP = 3;
+        STA_MARGIN = 0.001;
+        // slack_margin = 0.001;
+        SetGB(0.001);
     }
     else if(numcells == 278465) {  // aes_256
         use_slew_margin = true;
@@ -5852,7 +5867,7 @@ void Sizer::Parallel_Sizer_Launcher() {
 }
 void Sizer::FinalReport() {
     //
-
+    SetGB(0);
     use_margin = false;
     use_slew_margin = false;
     auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
