@@ -352,6 +352,7 @@ class Sizer {
     int best_option;
     int best_kick;
     int second_best_kick;
+    bool post_slew_opt_output = true;
     designTiming ***PTimer;
     designTiming *PNR;
     bool use_count_npath = false;

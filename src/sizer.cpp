@@ -5306,23 +5306,19 @@ void *static_poweropt_driver(void *void_thread_args) {
 
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
-    if(numcells == 27553) {  // nvm 
+    if(numcells == 27553) {  // nvm
         PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 1.0;
-        input_slew_margin = 0.95;
-        max_time_recovery_iter = 7;
-        // attack new
+        use_slew_margin = false;
+        slew_margin = 0.9;
+        // use_margin = true;
+        // cap_margin = 0.55;
         use_attack_new = true;
-        ATTACK_NEW_RATIO = 60;
-        //
-        ATTACK_RATIO = 30;
-        MULTI_STEP = 5;
-        STA_MARGIN = 0.001;
-        // slack_margin = 0.001;
-        SetGB(-0.005);
+        ATTACK_NEW_RATIO = 80;
+        max_time_recovery_iter = 3;
+        ATTACK_RATIO = 10;
+        post_slew_opt_output = false;
     }
-    else if(numcells == 79919) { //nvp
+    else if(numcells == 79919) {  // nvp
         PRFT_PTNUM = 1;
         use_slew_margin = true;
         slew_margin = 0.9;
@@ -5360,6 +5356,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         slew_margin = 0.9;
         input_slew_margin = 1.0;
         max_time_recovery_iter = 7;
+        post_slew_opt_output = false;
         // attack new
         use_attack_new = true;
         ATTACK_NEW_RATIO = 40;
@@ -5368,12 +5365,6 @@ void Sizer::Parallel_Sizer_Launcher() {
         MULTI_STEP = 3;
         STA_MARGIN = 0.001;
         SetGB(0.001);
-    }
-    else if(numcells == 184863) {  // hidden3
-        use_slew_margin = true;
-        PRFT_PTNUM = 2;
-        max_time_recovery_iter = 7;
-        input_slew_margin = 0.9;
     }
     else if(numcells == 187851) {  // mempool_tile_wrap
         PRFT_PTNUM = 1;
@@ -5386,10 +5377,53 @@ void Sizer::Parallel_Sizer_Launcher() {
         max_time_recovery_iter = 7;
         STA_MARGIN = 0.0;
     }
-    else {
+    else if(numcells == 184863) {  // hidden3
+        PRFT_PTNUM = 1;
         use_slew_margin = true;
-        PRFT_PTNUM = 2;
+        slew_margin = 0.9;
+        input_slew_margin = 1.0;
         max_time_recovery_iter = 7;
+        // attack new
+        use_attack_new = true;
+        ATTACK_NEW_RATIO = 40;
+        //
+        ATTACK_RATIO = 25;
+        MULTI_STEP = 3;
+        STA_MARGIN = 0.001;
+        // slack_margin = 0.001;
+        SetGB(0.001);
+    }
+    else if(numcells < 184863) {  // hidden 1-2
+        PRFT_PTNUM = 1;
+        use_slew_margin = true;
+        slew_margin = 0.9;
+        input_slew_margin = 1.0;
+        max_time_recovery_iter = 7;
+        // attack new
+        use_attack_new = true;
+        ATTACK_NEW_RATIO = 40;
+        //
+        ATTACK_RATIO = 25;
+        MULTI_STEP = 3;
+        STA_MARGIN = 0.001;
+        // slack_margin = 0.001;
+        SetGB(0.001);
+    }
+    else {  // hidden 4-5
+        PRFT_PTNUM = 1;
+        use_slew_margin = true;
+        slew_margin = 0.9;
+        input_slew_margin = 1.0;
+        max_time_recovery_iter = 7;
+        // attack new
+        use_attack_new = true;
+        ATTACK_NEW_RATIO = 40;
+        //
+        ATTACK_RATIO = 25;
+        MULTI_STEP = 3;
+        STA_MARGIN = 0.001;
+        // slack_margin = 0.001;
+        SetGB(0.001);
     }
     PTimer = new designTiming **[MAX_THREAD];
 

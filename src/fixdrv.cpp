@@ -964,90 +964,94 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
         if(getLibCellInfo(cells[cur], corner) == NULL) {
             continue;
         }
-        for(unsigned j = 0; j < cells[cur].outpins.size(); j++) {
-            if(cells[cur].isDontTouch)
-                break;
-            unsigned curpin = cells[cur].outpins[j];
-            unsigned outnet = pins[view][curpin].net;
-            // upsizing target cell
-            while(IsTranVio(pins[view][curpin])) {
+        if(post_slew_opt_output) {
+            for(unsigned j = 0; j < cells[cur].outpins.size(); j++) {
                 if(cells[cur].isDontTouch)
                     break;
+                unsigned curpin = cells[cur].outpins[j];
+                unsigned outnet = pins[view][curpin].net;
+                // upsizing target cell
+                while(IsTranVio(pins[view][curpin])) {
+                    if(cells[cur].isDontTouch)
+                        break;
 
-                double delta_impact_size = 0.0, delta_impact_type = 0.0;
-                double prev_tran = GetCellTran(cells[cur], view) +
-                                   GetFICellTran(cells[cur], view) +
-                                   GetCellTran(cells[cur], view) +
-                                   GetCellCapVio(cells[cur], view);
-                string prev_type = cells[cur].type;
-                auto lib_cell_info = getLibCellInfo(cells[cur], corner);
-                double prev_width = lib_cell_info->width;
-                int size_num =
-                    main_lib_cell_tables[corner][cells[cur].main_lib_cell_id]
-                        ->lib_vt_size_table.size();
-                entry tmpEntry;
-                tmpEntry.id = cur;
-                for(int new_size = 0; new_size < size_num; new_size++) {
-                    int step = new_size - cells[cur].c_size;
-                    if(step == 0) {
-                        continue;
-                    }
-                    bool change_size = cell_resize(cells[cur], step);
+                    double delta_impact_size = 0.0, delta_impact_type = 0.0;
+                    double prev_tran = GetCellTran(cells[cur], view) +
+                                       GetFICellTran(cells[cur], view) +
+                                       GetCellTran(cells[cur], view) +
+                                       GetCellCapVio(cells[cur], view);
+                    string prev_type = cells[cur].type;
+                    auto lib_cell_info = getLibCellInfo(cells[cur], corner);
+                    double prev_width = lib_cell_info->width;
+                    int size_num =
+                        main_lib_cell_tables[corner]
+                                            [cells[cur].main_lib_cell_id]
+                                                ->lib_vt_size_table.size();
+                    entry tmpEntry;
+                    tmpEntry.id = cur;
+                    for(int new_size = 0; new_size < size_num; new_size++) {
+                        int step = new_size - cells[cur].c_size;
+                        if(step == 0) {
+                            continue;
+                        }
+                        bool change_size = cell_resize(cells[cur], step);
 
-                    if(change_size) {
-                        OneTimer(cells[cur], 0.1, true);
-                    }
+                        if(change_size) {
+                            OneTimer(cells[cur], 0.1, true);
+                        }
 
-                    double cur_slack = min(GetCellSlack(cells[cur], view),
-                                           GetFICellSlack(cells[cur], view));
+                        double cur_slack =
+                            min(GetCellSlack(cells[cur], view),
+                                GetFICellSlack(cells[cur], view));
 
-                    cur_tns = prev_tns;
+                        cur_tns = prev_tns;
 
-                    double now_tran = GetCellTran(cells[cur], view) +
-                                      GetFICellTran(cells[cur], view) +
-                                      GetCellTran(cells[cur], view) +
-                                      GetCellCapVio(cells[cur], view);
-                    double now_width =
-                        getLibCellInfo(cells[cur], corner)->width;
-                    //   GetcurTran(cells[cur], view);
-                    double delta_tran =
-                        now_tran - prev_tran;  // + new_tran - old_tran;
-                    double delta_width = now_width - prev_width;
-                    double benefit = 0;
-                    if(delta_tran < 0) {
-                        benefit = 0;
-                    }
-                    else {
-                        if(delta_width <= 0) {
-                            printf("Error: not defined delta_width\n");
-                            benefit = delta_tran;
+                        double now_tran = GetCellTran(cells[cur], view) +
+                                          GetFICellTran(cells[cur], view) +
+                                          GetCellTran(cells[cur], view) +
+                                          GetCellCapVio(cells[cur], view);
+                        double now_width =
+                            getLibCellInfo(cells[cur], corner)->width;
+                        //   GetcurTran(cells[cur], view);
+                        double delta_tran =
+                            now_tran - prev_tran;  // + new_tran - old_tran;
+                        double delta_width = now_width - prev_width;
+                        double benefit = 0;
+                        if(delta_tran < 0) {
+                            benefit = 0;
                         }
                         else {
-                            benefit = delta_tran / delta_width;
+                            if(delta_width <= 0) {
+                                printf("Error: not defined delta_width\n");
+                                benefit = delta_tran;
+                            }
+                            else {
+                                benefit = delta_tran / delta_width;
+                            }
+                        }
+                        if(benefit < tmpEntry.delta_impact) {
+                            tmpEntry.delta_impact = benefit;
+                            tmpEntry.step = step;
+                        }
+                        if(change_size) {
+                            cell_resize(cells[cur], -step);
+                            cells[cur].isChanged -= 2;
+                            OneTimer(cells[cur], 0.1, true);
                         }
                     }
-                    if(benefit < tmpEntry.delta_impact) {
-                        tmpEntry.delta_impact = benefit;
-                        tmpEntry.step = step;
-                    }
-                    if(change_size) {
-                        cell_resize(cells[cur], -step);
-                        cells[cur].isChanged -= 2;
+                    if(tmpEntry.delta_impact < -0.001) {
+                        printf("cell %s size %d, step %d, delta_impact %f\n",
+                               cells[cur].name.c_str(), cells[cur].c_size,
+                               tmpEntry.step, tmpEntry.delta_impact);
+                        bool change_size =
+                            cell_resize(cells[tmpEntry.id], tmpEntry.step);
                         OneTimer(cells[cur], 0.1, true);
+                        change++;
+                        // targets.insert(tmpEntry);
                     }
-                }
-                if(tmpEntry.delta_impact < -0.001) {
-                    printf("cell %s size %d, step %d, delta_impact %f\n",
-                           cells[cur].name.c_str(), cells[cur].c_size,
-                           tmpEntry.step, tmpEntry.delta_impact);
-                    bool change_size =
-                        cell_resize(cells[tmpEntry.id], tmpEntry.step);
-                    OneTimer(cells[cur], 0.1, true);
-                    change++;
-                    // targets.insert(tmpEntry);
-                }
-                else {
-                    break;
+                    else {
+                        break;
+                    }
                 }
             }
         }
