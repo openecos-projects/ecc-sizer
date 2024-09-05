@@ -5368,9 +5368,9 @@ void Sizer::Parallel_Sizer_Launcher() {
         use_attack_new = false;
         ATTACK_NEW_RATIO = 40;
         // //
-        ATTACK_RATIO = 25;
+        ATTACK_RATIO = 20;
         MULTI_STEP = 3;
-        SetGB(-0.01);
+        SetGB(-0.02);
 
         //
         use_slew_margin = true;
@@ -5380,7 +5380,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         use_margin = true;
         cap_margin = 0.9;
         STA_MARGIN = 0.005;
-        max_time_recovery_iter = 3;
+        max_time_recovery_iter = 4;
     }
     else if(numcells == 187851) {  // mempool_tile_wrap
         PRFT_PTNUM = 1;
