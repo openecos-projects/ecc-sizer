@@ -5402,6 +5402,8 @@ void Sizer::Parallel_Sizer_Launcher() {
         // attack new
         use_attack_new = true;
         ATTACK_NEW_RATIO = 40;
+        use_margin = true;
+        cap_margin = 0.95;
         //
         ATTACK_RATIO = 25;
         MULTI_STEP = 3;
@@ -6456,8 +6458,9 @@ void Sizer::Post_PowerOpt(int thread_id) {
             // }
 
             cout << i << "-" << iter << "-" << leak_iter
-                 << "th iteration, tolerance = " << toler << "ns" << "/"
-                 << worst_slack << "ns" << " " << worst_slack_worst << endl;
+                 << "th iteration, tolerance = " << toler << "ns"
+                 << "/" << worst_slack << "ns"
+                 << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
@@ -8297,8 +8300,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " " << " "
-                             << GetCellSlack(cells[cur], view1) << " "
+                        cout << "RESTORED DUE TO SLACK " << view << " "
+                             << " " << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
                 }
@@ -8413,7 +8416,8 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept" << " " << cells[cur].type << endl;
+                    cout << " Accept"
+                         << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
@@ -10024,12 +10028,14 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 if(postGTR)
                     cout << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
                     cout << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
-                         << " " << " " << skew_violation << " " << power << " "
+                         << " "
+                         << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 curr_ss = slew_violation + skew_violation;
                 curr_wns = wns;
@@ -10305,8 +10311,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        cout << "#Corners " << _sizer.numCorners << " " << "#Modes "
-             << _sizer.numModes << endl;
+        cout << "#Corners " << _sizer.numCorners << " "
+             << "#Modes " << _sizer.numModes << endl;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
             unsigned corner = _sizer.mmmcViewList[i].corner;
             unsigned mode = _sizer.mmmcViewList[i].mode;
@@ -10466,7 +10472,7 @@ int main(int argc, char **argv) {
          << " / " << _sizer.count_CallTimer << endl;
 #endif
     printMemoryUsage();
-    _sizer.FinalReport();
+    // _sizer.FinalReport();
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
