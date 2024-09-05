@@ -5310,17 +5310,17 @@ void Sizer::Parallel_Sizer_Launcher() {
         PRFT_PTNUM = 1;
         use_slew_margin = true;
         slew_margin = 1.0;
-        input_slew_margin = 1.0;
+        input_slew_margin = 0.95;
         max_time_recovery_iter = 7;
         // attack new
         use_attack_new = true;
-        ATTACK_NEW_RATIO = 40;
+        ATTACK_NEW_RATIO = 60;
         //
-        ATTACK_RATIO = 10;
-        MULTI_STEP = 3;
+        ATTACK_RATIO = 30;
+        MULTI_STEP = 5;
         STA_MARGIN = 0.001;
         // slack_margin = 0.001;
-        SetGB(0.001);
+        SetGB(-0.005);
     }
     else if(numcells == 79919) { //nvp
         PRFT_PTNUM = 1;
@@ -5355,11 +5355,19 @@ void Sizer::Parallel_Sizer_Launcher() {
         SetGB(0.001);
     }
     else if(numcells == 278465) {  // aes_256
-        use_slew_margin = true;
         PRFT_PTNUM = 1;
-        slew_margin = 0.85;
-        input_slew_margin = 0.9;
+        use_slew_margin = true;
+        slew_margin = 0.9;
+        input_slew_margin = 1.0;
         max_time_recovery_iter = 7;
+        // attack new
+        use_attack_new = true;
+        ATTACK_NEW_RATIO = 40;
+        //
+        ATTACK_RATIO = 25;
+        MULTI_STEP = 3;
+        STA_MARGIN = 0.001;
+        SetGB(0.001);
     }
     else if(numcells == 184863) {  // hidden3
         use_slew_margin = true;
