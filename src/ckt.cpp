@@ -421,8 +421,29 @@ void Circuit::Parser(string benchmark) {
             }
         }
     }
-
-    runGR(50, true);
+    int slack_max_iter = 3;
+    if(numcells == 27553) {
+        slack_max_iter = 3;
+    }
+    else if(numcells == 79919) {  // nvm , nvp
+        slack_max_iter = 6;
+    }
+    else if(numcells == 145776) {  // ariane136
+        slack_max_iter = 6;
+    }
+    else if(numcells == 278465) {  // aes_256
+        slack_max_iter = 3;
+    }
+    else if(numcells == 184863) {  // hidden3
+        slack_max_iter = 6;
+    }
+    else if(numcells == 187851) {  // mempool_tile_wrap
+        slack_max_iter = 6;
+    }
+    else {
+        slack_max_iter = 6;
+    }
+    runGR(50, true, slack_max_iter);
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
         if(!_sizer->noSPEF) {
             if(_sizer->mmmcOn)
@@ -3093,7 +3114,7 @@ void Circuit::merge_powerTables(LibPowerInfo& power1, LibPowerInfo& power2) {
         ++power1.cnt;
     }
 }
-void Circuit::runGR(int gr_overflow_iterations, bool fast) {
+void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     auto corner = _ord_timing->getCorners()[0];
     auto block = _ord_design->getBlock();
     for(auto db_inst : block->getInsts()) {
@@ -3106,36 +3127,6 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast) {
     int cor_step = 0;
     int numcells = g_cells.size();
 #if 0
-    if(numcells == 27553 || numcells == 79919) {  // nvm , nvp
-        use_gr_correlation = false;
-        cor_step = 0;
-        gr_overflow_iterations = 0;
-    }
-    else if(numcells == 145776) {  // ariane136
-        use_gr_correlation = false;
-        cor_step = 3;
-        gr_overflow_iterations = 0;
-    }
-    else if(numcells == 278465) {  // aes_256
-        use_gr_correlation = false;
-        cor_step = 2;
-        gr_overflow_iterations = 0;
-    }
-    else if(numcells == 184863) {  // hidden3
-        use_gr_correlation = false;
-        cor_step = 2;
-        gr_overflow_iterations = 0;
-    }
-    else if(numcells == 187851) {  // mempool_tile_wrap
-        use_gr_correlation = false;
-        cor_step = 2;
-        gr_overflow_iterations = 0;
-    }
-    else {
-        use_gr_correlation = false;
-        cor_step = 2;
-        gr_overflow_iterations = 0;
-    }
     if(use_gr_correlation) {
         for(auto db_inst : block->getInsts()) {
             string old_type = db_inst->getMaster()->getName();
@@ -3210,7 +3201,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast) {
     grt->setVerbose(true);
     grt->setOverflowIterations(gr_overflow_iterations);
     printf("Run Global Routing...\n");
-    grt->globalRoute(false, fast);
+    grt->globalRoute(false, fast, slack_max_iter);
     int iter = 0;
 #if 0
     if(use_gr_correlation) {

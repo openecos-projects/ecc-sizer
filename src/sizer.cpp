@@ -5308,15 +5308,21 @@ void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
     if(numcells == 27553) {  // nvm
         PRFT_PTNUM = 1;
-        use_slew_margin = false;
-        slew_margin = 0.9;
-        // use_margin = true;
-        // cap_margin = 0.55;
-        use_attack_new = true;
-        ATTACK_NEW_RATIO = 80;
-        max_time_recovery_iter = 3;
-        ATTACK_RATIO = 10;
+        use_slew_margin = true;
+        slew_margin = 1.0;
+        input_slew_margin = 0.95;
         post_slew_opt_output = false;
+        max_time_recovery_iter = 7;
+        // attack new
+        use_attack_new = true;
+        ATTACK_NEW_RATIO = 60;
+        //
+        ATTACK_RATIO = 30;
+        MULTI_STEP = 5;
+        STA_MARGIN = 0.001;
+        // slack_margin = 0.001;
+
+        SetGB(-0.005);
     }
     else if(numcells == 79919) {  // nvp
         PRFT_PTNUM = 1;
@@ -5776,7 +5782,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                         }
                         best_cells_poweropt[i].isChanged = 0;
                     }
-                    _ckt->runGR(50, false);
+                    _ckt->runGR(50, false, 6);
                     _ckt->readSpef_opensta(_sta);
                     int corner = 0;
                     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
