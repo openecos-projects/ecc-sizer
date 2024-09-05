@@ -5362,20 +5362,20 @@ void Sizer::Parallel_Sizer_Launcher() {
         // slew_margin = 0.9;
         // input_slew_margin = 1.0;
         // max_time_recovery_iter = 7;
-        // post_slew_opt_output = false;
-        PRFT_PTNUM = 2;
+        post_slew_opt_output = false;
+        PRFT_PTNUM = 1;
         // // attack new
         use_attack_new = false;
         ATTACK_NEW_RATIO = 40;
         // //
         ATTACK_RATIO = 25;
         MULTI_STEP = 3;
-        SetGB(-0.001);
+        SetGB(-0.01);
 
         //
         use_slew_margin = true;
-        slew_margin = 0.9;
-        input_slew_margin = 0.9;
+        slew_margin = 0.8;
+        input_slew_margin = 0.8;
         //
         use_margin = true;
         cap_margin = 0.9;
@@ -5821,12 +5821,13 @@ void Sizer::Parallel_Sizer_Launcher() {
                         // g_nets[corner][i].subNodeResVec;
                     }
                     InitNets();
-                    max_time_recovery_iter = 1;
-                    FIX_GLOBAL = false;
-                    FIX_CAP = false;
+                    max_time_recovery_iter = 2;
+                    FIX_GLOBAL = true;
+                    FIX_CAP = true;
                     ATTACK_RATIO = 30;
-                    FIX_SLEW = false;
+                    FIX_SLEW = true;
                     FIX_SLEW_POST = true;
+                    post_slew_opt_output = false;
                     // ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
                     // FIX_SLEW = false;
                 }
