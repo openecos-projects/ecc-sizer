@@ -5986,17 +5986,16 @@ void Sizer::FinalReport() {
     auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
     _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
-                                                false);
+    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
-    auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-    auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
-    auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-    auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+    auto signal_low_layer = db_tech->findLayer("METAL1")->getRoutingLevel();
+    auto signal_high_layer = db_tech->findLayer("METAL7")->getRoutingLevel();
+    auto clk_low_layer = db_tech->findLayer("METAL1")->getRoutingLevel();
+    auto clk_high_layer = db_tech->findLayer("METAL7")->getRoutingLevel();
     auto grt = _ord_design->getGlobalRouter();
-    grt->setOverflowIterations(50);
+    grt->setOverflowIterations(10);
     grt->clear();
     grt->setAllowCongestion(true);
     grt->setMinRoutingLayer(signal_low_layer);
@@ -9112,6 +9111,8 @@ void Sizer::readEnvFile(string envFileStr) {
             lefFiles.push_back(getTokenS(line, "-lef "));
         if(line.find("-lefPath ") != string::npos)
             lefPath = getTokenS(line, "-lefPath ");
+        if(line.find("-setRCFile ") != string::npos)
+            setRCFile = getTokenS(line, "-setRCFile ");
         if(line.find("-suffix_nvt ") != string::npos) {
             suffixNVT = getTokenS(line, "-suffix_nvt ");
         }

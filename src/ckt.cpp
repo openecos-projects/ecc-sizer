@@ -226,11 +226,11 @@ void Circuit::Parser(string benchmark) {
                     _sizer->_ckt->_ord_timing->getMaxSlewLimit(m_term) /
                     _sizer->time_unit;
                 pin.maxTran = slew_limit;
-                if(fabs(slew_limit - 0.32) > 1e-3) {
-                    cout << "not equal to 0.32, slew limit " << slew_limit
-                         << endl;
-                    // exit(0);
-                }
+                // if(fabs(slew_limit - 0.32) > 1e-3) {
+                //     cout << "not equal to 0.32, slew limit " << slew_limit
+                //          << endl;
+                //     // exit(0);
+                // }
                 pin.capacitance = lib_port->capacitance();
                 bool maxCapExist;
                 float maxCap;
@@ -248,7 +248,7 @@ void Circuit::Parser(string benchmark) {
                 }
             }
             lib_cell_info->partial_order = partial_order / partial_count;
-            printf("Cell type %s, sum cap %f, cap cnt %d",
+            printf("Cell type %s, sum cap %f, cap cnt %d, ",
                    lib_cell_info->name.c_str(), partial_order, partial_count);
             std::cout << "lekage " << lib_cell_info->leakagePower << std::endl;
         }
@@ -443,7 +443,7 @@ void Circuit::Parser(string benchmark) {
     else {
         slack_max_iter = 6;
     }
-    runGR(50, true, slack_max_iter);
+    runGR(10, true, slack_max_iter);
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
         if(!_sizer->noSPEF) {
             if(_sizer->mmmcOn)
@@ -880,8 +880,10 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
                 vt = 2;
             }
             else {
-                printf("Error: Cell name has bug!\n");
-                exit(0);
+                vt = 0;
+                printf("Warning: Cell %s has only 1 vt!\n",
+                       newCellName.c_str());
+                // exit(0);
             }
         }
         else if(_sizer->numVt == 2) {
@@ -898,8 +900,9 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
                 vt = 1;
             }
             else {
-                printf("Error: Cell name has bug!\n");
-                exit(0);
+                vt = 0;
+                printf("Warning: Cell %s has only 1 vt!\n",
+                       newCellName.c_str());
             }
         }
         int c_size = lib_cell_table.lib_vt_size_table.size();
@@ -2790,16 +2793,18 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
             _begin_read_pin_info(is, tokens[1], pin, cell, lib);
             if(pin.maxCapacitance == std::numeric_limits< double >::max()) {
             }
-            if(cell.lib_pin2id_map.find(pin.name) ==
-               cell.lib_pin2id_map.end()) {
-                unsigned pin_id = cell.lib_pin2id_map.size();
-                cell.lib_pin2id_map.insert(
-                    pair< string, unsigned >(pin.name, pin_id));
-                // cout << "ADD PIN " << cell.name << "/" << pin.name << " " <<
-                // cell.lib_pin2id_map[pin.name] << endl;
+            if(pin.isInput || pin.isOutput) {
+                if(cell.lib_pin2id_map.find(pin.name) ==
+                   cell.lib_pin2id_map.end()) {
+                    unsigned pin_id = cell.lib_pin2id_map.size();
+                    cell.lib_pin2id_map.insert(
+                        pair< string, unsigned >(pin.name, pin_id));
+                    // cout << "ADD PIN " << cell.name << "/" << pin.name << " "
+                    // << cell.lib_pin2id_map[pin.name] << endl;
+                }
+                cell.pins.insert(pair< unsigned, LibPinInfo >(
+                    cell.lib_pin2id_map[pin.name], pin));
             }
-            cell.pins.insert(pair< unsigned, LibPinInfo >(
-                cell.lib_pin2id_map[pin.name], pin));
             --check;
         }
         else if(tokens.size() == 2 && tokens[0] == "dont_use" &&
@@ -3186,10 +3191,10 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
-    auto signal_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-    auto signal_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
-    auto clk_low_layer = db_tech->findLayer("M1")->getRoutingLevel();
-    auto clk_high_layer = db_tech->findLayer("M7")->getRoutingLevel();
+    auto signal_low_layer = db_tech->findLayer("METAL1")->getRoutingLevel();
+    auto signal_high_layer = db_tech->findLayer("METAL7")->getRoutingLevel();
+    auto clk_low_layer = db_tech->findLayer("METAL1")->getRoutingLevel();
+    auto clk_high_layer = db_tech->findLayer("METAL7")->getRoutingLevel();
     auto grt = _ord_design->getGlobalRouter();
     grt->clear();
     grt->setAllowCongestion(true);
@@ -3317,24 +3322,39 @@ void Circuit::init_opensta() {
         string lib_file_name = libPath + "/" + lib_file;
         _ord_tech->readLiberty(lib_file_name);
     }
-    for(auto lef_file : std::filesystem::directory_iterator(_sizer->lefPath)) {
-        if(std::string(lef_file.path()).find("asap7_tech") != string::npos) {
-            _ord_tech->readLef(lef_file.path());
+    if(_sizer->lefPath != "") {
+        for(auto lef_file :
+            std::filesystem::directory_iterator(_sizer->lefPath)) {
+            if(std::string(lef_file.path()).find("asap7_tech") !=
+               string::npos) {
+                _ord_tech->readLef(lef_file.path());
+            }
         }
-    }
-    for(auto lef_file : std::filesystem::directory_iterator(_sizer->lefPath)) {
-        if(std::string(lef_file.path()).find("asap7_tech") == string::npos) {
-            _ord_tech->readLef(lef_file.path());
+        for(auto lef_file :
+            std::filesystem::directory_iterator(_sizer->lefPath)) {
+            if(std::string(lef_file.path()).find("asap7_tech") ==
+               string::npos) {
+                _ord_tech->readLef(lef_file.path());
+            }
         }
+        _ord_design = new ord::Design(_ord_tech);
     }
-    _ord_design = new ord::Design(_ord_tech);
+    else {
+        for(auto lef_file : _sizer->lefFiles) {
+            _ord_tech->readLef(lef_file);
+        }
+        _ord_design = new ord::Design(_ord_tech);
+    }
+    // _ord_design->readVerilog(_sizer->verilogFile);
+    // _ord_design->link(_sizer->);
     _ord_design->readDef(_sizer->defFile);
     // std::string spefFile = design_dir + design_name + ".spef";
     // _ord_design->evalTclString("read_spef " + spefFile);
     _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
-    _ord_design->evalTclString("source " + libPath + "/../setRC.tcl");
+    std::string setrc_file = _sizer->setRCFile;
+    _ord_design->evalTclString("source " + setrc_file);
     printf("sdc file %s,  setRC file %s \n", _sizer->sdcFile.c_str(),
-           (libPath + "/../setRC.tcl").c_str());
+           (setrc_file).c_str());
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);

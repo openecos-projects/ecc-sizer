@@ -39,11 +39,13 @@
 
 #ifndef __UTILS_H__
 #define __UTILS_H__
+#include <algorithm>
 #include <string>
 #include <iostream>
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/utsname.h>
+#include <vector>
 // #include "ckt.h"
 struct CELL;
 typedef unsigned cell_sizes;
@@ -128,5 +130,51 @@ double cpuTime(void);
 void printMemoryUsage(void);
 void LaunchPTBackground(std::string root, std::string benchname);
 void KillPTBackground();
+
+struct LCA {
+    int vertex_num, query_num, root;  // 分别是点的数量、查询的数量、根节点
+    std::vector< std::vector< int > > graph;  // 点的邻接表
+    typedef std::pair< int, int > query;
+    std::vector< std::vector< query > > queries;  // 存查询组
+    std::vector< int > fa;
+    std::vector< bool > vis;
+    std::vector< int > ans;
+    void init(int n, int m, int r) {
+        vertex_num = n;
+        root = r;
+        graph.resize(n + 1);
+        queries.resize(n + 1);
+        ans.resize(m);
+        vis.resize(n + 1);
+        fa.resize(n + 1);
+        for(int i = 0; i <= n; i++) {
+            fa[i] = i;
+        }
+        std::fill(vis.begin(), vis.end(), false);
+        
+    }
+    int find_root(int i) {
+        if(i == fa[i])
+            return i;
+        return fa[i] = find_root(fa[i]);
+    }
+    // use root
+    void tarjan(int cur) {
+        vis[cur] = true;
+
+        for(auto &it : graph[cur]) {
+            if(!vis[it]) {
+                tarjan(it);
+                fa[it] = cur;
+            }
+        }
+
+        for(auto &it : queries[cur]) {
+            if(vis[it.first]) {
+                ans[it.second] = find_root(fa[it.first]);
+            }
+        }
+    }
+};
 
 #endif

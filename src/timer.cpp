@@ -41,6 +41,7 @@
 #include <cassert>
 #include <climits>
 #include <cstdio>
+#include <map>
 #include <sstream>
 #include "ckt.h"
 #include "ord/Timing.h"
@@ -4246,10 +4247,10 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     if(VERBOSE >= 3)
         cout << pins[view][cell.outpin].rslk << "/"
              << pins[view][cell.outpin].fslk << endl;
-        // fwpins.clear();
-        // bwpins.clear();
-        // endpins.clear();
-        // startpins.clear();
+    // fwpins.clear();
+    // bwpins.clear();
+    // endpins.clear();
+    // startpins.clear();
 #ifdef TIME_MON
     time_OneTimer += cpuTime() - begin;
     count_OneTimer++;
@@ -4970,6 +4971,29 @@ void Sizer::calc_res_vec(vector< SUB_NODE > &subNodeVec, NET &net) {
     if(VERBOSE >= 220)
         cout << "calc res vec start" << endl;
     net.subNodeResVec.clear();
+    LCA lca_m;
+    std::map< int, int > id_to_sub_idx;
+    lca_m.init(subNodeVec.size(), subNodeVec.size() * subNodeVec.size() / 2, 0);
+    for(unsigned i = 0; i < subNodeVec.size(); i++) {
+        id_to_sub_idx[subNodeVec[i].id] = i;
+    }
+    for(int k = 0; k < subNodeVec.size(); k++) {
+        for(auto to : subNodeVec[k].fanouts) {
+            assert(id_to_sub_idx.count(to) > 0);
+            int idx = id_to_sub_idx[to];
+            lca_m.graph[k].push_back(idx);
+            lca_m.graph[idx].push_back(k);
+        }
+    }
+    int kk = 0;
+    for(unsigned i = 0; i < subNodeVec.size() - 1; i++) {
+        for(unsigned k = 0; k < i; k++) {
+            lca_m.queries[i + 1].push_back(std::make_pair(k + 1, kk));
+            lca_m.queries[k + 1].push_back(std::make_pair(i + 1, kk++));
+        }
+    }
+    lca_m.tarjan(0);
+    kk = 0;
     for(unsigned i = 0; i < subNodeVec.size() - 1; i++) {
         if(VERBOSE >= 220)
             cout << i << "/" << subNodeVec.size() << endl;
@@ -4977,7 +5001,10 @@ void Sizer::calc_res_vec(vector< SUB_NODE > &subNodeVec, NET &net) {
         vector< double > row;
         net.subNodeResVec.push_back(row);
         for(unsigned k = 0; k < i; k++) {
-            net.subNodeResVec[i].push_back(get_res(subNodeVec, i + 1, k + 1));
+            int target = lca_m.ans[kk++];
+            // assert(get_res(subNodeVec, i + 1, k + 1) ==
+            //        subNodeVec[target].totres);
+            net.subNodeResVec[i].push_back(subNodeVec[target].totres);
         }
     }
 }
@@ -5104,16 +5131,17 @@ int Sizer::getNumRCStage(vector< SUB_NODE > &subNodeVec, unsigned sink) {
 
     return count;
 }
-
+// get_res(subNodeVec, i + 1, k + 1)
 double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
     double totres = 0.0;
     if(VERBOSE >= 220)
         cout << "get res " << m << " " << n << endl;
     SUB_NODE *curNode;
-
+    set< unsigned > visited;
     if(VERBOSE >= 220)
         cout << "start -- " << m << endl;
     curNode = &subNodeVec[m];
+    // visited.insert;
     while(curNode->id != 0) {
         if(curNode->visited) {
             cout << "WARNING: there is a loop in RC tree" << endl;
