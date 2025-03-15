@@ -131,6 +131,7 @@ void designTiming::closeServerContact() {
 //     // cout << delay << " " << riseFall << " " << endl;
 // }
 
+// FIXME:
 void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
                                 string cellInPin, string cellOutPin) {
     _tclInputString =
@@ -145,6 +146,8 @@ void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
     float temp1 = 0;
     float temp2 = 0;
+    std::cout << _tclAnswer << std::endl;
+    sscanf(_tclAnswer.c_str(), "%f %f", &temp1, &temp2);
 }
 
 void designTiming::getFFDelay(double &rdelay, double &fdelay,
@@ -717,7 +720,7 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
     else if(program == OS) {
         double begin = cpuTime();
         auto pin_ =
-            _sizer->_ckt->_ord_design->getBlock()->findITerm(pinName.c_str());
+            _sizer->_ckt->_ord_design->getBlock()->findITerm2(pinName.c_str());
         sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
         sta::dbNetwork *network = sta->getDbNetwork();
         // sta::Port *port = network->dbToSta(pin_->getMTerm());
@@ -788,9 +791,11 @@ void designTiming::getPinTran(double &riseTran, double &fallTran,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    printf("Error: not OSGetPinTran !, pin name %s\n", pinName.c_str());
+    if(VERBOSE > 3){
+        printf("Error: not OSGetPinTran !, pin name %s\n", pinName.c_str());
+    }
     auto pin_ =
-        _sizer->_ckt->_ord_design->getBlock()->findITerm(pinName.c_str());
+        _sizer->_ckt->_ord_design->getBlock()->findITerm2(pinName.c_str());
     sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
     sta::dbNetwork *network = sta->getDbNetwork();
     // sta::Port *port = network->dbToSta(pin_->getMTerm());
@@ -1024,7 +1029,7 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
     printf("Error: not OSGetPinArrival !, pin name %s\n", pinName.c_str());
     double begin = cpuTime();
     auto pin_ =
-        _sizer->_ckt->_ord_design->getBlock()->findITerm(pinName.c_str());
+        _sizer->_ckt->_ord_design->getBlock()->findITerm2(pinName.c_str());
     sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
     sta::dbNetwork *network = sta->getDbNetwork();
     // assert(0);
@@ -1154,7 +1159,7 @@ double designTiming::getCeff(string PinName) {
         auto design = _sizer->_ckt->_ord_design;
         // ofstream ofs("opensta_cap_vio.txt");
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
-        auto pin_ = design->getBlock()->findITerm(PinName.c_str());
+        auto pin_ = design->getBlock()->findITerm2(PinName.c_str());
         if(!pin_) {
             printf("error: no getCeff !\n");
             return 0;

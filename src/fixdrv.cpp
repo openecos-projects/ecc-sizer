@@ -1022,7 +1022,9 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                         }
                         else {
                             if(delta_width <= 0) {
-                                printf("Error: not defined delta_width\n");
+                                if(VERBOSE >= 4) {
+                                    printf("Error: not defined delta_width\n");
+                                }
                                 benefit = delta_tran;
                             }
                             else {

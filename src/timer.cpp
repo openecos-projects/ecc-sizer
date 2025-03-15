@@ -41,6 +41,7 @@
 #include <cassert>
 #include <climits>
 #include <cstdio>
+#include <iostream>
 #include <map>
 #include <sstream>
 #include "ckt.h"
@@ -248,7 +249,7 @@ double Sizer::GetCellCapVio(CELL &cell, unsigned view) {
             if(maxCap == std::numeric_limits< double >::max()) {
                 string pin_name = getFullPinName(pins[view][cell.outpins[i]]);
                 auto pin_ =
-                    _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+                    _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
                 double cap_limit =
                     _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
                     cap_unit;
@@ -902,7 +903,8 @@ unsigned Sizer::FindAvailablePreCell(unsigned prev_cell_input_pin,
             LibPinInfo &lib_pin_info = cur->pins[pins[view][in_pin].lib_pin];
 
             unsigned idx = outpinidx + pins[view][in_pin].lib_pin;
-            LibTimingInfo *arc = &cur->timingArcs[idx];
+            LibTimingInfo *arc =
+                cur->timingArcs.count(idx) ? &cur->timingArcs[idx] : nullptr;
 
             bool arc_error = false;
 
@@ -1101,8 +1103,19 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                 }
 
                 unsigned idx = outpinidx + pins[view][curpin].lib_pin;
-                LibTimingInfo *arc = &cur->timingArcs[idx];
-
+                LibTimingInfo *arc = cur->timingArcs.count(idx)
+                                         ? &cur->timingArcs[idx]
+                                         : nullptr;
+                // if(arc == nullptr) {
+                //     unsigned out_libpin = pins[view][curoutpin].lib_pin;
+                //     unsigned in_libpin = pins[view][curpin].lib_pin;
+                //     unsigned idx = out_libpin * 100 + in_libpin;
+                //     if(cur->pins[in_libpin].isOutput &&
+                //        cur->pins[out_libpin].isInput) {
+                //         idx = out_libpin + in_libpin * 100;
+                //         arc = &cur->timingArcs[idx];
+                //     }
+                // }
                 if(arc == NULL) {
                     arc_error = true;
                 }
@@ -1118,15 +1131,19 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                 if(arc_error) {
                     unsigned pin_index = cell.outpins[i];
                     if(!pins[view][pin_index].bb_checked_tran) {
-                        cout << "timing arc error : " << arc->fromPin
-                             << " != " << pins[view][curpin].name << endl;
-                        cout << "LOOKUP ST -- lib cell " << cell.name << " "
-                             << cell.type << " " << cur->name << endl;
-                        cout << __FILE__ << ":" << __LINE__ << endl;
+                        // FIXME:
+                        if(VERBOSE > 3) {
+                            cout << "timing arc error : "
+                                 << (arc ? arc->fromPin : "null")
+                                 << " != " << pins[view][curpin].name << endl;
+                            cout << "LOOKUP ST -- lib cell " << cell.name << " "
+                                 << cell.type << " " << cur->name << endl;
+                            cout << __FILE__ << ":" << __LINE__ << endl;
+                        }
                         T[view]->getPinTran(
                             r_rtran, r_ftran,
                             getFullPinName(pins[view][pin_index]));
-                        assert(0);
+                        // assert(0);
                         pins[view][pin_index].bb_checked_tran = true;
                     }
                     else {
@@ -1164,11 +1181,11 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                          << " totcap : "
                          << pins[view][cell.outpins[i]].ceff + delta_cap
                          << endl;
-                }
-                if(r_ftran < 0 || r_rtran < 0) {
-                    cout << "ERROR in tran calc: " << cell.name << " "
-                         << cell.type << " " << pins[view][curpin].name << " "
-                         << r_rtran << " " << r_ftran << endl;
+                    if(r_ftran < 0 || r_rtran < 0) {
+                        cout << "ERROR in tran calc: " << cell.name << " "
+                             << cell.type << " " << pins[view][curpin].name
+                             << " " << r_rtran << " " << r_ftran << endl;
+                    }
                 }
                 *rtran = max(r_rtran, *rtran);
                 *ftran = max(r_ftran, *ftran);
@@ -1315,8 +1332,19 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                           pins[view][curpin].lib_pin * 100;
                 }
 
-                LibTimingInfo *arc = &cur->timingArcs[idx];
-
+                LibTimingInfo *arc = cur->timingArcs.count(idx)
+                                         ? &cur->timingArcs[idx]
+                                         : nullptr;
+                // if(arc == nullptr) {
+                //     unsigned out_libpin = pins[view][curoutpin].lib_pin;
+                //     unsigned in_libpin = pins[view][curpin].lib_pin;
+                //     unsigned idx = out_libpin * 100 + in_libpin;
+                //     if(cur->pins[in_libpin].isOutput &&
+                //        cur->pins[out_libpin].isInput) {
+                //         idx = out_libpin + in_libpin * 100;
+                //         arc = &cur->timingArcs[idx];
+                //     }
+                // }
                 // cout << "LOOK DT " << pins[view][curpin].name << "/" <<
                 // pins[view][curpin].lib_pin << "--" <<
                 // pins[view][curoutpin].name <<"/" <<
@@ -1343,7 +1371,7 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                     }
                 }
                 else {
-                    if(arc->fromPin != pins[view][curpin].name) {
+                    if(arc && arc->fromPin != pins[view][curpin].name) {
                         if(VERBOSE >= 3)
                             cout << "timing arc error : " << arc->fromPin
                                  << " != " << pins[view][curpin].name << endl;
@@ -1411,26 +1439,29 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                     cout << "  ceff = " << pins[view][cell.outpins[i]].ceff
                          << " delta_cap = " << delta_cap << endl;
                 }
-                if(r_fdelay < 0 || r_fdelay < 0) {
-                    cout << "-----------------------------" << endl;
-                    cout << cur->name << endl;
-                    cout << r_type(cell) << " - " << r_size(cell) << endl;
-                    cout << cell.name << "-delay, totcap = "
-                         << pins[view][cell.outpins[i]].totcap << endl;
-                    cout << cell.name << " input pin "
-                         << pins[view][curpin].name << " " << " output pin "
-                         << pins[view][cell.outpins[i]].name
-                         << "  input ftran = " << pins[view][curpin].ftran
-                         << endl;
-                    cout << cell.name
-                         << "  input rtran = " << pins[view][curpin].rtran
-                         << endl;
-                    cout << "  r_rdelay = " << r_rdelay
-                         << " r_fdelay = " << r_fdelay << endl;
-                    cout << "  ceff = " << pins[view][cell.outpins[i]].ceff
-                         << " delta_cap = " << delta_cap << endl;
-                    printf("Error in delay calculation\n");
+                if(VERBOSE > 3) {
+                    if(r_fdelay < 0 || r_fdelay < 0) {
+                        cout << "-----------------------------" << endl;
+                        cout << cur->name << endl;
+                        cout << r_type(cell) << " - " << r_size(cell) << endl;
+                        cout << cell.name << "-delay, totcap = "
+                             << pins[view][cell.outpins[i]].totcap << endl;
+                        cout << cell.name << " input pin "
+                             << pins[view][curpin].name << " " << " output pin "
+                             << pins[view][cell.outpins[i]].name
+                             << "  input ftran = " << pins[view][curpin].ftran
+                             << endl;
+                        cout << cell.name
+                             << "  input rtran = " << pins[view][curpin].rtran
+                             << endl;
+                        cout << "  r_rdelay = " << r_rdelay
+                             << " r_fdelay = " << r_fdelay << endl;
+                        cout << "  ceff = " << pins[view][cell.outpins[i]].ceff
+                             << " delta_cap = " << delta_cap << endl;
+                        printf("Error in delay calculation\n");
+                    }
                 }
+
                 rdelay.push_back(r_rdelay);
                 fdelay.push_back(r_fdelay);
             }
@@ -1536,7 +1567,10 @@ void Sizer::CalcSlack(unsigned view) {
                             unsigned idx =
                                 outpinidx +
                                 pins[view][cells[cur].inpins[k]].lib_pin;
-                            LibTimingInfo *arc = &lib_cell->timingArcs[idx];
+                            LibTimingInfo *arc =
+                                lib_cell->timingArcs.count(idx)
+                                    ? &lib_cell->timingArcs[idx]
+                                    : nullptr;
                             if(arc == NULL) {
                                 double r_AAT = 0.0, f_AAT = 0.0;
 
@@ -1685,9 +1719,9 @@ void Sizer::CalcSlack(unsigned view) {
             //    getFullPinName(pins[view][curinpin])) {
             //     printf("debug debug");
             // }
-            if(pins[view][curinpin].name == "2544") {
-                printf("debug debug!");
-            }
+            // if(pins[view][curinpin].name == "2544") {
+            //     printf("debug debug!");
+            // }
             if(cells[cur].outpins.size() == 0) {
                 double r_AAT = 0.0, f_AAT = 0.0;
                 double r_slk = 0.0, f_slk = 0.0;
@@ -1722,10 +1756,21 @@ void Sizer::CalcSlack(unsigned view) {
                         break;
                     }
                     else {
-                        unsigned outpinidx =
-                            pins[view][cells[cur].outpins[j]].lib_pin * 100;
-                        unsigned idx = outpinidx + pins[view][curinpin].lib_pin;
-                        LibTimingInfo *arc = &lib_cell->timingArcs[idx];
+                        unsigned out_libpin =
+                            pins[view][cells[cur].outpins[j]].lib_pin;
+                        unsigned in_libpin = pins[view][curinpin].lib_pin;
+                        unsigned idx = out_libpin * 100 + in_libpin;
+                        LibTimingInfo *arc = nullptr;
+                        if(lib_cell->timingArcs.count(idx) > 0) {
+                            arc = &lib_cell->timingArcs[idx];
+                        }
+                        // else {
+                        //     if(lib_cell->pins[in_libpin].isOutput &&
+                        //        lib_cell->pins[out_libpin].isInput) {
+                        //         idx = out_libpin + in_libpin * 100;
+                        //         arc = &lib_cell->timingArcs[idx];
+                        //     }
+                        // }
 
                         if(arc == NULL) {
                             double r_AAT = 0.0, f_AAT = 0.0;
@@ -1751,9 +1796,11 @@ void Sizer::CalcSlack(unsigned view) {
                                 cout << "timing arc error : " << arc->fromPin
                                      << " != " << pins[view][curinpin].name
                                      << endl;
+                                cout << "Error: timing arc error : "
+                                     << arc->fromPin
+                                     << " != " << pins[view][curinpin].name
+                                     << endl;
                             }
-                            cout << "Error: timing arc error : " << arc->fromPin
-                                 << " != " << pins[view][curinpin].name << endl;
                             double r_AAT = 0.0, f_AAT = 0.0;
                             double r_slk = 0.0, f_slk = 0.0;
 
@@ -3315,7 +3362,8 @@ double Sizer::LookupIntPower(CELL &cell, LibCellInfo *cur, unsigned view) {
             }
             unsigned idx = outpinidx + pins[view][curpin].lib_pin;
             LibPowerInfo *power = &cur->powerTables[idx];
-            LibTimingInfo *arc = &cur->timingArcs[idx];
+            LibTimingInfo *arc =
+                cur->timingArcs.count(idx) ? &cur->timingArcs[idx] : nullptr;
             double r_ipower = .0, f_ipower = .0;
 
             if(arc == NULL || power == NULL) {
@@ -3377,7 +3425,8 @@ double Sizer::LookupIntPowerTran(CELL &cell, LibCellInfo *cur,
             }
             unsigned idx = outpinidx + pins[view][curpin].lib_pin;
             LibPowerInfo *power = &cur->powerTables[idx];
-            LibTimingInfo *arc = &cur->timingArcs[idx];
+            LibTimingInfo *arc =
+                cur->timingArcs.count(idx) ? &cur->timingArcs[idx] : nullptr;
             double r_ipower = .0, f_ipower = .0;
 
             if(arc == NULL || power == NULL) {
@@ -3433,7 +3482,8 @@ double Sizer::LookupIntPowerTran(CELL &cell, double fo_rtran, double fo_ftran,
             }
             unsigned idx = outpinidx + pins[view][curpin].lib_pin;
             LibPowerInfo *power = &cur->powerTables[idx];
-            LibTimingInfo *arc = &cur->timingArcs[idx];
+            LibTimingInfo *arc =
+                cur->timingArcs.count(idx) ? &cur->timingArcs[idx] : nullptr;
             double r_ipower = .0, f_ipower = .0;
             double rtran = pins[view][curpin].rtran;
             double ftran = pins[view][curpin].ftran;
@@ -3497,7 +3547,8 @@ double Sizer::LookupIntPowerLoad(CELL &cell, LibCellInfo *cur, double fi_load,
             }
             unsigned idx = outpinidx + pins[view][curpin].lib_pin;
             LibPowerInfo *power = &cur->powerTables[idx];
-            LibTimingInfo *arc = &cur->timingArcs[idx];
+            LibTimingInfo *arc =
+                cur->timingArcs.count(idx) ? &cur->timingArcs[idx] : nullptr;
             double r_ipower = .0, f_ipower = .0;
 
             if(arc == NULL || power == NULL) {
@@ -3574,7 +3625,8 @@ void Sizer::LookupSTLoad(CELL &cell, double &rtran, double &ftran,
                 continue;
 
             unsigned idx = outpinidx + pins[view][curpin].lib_pin;
-            LibTimingInfo *arc = &cur->timingArcs[idx];
+            LibTimingInfo *arc =
+                cur->timingArcs.count(idx) ? &cur->timingArcs[idx] : nullptr;
 
             bool arc_error = false;
 
@@ -3661,7 +3713,8 @@ void Sizer::LookupSTTran(CELL &cell, vector< double > in_rtrans,
                 continue;
 
             unsigned idx = outpinidx + pins[view][curpin].lib_pin;
-            LibTimingInfo *arc = &cur->timingArcs[idx];
+            LibTimingInfo *arc =
+                cur->timingArcs.count(idx) ? &cur->timingArcs[idx] : nullptr;
 
             bool arc_error = false;
 
@@ -4498,7 +4551,9 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
                 if(!isff(cells[cur])) {
                     unsigned idx = pin.lib_pin * 100 +
                                    pins[view][cells[cur].inpins[j]].lib_pin;
-                    LibTimingInfo *arc = &lib_cell->timingArcs[idx];
+                    LibTimingInfo *arc = lib_cell->timingArcs.count(idx)
+                                             ? &lib_cell->timingArcs[idx]
+                                             : nullptr;
 
                     if(arc == NULL) {
                         double r_AAT = 0.0, f_AAT = 0.0;
@@ -4520,7 +4575,7 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
                                  << pins[view][cells[cur].inpins[j]].name
                                  << endl;
                         }
-                        assert(false);
+                        // assert(false);
                         double r_AAT = 0.0, f_AAT = 0.0;
 
                         if(!pin.bb_checked_aat) {
@@ -4689,9 +4744,9 @@ bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
         prv_rRAT = pin.rRAT;
         prv_fRAT = pin.fRAT;
     }
-    if(pin.id == 2544) {
-        printf("debug debug!");
-    }
+    // if(pin.id == 2544) {
+    //     printf("debug debug!");
+    // }
     if(VERBOSE >= 2) {
         cout << "UPDATE PIN SLACK - ORIG " << getFullPinName(pin) << " ("
              << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/"
@@ -4968,6 +5023,9 @@ void Sizer::calc_res_vec(vector< SUB_NODE > &subNodeVec, NET &net) {
     if(subNodeVec.size() == 0)
         return;
 
+    if(subNodeVec.size() >= 10000) {
+        std::cout << "subNodeVec over 10000 net name" << net.name << std::endl;
+    }
     if(VERBOSE >= 220)
         cout << "calc res vec start" << endl;
     net.subNodeResVec.clear();
@@ -5322,10 +5380,12 @@ timing_lookup Sizer::get_wire_delay(unsigned netID, unsigned sinkPinID,
                               .delay;
     }
     else {
-        if(!nets[corner][netID].is_clock) {
-            printf("ERROR: wire delay error, pin name %s, net name %s\n",
-                   getFullPinName(pins[view][sinkPinID]).c_str(),
-                   nets[corner][netID].name.c_str());
+        if(VERBOSE >= 4) {
+            if(!nets[corner][netID].is_clock) {
+                printf("ERROR: wire delay error, pin name %s, net name %s\n",
+                       getFullPinName(pins[view][sinkPinID]).c_str(),
+                       nets[corner][netID].name.c_str());
+            }
         }
     }
     return wire_delay;

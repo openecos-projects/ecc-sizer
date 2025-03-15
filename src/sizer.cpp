@@ -5527,7 +5527,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         //     string find_timing = T[view]->doOneCmd("find_timing");
         // }
         // UpdatePTSizes(view);
-#if 0
+#if 1
         double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
         double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -10354,8 +10354,8 @@ int main(int argc, char **argv) {
         }
         else if(TEST_MODE == "ALL_TEST") {
             // _sizer.WireDelayTest();
-            // _sizer.AllCorrTest();
-            // exit(0);
+            _sizer.AllCorrTest();
+            exit(0);
         }
         else if(TEST_MODE == "ALL_STA_TEST") {
             _sizer.AllCorrSTATest();

@@ -819,7 +819,7 @@ class Sizer {
     string suffixHVT;
     string suffix;
     string lefPath;
-    string setRCFile;
+    string setRCFile = "";
     int numVt;
 
     ////////////////////////////////////////////////////

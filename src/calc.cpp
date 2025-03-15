@@ -260,10 +260,11 @@ double Sizer::CalcSlewViolation(unsigned view) {
             string name = cells[i].name;
             string pin_name = getFullPinName(pins[view][curpin]);
             auto pin_ =
-                _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
-            assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
-                   pin_->getNet()->getSigType() != "GROUND" &&
-                   pin_->getNet()->getSigType() != "CLOCK");
+                _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
+            assert(pin_);
+            // assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+            //        pin_->getNet()->getSigType() != "GROUND" &&
+            //        pin_->getNet()->getSigType() != "CLOCK");
             // if(pins[view][curpin].max_tran == 0) {
             //     printf("Pin name %s max_tran %f\n",
             //            pins[view][curpin].name.c_str(),
@@ -339,8 +340,10 @@ double Sizer::CalcSlewViolation(unsigned view) {
                                 loadCap += pins[view][fopin].cap;
                             }
                             // std::cout << "Too large PI net name: "
-                            //           << nets[view][net_id].name << " net cap "
-                            //           << nets[corner][net_id].cap << "load cap "
+                            //           << nets[view][net_id].name << " net cap
+                            //           "
+                            //           << nets[corner][net_id].cap << "load
+                            //           cap "
                             //           << loadCap << std::endl;
                         }
                     }
@@ -404,12 +407,12 @@ double Sizer::showAllSlew(unsigned view, string filename) {
         // string name = cells[i].name;
         string pin_name = getFullPinName(pins[view][curpin]);
         // auto pin_ =
-        // _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+        // _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
         // assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
         //        pin_->getNet()->getSigType() != "GROUND" &&
         //        pin_->getNet()->getSigType() != "CLOCK");
 
-        auto pin_ = _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+        auto pin_ = _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
         assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
                pin_->getNet()->getSigType() != "GROUND" &&
                pin_->getNet()->getSigType() != "CLOCK");
@@ -639,7 +642,7 @@ void Sizer::UpdateCapsFromCells() {
                             .capacitance;
                     if(pins[view][input_j].cap == 0.0) {
                         string pin_name = getFullPinName(pins[view][input_j]);
-                        auto pin_ = _ckt->_ord_design->getBlock()->findITerm(
+                        auto pin_ = _ckt->_ord_design->getBlock()->findITerm2(
                             pin_name.c_str());
                         sta::dbSta* sta = _ckt->_ord_timing->getSta();
                         sta::dbNetwork* network = sta->getDbNetwork();
@@ -684,7 +687,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                 if(maxCap == std::numeric_limits< double >::max()) {
                     string pin_name =
                         getFullPinName(pins[view][cells[i].outpins[k]]);
-                    auto pin_ = _ckt->_ord_design->getBlock()->findITerm(
+                    auto pin_ = _ckt->_ord_design->getBlock()->findITerm2(
                         pin_name.c_str());
                     double cap_limit =
                         _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
@@ -708,7 +711,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                 // string pin_name =
                 //     getFullPinName(pins[view][nets[corner][outnet].outpins[j]]);
                 // auto pin_ =
-                //     _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+                //     _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
                 // pin_->getC
                 assert(pins[view][nets[corner][outnet].outpins[j]].cap < 1e31);
                 // if(loadCap > 2 * 1e31) {
@@ -723,10 +726,13 @@ double Sizer::CalcCapViolation(unsigned view) {
                 auto ord_net =
                     _ckt->_ord_design->getBlock()->findNet(netNameStr.c_str());
                 auto pin_ =
-                    _ckt->_ord_design->getBlock()->findITerm(pin_name.c_str());
+                    _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
                 sta::dbSta* sta = _ckt->_ord_timing->getSta();
                 sta::Net* sta_net = sta->getDbNetwork()->dbToSta(ord_net);
-
+                if(!pin_) {
+                    printf("Error pin %s not found\n", pin_name.c_str());
+                    continue;
+                }
                 if(!(pin_->getNet() &&
                      pin_->getNet()->getSigType() != "POWER" &&
                      pin_->getNet()->getSigType() != "GROUND" &&

@@ -818,11 +818,13 @@ map< string, unsigned > Circuit::generateLibCellTable() {
             string main_cell_type = (iter->second).footprint;
             if(VERBOSE >= 4)
                 report_cell(iter->second);
-
-            if(main_cell_type == "NA") {
-                continue;
-            }
-
+            // int m = 0;
+            // if(main_cell_type == "151" || main_cell_type == "152") {
+            //     printf("tetetete");
+            //     m = 1;
+            //     // continue;
+            // }
+            // printf("main_cell_type %s m %d\n", main_cell_type.c_str(), m);
             if(check_map.find(main_cell_type) == check_map.end()) {
                 LibCellTable* main_lib_cell_table = new LibCellTable;
                 main_lib_cell_table->name = main_cell_type;
@@ -847,6 +849,11 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
     list< LibCellInfo* >& candidate_list =
         _sizer->func_lib_cell_list[corner][type];
 
+    if(candidate_list.size() == 0) {
+        printf("Warning: Cell %s has no candidate cell!\n", type.c_str());
+        return;
+        // exit(0);
+    }
     // 如果有多个高vt呢,根据leakage顺序进行排序。
     // list size first
     std::set< string > lib_cell_size_set;
@@ -880,7 +887,8 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
                 vt = 2;
             }
             else {
-                vt = 0;
+                // SMIC 110 RVT NOT HAVE SUFIX
+                vt = 1;
                 printf("Warning: Cell %s has only 1 vt!\n",
                        newCellName.c_str());
                 // exit(0);
@@ -1254,7 +1262,9 @@ void Circuit::lib_parser(string filename, unsigned corner) {
     for(unsigned i = 0; i < cells.size(); i++) {
         cur_cell = cells[i];
         map< string, unsigned >::iterator temp_iter;
-
+        // if(cur_cell.footprint == "152"){
+        //     cout << "152" << endl;
+        // }
         if((temp_iter = _sizer->func2id.find(cur_cell.footprint)) !=
            _sizer->func2id.end()) {
             if(!cur_cell.dontUse) {
@@ -2586,11 +2596,12 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
             // Read timing info
             fromPin = _begin_read_timing_info(is, pinName, tmplib, lib);
             // cout << "fromPin: " << fromPin << " toPin: " << pinName << endl;
+            assert(tmplib.fromPin == fromPin);
+            assert(tmplib.toPin == pinName);
             if(pinName == "RESET") {
                 printf("hhh");
             }
-            if(cell.name == "ASYNC_DFFHx1_ASAP7_75t_R" && pinName == "D" &&
-               fromPin == "CLK") {
+            if(cell.name == "PB4W") {
                 printf("hhh");
             }
             if(fromPin != "") {
@@ -2634,19 +2645,31 @@ void Circuit::_begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
                     toPinId = cell.lib_pin2id_map[pinName];
                 }
                 if(fromPinId != toPinId) {
-                    unsigned index = fromPinId + toPinId * 100;
+                    unsigned idx1 = fromPinId + toPinId * 100;
                     // Update existing timing info
-                    if(cell.timingArcs.find(index) != cell.timingArcs.end()) {
-                        merge_timingArcs(cell.timingArcs[index], tmplib);
-                    }
-                    else {
-                        if(!tmplib.riseDelay.tableVals.empty() ||
-                           !tmplib.fallDelay.tableVals.empty() ||
-                           !tmplib.riseTransition.tableVals.empty() ||
-                           !tmplib.fallTransition.tableVals.empty()) {
-                            cell.timingArcs.insert(
-                                pair< unsigned, LibTimingInfo >(index, tmplib));
+                    auto insert_arc = [&](int index,
+                                          LibTimingInfo timing_info) {
+                        if(cell.timingArcs.find(index) !=
+                           cell.timingArcs.end()) {
+                            merge_timingArcs(cell.timingArcs[index],
+                                             timing_info);
                         }
+                        else {
+                            if(!timing_info.riseDelay.tableVals.empty() ||
+                               !timing_info.fallDelay.tableVals.empty() ||
+                               !timing_info.riseTransition.tableVals.empty() ||
+                               !timing_info.fallTransition.tableVals.empty()) {
+                                cell.timingArcs.insert(
+                                    pair< unsigned, LibTimingInfo >(
+                                        index, timing_info));
+                            }
+                        }
+                    };
+                    insert_arc(idx1, tmplib);
+                    if(pin.isOutput && pin.isInput && cell.name == "PB4W") {
+                        std::swap(tmplib.fromPin, tmplib.toPin);
+                        unsigned idx2 = fromPinId * 100 + toPinId;
+                        insert_arc(idx2, tmplib);
                     }
                 }
                 // cout << "Read " << cell.timingArcs.size() << " timing arcs"
@@ -2809,7 +2832,7 @@ void Circuit::_begin_read_cell_info(istream& is, LibCellInfo& cell,
         }
         else if(tokens.size() == 2 && tokens[0] == "dont_use" &&
                 tokens[1] == "true") {
-            cell.dontUse = true;
+            cell.dontTouch = true;
         }
     }
     // assign leakage power
@@ -3351,10 +3374,12 @@ void Circuit::init_opensta() {
     // std::string spefFile = design_dir + design_name + ".spef";
     // _ord_design->evalTclString("read_spef " + spefFile);
     _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
-    std::string setrc_file = _sizer->setRCFile;
-    _ord_design->evalTclString("source " + setrc_file);
-    printf("sdc file %s,  setRC file %s \n", _sizer->sdcFile.c_str(),
-           (setrc_file).c_str());
+    if(_sizer->setRCFile != "") {
+        std::string setrc_file = _sizer->setRCFile;
+        _ord_design->evalTclString("source " + setrc_file);
+        printf("sdc file %s,  setRC file %s \n", _sizer->sdcFile.c_str(),
+               (setrc_file).c_str());
+    }
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
@@ -3483,6 +3508,9 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             // con("debug debug!!");
             continue;
         }
+        // if(netName == "s_sys_clk_buf") {
+        //     continue;
+        // }
         if(strcmp(netName.c_str(), string("SE").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SI").c_str()) == 0 ||
            strcmp(netName.c_str(), string("SO").c_str()) == 0 ||
