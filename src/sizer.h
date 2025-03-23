@@ -820,6 +820,7 @@ class Sizer {
     string suffix;
     string lefPath;
     string setRCFile = "";
+    string util_tcl_file = "";
     int numVt;
 
     ////////////////////////////////////////////////////

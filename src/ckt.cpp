@@ -559,8 +559,6 @@ void Circuit::assignLibPinId() {
     cout << "END OF PIN MAPPING" << endl;
 
     for(unsigned i = 0; i < g_cells.size(); ++i) {
-        LibCellInfo* lib_cell_info =
-            &(_sizer->libs[corner].find(g_cells[i].type)->second);
         // LibCellInfo* lib_cell_info = _sizer->getLibCellInfo(g_cells[i]);
 
         if(g_cells[i].outpins.size() != 0) {
@@ -590,7 +588,10 @@ void Circuit::assignLibPinId() {
                          << g_cells[i].type << endl;
             }
         }
-
+        LibCellInfo* lib_cell_info =
+            _sizer->libs[corner].count(g_cells[i].type)
+                ? &(_sizer->libs[corner].find(g_cells[i].type)->second)
+                : nullptr;
         if(lib_cell_info != NULL) {
             if(lib_cell_info->isSequential) {
                 CELL& cell = g_cells[i];
@@ -722,7 +723,7 @@ void Circuit::assignLibPinId() {
             // }
         }
         else {
-            if(VERBOSE >= 1)
+            if(VERBOSE >= 4)
                 cout << "BLACKBOX INST " << i << " " << cellInst << " "
                      << master << endl;
             // treat blackboxes
@@ -746,6 +747,12 @@ void Circuit::assignMaxTrans() {
         CELL* cell = &(*iter);
 
         for(unsigned i = 0; i < _sizer->numCorners; ++i) {
+            if(_sizer->libs[i].find(cell->type) == (_sizer->libs[i].end())) {
+                // printf("Error : cannot find lib cell info for %s\n",
+                //        cell->name.c_str());
+                cell->max_tran.push_back(_sizer->maxTran[i]);
+                continue;
+            }
             LibCellInfo* lib_cell = &(_sizer->libs[i].find(cell->type)->second);
             // LibCellInfo* lib_cell = _sizer->getLibCellInfo(*cell, i);
 
@@ -778,7 +785,9 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
 
     for(iter = g_cells.begin(); iter != g_cells.end(); ++iter) {
         CELL* cell = &(*iter);
-
+        if(_sizer->libs[0].find(cell->type) == _sizer->libs[0].end()) {
+            continue;
+        }
         LibCellInfo* lib_cell = &(_sizer->libs[0].find(cell->type)->second);
 
         if(lib_cell == NULL) {
@@ -3435,11 +3444,17 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             printf("Read %d / %d Instances\n", iter_i, gateNum);
         }
         iter_i++;
-        string strCellName = network->libertyCell(inst)->name();
-
+        string str_cell_name = "";
+        if(network->libertyCell(inst) == nullptr) {
+            printf("Error: %s\n", network->pathName(inst));
+            // continue;
+        }
+        else {
+            str_cell_name = network->libertyCell(inst)->name();
+        }
         // NEW CELL
         CELL tmpCell;
-        tmpCell.type = network->libertyCell(inst)->name();
+        tmpCell.type = str_cell_name;
         tmpCell.name = network->pathName(inst);
         tmpCell.isFF = false;
 
@@ -3822,6 +3837,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         }
 
         double t_cap = wire_cap / _sizer->cap_unit;
+        if(t_cap >= 10000) {
+            printf("net %s cap %f\n", netNameStr.c_str(), t_cap);
+        }
         // if(_sizer->use_margin) {
         //     t_cap *= 1.05;
         // }

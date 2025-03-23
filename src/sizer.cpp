@@ -662,7 +662,9 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
         lib_cell_table = main_lib_cell_tables[corner][main_lib_cell_id];
     }
     else {
-        printf("Error: main_lib_cell_id can't find %d\n", main_lib_cell_id);
+        if(VERBOSE >= 4) {
+            printf("Error: main_lib_cell_id can't find %d\n", main_lib_cell_id);
+        }
     }
 
     if(lib_cell_table == NULL) {
@@ -1339,8 +1341,9 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
     std::ostringstream ostr;
 
     if(useOpenSTA) {
-        _ckt->_ord_design->evalTclString(
-            "source /home/xingchaoyu/code/gpu_gate_sizing/src/sizer_os.tcl");
+        if(util_tcl_file != "") {
+            _ckt->_ord_design->evalTclString(util_tcl_file);
+        }
         designTiming *PT = new designTiming(OS, this);
         return PT;
         // exeOSServer(serverName, port, view);
@@ -5555,6 +5558,8 @@ void Sizer::Parallel_Sizer_Launcher() {
              << endl;
         cout << "[view " << view << "] Initial Tran           : " << tran_tot
              << " ps " << tran_num << " " << tran_max << " ps" << endl;
+        cout << "[view " << view << "] Initial cap           : " << cap_tot
+             << " ps " << cap_num << " " << cap_max << " fF" << endl;
         if(ISO_TIME) {
             if(viewSlackMargin[view] == 0.0) {
                 if(wns < 0) {
@@ -5923,7 +5928,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         // SizeChangeOut(outputDir);
         // double vio1, power1 = 0.0;
         // double vio = 0.0;
-        // vio = ReportWithPT(best_cells_poweropt, "final", vio1, power1, 0);
+        // FinalReport();
 #if 0
         double init_power = 0.0;
         init_power = init_tot[0];
@@ -6072,6 +6077,7 @@ void Sizer::FinalReport() {
     CorrelatePT(view);
     CalcStats(0);
     showAllSlew(0, "after_tran.csv");
+    _ord_design->writeDef(benchname + ".final.def");
 }
 
 void Sizer::PostWNSOpt(string input, unsigned view) {
@@ -9113,6 +9119,8 @@ void Sizer::readEnvFile(string envFileStr) {
             lefPath = getTokenS(line, "-lefPath ");
         if(line.find("-setRCFile ") != string::npos)
             setRCFile = getTokenS(line, "-setRCFile ");
+        if(line.find("-tclFile ") != string::npos)
+            util_tcl_file = getTokenS(line, "-tclFile ");
         if(line.find("-suffix_nvt ") != string::npos) {
             suffixNVT = getTokenS(line, "-suffix_nvt ");
         }
@@ -10473,7 +10481,7 @@ int main(int argc, char **argv) {
          << " / " << _sizer.count_CallTimer << endl;
 #endif
     printMemoryUsage();
-    // _sizer.FinalReport();
+    _sizer.FinalReport();
     if(NO_LOG)
         _sizer.CleanIntFiles();
 

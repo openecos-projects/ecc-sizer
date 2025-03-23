@@ -231,9 +231,17 @@ double designTiming::getWorstSlackHold(string _clkName) {
         _tclInputString = "EtsWorstHoldSlack " + _clkName;
     }
     else if(program == OS) {
-        _tclInputString = "OSWorstHoldSlack " + _clkName;
+        double begin = cpuTime();
+        _sizer->_ckt->_ord_design->evalTclString(
+            "report_worst_slack -min > evaluation_temp.txt");
+        ifstream in("evaluation_temp.txt");
+        string t;
+        double wns;
+        in >> t >> wns;
+        // wns /= _sizer->time_unit;
+        pt_time += cpuTime() - begin;
         printf("Error: don't have OSWorstHoldSlack !\n");
-        exit(0);
+        return wns;
     }
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -791,7 +799,7 @@ void designTiming::getPinTran(double &riseTran, double &fallTran,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    if(VERBOSE > 3){
+    if(VERBOSE > 3) {
         printf("Error: not OSGetPinTran !, pin name %s\n", pinName.c_str());
     }
     auto pin_ =

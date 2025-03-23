@@ -17,6 +17,6 @@ def remove_backslashes(filepath, output_filepath=None):
         print(f"An error occurred: {e}")
 
 # filepath: /nfs/share/tapout/smic110/retrosoc_asic_flatten/workspace/output/iEDA/result/retrosoc_asic_place.def
-file_path = "/nfs/share/tapout/smic110/retrosoc_asic_flatten/workspace/output/iEDA/result/retrosoc_asic_place.def"
-output_filepath = "/nfs/share/tapout/smic110/retrosoc_asic_flatten/workspace/output/iEDA/result/retrosoc_asic_place_new.def"
+file_path = "/home/zhaoxueyan/code/gpu_gate_sizing/smic110/retrosoc_asic_CTS.def"
+output_filepath = "/home/zhaoxueyan/code/gpu_gate_sizing/smic110/retrosoc_asic_CTS_new.def"
 remove_backslashes(file_path, output_filepath)
