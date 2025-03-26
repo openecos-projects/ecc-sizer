@@ -5308,7 +5308,40 @@ void *static_poweropt_driver(void *void_thread_args) {
     _this->Post_PowerOpt(thread_args->thread_id);
     return void_thread_args;
 }
+void Sizer::runOrdTO() {
+    int view = 0;
+    rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
+    int repaired_net_count, slew_violations, cap_violations, fanout_violations,
+        length_violations;
+    resizer->repairDesign(0, 0, 0, 1);
+    double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
+    double tns = T[view]->getTNS(clk_name[worst_corner]);
 
+    double leak = 0.0;
+    double tot = 0.0;
+
+    tot = leak;
+
+    double tran_tot, tran_max;
+    tran_tot = tran_max = 0.0;
+    int tran_num = 0;
+    T[view]->getTranVio(tran_tot, tran_max, tran_num);
+
+    double cap_tot, cap_max;
+    cap_tot = cap_max = 0.0;
+    int cap_num = 0;
+    T[view]->getCapVio(cap_tot, cap_max, cap_num);
+    cout << "[view " << view << "] Initial WNS from Timer    : " << wns << " ps"
+         << endl;
+    cout << "[view " << view << "] Initial TNS            : " << tns << " ps"
+         << endl;
+    // cout << "[view " << view << "] Initial Leakage Power    : " << leak
+    //      << endl;
+    // cout << "[view " << view << "] Initial Total Power    : " << tot
+    //      << endl;
+    cout << "[view " << view << "] Initial Tran           : " << tran_tot
+         << " ps " << tran_num << " " << tran_max << " ps" << endl;
+}
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
     if(numcells == 27553) {  // nvm
@@ -5482,39 +5515,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     init_tot[0] = totalLeakagePower;
     init_leak[0] = totalLeakagePower;
     if(false) {
-        int view = 0;
-        rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
-        int repaired_net_count, slew_violations, cap_violations,
-            fanout_violations, length_violations;
-        resizer->repairDesign(0, 0, 0, 1);
-        double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
-        double tns = T[view]->getTNS(clk_name[worst_corner]);
-
-        double leak = 0.0;
-        double tot = 0.0;
-
-        tot = leak;
-
-        double tran_tot, tran_max;
-        tran_tot = tran_max = 0.0;
-        int tran_num = 0;
-        T[view]->getTranVio(tran_tot, tran_max, tran_num);
-
-        double cap_tot, cap_max;
-        cap_tot = cap_max = 0.0;
-        int cap_num = 0;
-        T[view]->getCapVio(cap_tot, cap_max, cap_num);
-        cout << "[view " << view << "] Initial WNS from Timer    : " << wns
-             << " ps" << endl;
-        cout << "[view " << view << "] Initial TNS            : " << tns
-             << " ps" << endl;
-        // cout << "[view " << view << "] Initial Leakage Power    : " << leak
-        //      << endl;
-        // cout << "[view " << view << "] Initial Total Power    : " << tot
-        //      << endl;
-        cout << "[view " << view << "] Initial Tran           : " << tran_tot
-             << " ps " << tran_num << " " << tran_max << " ps" << endl;
-        exit(0);
+        runOrdTO();
     }
 
     // InitPowerBeforeUpdate(g_cells);
@@ -5975,9 +5976,9 @@ void Sizer::FinalReport() {
         }
         best_cells_poweropt[i].isChanged = 1;
     }
-    _ord_design->writeDef(benchname + ".size.def");
-    _ord_design->evalTclString("write_verilog " + benchname + ".size.v");
-    return;
+    if(spefFile != "") {
+        return;
+    }
     for(auto db_inst : block->getInsts()) {
         int inst_x, inst_y;
         int old_x, old_y;
@@ -10488,6 +10489,10 @@ int main(int argc, char **argv) {
 #endif
     printMemoryUsage();
     _sizer.FinalReport();
+    _sizer.runOrdTO();
+    _sizer._ckt->_ord_design->writeDef(_sizer.benchname + ".size.def");
+    _sizer._ckt->_ord_design->evalTclString("write_verilog " +
+                                            _sizer.benchname + ".size.v");
     if(NO_LOG)
         _sizer.CleanIntFiles();
 
