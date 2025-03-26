@@ -4119,7 +4119,7 @@ void Sizer::DelaySearchTest(unsigned view) {
     }
 }
 
-string Sizer::getFullPinName(PIN& pin) {
+string Sizer::getFullPinName(const PIN& pin) {
     string full_pin_name;
     if(pin.owner != UINT_MAX) {
         full_pin_name = g_cells[pin.owner].name + "/" + pin.name;

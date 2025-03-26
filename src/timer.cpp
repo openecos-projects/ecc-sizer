@@ -1534,6 +1534,7 @@ void Sizer::CalcSlack(unsigned view) {
                 double r_AAT = 0.0, f_AAT = 0.0;
 
                 if(!pins[view][cells[cur].outpins[j]].bb_checked_aat) {
+                    cout << __FILE__ << ":" << __LINE__ << endl;
                     T[view]->getPinArrival(
                         r_AAT, f_AAT,
                         getFullPinName(pins[view][cells[cur].outpins[j]]));
@@ -1553,7 +1554,7 @@ void Sizer::CalcSlack(unsigned view) {
                 else {
                     if(cells[cur].inpins.size() == 0) {
                         double r_AAT = 0.0, f_AAT = 0.0;
-
+                        cout << __FILE__ << ":" << __LINE__ << endl;
                         T[view]->getPinArrival(
                             r_AAT, f_AAT,
                             getFullPinName(pins[view][cells[cur].outpins[j]]));
@@ -1576,6 +1577,7 @@ void Sizer::CalcSlack(unsigned view) {
 
                                 if(!pins[view][cells[cur].outpins[j]]
                                         .bb_checked_aat) {
+                                    cout << __FILE__ << ":" << __LINE__ << endl;
                                     T[view]->getPinArrival(
                                         r_AAT, f_AAT,
                                         getFullPinName(
@@ -1603,6 +1605,7 @@ void Sizer::CalcSlack(unsigned view) {
 
                                 if(!pins[view][cells[cur].outpins[j]]
                                         .bb_checked_aat) {
+                                    cout << __FILE__ << ":" << __LINE__ << endl;
                                     T[view]->getPinArrival(
                                         r_AAT, f_AAT,
                                         getFullPinName(
@@ -1725,7 +1728,7 @@ void Sizer::CalcSlack(unsigned view) {
             if(cells[cur].outpins.size() == 0) {
                 double r_AAT = 0.0, f_AAT = 0.0;
                 double r_slk = 0.0, f_slk = 0.0;
-
+                cout << __FILE__ << ":" << __LINE__ << endl;
                 T[view]->getPinArrival(r_AAT, f_AAT,
                                        getFullPinName(pins[view][curinpin]));
 
@@ -1741,6 +1744,7 @@ void Sizer::CalcSlack(unsigned view) {
                         double r_slk = 0.0, f_slk = 0.0;
 
                         if(!pins[view][curinpin].bb_checked_rat) {
+                            cout << __FILE__ << ":" << __LINE__ << endl;
                             T[view]->getPinArrival(
                                 r_AAT, f_AAT,
                                 getFullPinName(pins[view][curinpin]));
@@ -1761,6 +1765,7 @@ void Sizer::CalcSlack(unsigned view) {
                         unsigned in_libpin = pins[view][curinpin].lib_pin;
                         unsigned idx = out_libpin * 100 + in_libpin;
                         LibTimingInfo *arc = nullptr;
+                        bool reverse = false;
                         if(lib_cell->timingArcs.count(idx) > 0) {
                             arc = &lib_cell->timingArcs[idx];
                         }
@@ -1769,6 +1774,7 @@ void Sizer::CalcSlack(unsigned view) {
                         //        lib_cell->pins[out_libpin].isInput) {
                         //         idx = out_libpin + in_libpin * 100;
                         //         arc = &lib_cell->timingArcs[idx];
+                        //         reverse = true;
                         //     }
                         // }
 
@@ -1777,6 +1783,7 @@ void Sizer::CalcSlack(unsigned view) {
                             double r_slk = 0.0, f_slk = 0.0;
 
                             if(!pins[view][curinpin].bb_checked_rat) {
+                                cout << __FILE__ << ":" << __LINE__ << endl;
                                 T[view]->getPinArrival(
                                     r_AAT, f_AAT,
                                     getFullPinName(pins[view][curinpin]));
@@ -1791,7 +1798,9 @@ void Sizer::CalcSlack(unsigned view) {
                             }
                             break;
                         }
-                        else if(arc->fromPin != pins[view][curinpin].name) {
+                        else if(arc->fromPin != pins[view][curinpin].name &&
+                                (!reverse ||
+                                 arc->toPin != pins[view][curinpin].name)) {
                             if(VERBOSE >= 3) {
                                 cout << "timing arc error : " << arc->fromPin
                                      << " != " << pins[view][curinpin].name
@@ -1805,6 +1814,7 @@ void Sizer::CalcSlack(unsigned view) {
                             double r_slk = 0.0, f_slk = 0.0;
 
                             if(!pins[view][curinpin].bb_checked_rat) {
+                                cout << __FILE__ << ":" << __LINE__ << endl;
                                 T[view]->getPinArrival(
                                     r_AAT, f_AAT,
                                     getFullPinName(pins[view][curinpin]));
@@ -4310,7 +4320,7 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
 #endif
 }
 // require: cell outpin
-bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
+bool Sizer::updatePinTimingSelf(PIN &pin, double margin, unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
 
@@ -4430,6 +4440,7 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
             if(!pin.bb_checked_aat) {
                 printf("ERROR cell %s not have master %s\n",
                        cells[cur].name.c_str(), cells[cur].type.c_str());
+                cout << __FILE__ << ":" << __LINE__ << endl;
                 T[view]->getPinArrival(r_AAT, f_AAT, getFullPinName(pin));
 
                 pin.rAAT = r_AAT;
@@ -4722,299 +4733,369 @@ bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
         return false;
 }
 
-bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
+// Helper function to log pin state if verbose level is sufficient
+void Sizer::logPinState(const PIN &pin, unsigned view, const string &prefix,
+                        int verboseLevel) {
+    if(VERBOSE >= verboseLevel) {
+        cout << prefix << getFullPinName(pin) << " (" << pin.rtran << "/"
+             << pin.ftran << ")" << " (" << pin.rslk << "/" << pin.fslk << ")"
+             << " (" << pin.rRAT << "/" << pin.fRAT << ")" << " (" << pin.rAAT
+             << "/" << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
+             << pin.fslk_ofs << ")" << " (" << pin.totcap << "," << pin.slk_gb
+             << ")" << endl;
+    }
+}
+
+// Helper function to compute maximum difference between previous and current
+// values
+double Sizer::computeMaxDiff(double prv1, double cur1, double prv2,
+                             double cur2) {
+    return max(fabs(prv1 - cur1), fabs(prv2 - cur2));
+}
+
+// Helper function to update slack values
+void Sizer::updateSlack(PIN &pin) {
+    pin.rslk = pin.rRAT - pin.rAAT + pin.rslk_ofs + pin.slk_gb;
+    pin.fslk = pin.fRAT - pin.fAAT + pin.fslk_ofs + pin.slk_gb;
+}
+
+// Helper function to propagate timing to fanout pins
+void Sizer::propagateTimingToFanout(PIN &pin, unsigned view, unsigned corner,
+                                    unsigned curnet) {
+    for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
+        unsigned fopin = nets[corner][curnet].outpins[j];
+        timing_lookup wire_delay = get_wire_delay(curnet, fopin, view);
+        timing_lookup wire_tran =
+            get_wire_tran(curnet, fopin, pin.rtran, pin.ftran, view);
+
+        pins[view][fopin].rtran = wire_tran.rise + pins[view][fopin].rtran_ofs;
+        pins[view][fopin].ftran = wire_tran.fall + pins[view][fopin].ftran_ofs;
+
+        if(CORR_AAT) {
+            pins[view][fopin].rAAT =
+                pin.rAAT + wire_delay.rise + pins[view][fopin].rAAT_ofs;
+            pins[view][fopin].fAAT =
+                pin.fAAT + wire_delay.fall + pins[view][fopin].fAAT_ofs;
+        }
+        else {
+            pins[view][fopin].rAAT = pin.rAAT + wire_delay.rise;
+            pins[view][fopin].fAAT = pin.fAAT + wire_delay.fall;
+        }
+
+        updateSlack(pins[view][fopin]);
+        logPinState(pins[view][fopin], view, "UPDATE PIN AAT - NEW ", 2);
+    }
+}
+
+// Refactored updatePinTiming
+bool Sizer::updatePinTiming(PIN &pin, double margin, unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
-
-    // cout << getFullPinName(pin) << " calls updatePinSlack" << endl;
-
-    // if (pin.owner == UINT_MAX) cout << pin.name << "\t";
-    // else cout << cells[pin.owner].name << "." << pin.name << "\t";
-    // cout << pin.rtran << "/" << pin.ftran << "|"
-    //     << pin.rRAT << "/" << pin.fRAT << " <- " << endl;;
     unsigned cur = pin.owner;
-    unsigned fipin = nets[corner][pin.net].inpin;
-    double prv_rRAT = 0.0;
-    double prv_fRAT = 0.0;
-    if(fipin != UINT_MAX) {
-        prv_rRAT = pins[view][fipin].rRAT;
-        prv_fRAT = pins[view][fipin].fRAT;
-    }
-    else {
-        prv_rRAT = pin.rRAT;
-        prv_fRAT = pin.fRAT;
-    }
-    // if(pin.id == 2544) {
-    //     printf("debug debug!");
-    // }
-    if(VERBOSE >= 2) {
-        cout << "UPDATE PIN SLACK - ORIG " << getFullPinName(pin) << " ("
-             << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/"
-             << pin.fRAT << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " ("
-             << pin.totcap << "," << pin.slk_gb << ")" << endl;
-        if(fipin != UINT_MAX) {
-            cout << "UPDATE FI PIN SLACK - ORIG "
-                 << getFullPinName(pins[view][fipin]) << " ("
-                 << pins[view][fipin].rslk << "/" << pins[view][fipin].fslk
-                 << ")" << " (" << pins[view][fipin].rRAT << "/"
-                 << pins[view][fipin].fRAT << ")" << " ("
-                 << pins[view][fipin].rAAT << "/" << pins[view][fipin].fAAT
-                 << ")" << " (" << pins[view][fipin].rslk_ofs << "/"
-                 << pins[view][fipin].fslk_ofs << ")" << " ("
-                 << pins[view][fipin].totcap << "," << pins[view][fipin].slk_gb
-                 << ")" << endl;
-        }
-    }
+    unsigned curnet = pin.net;
 
-    if(!pin.bb_checked_rat) {
+    double prv_rtran = pin.rtran, prv_ftran = pin.ftran;
+    double prv_rAAT = pin.rAAT, prv_fAAT = pin.fAAT;
+
+    if(!updatePinAcc) {
         pin.rRAT = pin.fRAT = 9999.99;
-        // printf("ERROR pin %s not have RAT\n", getFullPinName(pin).c_str());
     }
 
-    // double prv_rslk = pins[view][fipin].rslk;
-    // double prv_fslk = pins[view][fipin].fslk;
-    if(cur == UINT_MAX) {  // PO
-        double fo_delay = 0.0;
-        if(outdelays[mode].find(pin.name) != outdelays[mode].end()) {
-            fo_delay = outdelays[mode][pin.name];
-        }
-        // pin.rRAT = 9999.99;  // clk_period[mode] - fo_delay
-        // pin.fRAT = 9999.99;  // clk_period[mode] - fo_delay
-        pin.rRAT = clk_period[mode] - fo_delay;  // clk_period[mode] - fo_delay
-        pin.fRAT = clk_period[mode] - fo_delay;  // clk_period[mode] - fo_delay
-        if(fipin != UINT_MAX) {
-            timing_lookup wire_delay = get_wire_delay(pin.net, pin.id, view);
-            pins[view][fipin].rRAT =
-                min(pins[view][fipin].rRAT, pin.rRAT - wire_delay.rise);
-            pins[view][fipin].fRAT =
-                min(pins[view][fipin].fRAT, pin.fRAT - wire_delay.fall);
-        }
-    }
-    else {
-        if(!isff(cells[cur])) {
-            double min_fRAT, min_rRAT;
-            min_fRAT = min_rRAT = DBL_MAX;
+    logPinState(pin, view, "UPDATE PIN AAT - ORIG ", 2);
 
-            LibCellInfo *curlib = getLibCellInfo(cells[cur], corner);
-
-            if(curlib == NULL || cells[cur].outpins.size() == 0) {
-                double r_AAT = 0.0, f_AAT = 0.0;
-                double r_slk = 0.0, f_slk = 0.0;
-
-                if(!pin.bb_checked_rat) {
-                    printf(
-                        "ERROR curlib %p, cells[cur].outpins.size(): %d: pin "
-                        "name %s\n",
-                        curlib, cells[cur].outpins.size(),
-                        getFullPinName(pin).c_str());
-                    T[view]->getPinArrival(r_AAT, f_AAT, getFullPinName(pin));
-                    T[view]->getPinSlack(r_slk, f_slk, getFullPinName(pin));
-
-                    pin.rAAT = r_AAT;
-                    pin.fAAT = f_AAT;
-                    pin.rRAT = r_AAT + r_slk;
-                    pin.fRAT = f_AAT + f_slk;
-                    pin.bb_checked_rat = true;
+    if(cur == UINT_MAX) {  // Primary Input (PI)
+        if(pins[view][pin.id].isPI &&
+           pins[view][pin.id].name != clk_port[mode]) {
+            if(!pin.bb_checked_tran) {
+                pin.rtran = inftran[mode][pin.id];
+                pin.ftran = inrtran[mode][pin.id];
+                pin.bb_checked_tran = true;
+            }
+#ifdef DRIVER_CELL
+            LibCellInfo *cur_cell =
+                &(libs[corner].find(drivers[mode][pin.id])->second);
+            if(cur_cell &&
+               cur_cell->timingArcs.count(driverInPins[mode][pin.id] +
+                                          driverOutPins[mode][pin.id] * 100)) {
+                LibTimingInfo *arc =
+                    &cur_cell->timingArcs[driverInPins[mode][pin.id] +
+                                          driverOutPins[mode][pin.id] * 100];
+                if(arc->timingSense == 'n') {
+                    pin.ftran = r_entry(arc->fallTransition,
+                                        inrtran[mode][pin.id], pin.ceff) +
+                                pin.ftran_ofs;
+                    pin.rtran = r_entry(arc->riseTransition,
+                                        inftran[mode][pin.id], pin.ceff) +
+                                pin.rtran_ofs;
                 }
                 else {
-                    r_AAT = pin.rAAT;
-                    f_AAT = pin.fAAT;
-                    r_slk = pin.rslk;
-                    f_slk = pin.fslk;
+                    pin.ftran = r_entry(arc->fallTransition,
+                                        inftran[mode][pin.id], pin.ceff) +
+                                pin.ftran_ofs;
+                    pin.rtran = r_entry(arc->riseTransition,
+                                        inrtran[mode][pin.id], pin.ceff) +
+                                pin.rtran_ofs;
                 }
             }
             else {
-                for(unsigned k = 0; k < cells[cur].outpins.size(); ++k) {
-                    LibTimingInfo *arc =
-                        &curlib->timingArcs
-                             [pin.lib_pin +
-                              pins[view][cells[cur].outpins[k]].lib_pin * 100];
-                    if(arc == NULL) {
-                        double r_AAT = 0.0, f_AAT = 0.0;
-                        double r_slk = 0.0, f_slk = 0.0;
-
-                        if(!pin.bb_checked_rat) {
-                            printf("ERROR arc null  pin name %s\n",
-                                   getFullPinName(pin).c_str());
-                            T[view]->getPinArrival(r_AAT, f_AAT,
-                                                   getFullPinName(pin));
-                            T[view]->getPinSlack(r_slk, f_slk,
-                                                 getFullPinName(pin));
-
-                            pin.rAAT = r_AAT;
-                            pin.fAAT = f_AAT;
-                            pin.rRAT = r_AAT + r_slk;
-                            pin.fRAT = f_AAT + f_slk;
-                            pin.bb_checked_rat = true;
-                        }
-                        else {
-                            r_AAT = pin.rAAT;
-                            f_AAT = pin.fAAT;
-                            r_slk = pin.rslk;
-                            f_slk = pin.fslk;
-                        }
-
-                        min_rRAT = r_AAT + r_slk;
-                        min_fRAT = f_AAT + f_slk;
-                    }
-                    else {
-                        if(arc->timingSense == 'n') {
-                            if(min_rRAT >
-                               pins[view][cells[cur].outpins[k]].fRAT -
-                                   pin.fdelay[k]) {
-                                min_rRAT =
-                                    pins[view][cells[cur].outpins[k]].fRAT -
-                                    pin.fdelay[k];
-                            }
-                            if(min_fRAT >
-                               pins[view][cells[cur].outpins[k]].rRAT -
-                                   pin.rdelay[k]) {
-                                min_fRAT =
-                                    pins[view][cells[cur].outpins[k]].rRAT -
-                                    pin.rdelay[k];
-                            }
-                        }
-                        else {
-                            if(min_fRAT >
-                               pins[view][cells[cur].outpins[k]].fRAT -
-                                   pin.fdelay[k]) {
-                                min_fRAT =
-                                    pins[view][cells[cur].outpins[k]].fRAT -
-                                    pin.fdelay[k];
-                            }
-                            if(min_rRAT >
-                               pins[view][cells[cur].outpins[k]].rRAT -
-                                   pin.rdelay[k]) {
-                                min_rRAT =
-                                    pins[view][cells[cur].outpins[k]].rRAT -
-                                    pin.rdelay[k];
-                            }
-                        }
-                    }
-                }
-
-                pin.rRAT = min_rRAT;
-                pin.fRAT = min_fRAT;
+                double r_tran = 0.0, f_tran = 0.0;
+                T[view]->getPinTran(r_tran, f_tran, getFullPinName(pin));
+                pin.ftran = r_tran;
+                pin.rtran = f_tran;
+                pin.bb_checked_tran = true;
+            }
+#endif
+            propagateTimingToFanout(pin, view, corner, curnet);
+        }
+    }
+    else {  // Internal cell pin
+        LibCellInfo *lib_cell = getLibCellInfo(cells[cur], corner);
+        if(!lib_cell) {
+            double r_AAT = 0.0, f_AAT = 0.0, rtran = 0.0, ftran = 0.0;
+            if(!pin.bb_checked_aat) {
+                cout << __FILE__ << ":" << __LINE__ << endl;
+                T[view]->getPinArrival(r_AAT, f_AAT, getFullPinName(pin));
+                pin.rAAT = r_AAT;
+                pin.fAAT = f_AAT;
+                pin.bb_checked_aat = true;
+            }
+            if(!pin.bb_checked_tran) {
+                T[view]->getPinTran(rtran, ftran, getFullPinName(pin));
+                pin.rtran = rtran;
+                pin.ftran = ftran;
+                pin.bb_checked_tran = true;
             }
         }
         else {
-            double min_fRAT, min_rRAT;
-            min_fRAT = min_rRAT = DBL_MAX;
+            // Update transition times
+            double rtran = 0.0, ftran = 0.0;
+            LookupST(cells[cur], 0, &rtran, &ftran, 0, 0.0, view);
+            pin.rtran = rtran + pin.rtran_ofs;
+            pin.ftran = ftran + pin.ftran_ofs;
 
+            // Propagate slew to fanout
+            for(unsigned j = 0; j < nets[corner][curnet].outpins.size(); j++) {
+                unsigned fopin = nets[corner][curnet].outpins[j];
+                PIN &net_fo_pin = pins[view][fopin];
+                if(net_fo_pin.owner != UINT_MAX &&
+                   isff(cells[net_fo_pin.owner]) &&
+                   libs[corner]
+                       .find(cells[net_fo_pin.owner].type)
+                       ->second.pins[net_fo_pin.lib_pin]
+                       .isClock) {
+                    continue;
+                }
+                timing_lookup wire_tran =
+                    get_wire_tran(curnet, fopin, rtran, ftran, view);
+                net_fo_pin.rtran = wire_tran.rise + net_fo_pin.rtran_ofs;
+                net_fo_pin.ftran = wire_tran.fall + net_fo_pin.ftran_ofs;
+            }
+
+            // Update delays and AAT
+            vector< double > rdelay, fdelay;
+            LookupDT(cells[cur], 0, rdelay, fdelay, 0, 0.0, view);
             for(unsigned k = 0; k < cells[cur].outpins.size(); ++k) {
-                min_fRAT = min(min_fRAT, clk_period[mode] - pin.fdelay[k]);
+                for(unsigned j = 0; j < cells[cur].inpins.size(); j++) {
+                    unsigned idx = k * cells[cur].inpins.size() + j;
+                    pins[view][cells[cur].inpins[j]].rdelay[k] = rdelay[idx];
+                    pins[view][cells[cur].inpins[j]].fdelay[k] = fdelay[idx];
+                }
+            }
+
+            if(!pin.bb_checked_aat)
+                pin.rAAT = pin.fAAT = 0.0;
+            if(cells[cur].inpins.size() > 0) {
+                unsigned outpin_local_idx = 0;
+                for(unsigned k = 0; k < cells[cur].outpins.size(); k++) {
+                    if(pins[view][cells[cur].outpins[k]].lib_pin ==
+                       pin.lib_pin) {
+                        outpin_local_idx = k;
+                        break;
+                    }
+                }
+                for(unsigned j = 0; j < cells[cur].inpins.size(); j++) {
+                    if(!isff(cells[cur])) {
+                        const PIN &cell_fin_pin =
+                            pins[view][cells[cur].inpins[j]];
+                        unsigned idx = pin.lib_pin * 100 + cell_fin_pin.lib_pin;
+                        LibTimingInfo *arc = lib_cell->timingArcs.count(idx)
+                                                 ? &lib_cell->timingArcs[idx]
+                                                 : nullptr;
+                        if(arc && arc->fromPin == cell_fin_pin.name) {
+                            if(arc->timingSense == 'n') {
+                                pin.rAAT =
+                                    max(pin.rAAT,
+                                        cell_fin_pin.rdelay[outpin_local_idx] +
+                                            cell_fin_pin.fAAT);
+                                pin.fAAT =
+                                    max(pin.fAAT,
+                                        cell_fin_pin.fdelay[outpin_local_idx] +
+                                            cell_fin_pin.rAAT);
+                            }
+                            else {
+                                pin.rAAT =
+                                    max(pin.rAAT,
+                                        cell_fin_pin.rdelay[outpin_local_idx] +
+                                            cell_fin_pin.rAAT);
+                                pin.fAAT =
+                                    max(pin.fAAT,
+                                        cell_fin_pin.fdelay[outpin_local_idx] +
+                                            cell_fin_pin.fAAT);
+                            }
+                        }
+                    }
+                    else {
+                        pin.rAAT = pins[view][cells[cur].clock_pin]
+                                       .rdelay[outpin_local_idx];
+                        pin.fAAT = pins[view][cells[cur].clock_pin]
+                                       .fdelay[outpin_local_idx];
+                    }
+                }
+                if(!pin.bb_checked_aat && CORR_AAT) {
+                    pin.rAAT += pin.rAAT_ofs;
+                    pin.fAAT += pin.fAAT_ofs;
+                }
+            }
+            propagateTimingToFanout(pin, view, corner, curnet);
+        }
+    }
+
+    updateSlack(pin);
+    logPinState(pin, view, "UPDATE PIN AAT - NEW ", 2);
+
+    double diff_tran =
+        computeMaxDiff(prv_rtran, pin.rtran, prv_ftran, pin.ftran);
+    double diff_AAT = computeMaxDiff(prv_rAAT, pin.rAAT, prv_fAAT, pin.fAAT);
+
+    if(updatePinFast && (pin.rslk > 8000 || pin.fslk > 8000))
+        return false;
+    return diff_tran > margin || diff_AAT > margin;
+}
+
+// Refactored updatePinSlack
+// update pin and net's fi pin
+bool Sizer::updatePinSlack(PIN &pin, double margin, unsigned view) {
+    unsigned corner = 0;  // mmmcViewList[view].corner;
+    unsigned mode = mmmcViewList[view].mode;
+    unsigned cur = pin.owner;
+    unsigned fipin = nets[corner][pin.net].inpin;
+    PIN &net_fi_pin = pins[view][fipin];
+    double prv_rRAT = (fipin != UINT_MAX) ? net_fi_pin.rRAT : pin.rRAT;
+    double prv_fRAT = (fipin != UINT_MAX) ? net_fi_pin.fRAT : pin.fRAT;
+
+    logPinState(pin, view, "UPDATE PIN SLACK - ORIG ", 2);
+    if(fipin != UINT_MAX)
+        logPinState(net_fi_pin, view, "UPDATE FI PIN SLACK - ORIG ", 2);
+
+    if(!pin.bb_checked_rat)
+        pin.rRAT = pin.fRAT = 9999.99;
+
+    if(cur == UINT_MAX) {  // Primary Output (PO)
+        double fo_delay =
+            (outdelays[mode].find(pin.name) != outdelays[mode].end())
+                ? outdelays[mode][pin.name]
+                : 0.0;
+        pin.rRAT = pin.fRAT = clk_period[mode] - fo_delay;
+        if(fipin != UINT_MAX) {
+            timing_lookup wire_delay = get_wire_delay(pin.net, pin.id, view);
+            net_fi_pin.rRAT = min(net_fi_pin.rRAT, pin.rRAT - wire_delay.rise);
+            net_fi_pin.fRAT = min(net_fi_pin.fRAT, pin.fRAT - wire_delay.fall);
+        }
+    }
+    else {  // Internal cell pin
+        LibCellInfo *curlib = getLibCellInfo(cells[cur], corner);
+        if(!curlib || cells[cur].outpins.size() == 0) {
+            double r_AAT = 0.0, f_AAT = 0.0, r_slk = 0.0, f_slk = 0.0;
+            if(!pin.bb_checked_rat) {
+                cout << __FILE__ << ":" << __LINE__ << endl;
+                T[view]->getPinArrival(r_AAT, f_AAT, getFullPinName(pin));
+                T[view]->getPinSlack(r_slk, f_slk, getFullPinName(pin));
+                pin.rRAT = r_AAT + r_slk;
+                pin.fRAT = f_AAT + f_slk;
+                pin.bb_checked_rat = true;
+            }
+        }
+        else if(!isff(cells[cur])) {
+            double min_rRAT = DBL_MAX, min_fRAT = DBL_MAX;
+            for(unsigned k = 0; k < cells[cur].outpins.size(); ++k) {
+                const PIN &cell_out_pin = pins[view][cells[cur].outpins[k]];
+                LibTimingInfo *arc =
+                    &curlib
+                         ->timingArcs[pin.lib_pin + cell_out_pin.lib_pin * 100];
+                if(arc) {
+                    if(arc->timingSense == 'n') {
+                        min_rRAT =
+                            min(min_rRAT, cell_out_pin.fRAT - pin.fdelay[k]);
+                        min_fRAT =
+                            min(min_fRAT, cell_out_pin.rRAT - pin.rdelay[k]);
+                    }
+                    else {
+                        min_rRAT =
+                            min(min_rRAT, cell_out_pin.rRAT - pin.rdelay[k]);
+                        min_fRAT =
+                            min(min_fRAT, cell_out_pin.fRAT - pin.fdelay[k]);
+                    }
+                }
+            }
+            pin.rRAT = min_rRAT;
+            pin.fRAT = min_fRAT;
+        }
+        else {
+            double min_rRAT = DBL_MAX, min_fRAT = DBL_MAX;
+            for(unsigned k = 0; k < cells[cur].outpins.size(); ++k) {
                 min_rRAT = min(min_rRAT, clk_period[mode] - pin.rdelay[k]);
+                min_fRAT = min(min_fRAT, clk_period[mode] - pin.fdelay[k]);
             }
             pin.rRAT = min_rRAT;
             pin.fRAT = min_fRAT;
         }
 
-        double rRAT = 9999.99;
-        double fRAT = 9999.99;
+        double rRAT = 9999.99, fRAT = 9999.99;
         for(unsigned j = 0; j < nets[corner][pin.net].outpins.size(); j++) {
-            if(WIRE_METRIC != ND) {
-                timing_lookup wire_delay = get_wire_delay(
-                    pin.net, nets[corner][pin.net].outpins[j], view);
-                rRAT = min(rRAT,
-                           pins[view][nets[corner][pin.net].outpins[j]].rRAT -
-                               wire_delay.rise);
-                fRAT = min(fRAT,
-                           pins[view][nets[corner][pin.net].outpins[j]].fRAT -
-                               wire_delay.fall);
-            }
-            else {
-                rRAT = min(rRAT,
-                           pins[view][nets[corner][pin.net].outpins[j]].rRAT);
-                fRAT = min(fRAT,
-                           pins[view][nets[corner][pin.net].outpins[j]].fRAT);
-            }
+            unsigned fopin = nets[corner][pin.net].outpins[j];
+            const PIN &fopin_pin = pins[view][fopin];
+            timing_lookup wire_delay = get_wire_delay(pin.net, fopin, view);
+            rRAT = (WIRE_METRIC != ND)
+                       ? min(rRAT, fopin_pin.rRAT - wire_delay.rise)
+                       : min(rRAT, fopin_pin.rRAT);
+            fRAT = (WIRE_METRIC != ND)
+                       ? min(fRAT, fopin_pin.fRAT - wire_delay.fall)
+                       : min(fRAT, fopin_pin.fRAT);
         }
-
         if(fipin != UINT_MAX) {
-            pins[view][fipin].rRAT = rRAT;
-            pins[view][fipin].fRAT = fRAT;
-
+            net_fi_pin.rRAT = rRAT;
+            net_fi_pin.fRAT = fRAT;
             if(rRAT == 9999.99 || fRAT == 9999.99) {
-                double r_AAT = 0.0, f_AAT = 0.0;
-                double r_slk = 0.0, f_slk = 0.0;
-                if(!pins[view][fipin].bb_checked_rat) {
-                    printf("Error: RAT is inf!!!!, pin name %s\n",
-                           getFullPinName(pins[view][fipin]).c_str());
+                double r_AAT = 0.0, f_AAT = 0.0, r_slk = 0.0, f_slk = 0.0;
+                if(!net_fi_pin.bb_checked_rat) {
+                    cout << __FILE__ << ":" << __LINE__ << endl;
                     T[view]->getPinArrival(r_AAT, f_AAT,
-                                           getFullPinName(pins[view][fipin]));
+                                           getFullPinName(net_fi_pin));
                     T[view]->getPinSlack(r_slk, f_slk,
-                                         getFullPinName(pins[view][fipin]));
-
-                    pins[view][fipin].rRAT = r_AAT + r_slk;
-                    pins[view][fipin].fRAT = f_AAT + f_slk;
-                    pins[view][fipin].bb_checked_rat = true;
+                                         getFullPinName(net_fi_pin));
+                    net_fi_pin.rRAT = r_AAT + r_slk;
+                    net_fi_pin.fRAT = f_AAT + f_slk;
+                    net_fi_pin.bb_checked_rat = true;
                 }
             }
         }
     }
 
-    pin.rslk = pin.rRAT - pin.rAAT + pin.rslk_ofs + pin.slk_gb;
-    pin.fslk = pin.fRAT - pin.fAAT + pin.fslk_ofs + pin.slk_gb;
-    // if(pin.rslk > 1e10){
-    //     printf("debug debug!");
-    // }
-    if(fipin != UINT_MAX) {
-        pins[view][fipin].rslk =
-            pins[view][fipin].rRAT - pins[view][fipin].rAAT +
-            pins[view][fipin].rslk_ofs + pins[view][fipin].slk_gb;
-        pins[view][fipin].fslk =
-            pins[view][fipin].fRAT - pins[view][fipin].fAAT +
-            pins[view][fipin].fslk_ofs + pins[view][fipin].slk_gb;
-    }
+    updateSlack(pin);
+    if(fipin != UINT_MAX)
+        updateSlack(net_fi_pin);
 
-    if(VERBOSE >= 2) {
-        if(pin.rRAT >= 9999) {
-            printf("debug debug!\n");
-        }
-        cout << "UPDATE PIN SLACK - NEW " << getFullPinName(pin) << " ("
-             << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/"
-             << pin.fRAT << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")"
-             << " (" << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " ("
-             << pin.totcap << "," << pin.slk_gb << ")" << endl;
+    logPinState(pin, view, "UPDATE PIN SLACK - NEW ", 2);
+    if(fipin != UINT_MAX)
+        logPinState(net_fi_pin, view, "UPDATE FI PIN SLACK - NEW ", 2);
 
-        if(fipin != UINT_MAX) {
-            cout << "UPDATE FI PIN SLACK - NEW "
-                 << getFullPinName(pins[view][fipin]) << " ("
-                 << pins[view][fipin].rslk << "/" << pins[view][fipin].fslk
-                 << ")" << " (" << pins[view][fipin].rRAT << "/"
-                 << pins[view][fipin].fRAT << ")" << " ("
-                 << pins[view][fipin].rAAT << "/" << pins[view][fipin].fAAT
-                 << ")" << " (" << pins[view][fipin].rslk_ofs << "/"
-                 << pins[view][fipin].fslk_ofs << ")" << " ("
-                 << pins[view][fipin].totcap << "," << pins[view][fipin].slk_gb
-                 << ")" << endl;
-        }
-    }
+    double diff_RAT = computeMaxDiff(
+        prv_rRAT, (fipin != UINT_MAX) ? net_fi_pin.rRAT : pin.rRAT, prv_fRAT,
+        (fipin != UINT_MAX) ? net_fi_pin.fRAT : pin.fRAT);
 
-    double diff_RAT = 0.0;
-
-    if(fipin != UINT_MAX) {
-        diff_RAT = max(fabs(prv_rRAT - pins[view][fipin].rRAT),
-                       fabs(prv_fRAT - pins[view][fipin].fRAT));
-    }
-    else {
-        diff_RAT = max(fabs(prv_rRAT - pin.rRAT), fabs(prv_fRAT - pin.fRAT));
-    }
-    if(pin.rRAT > 8000 || pin.fRAT > 8000) {
-        // printf("Error: pin %s RAT is inf!!!!\n",
-        // getFullPinName(pin).c_str()); printf("Cell name %s\n", cur ==
-        // UINT_MAX
-        //                              ? ("PO " +
-        //                              getFullPinName(pin)).c_str()
-        //                              : cells[cur].name.c_str());
+    if(pin.rRAT > 8000 || pin.fRAT > 8000)
         return false;
-    }
-    //    cout << "PIN RAT CHANGE " << diff_RAT << " " << margin << endl;
-    if(diff_RAT > margin)
-        return true;
-    else
-        return false;
+    return diff_RAT > margin;
 }
 
 // calculate the res vector for subnodes

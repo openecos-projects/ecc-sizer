@@ -742,7 +742,8 @@ void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
         fallSlack = f_att / _sizer->time_unit;
 
         pt_time += cpuTime() - begin;
-        cout << pinName << " " << riseSlack << " " << fallSlack << endl;
+        cout << "Slack " << pinName << " " << riseSlack << " " << fallSlack
+             << endl;
         return;
     }
     //_tclExpression = (char *)_tclInputString.c_str();
@@ -1052,7 +1053,8 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
     fallArrival = f_att / _sizer->time_unit;
 
     pt_time += cpuTime() - begin;
-    cout << pinName << " " << riseArrival << " " << fallArrival << endl;
+    cout << "Arrival " << pinName << " " << riseArrival << " " << fallArrival
+         << endl;
 }
 
 double designTiming::getRiseSlack(string PinName) {

@@ -144,7 +144,7 @@ bool VT_ONLY = false;
 bool SIZE_ONLY = false;
 bool FIX_CAP = false;
 bool FIX_SLEW = false;
-bool FIX_SLEW_POST = true;
+bool FIX_SLEW_POST = false;
 bool FIX_GLOBAL = false;
 int GWTW_MAX = 1;
 int GWTW_DIV = 4;
@@ -1681,8 +1681,10 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
             //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
         // incr_groute_->updateRoutes(false);
-        for(odb::dbNet *net : parasitics_invalid_) {
-            global_router_->estimateRC(net);
+        if(spefFile == "") {
+            for(odb::dbNet *net : parasitics_invalid_) {
+                global_router_->estimateRC(net);
+            }
         }
         // _ckt->_ord_design->evalTclString("estimate_parasitics
         // -global_routing");
@@ -5396,7 +5398,7 @@ void Sizer::Parallel_Sizer_Launcher() {
         max_time_recovery_iter = 7;
         STA_MARGIN = 0.0;
     }
-    else if(numcells < 184863) {  // hidden 1-2
+    else if(numcells < 30000) {  // hidden 1-2
         PRFT_PTNUM = 1;
         use_slew_margin = true;
         slew_margin = 0.9;
@@ -5416,14 +5418,14 @@ void Sizer::Parallel_Sizer_Launcher() {
     else {  // hidden 4-5
         PRFT_PTNUM = 1;
         use_slew_margin = true;
-        slew_margin = 0.9;
+        slew_margin = 1;
         input_slew_margin = 1.0;
-        max_time_recovery_iter = 7;
+        max_time_recovery_iter = 4;
         // attack new
         use_attack_new = true;
         ATTACK_NEW_RATIO = 40;
         use_margin = true;
-        cap_margin = 0.95;
+        cap_margin = 1;
         //
         ATTACK_RATIO = 25;
         MULTI_STEP = 3;
@@ -5789,7 +5791,9 @@ void Sizer::Parallel_Sizer_Launcher() {
                         }
                         best_cells_poweropt[i].isChanged = 0;
                     }
-                    _ckt->runGR(50, false, 6);
+                    if(spefFile == "") {
+                        _ckt->runGR(50, false, 6);
+                    }
                     _ckt->readSpef_opensta(_sta);
                     int corner = 0;
                     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
@@ -5971,6 +5975,9 @@ void Sizer::FinalReport() {
         }
         best_cells_poweropt[i].isChanged = 1;
     }
+    _ord_design->writeDef(benchname + ".size.def");
+    _ord_design->evalTclString("write_verilog " + benchname + ".size.v");
+    return;
     for(auto db_inst : block->getInsts()) {
         int inst_x, inst_y;
         int old_x, old_y;
@@ -6077,7 +6084,6 @@ void Sizer::FinalReport() {
     CorrelatePT(view);
     CalcStats(0);
     showAllSlew(0, "after_tran.csv");
-    _ord_design->writeDef(benchname + ".final.def");
 }
 
 void Sizer::PostWNSOpt(string input, unsigned view) {
@@ -9778,8 +9784,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
     }
     if(defFile == "")
         defFile = benchname + ".def";
-    if(spefFile == "")
-        spefFile = benchname + ".spef";
+    // if(spefFile == "")
+    //     spefFile = benchname + ".spef";
     if(verilogFile == "")
         verilogFile = benchname + ".v";
     if(sdcFile == "")

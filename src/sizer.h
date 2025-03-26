@@ -954,7 +954,7 @@ class Sizer {
     void ReportDeltaTiming(unsigned view = 0);
     void ReportSlackErr(unsigned view = 0);
     void DelaySearchTest(unsigned view = 0);
-    string getFullPinName(PIN &pin);
+    string getFullPinName(const PIN &pin);
     void ReportCellTran(unsigned view = 0);
     void ReportCellTran(unsigned cellID, string prefix, unsigned view = 0);
 
@@ -1080,6 +1080,13 @@ class Sizer {
     void OneTimer(CELL &cell, double margin, bool recalc_moment, unsigned view);
     void OneTimer(CELL &cell, double margin, bool recalc_moment = true);
     bool updatePinTiming(PIN &pin, double margin, unsigned view = 0);
+    
+    bool updatePinTimingSelf(PIN &pin, double margin, unsigned view);
+    void propagateTimingToFanout(PIN &pin, unsigned view, unsigned corner, unsigned curnet);
+    void updateSlack(PIN &pin);
+    void logPinState(const PIN &pin, unsigned view, const string &prefix, int verboseLevel);
+    double computeMaxDiff(double prv1, double cur1, double prv2, double cur2);
+    
     bool updatePinSlack(PIN &pin, double margin, unsigned view = 0);
     timing_lookup get_wire_delay(unsigned netID, unsigned sinkPinID,
                                  unsigned view = 0);

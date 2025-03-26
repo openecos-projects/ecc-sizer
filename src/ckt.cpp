@@ -443,7 +443,9 @@ void Circuit::Parser(string benchmark) {
     else {
         slack_max_iter = 6;
     }
-    runGR(10, true, slack_max_iter);
+    if(_sizer->spefFile == "") {
+        runGR(10, true, slack_max_iter);
+    }
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
         if(!_sizer->noSPEF) {
             if(_sizer->mmmcOn)
@@ -3381,7 +3383,9 @@ void Circuit::init_opensta() {
     // _ord_design->link(_sizer->);
     _ord_design->readDef(_sizer->defFile);
     // std::string spefFile = design_dir + design_name + ".spef";
-    // _ord_design->evalTclString("read_spef " + spefFile);
+    if(_sizer->spefFile != "") {
+        _ord_design->evalTclString("read_spef " + _sizer->spefFile);
+    }
     _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
     if(_sizer->setRCFile != "") {
         std::string setrc_file = _sizer->setRCFile;
@@ -3446,8 +3450,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         iter_i++;
         string str_cell_name = "";
         if(network->libertyCell(inst) == nullptr) {
-            printf("Error: %s\n", network->pathName(inst));
-            // continue;
+            // printf("Error: %s\n", network->pathName(inst));
+            continue;
         }
         else {
             str_cell_name = network->libertyCell(inst)->name();
@@ -3869,6 +3873,9 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             //    "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
             //     puts("debug debug");
             // }
+            if (pin_name == "RDN" || pin_name == "RDP" || pin_name == "RSTN" || pin_name == "RSTP") {
+                continue;
+            }
             if(strcmp(pin_name.c_str(), string("SE").c_str()) == 0 ||
                strcmp(pin_name.c_str(), string("SI").c_str()) == 0 ||
                strcmp(pin_name.c_str(), string("SO").c_str()) == 0 ||

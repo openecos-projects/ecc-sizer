@@ -696,6 +696,8 @@ double Sizer::CalcCapViolation(unsigned view) {
                         .maxCapacitance = cap_limit;
                     maxCap = cap_limit;
                 }
+            }else{
+                continue;
             }
             if(use_margin) {
                 maxCap *= cap_margin;
