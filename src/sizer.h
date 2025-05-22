@@ -426,6 +426,9 @@ class Sizer {
     std::map< string, int > cellName2EquaivaID;
     std::vector< std::vector< string > > EquaivaID2cellNames;
     void runOrdTO();
+    string min_route_layer = "METAL1";
+    string max_route_layer = "METAL7";
+
    private:
     double tnsPenalty = 10, slewPenalty = 20, capPenalty = 20;
 
@@ -449,6 +452,9 @@ class Sizer {
     inline bool isMin(const CELL &cell) {
         return (cell.c_size == 0);
     }
+    double GetCellDelay(unsigned view, LibCellInfo *lib_cell,
+                        unsigned in_libpin, unsigned out_libpin,
+                        double input_slew, double output_cap);
 
     inline bool isMax(const CELL &cell) {
         LibCellTable *lib_cell_table = NULL;
@@ -639,6 +645,15 @@ class Sizer {
     double CompareWithSim();
     void UpdateCapsFromCells();
     double showAllSlew(unsigned view, string filename);
+
+    void net_arc_forward_timing(int net_inpin, int corner, float margin);
+    // Timing propagation
+    void parallel_bfs(vector< unsigned > &fwpins, vector< unsigned > &bwpins,
+                      unordered_set< unsigned > &fwpins_set,
+                      unordered_set< unsigned > &bwpins_set,
+                      vector< unsigned > &endpins,
+                      unordered_map< unsigned, int > &visited, int view,
+                      int corner, float margin);
 
    public:
     sta::Sta *_sta;
@@ -1080,13 +1095,15 @@ class Sizer {
     void OneTimer(CELL &cell, double margin, bool recalc_moment, unsigned view);
     void OneTimer(CELL &cell, double margin, bool recalc_moment = true);
     bool updatePinTiming(PIN &pin, double margin, unsigned view = 0);
-    
+
     bool updatePinTimingSelf(PIN &pin, double margin, unsigned view);
-    void propagateTimingToFanout(PIN &pin, unsigned view, unsigned corner, unsigned curnet);
+    void propagateTimingToFanout(PIN &pin, unsigned view, unsigned corner,
+                                 unsigned curnet);
     void updateSlack(PIN &pin);
-    void logPinState(const PIN &pin, unsigned view, const string &prefix, int verboseLevel);
+    void logPinState(const PIN &pin, unsigned view, const string &prefix,
+                     int verboseLevel);
     double computeMaxDiff(double prv1, double cur1, double prv2, double cur2);
-    
+
     bool updatePinSlack(PIN &pin, double margin, unsigned view = 0);
     timing_lookup get_wire_delay(unsigned netID, unsigned sinkPinID,
                                  unsigned view = 0);

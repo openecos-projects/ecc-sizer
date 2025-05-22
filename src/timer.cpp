@@ -52,6 +52,14 @@
 #include <vector>
 #include "float.h"
 #include "utils.h"
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <deque>
+#include <unordered_set>
+#include <unordered_map>
+#include <iostream>
+
 #define __DEBUG
 #define TIME_MON
 #define SLEW_THRESHOLD 4
@@ -3959,13 +3967,6 @@ void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment) {
     }
 }
 
-static std::vector< unsigned > fwpins;  // pin std::vector for forward traverse
-static std::vector< unsigned > bwpins;  // pin std::vector for backward traverse
-static std::vector< unsigned > endpins;
-static std::vector< unsigned > startpins;
-static std::set< unsigned > bwpins_set;
-static std::set< unsigned > fwpins_set;
-
 inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                             unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
@@ -3975,12 +3976,12 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
     std::unordered_map< unsigned, int > visited;
 
     margin = margin / 1e-9 * time_unit;
-    fwpins.clear();
-    bwpins.clear();
-    endpins.clear();
-    startpins.clear();
-    bwpins_set.clear();
-    fwpins_set.clear();
+    std::vector< unsigned > fwpins;  // pin std::vector for forward traverse
+    std::vector< unsigned > bwpins;  // pin std::vector for backward traverse
+    std::vector< unsigned > endpins;
+    std::vector< unsigned > startpins;
+    std::set< unsigned > bwpins_set;
+    std::set< unsigned > fwpins_set;
     // visited.resize(numnets);
 
     // for(unsigned i = 0; i < numnets; ++i) {
@@ -4042,16 +4043,6 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                  << getFullPinName(pins[view][cell.outpins[j]]) << endl;
     }
 
-    //    for (unsigned j=0; j < cell.inpins.size(); ++j ) {
-    //        if
-    //        (libs[corner].find(cell.type)->second.pins[pins[view][cell.inpins[j]].lib_pin].isClock)
-    //                continue;
-    //
-    //        bwpins.push_back(cell.inpins[j]);
-    //        if ( VERBOSE == 2 )
-    //        cout << "INPUT PIN " << j << " " << cell.inpins[j] << " " <<
-    //        getFullPinName(pins[view][cell.inpins[j]]) << endl;
-    //    }
     // printf("fwpins num %d\n", fwpins.size());
     //(output) pin list for timing, AAT updates
     for(int iter = 0; iter < fwpins.size(); iter++) {

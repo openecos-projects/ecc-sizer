@@ -9234,6 +9234,10 @@ void Sizer::readCmdFile(string cmdFileStr) {
             falsePathFile = getTokenS(line, "-false_path_file ");
         if(line.find("-v ") != string::npos)
             verilogFile = getTokenS(line, "-v ");
+        if(line.find("-min_route_layer ") != string::npos)
+            min_route_layer = getTokenS(line, "-min_route_layer ");
+        if(line.find("-max_route_layer ") != string::npos)
+            max_route_layer = getTokenS(line, "-max_route_layer ");
         if(line.find("-sdc ") != string::npos)
             sdcFile = getTokenS(line, "-sdc ");
         if(line.find("-timerSdc ") != string::npos)
