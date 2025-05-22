@@ -6003,10 +6003,14 @@ void Sizer::FinalReport() {
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
-    auto signal_low_layer = db_tech->findLayer("METAL1")->getRoutingLevel();
-    auto signal_high_layer = db_tech->findLayer("METAL7")->getRoutingLevel();
-    auto clk_low_layer = db_tech->findLayer("METAL1")->getRoutingLevel();
-    auto clk_high_layer = db_tech->findLayer("METAL7")->getRoutingLevel();
+    auto signal_low_layer =
+        db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
+    auto signal_high_layer =
+        db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
+    auto clk_low_layer =
+        db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
+    auto clk_high_layer =
+        db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
     auto grt = _ord_design->getGlobalRouter();
     grt->setOverflowIterations(10);
     grt->clear();

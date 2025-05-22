@@ -262,7 +262,8 @@ double Sizer::CalcSlewViolation(unsigned view) {
             auto pin_ =
                 _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
             assert(pin_);
-            // assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+            // assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER"
+            // &&
             //        pin_->getNet()->getSigType() != "GROUND" &&
             //        pin_->getNet()->getSigType() != "CLOCK");
             // if(pins[view][curpin].max_tran == 0) {
@@ -414,8 +415,7 @@ double Sizer::showAllSlew(unsigned view, string filename) {
 
         auto pin_ = _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
         assert(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
-               pin_->getNet()->getSigType() != "GROUND" &&
-               pin_->getNet()->getSigType() != "CLOCK");
+               pin_->getNet()->getSigType() != "GROUND");
         double t_tran = max(pins[view][curpin].rtran, pins[view][curpin].ftran);
 
         if(t_tran > pins[view][curpin].max_tran) {
@@ -696,7 +696,8 @@ double Sizer::CalcCapViolation(unsigned view) {
                         .maxCapacitance = cap_limit;
                     maxCap = cap_limit;
                 }
-            }else{
+            }
+            else {
                 continue;
             }
             if(use_margin) {
