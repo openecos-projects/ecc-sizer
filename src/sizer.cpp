@@ -9274,6 +9274,10 @@ void Sizer::readCmdFile(string cmdFileStr) {
             KICK_RATIO = getTokenF(line, "-kick_ratio ");
         if(line.find("-alpha_stuck ") != string::npos)
             ALPHA_STUCK = getTokenF(line, "-alpha_stuck ");
+        if(line.find("-def_out_path ") != string::npos)
+            resultDefFile = getTokenF(line, "-def_out_path ");
+        if(line.find("-verilog_out_path ") != string::npos)
+            resultVerilogFile = getTokenF(line, "-verilog_out_path ");
         if(line.find("-stuck_th ") != string::npos)
             STUCK_THRES = getTokenF(line, "-stuck_th ");
         if(line.find("-kick_step ") != string::npos)
@@ -10498,9 +10502,15 @@ int main(int argc, char **argv) {
     printMemoryUsage();
     _sizer.FinalReport();
     _sizer.runOrdTO();
-    _sizer._ckt->_ord_design->writeDef(_sizer.benchname + ".size.def");
+    if(_sizer.resultDefFile == "") {
+        _sizer.resultDefFile = _sizer.benchname + ".size.def";
+    }
+    if(_sizer.resultVerilogFile == "") {
+        _sizer.resultVerilogFile = _sizer.benchname + ".size.v";
+    }
+    _sizer._ckt->_ord_design->writeDef(_sizer.resultDefFile);
     _sizer._ckt->_ord_design->evalTclString("write_verilog " +
-                                            _sizer.benchname + ".size.v");
+                                            _sizer.resultVerilogFile);
     if(NO_LOG)
         _sizer.CleanIntFiles();
 

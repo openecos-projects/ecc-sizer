@@ -51,9 +51,9 @@ include_directories(${OPENSTA_HDEAR_HOME}
 
 file(GLOB SOURCES "*.cpp")
 
-add_executable(TritonSizer ${SOURCES})
+add_executable(Sizer ${SOURCES})
 
-target_link_libraries(TritonSizer 
+target_link_libraries(Sizer 
     openroad
     ${TCL_LIB}
     utl_lib

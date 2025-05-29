@@ -673,7 +673,8 @@ class Sizer {
     Circuit *_ckt;
 
     string root, benchname, directory;
-
+    string resultDefFile = "";
+    string resultVerilogFile = "";
     // MMMC
     double time_unit;
     double res_unit;

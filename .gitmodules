@@ -1,6 +1,3 @@
-[submodule "thirdparty/iEDA"]
-	path = thirdparty/iEDA
-	url = git@gitee.com:ieda-ipd/iEDA.git
 [submodule "thirdparty/OpenROAD"]
 	path = thirdparty/OpenROAD
 	url = git@gitee.com:icontest/OpenROAD.git
