@@ -14,7 +14,7 @@
 # -tcf ./test.tcf
 -ptLog
 -useOpenSTA
--alpha 0.5
+-alpha 0.0
 -dont_touch_cell TIEL
 -dont_touch_cell TIEH
 -sf 1
