@@ -9275,9 +9275,9 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-alpha_stuck ") != string::npos)
             ALPHA_STUCK = getTokenF(line, "-alpha_stuck ");
         if(line.find("-def_out_path ") != string::npos)
-            resultDefFile = getTokenF(line, "-def_out_path ");
+            resultDefFile = getTokenS(line, "-def_out_path ");
         if(line.find("-verilog_out_path ") != string::npos)
-            resultVerilogFile = getTokenF(line, "-verilog_out_path ");
+            resultVerilogFile = getTokenS(line, "-verilog_out_path ");
         if(line.find("-stuck_th ") != string::npos)
             STUCK_THRES = getTokenF(line, "-stuck_th ");
         if(line.find("-kick_step ") != string::npos)
