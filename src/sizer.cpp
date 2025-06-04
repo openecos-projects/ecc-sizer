@@ -5314,7 +5314,8 @@ void Sizer::runOrdTO() {
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
     _ckt->_ord_design->evalTclString("buffer_ports");
-    _ckt->_ord_design->evalTclString("repair_design -max_wire_length 100 -verbose");
+    _ckt->_ord_design->evalTclString(
+        "repair_design -max_wire_length 100 -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -verbose");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
@@ -6001,7 +6002,7 @@ void Sizer::FinalReport() {
     auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
     _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
+    _ord_design->getOpendp()->detailedPlacement(0, 0);
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();

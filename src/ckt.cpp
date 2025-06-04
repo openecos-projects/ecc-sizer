@@ -1796,8 +1796,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     printf("Legalizing...\n");
 
     // _ord_design->getOpendp()->VERBOSE
-    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
-                                                false);
+    _ord_design->getOpendp()->detailedPlacement(0, 0, "", false);
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
