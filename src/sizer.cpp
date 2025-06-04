@@ -5313,7 +5313,9 @@ void Sizer::runOrdTO() {
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
-    resizer->repairDesign(0, 0, 0, 1);
+    _ckt->_ord_design->evalTclString("buffer_ports");
+    _ckt->_ord_design->evalTclString("repair_design -max_wire_length 100 -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -verbose");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
 
