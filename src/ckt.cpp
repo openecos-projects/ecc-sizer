@@ -422,31 +422,7 @@ void Circuit::Parser(string benchmark) {
             }
         }
     }
-    int slack_max_iter = 3;
-    if(numcells == 27553) {
-        slack_max_iter = 3;
-    }
-    else if(numcells == 79919) {  // nvm , nvp
-        slack_max_iter = 6;
-    }
-    else if(numcells == 145776) {  // ariane136
-        slack_max_iter = 6;
-    }
-    else if(numcells == 278465) {  // aes_256
-        slack_max_iter = 3;
-    }
-    else if(numcells == 184863) {  // hidden3
-        slack_max_iter = 6;
-    }
-    else if(numcells == 187851) {  // mempool_tile_wrap
-        slack_max_iter = 6;
-    }
-    else {
-        slack_max_iter = 6;
-    }
-    if(_sizer->spefFile == "") {
-        runGR(10, true, slack_max_iter);
-    }
+
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
         if(!_sizer->noSPEF) {
             if(_sizer->mmmcOn)
@@ -1999,6 +1975,38 @@ void Circuit::init_opensta() {
     }
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
+    _ord_design->evalTclString("set_wire_rc -signal -layer " +
+                               _sizer->min_route_layer);
+    _ord_design->evalTclString("set_wire_rc -clock -layer " +
+                               _sizer->min_route_layer);
+    _ord_design->evalTclString("estimate_parasitics -placement");
+    _ord_design->evalTclString("repair_clock_nets");
+    int slack_max_iter = 3;
+    if(numcells == 27553) {
+        slack_max_iter = 3;
+    }
+    else if(numcells == 79919) {  // nvm , nvp
+        slack_max_iter = 6;
+    }
+    else if(numcells == 145776) {  // ariane136
+        slack_max_iter = 6;
+    }
+    else if(numcells == 278465) {  // aes_256
+        slack_max_iter = 3;
+    }
+    else if(numcells == 184863) {  // hidden3
+        slack_max_iter = 6;
+    }
+    else if(numcells == 187851) {  // mempool_tile_wrap
+        slack_max_iter = 6;
+    }
+    else {
+        slack_max_iter = 3;
+    }
+    if(_sizer->spefFile == "") {
+        runGR(10, false, slack_max_iter);
+    }
+
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
 
     // _ord_design->evalTclString("sta::set_delay_calculator lumped_cap");
