@@ -5314,8 +5314,13 @@ void Sizer::runOrdTO() {
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
     _ckt->_ord_design->evalTclString("buffer_ports");
+    // _ckt->_ord_design->evalTclString("repair_design -max_wire_length 100");
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
-        "repair_design -max_wire_length 100 -verbose");
+        "report_check_types -max_slew -max_capacitance -max_fanout -violators "
+        "-digits 3");
     _ckt->_ord_design->evalTclString("repair_timing -verbose");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
@@ -5347,128 +5352,142 @@ void Sizer::runOrdTO() {
 }
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
-    if(numcells == 27553) {  // nvm
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 1.0;
-        input_slew_margin = 0.95;
-        post_slew_opt_output = false;
-        max_time_recovery_iter = 7;
-        // attack new
-        use_attack_new = true;
-        ATTACK_NEW_RATIO = 60;
-        //
-        ATTACK_RATIO = 30;
-        MULTI_STEP = 5;
-        STA_MARGIN = 0.001;
-        // slack_margin = 0.001;
+    // if(numcells == 27553) {  // nvm
+    //     PRFT_PTNUM = 1;
+    //     use_slew_margin = true;
+    //     slew_margin = 1.0;
+    //     input_slew_margin = 0.95;
+    //     post_slew_opt_output = false;
+    //     max_time_recovery_iter = 7;
+    //     // attack new
+    //     use_attack_new = true;
+    //     ATTACK_NEW_RATIO = 60;
+    //     //
+    //     ATTACK_RATIO = 30;
+    //     MULTI_STEP = 5;
+    //     STA_MARGIN = 0.001;
+    //     // slack_margin = 0.001;
 
-        SetGB(-0.005);
-    }
-    else if(numcells == 79919) {  // nvp
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 0.9;
-        input_slew_margin = 1.0;
-        max_time_recovery_iter = 7;
-        // attack new
-        use_attack_new = true;
-        ATTACK_NEW_RATIO = 40;
-        //
-        ATTACK_RATIO = 25;
-        MULTI_STEP = 3;
-        STA_MARGIN = 0.001;
-        // slack_margin = 0.001;
-        SetGB(0.001);
-    }
-    else if(numcells == 145776) {  // ariane136
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 0.9;
-        input_slew_margin = 1.0;
-        max_time_recovery_iter = 7;
-        // attack new
-        use_attack_new = true;
-        ATTACK_NEW_RATIO = 40;
-        //
-        ATTACK_RATIO = 25;
-        MULTI_STEP = 3;
-        STA_MARGIN = 0.001;
-        // slack_margin = 0.001;
-        SetGB(0.001);
-    }
-    else if(numcells == 278465) {  // aes_256
-        // PRFT_PTNUM = 1;
-        // use_slew_margin = true;
-        // slew_margin = 0.9;
-        // input_slew_margin = 1.0;
-        // max_time_recovery_iter = 7;
-        post_slew_opt_output = false;
-        PRFT_PTNUM = 1;
-        // // attack new
-        use_attack_new = false;
-        ATTACK_NEW_RATIO = 40;
-        // //
-        ATTACK_RATIO = 20;
-        MULTI_STEP = 3;
-        SetGB(-0.02);
+    //     SetGB(-0.005);
+    // }
+    // else if(numcells == 79919) {  // nvp
+    //     PRFT_PTNUM = 1;
+    //     use_slew_margin = true;
+    //     slew_margin = 0.9;
+    //     input_slew_margin = 1.0;
+    //     max_time_recovery_iter = 7;
+    //     // attack new
+    //     use_attack_new = true;
+    //     ATTACK_NEW_RATIO = 40;
+    //     //
+    //     ATTACK_RATIO = 25;
+    //     MULTI_STEP = 3;
+    //     STA_MARGIN = 0.001;
+    //     // slack_margin = 0.001;
+    //     SetGB(0.001);
+    // }
+    // else if(numcells == 145776) {  // ariane136
+    //     PRFT_PTNUM = 1;
+    //     use_slew_margin = true;
+    //     slew_margin = 0.9;
+    //     input_slew_margin = 1.0;
+    //     max_time_recovery_iter = 7;
+    //     // attack new
+    //     use_attack_new = true;
+    //     ATTACK_NEW_RATIO = 40;
+    //     //
+    //     ATTACK_RATIO = 25;
+    //     MULTI_STEP = 3;
+    //     STA_MARGIN = 0.001;
+    //     // slack_margin = 0.001;
+    //     SetGB(0.001);
+    // }
+    // else if(numcells == 278465) {  // aes_256
+    //     // PRFT_PTNUM = 1;
+    //     // use_slew_margin = true;
+    //     // slew_margin = 0.9;
+    //     // input_slew_margin = 1.0;
+    //     // max_time_recovery_iter = 7;
+    //     post_slew_opt_output = false;
+    //     PRFT_PTNUM = 1;
+    //     // // attack new
+    //     use_attack_new = false;
+    //     ATTACK_NEW_RATIO = 40;
+    //     // //
+    //     ATTACK_RATIO = 20;
+    //     MULTI_STEP = 3;
+    //     SetGB(-0.02);
 
-        //
-        use_slew_margin = true;
-        slew_margin = 0.8;
-        input_slew_margin = 0.8;
-        //
-        use_margin = true;
-        cap_margin = 0.9;
-        STA_MARGIN = 0.005;
-        max_time_recovery_iter = 4;
-    }
-    else if(numcells == 187851) {  // mempool_tile_wrap
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 0.85;
-        input_slew_margin = 0.9;
-        use_margin = true;
-        cap_margin = 0.95;
-        use_attack_new = false;
-        max_time_recovery_iter = 7;
-        STA_MARGIN = 0.0;
-    }
-    else if(numcells < 30000) {  // hidden 1-2
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 0.9;
-        input_slew_margin = 1.0;
-        max_time_recovery_iter = 7;
-        // attack new
-        use_attack_new = true;
-        ATTACK_NEW_RATIO = 40;
-        use_margin = true;
-        cap_margin = 0.95;
-        //
-        ATTACK_RATIO = 25;
-        MULTI_STEP = 3;
-        STA_MARGIN = 0.001;
-        SetGB(0.001);
-    }
-    else {  // hidden 4-5
-        PRFT_PTNUM = 1;
-        use_slew_margin = true;
-        slew_margin = 1;
-        input_slew_margin = 1.0;
-        max_time_recovery_iter = 4;
-        // attack new
-        use_attack_new = true;
-        ATTACK_NEW_RATIO = 40;
-        use_margin = true;
-        cap_margin = 1;
-        //
-        ATTACK_RATIO = 25;
-        MULTI_STEP = 3;
-        STA_MARGIN = 0.001;
-        // slack_margin = 0.001;
-        SetGB(0.001);
-    }
+    //     //
+    //     use_slew_margin = true;
+    //     slew_margin = 0.8;
+    //     input_slew_margin = 0.8;
+    //     //
+    //     use_margin = true;
+    //     cap_margin = 0.9;
+    //     STA_MARGIN = 0.005;
+    //     max_time_recovery_iter = 4;
+    // }
+    // else if(numcells == 187851) {  // mempool_tile_wrap
+    //     PRFT_PTNUM = 1;
+    //     use_slew_margin = true;
+    //     slew_margin = 0.85;
+    //     input_slew_margin = 0.9;
+    //     use_margin = true;
+    //     cap_margin = 0.95;
+    //     use_attack_new = false;
+    //     max_time_recovery_iter = 7;
+    //     STA_MARGIN = 0.0;
+    // }
+    // else if(numcells < 30000) {  // hidden 1-2
+    //     PRFT_PTNUM = 1;
+    //     use_slew_margin = true;
+    //     slew_margin = 0.9;
+    //     input_slew_margin = 1.0;
+    //     max_time_recovery_iter = 7;
+    //     // attack new
+    //     use_attack_new = true;
+    //     ATTACK_NEW_RATIO = 40;
+    //     use_margin = true;
+    //     cap_margin = 0.95;
+    //     //
+    //     ATTACK_RATIO = 25;
+    //     MULTI_STEP = 3;
+    //     STA_MARGIN = 0.001;
+    //     SetGB(0.001);
+    // }
+    // else {  // hidden 4-5
+    //     PRFT_PTNUM = 1;
+    //     use_slew_margin = true;
+    //     slew_margin = 1;
+    //     input_slew_margin = 1.0;
+    //     max_time_recovery_iter = 4;
+    //     // attack new
+    //     use_attack_new = true;
+    //     ATTACK_NEW_RATIO = 40;
+    //     use_margin = true;
+    //     cap_margin = 1;
+    //     //
+    //     ATTACK_RATIO = 25;
+    //     MULTI_STEP = 3;
+    //     STA_MARGIN = 0.001;
+    //     // slack_margin = 0.001;
+    //     SetGB(0.001);
+    // }
+    PRFT_PTNUM = 1;
+    use_slew_margin = true;
+    slew_margin = 0.9;
+    input_slew_margin = 1.0;
+    max_time_recovery_iter = 3;
+    // attack new
+    use_attack_new = false;
+    ATTACK_NEW_RATIO = 40;
+    //
+    ATTACK_RATIO = 25;
+    MULTI_STEP = 3;
+    STA_MARGIN = 0.001;
+    // slack_margin = 0.001;
+    SetGB(0.001);
     PTimer = new designTiming **[MAX_THREAD];
 
     for(int i = 0; i < MAX_THREAD; i++) {
@@ -6015,7 +6034,7 @@ void Sizer::FinalReport() {
     auto clk_high_layer =
         db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
     auto grt = _ord_design->getGlobalRouter();
-    grt->setOverflowIterations(10);
+    grt->setCongestionIterations(10);
     grt->clear();
     grt->setAllowCongestion(true);
     grt->setMinRoutingLayer(signal_low_layer);
@@ -10514,6 +10533,7 @@ int main(int argc, char **argv) {
     _sizer._ckt->_ord_design->writeDef(_sizer.resultDefFile);
     _sizer._ckt->_ord_design->evalTclString("write_verilog " +
                                             _sizer.resultVerilogFile);
+    // Tcl_Main(1, argv, ord::tclAppInit);
     if(NO_LOG)
         _sizer.CleanIntFiles();
 

@@ -1796,7 +1796,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     printf("Legalizing...\n");
 
     // _ord_design->getOpendp()->VERBOSE
-    _ord_design->getOpendp()->detailedPlacement(0, 0, "", false);
+    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "");
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
@@ -1817,7 +1817,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     grt->setMaxLayerForClock(clk_high_layer);
     grt->setAdjustment(0.5);
     grt->setVerbose(true);
-    grt->setOverflowIterations(gr_overflow_iterations);
+    grt->setCongestionIterations(gr_overflow_iterations);
     printf("Run Global Routing...\n");
     grt->globalRoute(false, fast, slack_max_iter);
     int iter = 0;
