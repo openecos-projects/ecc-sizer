@@ -1791,13 +1791,13 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
                     ->getRows()
                     .begin()
                     ->getSite();  //->getBlock()->getRows()[0].getSite()
-    auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
-    auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
+    auto max_disp_x = int(_ord_design->micronToDBU(5) / site->getWidth());
+    auto max_disp_y = int(_ord_design->micronToDBU(5) / site->getHeight());
     printf("Legalizing...\n");
-
+    _ord_design->evalTclString("detailed_placement");
+    // _ord_design->evalTclString("detailed_placement_debug");
     // _ord_design->getOpendp()->VERBOSE
-    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y, "",
-                                                false);
+    // _ord_design->getOpendp()->detailedPlacement(500, 500, "./dp.log");
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
@@ -1961,7 +1961,7 @@ void Circuit::init_opensta() {
     }
     // _ord_design->readVerilog(_sizer->verilogFile);
     // _ord_design->link(_sizer->);
-    _ord_design->readDef(_sizer->defFile);
+    _ord_design->readDef(_sizer->defFile, true);
     // std::string spefFile = design_dir + design_name + ".spef";
     if(_sizer->spefFile != "") {
         _ord_design->evalTclString("read_spef " + _sizer->spefFile);
@@ -1975,12 +1975,16 @@ void Circuit::init_opensta() {
     }
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->evalTclString("set_wire_rc -signal -layer " +
-                               _sizer->min_route_layer);
-    _ord_design->evalTclString("set_wire_rc -clock -layer " +
-                               _sizer->min_route_layer);
-    _ord_design->evalTclString("estimate_parasitics -placement");
-    _ord_design->evalTclString("repair_clock_nets");
+    // _ord_design->evalTclString("set_wire_rc -signal -layer " +
+    //                            _sizer->min_route_layer);
+    // _ord_design->evalTclString("set_wire_rc -clock -layer " +
+    //                            _sizer->min_route_layer);
+    // _ord_design->evalTclString("estimate_parasitics -placement");
+    // _ord_design->evalTclString("repair_clock_nets");
+    // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
+    // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +
+    //                                         _sizer->resultVerilogFile);
+    // exit(0);
     int slack_max_iter = 3;
     if(numcells == 27553) {
         slack_max_iter = 3;

@@ -134,8 +134,8 @@ read_lib /nfs/share/home/zhuangchunan/proj/Flow_T28/lib_data/mem/ts5n28hpcplvta3
 
 
 # read_def /nfs/share/home/huangzhipeng/retrosoc_asic_flatten_0309/workspace/output/iEDA/result/retrosoc_asic_CTS.def
-read_def /nfs/share/home/zhaoxueyan/dataset_baseline/aes/workspace/output/Sizer/result/aes_optTiming.def.gz
-read_sdc /nfs/share/home/zhaoxueyan/dataset_baseline/aes/syn_netlist/aes.sdc
+read_def /nfs/share/home/zhaoxueyan/dataset_baseline/shanghai_MS/workspace/output/iEDA/result/asic_top_CTS.def.gz
+read_sdc /nfs/share/home/zhaoxueyan/dataset_baseline/shanghai_MS/syn_netlist/asic_top_SYN_MAX.sdc
 
 # read_verilog /nfs/share/home/zhaoxueyan/flow_110_commercial/retrosoc_asic.final.v
 # read_sdc /home/zhaoxueyan/code/gpu_gate_sizing/smic110/retrosoc_asic_SYN_TYP.sdc
@@ -147,8 +147,9 @@ read_sdc /nfs/share/home/zhaoxueyan/dataset_baseline/aes/syn_netlist/aes.sdc
 # Capture utilization before fillers make it 100%
 utl::metric "DPL::utilization" [format %.1f [expr [rsz::utilization] * 100]]
 utl::metric "DPL::design_area" [sta::format_area [rsz::design_area] 0]
+# detailed_placement
 
-set design "aes"
+set design "asic_top"
 set platform "tsmc28"
 set min_routing_layer "M2"
 set max_routing_layer "M7"
@@ -158,17 +159,21 @@ set max_routing_layer "M7"
 set_wire_rc -signal -layer M2
 set_wire_rc -clock  -layer M5
 
-global_route -congestion_iterations 100
-estimate_parasitics -global_routing
+# estimate_parasitics -placement
+# detailed_placement
 
-repair_clock_nets
+# global_route -congestion_iterations 100 -verbose
 
-report_worst_slack -min -digits 3
-report_worst_slack -max -digits 3
-report_tns -digits 3
-report_check_types -max_slew -max_capacitance -max_fanout -violators -digits 3
+# /home/zhaoxueyan/code/OpenROAD/build/src/openroad
 
-repair_timing -verbose
+# repair_clock_nets
+# detailed_placement
+# report_worst_slack -min -digits 3
+# report_worst_slack -max -digits 3
+# report_tns -digits 3
+# report_check_types -max_slew -max_capacitance -max_fanout -violators -digits 3
+
+# repair_timing -verbose
 
 # set_thread_count 64
 # pin_access -bottom_routing_layer $min_routing_layer \

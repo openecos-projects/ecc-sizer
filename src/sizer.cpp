@@ -693,6 +693,9 @@ LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
     // assert(cell.type != "");
     // unordered_map< string, LibCellInfo >::iterator temp_iter =
     //     libs[corner].find(cell.type);
+    if(isff(cell) && cell.clock_pin == UINT_MAX){
+        return nullptr;
+    }
     assert(main_lib_cell_tables.size());
     return getLibCellInfo(cell.main_lib_cell_id, cell.c_size,
                           static_cast< cell_vtypes >(cell.c_vtype));
