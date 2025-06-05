@@ -1975,12 +1975,12 @@ void Circuit::init_opensta() {
     }
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
-    // _ord_design->evalTclString("set_wire_rc -signal -layer " +
-    //                            _sizer->min_route_layer);
-    // _ord_design->evalTclString("set_wire_rc -clock -layer " +
-    //                            _sizer->min_route_layer);
-    // _ord_design->evalTclString("estimate_parasitics -placement");
-    // _ord_design->evalTclString("repair_clock_nets");
+    _ord_design->evalTclString("set_wire_rc -signal -layer " +
+                               _sizer->min_route_layer);
+    _ord_design->evalTclString("set_wire_rc -clock -layer " +
+                               _sizer->min_route_layer);
+    _ord_design->evalTclString("estimate_parasitics -placement");
+    _ord_design->evalTclString("repair_clock_nets");
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
     // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +
     //                                         _sizer->resultVerilogFile);
