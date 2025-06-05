@@ -6021,7 +6021,8 @@ void Sizer::FinalReport() {
     auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
     _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
+    // _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
+    _ord_design->evalTclString("detailed_placement");
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
