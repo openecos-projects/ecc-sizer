@@ -5318,8 +5318,9 @@ void Sizer::runOrdTO() {
         length_violations;
     _ckt->_ord_design->evalTclString("buffer_ports");
     _ckt->_ord_design->evalTclString(
-        "repair_design -max_wire_length 100 -verbose");
+        "repair_design -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -verbose");
+    _ckt->_ord_design->evalTclString("detailed_placement");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -6022,6 +6023,7 @@ void Sizer::FinalReport() {
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
     _sta = ord::OpenRoad::openRoad()->getSta();
     // _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
+    _ord_design->evalTclString("set_placement_padding -global -left 1 -right 1");
     _ord_design->evalTclString("detailed_placement");
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();

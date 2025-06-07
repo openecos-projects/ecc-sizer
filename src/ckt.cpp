@@ -1794,6 +1794,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     auto max_disp_x = int(_ord_design->micronToDBU(5) / site->getWidth());
     auto max_disp_y = int(_ord_design->micronToDBU(5) / site->getHeight());
     printf("Legalizing...\n");
+    _ord_design->evalTclString("set_placement_padding -global -left 1 -right 1");
     _ord_design->evalTclString("detailed_placement");
     // _ord_design->evalTclString("detailed_placement_debug");
     // _ord_design->getOpendp()->VERBOSE
