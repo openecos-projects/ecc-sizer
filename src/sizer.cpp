@@ -5317,8 +5317,7 @@ void Sizer::runOrdTO() {
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
     _ckt->_ord_design->evalTclString("buffer_ports");
-    _ckt->_ord_design->evalTclString(
-        "repair_design -verbose");
+    _ckt->_ord_design->evalTclString("repair_design -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -verbose");
     _ckt->_ord_design->evalTclString("detailed_placement");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
@@ -6023,7 +6022,10 @@ void Sizer::FinalReport() {
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
     _sta = ord::OpenRoad::openRoad()->getSta();
     // _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
-    _ord_design->evalTclString("set_placement_padding -global -left 1 -right 1");
+    char padding_str[100];
+    sprintf(padding_str, "set_placement_padding -global -left %d -right %d",
+            dp_padding, dp_padding);
+    _ord_design->evalTclString(string(padding_str));
     _ord_design->evalTclString("detailed_placement");
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
@@ -9271,6 +9273,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             sdcFile = getTokenS(line, "-sdc ");
         if(line.find("-timerSdc ") != string::npos)
             timerSdcFile = getTokenS(line, "-timerSdc ");
+        if(line.find("-dp_padding ") != string::npos)
+            swapOp = getTokenI(line, "-dp_padding ");
         if(line.find("-ck ") != string::npos)
             clockName = getTokenS(line, "-ck ");
         if(line.find("-n ") != string::npos)

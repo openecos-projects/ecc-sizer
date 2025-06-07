@@ -771,6 +771,7 @@ class Sizer {
     unsigned sensFunc;
     unsigned sensFunc2;
     unsigned sensFuncT;
+    unsigned dp_padding = 0;
     bool holdCheck;
     bool maxTrCheck;
     bool oaGenFlag;
