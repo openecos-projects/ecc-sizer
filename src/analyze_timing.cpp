@@ -117,13 +117,29 @@ void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclExpression);
+    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
 
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    double temp2;
-    sscanf(_tclAnswer.c_str(), "%f%s", &temp1, &temp2);
+    double temp1 = 0.0;
+    double temp2 = 0.0;
+
+    if(_tclAnswer != "") {
+        // 方法1：使用更具体的格式匹配
+        // char dummy1[20], dummy2[20];
+        // sscanf(_tclAnswer.c_str(), "%s %f %s %f", dummy1, &temp2, dummy2, &temp1);
+        
+        // // 或者方法2：查找并解析特定的键值对
+        size_t fall_pos = _tclAnswer.find("fall_delay");
+        size_t rise_pos = _tclAnswer.find("rise_delay");
+        
+        if (fall_pos != string::npos) {
+            sscanf(_tclAnswer.c_str() + fall_pos, "fall_delay %f", &temp2);
+        }
+        if (rise_pos != string::npos) {
+            sscanf(_tclAnswer.c_str() + rise_pos, "rise_delay %f", &temp1);
+        }
+    }
     rise_delay = temp1;
     fall_delay = temp2;
 

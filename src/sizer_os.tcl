@@ -297,6 +297,7 @@ proc gate_delay {cellInPin cellOutPin} {
 
     set report_file [open tmp3.rpt "r"]
     set file_data [split [read $report_file] \n]
+    close $report_file
 
     set is_rise 1
 
@@ -331,7 +332,7 @@ proc gate_delay {cellInPin cellOutPin} {
         }
        }
     }
-    return my_array
+    return [array get my_array]
 }
 
 proc OSLoadDesign { } {
