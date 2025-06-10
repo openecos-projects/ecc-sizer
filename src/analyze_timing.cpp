@@ -111,44 +111,50 @@ void designTiming::closeServerContact() {
     pt_time += cpuTime() - begin;
 }
 
-// void designTiming::getCellDelay(double &delay, string &riseFall,
-//                                 string cellInPin, string cellOutPin) {
-//     _tclInputString =
-//         "gate_delay " + cellInPin + " " + cellOutPin ;
-//     // cout << _tclInputString << endl;
-//     //_tclExpression = (char *)_tclInputString.c_str();
-//     double begin = cpuTime();
-//     _sizer->_ckt->_ord_design->evalTclString( _tclExpression);
-
-//     pt_time += cpuTime() - begin;
-//     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-//     float temp1;
-//     char temp2[128];
-//     sscanf(_tclAnswer.c_str(), "%f%s", &temp1, &temp2);
-//     delay = temp1;
-//     riseFall = temp2;
-
-//     // cout << delay << " " << riseFall << " " << endl;
-// }
-
-// FIXME:
 void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
                                 string cellInPin, string cellOutPin) {
-    _tclInputString =
-        "report_dcalc -max -digits 3 -from " + cellInPin + " -to " + cellOutPin;
+    _tclInputString = "gate_delay " + cellInPin + " " + cellOutPin;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
     double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    // report_dcalc -max -digits 3 -from $cellInPin -to $cellOutPin > tmp3.rpt
-    // assert(0);
+    _sizer->_ckt->_ord_design->evalTclString(_tclExpression);
+
     pt_time += cpuTime() - begin;
     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1 = 0;
-    float temp2 = 0;
-    std::cout << _tclAnswer << std::endl;
-    sscanf(_tclAnswer.c_str(), "%f %f", &temp1, &temp2);
+    float temp1;
+    double temp2;
+    sscanf(_tclAnswer.c_str(), "%f%s", &temp1, &temp2);
+    rise_delay = temp1;
+    fall_delay = temp2;
+
+    // cout << delay << " " << riseFall << " " << endl;
 }
+
+// FIXME:
+// void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
+//                                 string cellInPin, string cellOutPin) {
+//     _tclInputString =
+//         "report_dcalc -max -digits 3 -from " + cellInPin + " -to " +
+//         cellOutPin;
+//     // cout << _tclInputString << endl;
+//     //_tclExpression = (char *)_tclInputString.c_str();
+//     double begin = cpuTime();
+//     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+//     // report_dcalc -max -digits 3 -from $cellInPin -to $cellOutPin >
+//     tmp3.rpt
+//     // assert(0);
+//     pt_time += cpuTime() - begin;
+//     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+//     float temp1 = 0;
+//     float temp2 = 0;
+//     std::cout << _tclAnswer << std::endl;
+//     if(_tclAnswer == "") {
+//         printf("Error: getCellDelay failed for %s %s\n", cellInPin.c_str(),
+//                cellOutPin.c_str());
+//         exit(0);
+//     }
+//     sscanf(_tclAnswer.c_str(), "%f %f", &temp1, &temp2);
+// }
 
 void designTiming::getFFDelay(double &rdelay, double &fdelay,
                               string cellOutPin) {

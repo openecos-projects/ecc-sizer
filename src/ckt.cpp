@@ -190,7 +190,9 @@ void Circuit::Parser(string benchmark) {
             _sizer->func2id.clear();
         }
     }
-
+    // _sizer->runOrdTO();
+    // find_resize_slacks();
+    // exit(0);
     readDesign_opensta(_sta);
     int t_corner = 0;
     std::map< string, list< LibCellInfo* > >::iterator it;
@@ -1985,6 +1987,8 @@ void Circuit::init_opensta() {
                                _sizer->min_route_layer);
     _ord_design->evalTclString("estimate_parasitics -placement");
     _ord_design->evalTclString("repair_clock_nets");
+    _ord_design->evalTclString("set_propagated_clock [all_clocks]");
+
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
     // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +
     //                                         _sizer->resultVerilogFile);
