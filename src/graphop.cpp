@@ -49,7 +49,7 @@ void Sizer::InitNets() {
         // #pragma omp parallel for num_threads(8)
         for(unsigned i = 0; i < numnets; i++) {
             vector< SUB_NODE > &snv = g_nets[j][i].subNodeVec;
-            if(snv.size() == 0 || g_nets[j][i].name == this->clk_name[0]) {
+            if(snv.size() == 0) {
                 continue;
             }
             calc_total_res(snv);

@@ -693,6 +693,9 @@ LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
     // assert(cell.type != "");
     // unordered_map< string, LibCellInfo >::iterator temp_iter =
     //     libs[corner].find(cell.type);
+    if(isff(cell) && cell.clock_pin == UINT_MAX) {
+        return nullptr;
+    }
     assert(main_lib_cell_tables.size());
     return getLibCellInfo(cell.main_lib_cell_id, cell.c_size,
                           static_cast< cell_vtypes >(cell.c_vtype));
@@ -1342,7 +1345,8 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
 
     if(useOpenSTA) {
         if(util_tcl_file != "") {
-            _ckt->_ord_design->evalTclString(util_tcl_file);
+            string exe_cmd = "source " + util_tcl_file;
+            _ckt->_ord_design->evalTclString(exe_cmd);
         }
         designTiming *PT = new designTiming(OS, this);
         return PT;
@@ -1472,32 +1476,62 @@ void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
     }
 }
 
-void Sizer::UpdatePTSizes(vector< CELL > &c, unsigned option) {
-    std::ostringstream ostr;
-    ostr.str("");
-    ostr << option;
-
-    string filename = benchname + "_" + ostr.str() + "_sizes.tcl";
-    ofstream outsz(filename.c_str());
-    // int count = 0;
-    double begin = cpuTime();
-    auto block = _ckt->_ord_design->getBlock();
+void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
+    std::cerr << "Update PT sizes... " << std::endl;
+    std::cerr << "numcell = " << numcells << std::endl;
     auto db = ord::OpenRoad::openRoad()->getDb();
-    this->_sta->networkChanged();
-    auto corner = this->_ckt->_ord_timing->getCorners()[0];
-    for(unsigned i = 0; i < c.size(); i++) {
-        if(getLibCellInfo(c[i]) == NULL || c[i].isDontTouch)
+    auto block = _ckt->_ord_design->getBlock();
+    int count = 0;
+    for(unsigned i = 0; i < numcells; i++) {
+        LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+        if(lib_cell_info == NULL || cells[i].isDontTouch)
             continue;
-        // LibCellInfo *lib_cell_info = getLibCellInfo(c[i]);
-        auto inst = block->findInst(c[i].name.c_str());
-        inst->swapMaster(db->findMaster(c[i].type.c_str()));
-        c[i].isChanged = 0;
-        c[i].isStaticChanged = true;
-        // c[i].static_power = this->_ckt->_ord_timing->staticPower(inst,
-        // corner); count++;
+        if(!PT_FULL_UPDATE && !cells[i].isChanged)
+            continue;
+        count++;
     }
-    _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
-    _sta->findRequireds();
+    auto sta_ = _ckt->_ord_timing->getSta();
+    auto db_network_ = sta_->getDbNetwork();
+    auto global_router_ = _ckt->_ord_design->getGlobalRouter();
+
+    printf("Update PT sizes changed count %d\n", count);
+    std::set< odb::dbNet * > parasitics_invalid_;
+    // UnorderedSet< const Net *, NetHash > parasitics_invalid_;
+    if(count > 0) {
+        double begin = cpuTime();
+        // this->_sta->networkChanged();
+        auto corner = this->_ckt->_ord_timing->getCorners()[0];
+        for(unsigned i = 0; i < numcells; i++) {
+            LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+            if(lib_cell_info == NULL || cells[i].isDontTouch)
+                continue;
+            if(!PT_FULL_UPDATE && !cells[i].isChanged)
+                continue;
+            auto inst = block->findInst(cells[i].name.c_str());
+            // inst->swapMaster();
+            replaceCell(inst, db->findMaster(cells[i].type.c_str()),
+                        parasitics_invalid_);
+            cells[i].isChanged = 0;
+            cells[i].isStaticChanged = true;
+            // cells[i].static_power =
+            //     this->_ckt->_ord_timing->staticPower(inst, corner);
+        }
+        // incr_groute_->updateRoutes(false);
+        // if(spefFile == "") {
+        //     for(odb::dbNet *net : parasitics_invalid_) {
+        //         global_router_->estimateRC(net);
+        //     }
+        // }
+        // // _ckt->_ord_design->evalTclString("estimate_parasitics
+        // // -global_routing");
+        // parasitics_invalid_.clear();
+        // sta_->findRequireds();
+        _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
+        _sta->findRequireds();
+        T[0]->pt_time += cpuTime() - begin;
+    }
+
+    // else cout << "No cell has been changed." << endl;
 }
 
 void Sizer::CheckTriSizes(string opt_str) {
@@ -1601,10 +1635,10 @@ bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
     auto db_network_ = sta_->getDbNetwork();
     auto inst = db_network_->dbToSta(dinst);
     auto opendp_ = ord::OpenRoad::openRoad()->getOpendp();
-    if(replacement_master) {
+    dbMaster *master = dinst->getMaster();
+    auto *replacement_cell1 = db_network_->dbToSta(replacement_master);
+    if(replacement_master && replacement_cell1) {
         // dbInst *dinst = db_network_->staToDb(inst);
-        dbMaster *master = dinst->getMaster();
-        auto *replacement_cell1 = db_network_->dbToSta(replacement_master);
 
         dinst->swapMaster(replacement_master);
         // sta_->replaceCell(inst, replacement_cell1);
@@ -5313,15 +5347,17 @@ void Sizer::runOrdTO() {
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
-    _ckt->_ord_design->evalTclString("buffer_ports");
-    // _ckt->_ord_design->evalTclString("repair_design -max_wire_length 100");
+    // _ckt->_ord_design->evalTclString("buffer_ports");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -violators "
         "-digits 3");
+    _ckt->_ord_design->evalTclString(
+        "repair_design -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -verbose");
+    _ckt->_ord_design->evalTclString("detailed_placement");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -5476,12 +5512,14 @@ void Sizer::Parallel_Sizer_Launcher() {
     // }
     PRFT_PTNUM = 1;
     use_slew_margin = true;
-    slew_margin = 0.9;
+    slew_margin = 1;
     input_slew_margin = 1.0;
-    max_time_recovery_iter = 3;
+    max_time_recovery_iter = 4;
     // attack new
     use_attack_new = false;
     ATTACK_NEW_RATIO = 40;
+    use_margin = true;
+    cap_margin = 1;
     //
     ATTACK_RATIO = 25;
     MULTI_STEP = 3;
@@ -5978,7 +6016,7 @@ void Sizer::FinalReport() {
     auto _ord_design = _ckt->_ord_design;
     auto block = _ord_design->getBlock();
     auto _sta = ord::OpenRoad::openRoad()->getSta();
-    _sta->networkChanged();
+    // _sta->networkChanged();
     int inst_iter = 0;
     for(unsigned i = 0; i < numcells; i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
@@ -5988,9 +6026,16 @@ void Sizer::FinalReport() {
         auto new_master = _ord_design->getTech()->getDB()->findMaster(
             best_cells_poweropt[i].type.c_str());
         if(inst->getMaster()->getName() != best_cells_poweropt[i].type) {
-            printf("Change %s %s\n", inst->getMaster()->getName().c_str(),
-                   best_cells_poweropt[i].type.c_str());
-            inst->swapMaster(new_master);
+            if(new_master) {
+                printf("Change %s %s\n", inst->getMaster()->getName().c_str(),
+                       best_cells_poweropt[i].type.c_str());
+                inst->swapMaster(new_master);
+            }
+            else {
+                printf("Change %s %s not found\n",
+                       inst->getMaster()->getName().c_str(),
+                       best_cells_poweropt[i].type.c_str());
+            }
             best_cells_poweropt[i].isStaticChanged = true;
         }
         else {
@@ -6021,7 +6066,7 @@ void Sizer::FinalReport() {
     auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
     auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
     _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->getOpendp()->detailedPlacement(0, 0);
+    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
@@ -9268,6 +9313,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             sdcFile = getTokenS(line, "-sdc ");
         if(line.find("-timerSdc ") != string::npos)
             timerSdcFile = getTokenS(line, "-timerSdc ");
+        if(line.find("-dp_padding ") != string::npos)
+            swapOp = getTokenI(line, "-dp_padding ");
         if(line.find("-ck ") != string::npos)
             clockName = getTokenS(line, "-ck ");
         if(line.find("-n ") != string::npos)
