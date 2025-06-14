@@ -1847,6 +1847,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     begin = cpuTime();
     _ord_design->evalTclString("estimate_parasitics -global_routing");
     _sta->findRequireds();
+    _ord_design->evalTclString("report_tns");
     printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);
 }
 

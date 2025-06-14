@@ -127,16 +127,17 @@ void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
     if(_tclAnswer != "") {
         // 方法1：使用更具体的格式匹配
         // char dummy1[20], dummy2[20];
-        // sscanf(_tclAnswer.c_str(), "%s %f %s %f", dummy1, &temp2, dummy2, &temp1);
-        
+        // sscanf(_tclAnswer.c_str(), "%s %f %s %f", dummy1, &temp2, dummy2,
+        // &temp1);
+
         // // 或者方法2：查找并解析特定的键值对
         size_t fall_pos = _tclAnswer.find("fall_delay");
         size_t rise_pos = _tclAnswer.find("rise_delay");
-        
-        if (fall_pos != string::npos) {
+
+        if(fall_pos != string::npos) {
             sscanf(_tclAnswer.c_str() + fall_pos, "fall_delay %f", &temp2);
         }
-        if (rise_pos != string::npos) {
+        if(rise_pos != string::npos) {
             sscanf(_tclAnswer.c_str() + rise_pos, "rise_delay %f", &temp1);
         }
     }
@@ -290,7 +291,8 @@ double designTiming::getWorstSlack(string _clkName) {
         ifstream ifs("wns.txt");
         double wns;
         string _tclAnswer;
-        ifs >> _tclAnswer >> wns;
+        string t2;
+        ifs >> _tclAnswer >> t2 >> wns;
         ifs.close();
         wns = wns * 1e-12 / _sizer->time_unit;
         pt_time += cpuTime() - begin;
@@ -428,8 +430,9 @@ double designTiming::getTNS(string _clkName) {
             "report_tns > evaluation_temp.txt");
         ifstream in("evaluation_temp.txt");
         string t;
+        string t2;
         double tns;
-        in >> t >> tns;
+        in >> t >> t2 >> tns;
         // tns /= _sizer->time_unit;
         pt_time += cpuTime() - begin;
         return tns;
