@@ -6062,11 +6062,17 @@ void Sizer::FinalReport() {
         }
         inst_iter++;
     }
-    auto site = _ord_design->getBlock()->getRows().begin()->getSite();
-    auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
-    auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
-    _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
+    // auto site = _ord_design->getBlock()->getRows().begin()->getSite();
+    // auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
+    // auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
+    // _sta = ord::OpenRoad::openRoad()->getSta();
+    // _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
+    char padding_str[100];
+    sprintf(padding_str, "set_placement_padding -global -left %d -right %d",
+            dp_padding, dp_padding);
+    _ord_design->evalTclString(string(padding_str));
+    _ord_design->evalTclString("detailed_placement");
+    
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
