@@ -374,6 +374,7 @@ void Circuit::Parser(string benchmark) {
                     g_cells[i].type = new_lib_cell_info->name;
                     g_cells[i].c_size = 0;
                     g_cells[i].c_vtype = static_cast< cell_vtypes >(vt);
+                    g_cells[i].isChanged = 1;
                     for(unsigned j = 0; j < g_cells[i].inpins.size(); j++) {
                         g_pins[g_cells[i].inpins[j]].cap =
                             new_lib_cell_info

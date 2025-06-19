@@ -1478,11 +1478,11 @@ void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
 
 void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
     std::cerr << "Update PT sizes... " << std::endl;
-    std::cerr << "numcell = " << numcells << std::endl;
+    std::cerr << "numcell = " << cells.size() << std::endl;
     auto db = ord::OpenRoad::openRoad()->getDb();
     auto block = _ckt->_ord_design->getBlock();
     int count = 0;
-    for(unsigned i = 0; i < numcells; i++) {
+    for(unsigned i = 0; i < cells.size(); i++) {
         LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
         if(lib_cell_info == NULL || cells[i].isDontTouch)
             continue;
@@ -1501,7 +1501,7 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
         double begin = cpuTime();
         // this->_sta->networkChanged();
         auto corner = this->_ckt->_ord_timing->getCorners()[0];
-        for(unsigned i = 0; i < numcells; i++) {
+        for(unsigned i = 0; i < cells.size(); i++) {
             LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
             if(lib_cell_info == NULL || cells[i].isDontTouch)
                 continue;
@@ -1509,23 +1509,25 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
                 continue;
             auto inst = block->findInst(cells[i].name.c_str());
             // inst->swapMaster();
-            replaceCell(inst, db->findMaster(cells[i].type.c_str()),
-                        parasitics_invalid_);
-            cells[i].isChanged = 0;
-            cells[i].isStaticChanged = true;
+            assert(inst);
+            auto new_master = db->findMaster(cells[i].type.c_str());
+            if(new_master) {
+                inst->swapMaster(new_master);
+                cells[i].isChanged = 0;
+                cells[i].isStaticChanged = true;
+            }
+            else {
+                string type = inst->getMaster()->getName();
+                std::cerr << "Error: cannot find master " << cells[i].type
+                          << " for cell " << cells[i].name
+                          << ", current master is " << type << std::endl;
+                cells[i].type = type;
+                cells[i].isChanged = 0;
+                cells[i].isStaticChanged = true;
+            }
             // cells[i].static_power =
             //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
-        // incr_groute_->updateRoutes(false);
-        // if(spefFile == "") {
-        //     for(odb::dbNet *net : parasitics_invalid_) {
-        //         global_router_->estimateRC(net);
-        //     }
-        // }
-        // // _ckt->_ord_design->evalTclString("estimate_parasitics
-        // // -global_routing");
-        // parasitics_invalid_.clear();
-        // sta_->findRequireds();
         _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
         _sta->findRequireds();
         T[0]->pt_time += cpuTime() - begin;
@@ -1636,8 +1638,7 @@ bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
     auto inst = db_network_->dbToSta(dinst);
     auto opendp_ = ord::OpenRoad::openRoad()->getOpendp();
     dbMaster *master = dinst->getMaster();
-    auto *replacement_cell1 = db_network_->dbToSta(replacement_master);
-    if(replacement_master && replacement_cell1) {
+    if(replacement_master) {
         // dbInst *dinst = db_network_->staToDb(inst);
 
         dinst->swapMaster(replacement_master);
@@ -1706,23 +1707,30 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
             if(!PT_FULL_UPDATE && !cells[i].isChanged)
                 continue;
             auto inst = block->findInst(cells[i].name.c_str());
-            // inst->swapMaster();
-            replaceCell(inst, db->findMaster(cells[i].type.c_str()),
-                        parasitics_invalid_);
-            cells[i].isChanged = 0;
-            cells[i].isStaticChanged = true;
+            assert(inst);
+            auto new_master = db->findMaster(cells[i].type.c_str());
+            if(new_master == NULL) {
+                string type = inst->getMaster()->getName();
+                std::cerr << "Error: cannot find master " << cells[i].type
+                          << " for cell " << cells[i].name
+                          << ", current master is " << type << std::endl;
+                cells[i].type = type;
+                cells[i].isChanged = 0;
+                cells[i].isStaticChanged = true;
+            }
+            else {
+                inst->swapMaster(new_master);
+                cells[i].isChanged = 0;
+                cells[i].isStaticChanged = true;
+            }
             // cells[i].static_power =
             //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
         // incr_groute_->updateRoutes(false);
-        if(spefFile == "") {
-            for(odb::dbNet *net : parasitics_invalid_) {
-                global_router_->estimateRC(net);
-            }
-        }
         // _ckt->_ord_design->evalTclString("estimate_parasitics
         // -global_routing");
         parasitics_invalid_.clear();
+        _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
         sta_->findRequireds();
         T[0]->pt_time += cpuTime() - begin;
     }
@@ -5354,9 +5362,8 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -violators "
         "-digits 3");
-    _ckt->_ord_design->evalTclString(
-        "repair_design -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -verbose");
+    _ckt->_ord_design->evalTclString("repair_design -slew_margin 20 -cap_margin 20 -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin 20 -verbose");
     _ckt->_ord_design->evalTclString("detailed_placement");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
@@ -5514,10 +5521,10 @@ void Sizer::Parallel_Sizer_Launcher() {
     use_slew_margin = true;
     slew_margin = 1;
     input_slew_margin = 1.0;
-    max_time_recovery_iter = 4;
+    max_time_recovery_iter = 3;
     // attack new
     use_attack_new = false;
-    ATTACK_NEW_RATIO = 40;
+    ATTACK_NEW_RATIO = 30;
     use_margin = true;
     cap_margin = 1;
     //
@@ -5561,6 +5568,10 @@ void Sizer::Parallel_Sizer_Launcher() {
     }
 
     T = PTimer[0];
+    // InitPowerBeforeUpdate(g_cells);
+    if(MINIMUM || GTR_IN || MAXIMUM) {
+        UpdatePTSizes(g_cells);
+    }
     auto corner = this->_ckt->_ord_timing->getCorners()[0];
     double totalLeakagePower = 0;
     for(int i = 0; i < numcells; i++) {
@@ -5576,11 +5587,6 @@ void Sizer::Parallel_Sizer_Launcher() {
     init_leak[0] = totalLeakagePower;
     if(false) {
         runOrdTO();
-    }
-
-    // InitPowerBeforeUpdate(g_cells);
-    if(MINIMUM || GTR_IN || MAXIMUM) {
-        UpdatePTSizes(g_cells);
     }
 
     double temp_best_tns = DBL_MAX;
@@ -6072,7 +6078,7 @@ void Sizer::FinalReport() {
             dp_padding, dp_padding);
     _ord_design->evalTclString(string(padding_str));
     _ord_design->evalTclString("detailed_placement");
-    
+
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
