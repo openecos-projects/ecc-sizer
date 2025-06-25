@@ -5363,7 +5363,7 @@ void Sizer::runOrdTO() {
         "report_check_types -max_slew -max_capacitance -max_fanout -violators "
         "-digits 3");
     _ckt->_ord_design->evalTclString("repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin 20 -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin 1 -verbose");
     _ckt->_ord_design->evalTclString("detailed_placement");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
