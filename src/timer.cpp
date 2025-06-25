@@ -1370,7 +1370,7 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                        .find(cell.type)
                        ->second.pins[pins[view][curpin].lib_pin]
                        .isData) {
-                    if(arc->fromPin != pins[view][cell.clock_pin].name) {
+                    if(arc && arc->fromPin != pins[view][cell.clock_pin].name) {
                         if(VERBOSE >= 3)
                             cout << "timing arc error : " << arc->fromPin
                                  << " != " << pins[view][cell.clock_pin].name
