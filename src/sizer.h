@@ -376,7 +376,7 @@ class Sizer {
     bool second_feasible;
     bool gtr1_feasible;
     bool gtr2_feasible;
-
+    double setup_margin = 0.0;
     vector< CELL > best_cells;
     vector< CELL > second_best_cells;
     vector< CELL > best_cells_poweropt;

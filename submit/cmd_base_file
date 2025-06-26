@@ -31,7 +31,8 @@
 -slack_margin 0
 -verbose 1
 -asap7
--dp_padding 0
+-dp_padding 1
+-setup_margin 1
 # -gtr_input /home/zhaoxueyan/code/gpu_gate_sizing/build/NV_NVDLA_partition_m.prft.sizes
 # -test ALL_TEST
 # -dont_use_lis

@@ -52,6 +52,7 @@
 #include "ord/ordMain.hh"
 #include "utils.h"
 #include <iostream>
+#include <string>
 #include <vector>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -5362,8 +5363,10 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -violators "
         "-digits 3");
-    _ckt->_ord_design->evalTclString("repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin 1 -verbose");
+    _ckt->_ord_design->evalTclString(
+        "repair_design -slew_margin 20 -cap_margin 20 -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
+                                     to_string(setup_margin) + " -verbose");
     _ckt->_ord_design->evalTclString("detailed_placement");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
@@ -9355,6 +9358,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             KICK_RATIO = getTokenF(line, "-kick_ratio ");
         if(line.find("-alpha_stuck ") != string::npos)
             ALPHA_STUCK = getTokenF(line, "-alpha_stuck ");
+        if(line.find("-setup_margin ") != string::npos)
+            setup_margin = getTokenF(line, "-setup_margin ");
         if(line.find("-def_out_path ") != string::npos)
             resultDefFile = getTokenS(line, "-def_out_path ");
         if(line.find("-verilog_out_path ") != string::npos)
