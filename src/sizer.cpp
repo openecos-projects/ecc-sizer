@@ -5524,15 +5524,15 @@ void Sizer::Parallel_Sizer_Launcher() {
     use_slew_margin = true;
     slew_margin = 1;
     input_slew_margin = 1.0;
-    max_time_recovery_iter = 3;
+    max_time_recovery_iter = 4;
     // attack new
     use_attack_new = false;
-    ATTACK_NEW_RATIO = 30;
+    ATTACK_NEW_RATIO = 20;
     use_margin = true;
     cap_margin = 1;
     //
-    ATTACK_RATIO = 25;
-    MULTI_STEP = 3;
+    // ATTACK_RATIO = 20;
+    // MULTI_STEP = 2;
     STA_MARGIN = 0.001;
     // slack_margin = 0.001;
     SetGB(0.001);
@@ -9421,6 +9421,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             KICK_SFT = getTokenI(line, "-kick_sft ");
         if(line.find("-multi_step ") != string::npos)
             MULTI_STEP = getTokenI(line, "-multi_step ");
+        if(line.find("-attack_ratio ") != string::npos)
+            ATTACK_RATIO = getTokenI(line, "-attack_ratio ");
         if(line.find("-multi_step_kick ") != string::npos)
             MULTI_STEP_KICK = getTokenI(line, "-multi_step_kick ");
         if(line.find("-update_list") != string::npos)
