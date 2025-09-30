@@ -1528,7 +1528,11 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
             // cells[i].static_power =
             //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
+#ifdef USE_GR_RC
         _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
+#else
+        _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
+#endif
         _sta->findRequireds();
         T[0]->pt_time += cpuTime() - begin;
     }
@@ -1730,7 +1734,11 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
         // _ckt->_ord_design->evalTclString("estimate_parasitics
         // -global_routing");
         parasitics_invalid_.clear();
+#if 0
         _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
+#else
+        _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
+#endif
         sta_->findRequireds();
         T[0]->pt_time += cpuTime() - begin;
     }
@@ -5362,8 +5370,10 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -violators "
         "-digits 3");
-    _ckt->_ord_design->evalTclString("repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin 1 -verbose");
+    // _ckt->_ord_design->evalTclString(
+    //     "repair_design -slew_margin 0 -cap_margin 0 -verbose");
+    _ckt->_ord_design->evalTclString(
+        "repair_timing -setup -setup_margin 1 -verbose");
     _ckt->_ord_design->evalTclString("detailed_placement");
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
@@ -5521,7 +5531,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     use_slew_margin = true;
     slew_margin = 1;
     input_slew_margin = 1.0;
-    max_time_recovery_iter = 3;
+    max_time_recovery_iter = 7;
     // attack new
     use_attack_new = false;
     ATTACK_NEW_RATIO = 30;
@@ -6079,6 +6089,7 @@ void Sizer::FinalReport() {
     _ord_design->evalTclString(string(padding_str));
     _ord_design->evalTclString("detailed_placement");
 
+#ifdef USE_GR_RC 
     // Global Route and Estimate Global Route RC
     double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
@@ -6105,6 +6116,9 @@ void Sizer::FinalReport() {
     printf("Run Global Routing Time %f\n", cpuTime() - begin);
     begin = cpuTime();
     _ord_design->evalTclString("estimate_parasitics -global_routing");
+#else
+    _ord_design->evalTclString("estimate_parasitics -placement");
+#endif
     _sta->findRequireds();
     _ckt->readSpef_opensta(_sta);
     int corner = 0;

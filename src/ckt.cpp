@@ -1802,11 +1802,12 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
             _sizer->dp_padding, _sizer->dp_padding);
     _ord_design->evalTclString(string(padding_str));
     _ord_design->evalTclString("detailed_placement");
+    double begin = cpuTime();
+#ifdef USE_GR_RC
     // _ord_design->evalTclString("detailed_placement_debug");
     // _ord_design->getOpendp()->VERBOSE
     // _ord_design->getOpendp()->detailedPlacement(500, 500, "./dp.log");
     // Global Route and Estimate Global Route RC
-    double begin = cpuTime();
     auto db_tech = _ord_design->getTech()->getDB()->getTech();
     auto signal_low_layer =
         db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
@@ -1845,8 +1846,10 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     }
 #endif
     printf("Run Global Routing Time %f\n", cpuTime() - begin);
-    begin = cpuTime();
     _ord_design->evalTclString("estimate_parasitics -global_routing");
+#else
+    _ord_design->evalTclString("estimate_parasitics -placement");
+#endif
     _sta->findRequireds();
     _ord_design->evalTclString("report_tns");
     printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);

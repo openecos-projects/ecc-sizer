@@ -78,6 +78,7 @@
 #include "ord/Tech.h"
 #include "ord/Design.h"
 
+// #define USE_GR_RC
 #define NUM_VTS 3
 #define NUM_SIZES 10
 
