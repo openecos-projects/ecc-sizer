@@ -19,7 +19,7 @@
 -dont_touch_cell TIEH
 -sf 1
 -sft 5
--maxTr 0.32
+-maxTr 1
 -kick_ratio 1.0
 -kick_max_iter 1
 -opt_effort 1
@@ -31,7 +31,11 @@
 -slack_margin 0
 -verbose 1
 -asap7
--dp_padding 0
+-dp_padding 1
+-setup_margin 0.75
+-attack_ratio 30
+-multi_step 2
+# -use_attack_new
 # -gtr_input /home/zhaoxueyan/code/gpu_gate_sizing/build/NV_NVDLA_partition_m.prft.sizes
 # -test ALL_TEST
 # -dont_use_lis

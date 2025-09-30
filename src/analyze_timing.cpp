@@ -294,7 +294,7 @@ double designTiming::getWorstSlack(string _clkName) {
         string t2;
         ifs >> _tclAnswer >> t2 >> wns;
         ifs.close();
-        wns = wns * 1e-12 / _sizer->time_unit;
+        wns = wns * 1e-9 / _sizer->time_unit;
         pt_time += cpuTime() - begin;
         return wns;
     }

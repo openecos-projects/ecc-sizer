@@ -1,6 +1,7 @@
 [submodule "thirdparty/OpenROAD"]
 	path = thirdparty/OpenROAD
 	url = git@gitee.com:icontest/OpenROAD.git
+	branch = TritonSizer-for-SMIC110
 [submodule "thirdparty/2024_ICCAD_Contest_Gate_Sizing_Benchmark"]
 	path = thirdparty/2024_ICCAD_Contest_Gate_Sizing_Benchmark
 	url = git@github.com:ASU-VDA-Lab/2024_ICCAD_Contest_Gate_Sizing_Benchmark.git
