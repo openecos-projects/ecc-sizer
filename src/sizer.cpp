@@ -5365,6 +5365,7 @@ void Sizer::runOrdTO() {
         "-digits 3");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 20 -cap_margin 20 -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -hold -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) + " -verbose");
     _ckt->_ord_design->evalTclString("detailed_placement");
@@ -5526,7 +5527,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     input_slew_margin = 1.0;
     max_time_recovery_iter = 4;
     // attack new
-    use_attack_new = false;
+    // use_attack_new = false;
     ATTACK_NEW_RATIO = 20;
     use_margin = true;
     cap_margin = 1;
@@ -9344,6 +9345,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             TABU = true;
         if(line.find("-compare_tns") != string::npos)
             COMPARE_TNS = true;
+        if(line.find("-use_attack_new") != string::npos)
+            use_attack_new = true;
         if(line.find("-sft ") != string::npos)
             sensFuncT = getTokenI(line, "-sft ");
         if(line.find("-sft_norm ") != string::npos)

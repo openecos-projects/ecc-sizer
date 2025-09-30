@@ -32,10 +32,10 @@
 -verbose 1
 -asap7
 -dp_padding 1
--setup_margin 7.5
--attack_ratio 20
+-setup_margin 0.75
+-attack_ratio 30
 -multi_step 2
-
+# -use_attack_new
 # -gtr_input /home/zhaoxueyan/code/gpu_gate_sizing/build/NV_NVDLA_partition_m.prft.sizes
 # -test ALL_TEST
 # -dont_use_lis
