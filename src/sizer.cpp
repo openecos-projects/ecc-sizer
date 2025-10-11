@@ -9342,7 +9342,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-timerSdc ") != string::npos)
             timerSdcFile = getTokenS(line, "-timerSdc ");
         if(line.find("-dp_padding ") != string::npos)
-            swapOp = getTokenI(line, "-dp_padding ");
+            dp_padding = getTokenI(line, "-dp_padding ");
         if(line.find("-ck ") != string::npos)
             clockName = getTokenS(line, "-ck ");
         if(line.find("-n ") != string::npos)
