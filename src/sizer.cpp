@@ -71,6 +71,9 @@
 #include "grt/GlobalRouter.h"
 
 // global variables
+// Profiling runtime开关与输出文件名
+bool PROF_ON = false;
+std::string PROF_FILE = "sizer.prof";
 bool ISO_TIME = false;
 bool MINIMUM = false;
 bool MAXIMUM = false;
@@ -10362,7 +10365,7 @@ void Sizer::Profile() {
 int main(int argc, char **argv) {
     int agc = 0;
     char **arv = nullptr;
-    omp_set_num_threads(8);
+    // omp_set_num_threads(8);
     ord::flow_OpenROAD(agc, arv);
     // cout << "------------------------------------------------------" << endl;
     // cout << "  TrionSizer ver 1.0                                " << endl;
@@ -10381,6 +10384,17 @@ int main(int argc, char **argv) {
         }
         else if(input_option == "-f") {
             CMD_FI = string(argv[++i]);
+        }
+        else if(input_option == "-profile") {
+            // 开启CPU profiling，可选跟随一个输出文件名
+            PROF_ON = true;
+            if(i + 1 < argc) {
+                std::string next = std::string(argv[i + 1]);
+                if(!next.empty() && next[0] != '-') {
+                    PROF_FILE = next;
+                    ++i;
+                }
+            }
         }
         else if(input_option == "-h") {
             cout << "Usage : sizer -env <env_file> -f <cmd_file>" << endl;
@@ -10414,9 +10428,12 @@ int main(int argc, char **argv) {
     _sizer.readCmdFile(CMD_FI);
     _sizer.readEnvFile(ENV_FI);
 
-    std::string profile_name = _sizer.benchname + ".prof";
-    std::cerr << "profiler save as: " << profile_name.c_str() << "\n";
-    // ProfilerStart(profile_name.c_str());
+    // profiling：若启用则开始记录CPU性能
+    std::string profile_name = PROF_FILE.empty() ? (_sizer.benchname + ".prof") : PROF_FILE;
+    if(PROF_ON) {
+        std::cerr << "CPU profiling to: " << profile_name << "\n";
+        ProfilerStart(profile_name.c_str());
+    }
 
     if(_sizer.mmmcOn) {
         for(unsigned i = 0; i < _sizer.mmmcFiles.size(); ++i) {
@@ -10597,7 +10614,9 @@ int main(int argc, char **argv) {
          << tot_timer_time / 60 << " min.)" << endl;
     cout << "Inc-STA (time/count)  : " << _sizer.time_OneTimer << " sec."
          << " / " << _sizer.count_OneTimer << endl;
-    // ProfilerStop();
+    if(PROF_ON) {
+        ProfilerStop();
+    }
 #ifdef TIME_MON
     cout << "Full-STA (time/count) : " << _sizer.time_CallTimer << " sec."
          << " / " << _sizer.count_CallTimer << endl;
