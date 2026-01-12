@@ -27,7 +27,7 @@
 #include "ord/OpenRoad.hh"
 #include "odb/db.h"
 #include "ord/Timing.h"
-#include "dpl/Opendp.h"
+// #include "dpl/Opendp.h"
 #include "grt/GlobalRouter.h"
 #include "db_sta/dbSta.hh"
 #include "utils.h"
@@ -39,7 +39,7 @@
 #include "ConcreteParasitics.hh"
 #include "ConcreteParasiticsPvt.hh"
 #include <filesystem>
-using namespace std;
+// using namespace std;
 using namespace sta;
 
 void skip(istream& is);
@@ -1617,7 +1617,7 @@ void Circuit::_skip_lut_3D() {
     }
 }
 
-ostream& operator<<(ostream& os, LibPowerInfo& power) {
+ostream& operator<<(ostream& os, const LibPowerInfo& power) {
     cout << "Power related to " << power.relatedPin << " to " << power.toPin
          << ": " << endl;
 
@@ -1630,7 +1630,7 @@ ostream& operator<<(ostream& os, LibPowerInfo& power) {
     return os;
 }
 
-ostream& operator<<(ostream& os, LibLUT& lut) {
+ostream& operator<<(ostream& os, const LibLUT& lut) {
     if(lut.loadIndices.empty() && lut.transitionIndices.empty() &&
        lut.tableVals.empty())
         return os;
@@ -1655,7 +1655,7 @@ ostream& operator<<(ostream& os, LibLUT& lut) {
     return os;
 }
 
-ostream& operator<<(ostream& os, LibTimingInfo& timing) {
+ostream& operator<<(ostream& os, const LibTimingInfo& timing) {
     cout << "Timing info from " << timing.fromPin << " to " << timing.toPin
          << ": " << endl;
     cout << "Timing sense: " << timing.timingSense << endl;
@@ -1675,7 +1675,7 @@ ostream& operator<<(ostream& os, LibTimingInfo& timing) {
     return os;
 }
 
-ostream& operator<<(ostream& os, LibPinInfo& pin) {
+ostream& operator<<(ostream& os, const LibPinInfo& pin) {
     cout << "Pin " << pin.name << ":" << endl;
     // cout << "PinID: " << pin.lib_pin_id << endl ;
     cout << "capacitance: " << pin.capacitance << endl;
@@ -1688,7 +1688,7 @@ ostream& operator<<(ostream& os, LibPinInfo& pin) {
     return os;
 }
 
-ostream& operator<<(ostream& os, LibCellInfo& cell) {
+ostream& operator<<(ostream& os, const LibCellInfo& cell) {
     cout << "Library cell " << cell.name << ": " << endl;
 
     cout << "Footprint: " << cell.footprint << endl;
@@ -1698,19 +1698,16 @@ ostream& operator<<(ostream& os, LibCellInfo& cell) {
     cout << "Dont-touch? " << (cell.dontTouch ? "yes" : "no") << endl;
 
     cout << "Cell has " << cell.pins.size() << " pins: " << endl;
-    std::map< unsigned, LibPinInfo >::iterator it1;
-    for(it1 = cell.pins.begin(); it1 != cell.pins.end(); ++it1) {
-        cout << it1->second << endl;
+    for(const auto& it : cell.pins) {
+        cout << it.second << endl;
     }
     cout << "Cell has " << cell.timingArcs.size() << " timing arcs: " << endl;
-    std::map< unsigned, LibTimingInfo >::iterator it2;
-    for(it2 = cell.timingArcs.begin(); it2 != cell.timingArcs.end(); ++it2) {
-        cout << it2->second << endl;
+    for(const auto& it : cell.timingArcs) {
+        cout << it.second << endl;
     }
     cout << "Cell has " << cell.powerTables.size() << " power tables: " << endl;
-    std::map< unsigned, LibPowerInfo >::iterator it3;
-    for(it3 = cell.powerTables.begin(); it3 != cell.powerTables.end(); ++it3) {
-        cout << it3->second << endl;
+    for(const auto& it : cell.powerTables) {
+        cout << it.second << endl;
     }
 
     cout << "End of cell " << cell.name << endl << endl;

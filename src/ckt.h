@@ -549,7 +549,7 @@ struct LibLUT {
     vector< vector< double > > tableVals;
 };
 
-ostream& operator<<(ostream& os, LibLUT& lut);
+ostream& operator<<(ostream& os, const LibLUT& lut);
 
 struct LibTimingInfo {
     bool isFunc;
@@ -585,8 +585,8 @@ struct LibPowerInfo {
     LibLUT risePower;
 };
 
-ostream& operator<<(ostream& os, LibTimingInfo& timing);
-ostream& operator<<(ostream& os, LibPowerInfo& power);
+ostream& operator<<(ostream& os, const LibTimingInfo& timing);
+ostream& operator<<(ostream& os, const LibPowerInfo& power);
 
 struct LibPinInfo {
     string name;            // pin name
@@ -603,17 +603,20 @@ struct LibPinInfo {
     LibPinInfo()
         : capacitance(0.0),
           maxCapacitance(std::numeric_limits< double >::max()),
+          maxTran(DBL_MAX),
           isInput(true),
           isOutput(false),
           isClock(false),
           isData(false),
-          lib_pin_id(-1) {
+          lib_pin_id(-1),
+          IQN(false) {
     }
 
     LibPinInfo(const LibPinInfo& orig)
         : name(orig.name),
           capacitance(orig.capacitance),
           maxCapacitance(orig.maxCapacitance),
+          maxTran(orig.maxTran),
           IQN(orig.IQN),
           isInput(orig.isInput),
           isOutput(orig.isOutput),
@@ -626,16 +629,18 @@ struct LibPinInfo {
         name = assign.name;
         capacitance = assign.capacitance;
         maxCapacitance = assign.maxCapacitance;
+        maxTran = assign.maxTran;
         isInput = assign.isInput;
         isOutput = assign.isOutput;
         isClock = assign.isClock;
         isData = assign.isData;
         lib_pin_id = assign.lib_pin_id;
         IQN = assign.IQN;
+        return *this;
     }
 };
 
-ostream& operator<<(ostream& os, LibPinInfo& pin);
+ostream& operator<<(ostream& os, const LibPinInfo& pin);
 
 struct LibCellInfo {
     string name;       // cell name
@@ -678,7 +683,8 @@ struct LibCellInfo {
           le_fall(0.0),
           le_rise(0.0),
           Ron(0.0),
-          max_tran(DBL_MAX) {
+          max_tran(DBL_MAX),
+          partial_order(0.0) {
     }
 
     LibCellInfo(const LibCellInfo& orig)
@@ -688,9 +694,11 @@ struct LibCellInfo {
           leakagePower(orig.leakagePower),
           area(orig.area),
           max_tran(orig.max_tran),
+          partial_order(orig.partial_order),
           width(orig.width),
           c_size(orig.c_size),
           cap_size(orig.cap_size),
+          hasQN(orig.hasQN),
           isSequential(orig.isSequential),
           dontTouch(orig.dontTouch),
           dontUse(orig.dontUse),
@@ -840,6 +848,7 @@ struct SOL {
         cost_move = assign.cost_move;
         best_leak_prev = assign.best_leak_prev;
         best_move_prev = assign.best_move_prev;
+        return *this;
     }
 };
 
@@ -981,22 +990,16 @@ class Circuit {
     void read_leak(istream& is, double& leak, unsigned& leak_cnt);
 
     // functions for lib parser
+
     string read_lib_name(istream& is);
-    void read_head_info(istream& is, LibInfo& lib, unsigned corner = 0);
-    void read_templ_info(istream& is, LibTableTempl& templ);
-    void _begin_read_templ_info(istream& is, LibTableTempl& templ);
-    // need to remove the original declarition and func "read_cell_info"
-    void _begin_read_cell_info(istream& is, LibCellInfo& cell, LibInfo& lib);
-    // need to remove the original declarition
-    void _begin_read_pin_info(istream& is, string pinName, LibPinInfo& pin,
-                              LibCellInfo& cell, LibInfo& lib);
-    string _begin_read_power_info(istream& is, string toPin,
-                                  LibPowerInfo& power, LibInfo lib);
-    // need to remove the original declarition
-    string _begin_read_timing_info(istream& is, string toPin,
-                                   LibTimingInfo& timing, LibInfo lib);
-    // need to remove the original declarition and function
-    void _begin_read_lut(istream& is, LibLUT& lut, string type, LibInfo lib);
+    void parse_cell(sta::LibertyLibrary* sta_lib, sta::LibertyCell* sta_cell,
+                    LibCellInfo& out_cell);
+    void parse_pin(sta::LibertyLibrary* sta_lib, sta::LibertyPort* sta_port,
+                   LibCellInfo& out_cell, LibPinInfo& out_pin);
+    void parse_timing(sta::LibertyLibrary* sta_lib,
+                      sta::TimingArcSet* sta_arcset, LibTimingInfo& out_timing);
+    void parse_power(sta::LibertyLibrary* sta_lib, sta::InternalPower* sta_pwr,
+                     LibPowerInfo& out_pwr);
     void add_pg_pin(LibPowerInfo& powerTables, string pg_pin);
     void update_lut(LibLUT& toLut, LibLUT fromLut);
     void average_lut(LibLUT& lut, int num);
@@ -1014,7 +1017,7 @@ class Circuit {
     void createLibCellTable(LibCellTable& lib_cell_table, unsigned corner = 0);
 };
 
-ostream& operator<<(ostream& os, LibCellInfo& cell);
+ostream& operator<<(ostream& os, const LibCellInfo& cell);
 
 bool read_line_as_tokens(istream& is, vector< string >& tokens,
                          bool includeSpecialChars = false);
