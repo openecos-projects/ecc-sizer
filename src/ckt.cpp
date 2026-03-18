@@ -1828,7 +1828,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     grt->setVerbose(true);
     grt->setCongestionIterations(gr_overflow_iterations);
     printf("Run Global Routing...\n");
-    grt->globalRoute(false, fast, slack_max_iter);
+    grt->globalRoute(false, false, false);
     int iter = 0;
 #if 0
     if(use_gr_correlation) {
