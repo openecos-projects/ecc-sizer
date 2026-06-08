@@ -72,7 +72,7 @@
 #include "grt/GlobalRouter.h"
 
 // global variables
-// Profiling runtime开关与输出文件名
+// Profiling runtime switch and output file name.
 bool PROF_ON = false;
 std::string PROF_FILE = "sizer.prof";
 bool ISO_TIME = false;
@@ -458,21 +458,21 @@ int get_available_port(int start_port) {
     int addrlen = sizeof(address);
 
     while(port <= 65535) {
-        // 创建socket
+        // Create socket.
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if(sockfd < 0) {
             std::cerr << "Socket creation failed" << std::endl;
             return -1;
         }
 
-        // 设置地址和端口
+        // Set address and port.
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = INADDR_ANY;
         address.sin_port = htons(port);
 
-        // 绑定端口
+        // Bind port.
         if(bind(sockfd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-            // 如果端口已被占用，尝试下一个端口
+            // If the port is already in use, try the next one.
             close(sockfd);
             ++port;
             continue;
@@ -10387,7 +10387,7 @@ int main(int argc, char **argv) {
             CMD_FI = string(argv[++i]);
         }
         else if(input_option == "-profile") {
-            // 开启CPU profiling，可选跟随一个输出文件名
+            // Enable CPU profiling, optionally followed by an output file name.
             PROF_ON = true;
             if(i + 1 < argc) {
                 std::string next = std::string(argv[i + 1]);
@@ -10429,7 +10429,7 @@ int main(int argc, char **argv) {
     _sizer.readCmdFile(CMD_FI);
     _sizer.readEnvFile(ENV_FI);
 
-    // profiling：若启用则开始记录CPU性能
+    // Start CPU profiling if enabled.
     std::string profile_name = PROF_FILE.empty() ? (_sizer.benchname + ".prof") : PROF_FILE;
     if(PROF_ON) {
         std::cerr << "CPU profiling to: " << profile_name << "\n";

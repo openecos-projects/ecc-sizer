@@ -32,22 +32,22 @@ void process_pin_range(vector< unsigned >& fwpins, int start, int end,
                        deque< unsigned >& local_fwpins,
                        unordered_set< unsigned >& local_fwpins_set);
 
-// 主函数
+// Main entry point
 void Sizer::parallel_bfs(vector< unsigned >& fwpins, vector< unsigned >& bwpins,
                          unordered_set< unsigned >& fwpins_set,
                          unordered_set< unsigned >& bwpins_set,
                          vector< unsigned >& endpins,
                          unordered_map< unsigned, int >& visited, int view,
                          int corner, float margin) {
-    int num_threads = thread::hardware_concurrency();  // 获取硬件支持的线程数
+    int num_threads = thread::hardware_concurrency();  // Number of hardware-supported threads
     vector< thread > threads;
     mutex bwpins_mutex, endpins_mutex, visited_mutex;
 
-    // 每个线程的本地 fwpins 队列
+    // Per-thread local fwpins queues
     vector< deque< unsigned > > local_fwpins(num_threads);
     vector< unordered_set< unsigned > > local_fwpins_set(num_threads);
 
-    // 分割任务
+    // Split work across threads
     int chunk_size = (fwpins.size() + num_threads - 1) / num_threads;
     for(int t = 0; t < num_threads; ++t) {
         int start = t * chunk_size;
@@ -62,11 +62,11 @@ void Sizer::parallel_bfs(vector< unsigned >& fwpins, vector< unsigned >& bwpins,
         }
     }
 
-    // 等待所有线程完成
+    // Wait for all threads to finish
     for(auto& t : threads)
         t.join();
 
-    // 合并本地 fwpins 到全局（如果需要继续处理）
+    // Merge local fwpins into the global queue if further processing is needed.
     for(int t = 0; t < num_threads; ++t) {
         while(!local_fwpins[t].empty()) {
             unsigned fopin = local_fwpins[t].front();
@@ -79,7 +79,7 @@ void Sizer::parallel_bfs(vector< unsigned >& fwpins, vector< unsigned >& bwpins,
     }
 }
 
-// 并行执行函数
+// Parallel worker function
 void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
                        int start, int end, vector< unsigned >& bwpins,
                        unordered_set< unsigned >& bwpins_set,
@@ -106,7 +106,7 @@ void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
             cout << "----- NET " << nets[corner][curnet].name << " "
                  << nets[corner][curnet].outpins.size() << endl;
 
-        // 访问计数同步
+        // Synchronize visit counts
         {
             lock_guard< mutex > lock(visited_mutex);
             if(!visited.count(curnet))
@@ -201,7 +201,7 @@ void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
 }
 #endif
 
-// 并行执行函数
+// Forward timing propagation for one net arc.
 void Sizer::net_arc_forward_timing(int net_inpin, int corner, float margin) {
     unsigned curnet = g_pins[corner][net_inpin].net;
     unsigned inpin = g_nets[corner][curnet].inpin;

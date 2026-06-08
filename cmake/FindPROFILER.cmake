@@ -1,13 +1,13 @@
 # - Find libprofiler
 # - This module determines the libprofiler library of the system
 # the vairable can be set
-#   LIBPROFILER_STATIC_LINK set true for static link library 为TRUE是要求静态连接
+#   LIBPROFILER_STATIC_LINK set true to require static linking
 # The following variables are set if the library found:
 # LIBPROFILER_FOUND - If false do nnt try to use libprofiler.
-# LIBPROFILER_INCLUDE_DIRS - where to find the headfile of library.include文件夹位置
-# LIBPROFILER_LIBRARY_DIRS - where to find the libprofiler library.profiler库所在位置
-# LIBPROFILER_LIBRARIES, the library file name needed to use libprofiler.profiler库及所有依赖库列表
-# LIBPROFILER_LIBRARY - the library needed to use libprofiler. profiler库全路径
+# LIBPROFILER_INCLUDE_DIRS - where to find the library headers
+# LIBPROFILER_LIBRARY_DIRS - where to find the libprofiler library
+# LIBPROFILER_LIBRARIES, the library file names needed to use libprofiler and its dependencies
+# LIBPROFILER_LIBRARY - full path to the libprofiler library
 # imported target
 #   gperftools::profiler
 
@@ -15,7 +15,7 @@ if(LIBPROFILER_FOUND)
     return()
 endif()
 # include (depcommon)
-# linux系统下调用pkg-config查找profiler
+# Use pkg-config to find profiler on Linux.
 if (NOT WIN32)
     include(FindPkgConfig)
     unset(_verexp)
@@ -30,7 +30,7 @@ if (NOT WIN32)
 endif()
 
 if (NOT LIBPROFILER_FOUND)
-	# windows系统下通过查找头文件 gperftools/profiler.h和find_library 查找profiler来实现
+	# On Windows, find profiler through gperftools/profiler.h and find_library.
     # find the headfile of library
     set (PROFILER_HEADS gperftools/profiler.h)
     find_path (LIBPROFILER_INCLUDE_DIRS ${PROFILER_HEADS})
@@ -84,7 +84,7 @@ if(LIBPROFILER_FOUND)
             if(NOT LIBPROFILER_STATIC_LIBRARY)
                 message(FATAL_ERROR "NOT FOUND static library for profiler:${_static_libname} ")
             endif()
-      # 替换 profiler 为 :libtcmalloc_and_profiler.a
+            # Replace profiler with :libtcmalloc_and_profiler.a.
             string(REPLACE profiler :${_static_libname} _link_libs "${_link_libs}")
         else()
             set(_link_libs ${LIBPROFILER_LDFLAGS})

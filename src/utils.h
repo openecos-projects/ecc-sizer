@@ -132,10 +132,10 @@ void LaunchPTBackground(std::string root, std::string benchname);
 void KillPTBackground();
 
 struct LCA {
-    int vertex_num, query_num, root;  // 分别是点的数量、查询的数量、根节点
-    std::vector< std::vector< int > > graph;  // 点的邻接表
+    int vertex_num, query_num, root;  // Number of vertices, queries, and root node
+    std::vector< std::vector< int > > graph;  // Vertex adjacency list
     typedef std::pair< int, int > query;
-    std::vector< std::vector< query > > queries;  // 存查询组
+    std::vector< std::vector< query > > queries;  // Query groups
     std::vector< int > fa;
     std::vector< bool > vis;
     std::vector< int > ans;

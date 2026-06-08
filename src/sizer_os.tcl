@@ -275,7 +275,7 @@ proc OSGetTNS { } {
                 if {[string match *VIOLATED* $line]} {
                     # puts "Warning: VIOLATED detected in line: $line"
                 }
-                # 将提取的值累加到 tns 中
+                # Accumulate the extracted value into tns.
                 set tns [expr $tns + $value]
             }
         }
@@ -515,4 +515,3 @@ proc OSWritePinMaxTranConst { infile outfile } {
     close $ofp
     return 1
 }
-

@@ -656,7 +656,7 @@ void Sizer::UpdateCapsFromCells() {
                             .capacitance = pins[view][input_j].cap;
                     }
                     assert(pins[view][input_j].cap < 1e31);
-                    // pin 作为输入引脚时的电容
+                    // Pin capacitance when the pin is used as an input pin
                 }
                 // cout << "CAP CHECK: " << view << " " <<
                 // getFullPinName(pins[view][cells[i].inpins[j]]) << " "  <<

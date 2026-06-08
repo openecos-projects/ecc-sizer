@@ -125,12 +125,12 @@ void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
     double temp2 = 0.0;
 
     if(_tclAnswer != "") {
-        // 方法1：使用更具体的格式匹配
+        // Method 1: use more specific format matching.
         // char dummy1[20], dummy2[20];
         // sscanf(_tclAnswer.c_str(), "%s %f %s %f", dummy1, &temp2, dummy2,
         // &temp1);
 
-        // // 或者方法2：查找并解析特定的键值对
+        // // Method 2: find and parse specific key-value pairs.
         size_t fall_pos = _tclAnswer.find("fall_delay");
         size_t rise_pos = _tclAnswer.find("rise_delay");
 

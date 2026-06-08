@@ -845,7 +845,7 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
         return;
         // exit(0);
     }
-    // 如果有多个高vt呢,根据leakage顺序进行排序。
+    // If multiple high-Vt cells exist, sort them by leakage.
     // list size first
     std::set< string > lib_cell_size_set;
     printf("sort by leakage candidate_cell_info->name list: ");
@@ -2039,7 +2039,7 @@ void Circuit::init_opensta() {
 #endif
 }
 
-// 最慢
+// Slowest path
 void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     string netlistFileName = _sizer->verilogFile;
     string sdcFileName = _sizer->sdcFile;
@@ -2131,7 +2131,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     }
 
     // NET ITERATION
-    // 最慢
+    // Slowest path
     string pattern_str = "*";
     Instance* top_inst = network->topInstance();
     NetSeq* nets = new NetSeq;

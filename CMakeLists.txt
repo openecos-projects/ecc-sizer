@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 
-# 项目信息
+# Project information
 project(gsizer LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 
-# 设置编译器选项
+# Compiler options
 # set(CMAKE_CXX_COMPILER g++)
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp -static-libgcc -static-libstdc++ -static -lpthread -lm -lgomp -finline-functions -fomit-frame-pointer -fno-operator-names -march=x86-64 -msse4.2 -mfpmath=sse -ffast-math -fexcess-precision=fast -ffinite-math-only")
 

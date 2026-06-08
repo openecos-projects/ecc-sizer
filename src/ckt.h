@@ -102,7 +102,7 @@ using namespace std;
 
 struct LibCellInfo;
 struct entry;
-// 外面是size 里面是vt
+// Outer dimension is size; inner dimension is Vt.
 struct LibCellTable {
     string name;
     vector< vector< LibCellInfo* > > lib_vt_size_table;

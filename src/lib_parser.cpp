@@ -122,7 +122,7 @@ bool read_line_as_tokens(istream& is, std::vector< string >& tokens,
     return !tokens.empty();
 }
 
-// 统一单位换算
+// Unified unit conversion helper.
 struct UnitScaler {
     double time;  // 1e-9 (ns)
     double cap;   // 1e-15 (fF)
@@ -142,7 +142,7 @@ struct UnitScaler {
     }
 };
 
-// 获取并插入 Pin ID
+// Get or insert a pin ID.
 static unsigned get_pin_id(LibCellInfo& cell, const std::string& name) {
     auto& pin_map = cell.lib_pin2id_map;
     if(pin_map.find(name) == pin_map.end()) {
@@ -153,7 +153,7 @@ static unsigned get_pin_id(LibCellInfo& cell, const std::string& name) {
     return pin_map.at(name);
 }
 
-// 提取坐标轴数值
+// Extract axis values.
 static void extract_axis(const sta::TableAxis* axis, const sta::Units* units,
                          std::vector< double >& out_vec) {
     if(!axis) {
@@ -180,7 +180,7 @@ static void extract_lut(sta::LibertyLibrary* sta_lib,
     const auto* units = sta_lib->units();
     UnitScaler scale(units);
     int order = sta_model->order();    // 1 or 2
-    assert(order == 1 || order == 2);  // 只支持 1D/2D 表
+    assert(order == 1 || order == 2);  // Only 1D/2D tables are supported.
 
     const auto* ax1 = sta_model->axis1();
     bool ax1_is_trans =
@@ -199,7 +199,7 @@ static void extract_lut(sta::LibertyLibrary* sta_lib,
     }
 
     auto normalize_axis = [&](std::vector< double >& vec, double scale_factor) {
-        if(vec.empty()) {  // 维度缺失 (1D表)，生成虚拟轴 [0, 100(scaled)]
+        if(vec.empty()) {  // Missing dimension in a 1D table; synthesize axis [0, 100(scaled)].
             vec = {0.0, 100.0 * scale_factor};
             return;
         }
@@ -244,7 +244,7 @@ void Circuit::parse_timing(sta::LibertyLibrary* sta_lib,
     out_timing.toPin = sta_arcset->to()->name();
     out_timing.fromPin = sta_arcset->from()->name();
 
-    // 设置 Sense
+    // Set timing sense.
     auto s = sta_arcset->sense();
     out_timing.timingSense =
         (s == sta::TimingSense::negative_unate) ? 'n' : 'p';
@@ -254,7 +254,7 @@ void Circuit::parse_timing(sta::LibertyLibrary* sta_lib,
         out_timing.timingSense = 'c';
     }
 
-    // 提取 Rise/Fall Delay & Slew
+    // Extract rise/fall delay and slew.
     for(const auto* rf : sta::RiseFall::range()) {
         auto* arc = sta_arcset->arcTo(rf);
         if(!arc) {
@@ -272,7 +272,7 @@ void Circuit::parse_timing(sta::LibertyLibrary* sta_lib,
         }
         else if(auto* check =
                     dynamic_cast< sta::CheckTableModel* >(arc->model())) {
-            // NOTE: setup 保存到delay，hold 保存到transition
+            // NOTE: setup is stored in delay; hold is stored in transition.
             if(sta_arcset->role() == sta::TimingRole::setup()) {
                 extract_lut(sta_lib, check->model(), d_lut);
             }
@@ -325,14 +325,14 @@ void Circuit::parse_pin(sta::LibertyLibrary* sta_lib,
     }
 }
 
-// 根据工艺节点规则提取 Footprint
+// Extract footprint according to technology-node naming rules.
 static std::string determine_footprint(Sizer* sizer,
                                        const std::string& cell_name) {
     if(ASAP7) {
         return std::to_string(sizer->cellName2EquaivaID.at(cell_name));
     }
 
-    // 提取两个下划线之间的子串
+    // Extract the substring between two underscores.
     auto extract_mid = [](std::string& s) {
         size_t p1 = s.find('_');
         if(p1 == string::npos) {
@@ -347,7 +347,7 @@ static std::string determine_footprint(Sizer* sizer,
     std::string fp = cell_name;
 
     if(STM28) {
-        // 提取 STM28 风格: _X...
+        // Extract STM28-style suffix: _X...
         size_t x_pos = fp.find_last_of('X');
         if(x_pos != string::npos) {
             fp.erase(x_pos);
@@ -365,7 +365,7 @@ static std::string determine_footprint(Sizer* sizer,
     return (u_pos != string::npos) ? fp.substr(0, u_pos) : "NA";
 }
 
-// 确定 Vt 类型
+// Determine Vt type.
 static cell_vtypes determine_vt_type(const std::string& name, Sizer* sizer) {
     if(sizer->numVt == 3) {
         if(name.find(sizer->suffixLVT) != std::string::npos) {
@@ -442,7 +442,7 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
 
         // Timing Arcs
         auto arcs = sta_cell->timingArcSets(nullptr, sta_port);
-        // 处理Bus: addr[0] -> addr
+        // Handle buses: addr[0] -> addr.
         if(arcs.empty() && sta_port->isBus()) {
             if(auto* mems = sta_port->memberPorts()) {
                 arcs = sta_cell->timingArcSets(
@@ -539,7 +539,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
     lib.int_power_unit = v_sq * lib.cap_unit / lib.time_unit;
     lib.sw_power_unit = v_sq * lib.cap_unit;
 
-    // 解析 Templates
+    // Parse templates.
     for(const auto* sta_tmpl : sta_lib->tableTemplates()) {
         LibTableTempl tmpl;
         tmpl.name = sta_tmpl->name();
@@ -569,7 +569,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
         }
     }
 
-    // 解析 Cells
+    // Parse cells.
     std::vector< LibCellInfo > cells;
     sta::LibertyCellIterator it(sta_lib);
     while(it.hasNext()) {
