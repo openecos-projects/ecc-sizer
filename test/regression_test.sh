@@ -4,7 +4,7 @@ env_file="/home/zxy/my_code/gpu_gate_sizing/.vscode/env_file"
 bin_exe=/home/zxy/my_code/gpu_gate_sizing/build/src/TritonSizer
 
 if [ ! -f cmd_base_file ]; then
-  echo "cmd_base_file 文件不存在"
+  echo "cmd_base_file does not exist"
   exit 1
 fi
 
@@ -21,4 +21,3 @@ for dir_path in ${directories}; do
   ${bin_exe} -env ${env_file} -f cmd_file > $(date +'%m%d_%H%M').log &
   cd ../
 done
-
