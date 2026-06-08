@@ -1,4 +1,4 @@
 [submodule "thirdparty/OpenROAD"]
 	path = thirdparty/OpenROAD
-	url = git@gitee.com:icontest/OpenROAD.git
-	branch = Sizer-for-CX55
+	url = git@github.com:zhaoxueyan1/OpenROAD.git
+	branch = ecc-sizer

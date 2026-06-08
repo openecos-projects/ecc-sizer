@@ -11,7 +11,6 @@
 -ptport 7474
 -top NV_NVDLA_partition_m
 -v /home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/NV_NVDLA_partition_m/NV_NVDLA_partition_m.v
--spef /home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/NV_NVDLA_partition_m/NV_NVDLA_partition_m.spef
 -sdc /home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/NV_NVDLA_partition_m/NV_NVDLA_partition_m.sdc
 -def /home/zxy/my_code/gpu_gate_sizing/benchmark/iccad24/design/NV_NVDLA_partition_m/NV_NVDLA_partition_m.def
 # -tcf ./test.tcf
