@@ -90,10 +90,8 @@ The executable expects an environment file and a command file:
 ./build/src/Sizer -env <env_file> -f <cmd_file>
 ```
 
-The repository includes example-style templates:
+The repository includes submission-oriented template files:
 
-- `src/env_file`
-- `src/cmd_file`
 - `submit/env_base_file`
 - `submit/cmd_base_file`
 
