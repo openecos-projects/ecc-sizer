@@ -37,6 +37,9 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
+#include "rsz/Resizer.hh"
+#include "dpl/Opendp.h"
+
 #include "sizer.h"
 #include <omp.h>
 #include <stdlib.h>
@@ -61,13 +64,11 @@
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include <arpa/inet.h>
-#include "rsz/Resizer.hh"
 #include "ord/Design.h"
 #include "ord/Timing.h"
 #include <gperftools/profiler.h>
 #include <gperftools/heap-profiler.h>
 #include "ord/OpenRoad.hh"
-#include "dpl/Opendp.h"
 #include "grt/GlobalRouter.h"
 
 // global variables
