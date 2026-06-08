@@ -1,0 +1,8 @@
+SPDX-FileCopyrightText: 2024-2026 ICT, CAS
+SPDX-License-Identifier: Apache-2.0
+
+ECC Sizer
+Copyright (c) 2024-2026 ICT, CAS
+
+ECC Sizer includes modifications and integration work derived from TritonSizer.
+Some source files retain BSD-3-Clause notices from their original authors.

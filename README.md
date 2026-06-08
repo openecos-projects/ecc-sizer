@@ -1,9 +1,13 @@
+<!--
+SPDX-FileCopyrightText: 2024-2026 ICT, CAS
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # ECC Sizer
 
-ECC Sizer is a gate-sizing research prototype built on top of OpenROAD and
-OpenSTA. It reads timing and physical-design inputs, runs sizing and repair
-heuristics, and emits updated sizing results for benchmark-style gate-sizing
-flows.
+ECC Sizer is an OpenROAD-integrated fork of TritonSizer that adapts the
+original gate-sizing framework to OpenDB-backed design updates, OpenSTA/dbSta
+timing evaluation, and OpenROAD Resizer-based repair flows.
 
 The current codebase is intended for research and reproducibility work rather
 than as a polished standalone EDA product. It keeps close integration with a
@@ -113,9 +117,13 @@ git -C thirdparty/OpenROAD/src/sta status --short --branch
 git -C thirdparty/OpenROAD/third-party/abc status --short --branch
 ```
 
+## References
+
+- [TritonSizer](https://github.com/The-OpenROAD-Project/TritonSizer)
+
 ## License
 
-The top-level repository is distributed under the MIT License. Some source files
+The repository-level default license is Apache License 2.0. Some source files
 retain BSD-3-Clause notices from prior academic gate-sizing code, and the
 OpenROAD, OpenSTA, ABC, Boost, Tcl, gperftools, and other third-party
 dependencies are governed by their own licenses. Review the license files in
