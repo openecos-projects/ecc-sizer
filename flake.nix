@@ -4,7 +4,7 @@
     self, nixpkgs, flake-parts,
   }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-    systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+    systems = [ "x86_64-linux" ];
     perSystem = { self', pkgs, system, ... }: {
       packages.default = pkgs.callPackage ./default.nix {};
       devShells.default = pkgs.mkShell {
