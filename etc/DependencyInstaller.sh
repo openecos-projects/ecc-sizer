@@ -249,8 +249,8 @@ _installUbuntuPackages() {
         groff \
         lcov \
         libffi-dev \
+        libgoogle-perftools-dev \
         libgomp1 \
-        libomp-dev \
         libpcre2-dev \
         libpcre3-dev \
         libreadline-dev \
@@ -275,7 +275,7 @@ _installUbuntuPackages() {
             qtchooser
     elif [[ $1 == 22.04 ]]; then
         apt-get install -y \
-            libpython3.8 \
+            libpython3.10 \
             qt5-qmake \
             qtbase5-dev \
             qtbase5-dev-tools \
@@ -576,6 +576,9 @@ Usage: $0
                                 #     need to run -base or -common. Requires
                                 #     privileged access.
                                 #
+       $0 -all
+                                # Explicit form of the default behavior.
+                                #
        $0 -base
                                 # Installs OpenROAD's dependencies using
                                 #     package managers (-common must be
@@ -624,6 +627,12 @@ while [ "$#" -gt 0 ]; do
                 echo "WARNING: previous argument -${option} will be overwritten with -base." >&2
             fi
             option="base"
+            ;;
+        -all)
+            if [[ "${option}" != "all" ]]; then
+                echo "WARNING: previous argument -${option} will be overwritten with -all." >&2
+            fi
+            option="all"
             ;;
         -common)
             if [[ "${option}" != "all" ]]; then

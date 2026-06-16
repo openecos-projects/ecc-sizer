@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux-x64:
+    name: Build Linux x64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo ./etc/DependencyInstaller.sh -all
+          sudo apt-get update
+          sudo apt-get install -y pax-utils
+
+      - name: Build Sizer
+        run: .github/scripts/build-sizer.sh
+
+      - name: Package Sizer with runtime wrapper
+        run: .github/scripts/package-sizer.sh
+
+      - name: Upload binary package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecc-sizer-linux-x64
+          path: dist/ecc-sizer-linux-x64.tar.gz
+          retention-days: 7
+          if-no-files-found: error
