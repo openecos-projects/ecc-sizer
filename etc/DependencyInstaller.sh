@@ -249,7 +249,6 @@ _installUbuntuPackages() {
         groff \
         lcov \
         libffi-dev \
-        libgoogle-perftools-dev \
         libgomp1 \
         libpcre2-dev \
         libpcre3-dev \

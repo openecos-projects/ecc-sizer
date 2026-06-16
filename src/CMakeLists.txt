@@ -70,7 +70,7 @@ target_link_libraries(Sizer
     grt_lib
     # openroad
     odb
-    ${LIBPROFILER_LIBRARY}
+    # ${LIBPROFILER_LIBRARY}
     # utl
 )
 
