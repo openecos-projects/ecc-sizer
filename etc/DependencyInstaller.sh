@@ -239,6 +239,7 @@ _installUbuntuPackages() {
         binutils \
         bison \
         build-essential \
+        ccache \
         clang \
         debhelper \
         devscripts \
@@ -249,19 +250,25 @@ _installUbuntuPackages() {
         groff \
         lcov \
         libffi-dev \
+        libfl-dev \
         libgomp1 \
+        libomp-dev \
         libpcre2-dev \
         libpcre3-dev \
         libreadline-dev \
         libtcl \
         pandoc \
+        pkg-config \
         python3-dev \
+        python3-click \
         qt5-image-formats-plugins \
         tcl \
         tcl-dev \
         tcl-tclreadline \
         tcllib \
+        unzip \
         wget \
+        libyaml-cpp-dev \
         zlib1g-dev \
 
     if _versionCompare $1 -ge 22.10; then
