@@ -30,7 +30,17 @@ set(FASTROUTE_HDEAR_HOME "${OPENROAD_HOME}/grt/include/")
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
 
-find_package(PROFILER REQUIRED) 
+option(ENABLE_PROFILER "Enable gperftools CPU profiler support" OFF)
+if(ENABLE_PROFILER)
+    find_package(PROFILER QUIET)
+    if(NOT LIBPROFILER_FOUND)
+        message(FATAL_ERROR "ENABLE_PROFILER=ON requires gperftools profiler headers and library")
+    endif()
+    message(STATUS "gperftools profiler support enabled")
+else()
+    set(LIBPROFILER_FOUND FALSE)
+    message(STATUS "gperftools profiler support disabled")
+endif()
 
 message(STATUS )
 set(dbSTA_HDEAR_HOME "${OPENROAD_HOME}/dbSta/include/")
@@ -53,6 +63,11 @@ file(GLOB SOURCES "*.cpp")
 
 add_executable(Sizer ${SOURCES})
 
+if(LIBPROFILER_FOUND)
+    target_compile_definitions(Sizer PRIVATE HAVE_GPERFTOOLS_PROFILER)
+    target_link_libraries(Sizer PRIVATE gperftools::profiler)
+endif()
+
 target_link_libraries(Sizer 
     openroad
     ${TCL_LIB}
@@ -70,7 +85,5 @@ target_link_libraries(Sizer
     grt_lib
     # openroad
     odb
-    # ${LIBPROFILER_LIBRARY}
     # utl
 )
-

@@ -34,6 +34,7 @@ cmake -S . -B build \
   -DABC_SKIP_TESTS=ON \
   -DUSE_SYSTEM_OPENSTA=OFF \
   -DOPENROAD_VERSION=v0.1.0-alpha \
+  -DENABLE_PROFILER="${ENABLE_PROFILER:-OFF}" \
   -DCUDD_DIR="${cudd_dir}" \
   -DZLIB_HOME=/usr/lib/x86_64-linux-gnu \
   -DCMAKE_RULE_MESSAGES=OFF
