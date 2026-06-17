@@ -36,6 +36,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # set(USE_SYSTEM_ABC ON)
 set(ENABLE_TESTS OFF)
+set(BUILD_SYN OFF CACHE BOOL "Disable OpenROAD synthesis support for ECC Sizer" FORCE)
 
 # Road 2
 add_subdirectory(src)

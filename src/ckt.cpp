@@ -1783,7 +1783,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
                                               true);
     _ord_design->getBlock()->addGlobalConnect(nullptr, ".*", "VSS", VSSNet,
                                               true);
-    _ord_design->getBlock()->globalConnect();
+    _ord_design->getBlock()->globalConnect(false, false);
 
     // _sta->networkChanged();
     // Legalization
@@ -1897,8 +1897,8 @@ void Circuit::init_opensta() {
     cout << "STA CREATED" << endl;
 
     // define_corners
-    _sta->makeCorners(&corner_names);
-    Corner* corner = _sta->findCorner(cornerName.c_str());
+    _sta->makeScenes(corner_names);
+    Scene* corner = _sta->findScene(cornerName);
     cout << "define_corner done" << endl;
 
     for(int i = 0; i < libs.size(); i++) {
@@ -2141,7 +2141,6 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
                          /* Tcl_interp* */ nullptr);
     network->findNetsHierMatching(top_inst, &pattern, *nets);
     int netsNum = nets->size();
-    NetSeq::Iterator nets_iter(nets);
     iter_i = 0;
     for(auto net : _ord_design->getBlock()->getNets()) {
         if(iter_i % 1000 == 0) {
@@ -2286,8 +2285,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     // SDC Copy runing
     // TODO:
     int mode = 0;
-    auto* sdc = _sta->sdc();
-    auto* clock = sdc->clocks()->at(mode);
+    auto* sdc = _sta->cmdSdc();
+    auto* clock = sdc->clocks().at(mode);
     _sizer->clk_name[mode] = clock->name();
     _sizer->clk_period[mode] = clock->period() / _sizer->time_unit;  // ?
     auto* clk_pin = *(clock->pins().begin());
@@ -2345,20 +2344,22 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         out_delay_iterator++;
     }
 
-    const PortExtCapMap& port_cap_map = sdc->port_ext_cap_maps_.at(0);
+    const PortExtCapMap& port_cap_map = sdc->portExtCapMap();
     for(auto [port, cap] : port_cap_map) {
         std::string port_name =
             reinterpret_cast< const sta::ConcretePort* >(port)->name();
         double load =
-            cap->pinCap()->value(sta::RiseFall::rise(), MinMax::max());
+            cap.pinCap()->value(sta::RiseFall::rise(), MinMax::max());
         assert(load < 1e31);
         load /= _sizer->cap_unit;  // ?FIXME:
         g_pins[pin2id[port_name]].cap = load;
     }
 
-    auto& input_slew_map = sdc->input_drive_map_;
-
-    for(auto [port, drive] : input_slew_map) {
+    for(auto [port, cap] : port_cap_map) {
+        auto* drive = sdc->findInputDrive(const_cast< sta::Port* >(port));
+        if(!drive) {
+            continue;
+        }
         std::string port_name =
             reinterpret_cast< const sta::ConcretePort* >(port)->name();
 #ifdef DRIVER_CELL
@@ -2411,13 +2412,10 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 void Circuit::readSpef_opensta(sta::dbSta* _sta) {
     cout << "[opensta] reading spef..." << endl;
     node2id.clear();
-    Parasitics* parasitics = _sta->parasitics();
-    Corner* _corner = _sta->corners()->corners()[0];
+    Scene* _corner = _sta->scenes()[0];
     const MinMax* cnst_min_max;
-    ParasiticAnalysisPt* ap;
-    // _sta->corners()->makeParasiticAnalysisPtsMinMax();
     cnst_min_max = MinMaxAll::max()->asMinMax();
-    ap = _corner->findParasiticAnalysisPt(cnst_min_max);
+    Parasitics* parasitics = _corner->parasitics(cnst_min_max);
 
     int corner = 0;
     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
@@ -2438,7 +2436,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         auto ord_net = _ord_design->getBlock()->findNet(netNameStr.c_str());
         sta::dbSta* sta = _sizer->_ckt->_ord_timing->getSta();
         sta::Net* net = sta->getDbNetwork()->dbToSta(ord_net);
-        Parasitic* net_parasitic = parasitics->findParasiticNetwork(net, ap);
+        Parasitic* net_parasitic = parasitics->findParasiticNetwork(net);
 #if 0
         
         auto drivers = sta->network()->drivers(net);

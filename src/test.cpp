@@ -4787,7 +4787,7 @@ void Sizer::AllCorrTest() {
 
     CorrelatePT(view);
     auto design = _ckt->_ord_design;
-    sta::Corner* _corner = _sta->corners()->corners()[0];
+    sta::Scene* _corner = _sta->scenes()[0];
     int diff_cap = 0;
     for(unsigned i = 0; i < numCorners; ++i) {
         for(unsigned j = 0; j < numnets; j++) {

@@ -165,11 +165,10 @@ static void extract_axis(const sta::TableAxis* axis, const sta::Units* units,
         scale = tableVariableUnit(axis->variable(), units)->scale();
     }
 
-    if(auto* vals = axis->values()) {
-        out_vec.reserve(vals->size());
-        for(double v : *vals) {
-            out_vec.push_back(v / scale);
-        }
+    const auto& vals = axis->values();
+    out_vec.reserve(vals.size());
+    for(double v : vals) {
+        out_vec.push_back(v / scale);
     }
 }
 
@@ -274,10 +273,10 @@ void Circuit::parse_timing(sta::LibertyLibrary* sta_lib,
                     dynamic_cast< sta::CheckTableModel* >(arc->model())) {
             // NOTE: setup is stored in delay; hold is stored in transition.
             if(sta_arcset->role() == sta::TimingRole::setup()) {
-                extract_lut(sta_lib, check->model(), d_lut);
+                extract_lut(sta_lib, check->checkModel(), d_lut);
             }
             else if(sta_arcset->role() == sta::TimingRole::hold()) {
-                extract_lut(sta_lib, check->model(), s_lut);
+                extract_lut(sta_lib, check->checkModel(), s_lut);
             }
         }
     }
@@ -391,7 +390,7 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
     out_cell.libname = sta_lib->name();
 
     // Footprint
-    out_cell.footprint = sta_cell->footprint() ? sta_cell->footprint() : "";
+    out_cell.footprint = sta_cell->footprint();
     if(out_cell.footprint.empty() || NO_FOOTPRINT) {
         out_cell.footprint = determine_footprint(_sizer, out_cell.name);
     }
@@ -406,12 +405,12 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
     if(exists) {
         out_cell.leakagePower = leak / _sizer->sw_adj;
     }
-    else if(auto* pwrs = sta_cell->leakagePowers(); pwrs && !pwrs->empty()) {
+    else if(const auto& pwrs = sta_cell->leakagePowers(); !pwrs.empty()) {
         float sum = 0.0;
-        for(auto p : *pwrs) {
-            sum += p->power();
+        for(const auto& p : pwrs) {
+            sum += p.power();
         }
-        out_cell.leakagePower = sum / _sizer->sw_adj / pwrs->size();
+        out_cell.leakagePower = sum / _sizer->sw_adj / pwrs.size();
     }
     else {
         out_cell.leakagePower = 0.0;
@@ -434,8 +433,8 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
         parse_pin(sta_lib, sta_port, out_cell, pin);
 
         // Update isData from sequential definitions
-        for(auto* seq : sta_cell->sequentials()) {
-            if(seq->data()->hasPort(sta_port)) {
+        for(const auto& seq : sta_cell->sequentials()) {
+            if(seq.data()->hasPort(sta_port)) {
                 pin.isData = true;
             }
         }
@@ -515,7 +514,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
          << endl;
 
     sta::LibertyLibrary* sta_lib = _sta->readLiberty(
-        filename.c_str(), _sta->cmdCorner(), sta::MinMaxAll::all(), true);
+        filename.c_str(), _sta->cmdScene(), sta::MinMaxAll::all(), true);
 
     LibInfo lib;
     lib.name = sta_lib->name();
@@ -549,7 +548,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
             if(!ax) {
                 return;
             }
-            string var = ax->variableString();
+            string var(ax->variableString());
 
             if(is_ax1) {
                 tmpl.tranFirst = (var.find("transition") != string::npos);
