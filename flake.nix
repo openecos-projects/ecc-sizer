@@ -8,8 +8,8 @@
     perSystem = { self', pkgs, system, ... }: {
       packages.default = pkgs.callPackage ./default.nix {};
       devShells.default = pkgs.mkShell {
-        buildInputs = self'.packages.default.rawBuildInputs;
-        nativeBuildInputs = self'.packages.default.rawNativeBuildInputs;
+        inputsFrom = [ self'.packages.default ];
+        CMAKE_FLAGS = pkgs.lib.concatStringsSep " " self'.packages.default.cmakeFlags;
       };
     };
   };
