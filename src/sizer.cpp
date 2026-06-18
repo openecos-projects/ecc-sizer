@@ -1500,7 +1500,7 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
     auto global_router_ = _ckt->_ord_design->getGlobalRouter();
 
     printf("Update PT sizes changed count %d\n", count);
-    std::set< odb::dbNet * > parasitics_invalid_;
+    std::unordered_set< odb::dbNet * > parasitics_invalid_;
     // UnorderedSet< const Net *, NetHash > parasitics_invalid_;
     if(count > 0) {
         double begin = cpuTime();
@@ -1638,7 +1638,7 @@ void Sizer::CheckPTSizes(unsigned option) {
 //     }
 // }
 bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
-                        std::set< odb::dbNet * > &parasitics_invalid_) {
+                        std::unordered_set< odb::dbNet * > &parasitics_invalid_) {
     using odb::dbInst;
     using odb::dbMaster;
     dbMaster *replacement_master = new_master;
@@ -1703,7 +1703,7 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
     auto global_router_ = _ckt->_ord_design->getGlobalRouter();
 
     printf("Update PT sizes changed count %d\n", count);
-    std::set< odb::dbNet * > parasitics_invalid_;
+    std::unordered_set< odb::dbNet * > parasitics_invalid_;
     // UnorderedSet< const Net *, NetHash > parasitics_invalid_;
     if(count > 0) {
         double begin = cpuTime();

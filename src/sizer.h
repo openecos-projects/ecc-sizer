@@ -61,11 +61,11 @@
 #include <set>
 #include <stack>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "grt/GlobalRouter.h"
 #include "sta/ArcDelayCalc.hh"
 #include "sta/Bfs.hh"
-#include "sta/Corner.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
 #include "sta/Graph.hh"
@@ -76,6 +76,7 @@
 #include "sta/Parasitics.hh"
 #include "sta/PortDirection.hh"
 #include "sta/Sdc.hh"
+#include "sta/Scene.hh"
 #include "sta/Search.hh"
 #include "sta/StaMain.hh"
 #include "sta/TimingArc.hh"
@@ -448,7 +449,7 @@ class Sizer {
                       double leak_exponent, double alpha, double break_ratio,
                       unsigned thread_id, double toler, unsigned view);
     bool replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
-                     std::set< odb::dbNet * > &parasitics_invalid_);
+                     std::unordered_set< odb::dbNet * > &parasitics_invalid_);
     inline bool isMin(const CELL &cell) {
         return (cell.c_size == 0);
     }
