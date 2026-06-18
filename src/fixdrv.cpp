@@ -27,8 +27,6 @@
 #include <arpa/inet.h>
 #include "ord/Design.h"
 #include "ord/Timing.h"
-#include <gperftools/profiler.h>
-#include <gperftools/heap-profiler.h>
 #include "ord/OpenRoad.hh"
 #include "grt/GlobalRouter.h"
 

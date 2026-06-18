@@ -66,8 +66,9 @@
 #include <arpa/inet.h>
 #include "ord/Design.h"
 #include "ord/Timing.h"
+#ifdef HAVE_GPERFTOOLS_PROFILER
 #include <gperftools/profiler.h>
-#include <gperftools/heap-profiler.h>
+#endif
 #include "ord/OpenRoad.hh"
 #include "grt/GlobalRouter.h"
 
@@ -10432,8 +10433,12 @@ int main(int argc, char **argv) {
     // Start CPU profiling if enabled.
     std::string profile_name = PROF_FILE.empty() ? (_sizer.benchname + ".prof") : PROF_FILE;
     if(PROF_ON) {
+#ifdef HAVE_GPERFTOOLS_PROFILER
         std::cerr << "CPU profiling to: " << profile_name << "\n";
         ProfilerStart(profile_name.c_str());
+#else
+        std::cerr << "CPU profiling requested but gperftools profiler support is not available.\n";
+#endif
     }
 
     if(_sizer.mmmcOn) {
@@ -10616,7 +10621,9 @@ int main(int argc, char **argv) {
     cout << "Inc-STA (time/count)  : " << _sizer.time_OneTimer << " sec."
          << " / " << _sizer.count_OneTimer << endl;
     if(PROF_ON) {
+#ifdef HAVE_GPERFTOOLS_PROFILER
         ProfilerStop();
+#endif
     }
 #ifdef TIME_MON
     cout << "Full-STA (time/count) : " << _sizer.time_CallTimer << " sec."

@@ -239,6 +239,7 @@ _installUbuntuPackages() {
         binutils \
         bison \
         build-essential \
+        ccache \
         clang \
         debhelper \
         devscripts \
@@ -249,6 +250,7 @@ _installUbuntuPackages() {
         groff \
         lcov \
         libffi-dev \
+        libfl-dev \
         libgomp1 \
         libomp-dev \
         libpcre2-dev \
@@ -256,13 +258,17 @@ _installUbuntuPackages() {
         libreadline-dev \
         libtcl \
         pandoc \
+        pkg-config \
         python3-dev \
+        python3-click \
         qt5-image-formats-plugins \
         tcl \
         tcl-dev \
         tcl-tclreadline \
         tcllib \
+        unzip \
         wget \
+        libyaml-cpp-dev \
         zlib1g-dev \
 
     if _versionCompare $1 -ge 22.10; then
@@ -275,7 +281,7 @@ _installUbuntuPackages() {
             qtchooser
     elif [[ $1 == 22.04 ]]; then
         apt-get install -y \
-            libpython3.8 \
+            libpython3.10 \
             qt5-qmake \
             qtbase5-dev \
             qtbase5-dev-tools \
@@ -576,6 +582,9 @@ Usage: $0
                                 #     need to run -base or -common. Requires
                                 #     privileged access.
                                 #
+       $0 -all
+                                # Explicit form of the default behavior.
+                                #
        $0 -base
                                 # Installs OpenROAD's dependencies using
                                 #     package managers (-common must be
@@ -624,6 +633,12 @@ while [ "$#" -gt 0 ]; do
                 echo "WARNING: previous argument -${option} will be overwritten with -base." >&2
             fi
             option="base"
+            ;;
+        -all)
+            if [[ "${option}" != "all" ]]; then
+                echo "WARNING: previous argument -${option} will be overwritten with -all." >&2
+            fi
+            option="all"
             ;;
         -common)
             if [[ "${option}" != "all" ]]; then
