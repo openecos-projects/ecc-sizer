@@ -33,5 +33,4 @@ jobs:
         with:
           name: ecc-sizer-linux-x64
           path: dist/ecc-sizer-linux-x64.tar.gz
-          retention-days: 7
           if-no-files-found: error
