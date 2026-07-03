@@ -1,9 +1,12 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
+      - 'release/v*'
   pull_request:
   workflow_dispatch:
-  push:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -33,5 +36,4 @@ jobs:
         with:
           name: ecc-sizer-linux-x64
           path: dist/ecc-sizer-linux-x64.tar.gz
-          retention-days: 7
           if-no-files-found: error
