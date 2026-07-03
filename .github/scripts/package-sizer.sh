@@ -23,9 +23,16 @@ if [[ ! -x "${binary}" ]]; then
 fi
 
 rm -rf "${dist_dir}"
-mkdir -p "${package_root}/bin" "${package_root}/lib" "${package_root}/libexec"
+mkdir -p "${package_root}/bin" "${package_root}/lib" "${package_root}/libexec" "${package_root}/src"
 
 cp "${binary}" "${package_root}/libexec/Sizer"
+install -m 0644 src/sizer_os.tcl "${package_root}/src/sizer_os.tcl"
+install -m 0644 LICENSE "${package_root}/LICENSE"
+
+if [[ -f submit/env_base_file ]]; then
+  mkdir -p "${package_root}/submit"
+  install -m 0644 submit/env_base_file "${package_root}/submit/env_base_file"
+fi
 
 copy_library() {
   local lib="$1"
