@@ -425,10 +425,17 @@ class Sizer {
     bool use_slew_margin = true;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
+    std::map< string, int > cellName2EquivOrder;
     std::vector< std::vector< string > > EquaivaID2cellNames;
     void runOrdTO();
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
+    bool sortEquivCellsByLeakage = false;
+    void setEquivCellSortMode(const string& mode);
+    string equivCellSortModeName() const;
+    int equivCellDriveOrder(const string& cell_name) const;
+    bool compareEquivCellsForSizing(const LibCellInfo* lhs,
+                                    const LibCellInfo* rhs) const;
 
    private:
     double tnsPenalty = 10, slewPenalty = 20, capPenalty = 20;

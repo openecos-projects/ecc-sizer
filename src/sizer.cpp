@@ -637,6 +637,7 @@ void Sizer::ReportOptions() {
     cout << "SUFFIX LVT     : " << suffixLVT << endl;
     cout << "SUFFIX HVT     : " << suffixHVT << endl;
     cout << "SUFFIX         : " << suffix << endl;
+    cout << "EQUIV CELL SORT: " << equivCellSortModeName() << endl;
     cout << "--------------------------------------" << endl;
 
     cout << "DONT TOUCH LIST       : ";
@@ -656,6 +657,59 @@ void Sizer::ReportOptions() {
         cout << dontUseCell[i] << " ";
     }
     cout << endl;
+}
+
+void Sizer::setEquivCellSortMode(const string& mode) {
+    if(mode == "leakage") {
+        sortEquivCellsByLeakage = true;
+        return;
+    }
+    if(mode == "drive_resistance" || mode == "drive_resitance" ||
+       mode == "drive_res" || mode == "drive") {
+        sortEquivCellsByLeakage = false;
+        return;
+    }
+
+    cout << "Error: unsupported -equiv_cell_sort mode '" << mode
+         << "'. Use drive_resistance or leakage." << endl;
+    exit(1);
+}
+
+string Sizer::equivCellSortModeName() const {
+    return sortEquivCellsByLeakage ? "leakage" : "drive_resistance";
+}
+
+int Sizer::equivCellDriveOrder(const string& cell_name) const {
+    auto iter = cellName2EquivOrder.find(cell_name);
+    if(iter == cellName2EquivOrder.end()) {
+        return std::numeric_limits< int >::max();
+    }
+    return iter->second;
+}
+
+bool Sizer::compareEquivCellsForSizing(const LibCellInfo* lhs,
+                                       const LibCellInfo* rhs) const {
+    if(sortEquivCellsByLeakage &&
+       lhs->leakagePower != rhs->leakagePower) {
+        return lhs->leakagePower < rhs->leakagePower;
+    }
+
+    int lhs_order = equivCellDriveOrder(lhs->name);
+    int rhs_order = equivCellDriveOrder(rhs->name);
+    if(lhs_order != rhs_order) {
+        return lhs_order < rhs_order;
+    }
+
+    if(!sortEquivCellsByLeakage &&
+       lhs->leakagePower != rhs->leakagePower) {
+        return lhs->leakagePower < rhs->leakagePower;
+    }
+
+    if(lhs->partial_order != rhs->partial_order) {
+        return lhs->partial_order < rhs->partial_order;
+    }
+
+    return lhs->name < rhs->name;
 }
 
 LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
@@ -698,12 +752,15 @@ LibCellInfo *Sizer::getLibCellInfo(CELL &cell, unsigned corner) {
     // assert(cell.type != "");
     // unordered_map< string, LibCellInfo >::iterator temp_iter =
     //     libs[corner].find(cell.type);
+    if(cell.main_lib_cell_id < 0) {
+        return nullptr;
+    }
     if(isff(cell) && cell.clock_pin == UINT_MAX) {
         return nullptr;
     }
     assert(main_lib_cell_tables.size());
     return getLibCellInfo(cell.main_lib_cell_id, cell.c_size,
-                          static_cast< cell_vtypes >(cell.c_vtype));
+                          static_cast< cell_vtypes >(cell.c_vtype), corner);
 }
 
 LibCellInfo *Sizer::getLibCellInfo(string type, unsigned corner) {
@@ -9243,6 +9300,9 @@ void Sizer::readEnvFile(string envFileStr) {
         if(line.find("-suffix_all ") != string::npos) {
             suffix = getTokenS(line, "-suffix_all ");
         }
+        if(line.find("-equiv_cell_sort ") != string::npos) {
+            setEquivCellSortMode(getTokenS(line, "-equiv_cell_sort "));
+        }
     }
     file.close();
 }
@@ -9341,6 +9401,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             min_route_layer = getTokenS(line, "-min_route_layer ");
         if(line.find("-max_route_layer ") != string::npos)
             max_route_layer = getTokenS(line, "-max_route_layer ");
+        if(line.find("-equiv_cell_sort ") != string::npos)
+            setEquivCellSortMode(getTokenS(line, "-equiv_cell_sort "));
         if(line.find("-sdc ") != string::npos)
             sdcFile = getTokenS(line, "-sdc ");
         if(line.find("-timerSdc ") != string::npos)

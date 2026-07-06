@@ -45,6 +45,7 @@
 #include <map>
 #include <sstream>
 #include "ckt.h"
+#include "db_sta/dbNetwork.hh"
 #include "ord/Timing.h"
 #include "sizer.h"
 #include <limits>
@@ -246,25 +247,36 @@ double Sizer::GetCellTran(CELL &cell, unsigned view) {
 
 double Sizer::GetCellCapVio(CELL &cell, unsigned view) {
     double tot_tran = 0;
+    LibCellInfo *lib_cell_info = getLibCellInfo(cell);
+    if(lib_cell_info == nullptr) {
+        return 0.0;
+    }
     for(unsigned i = 0; i < cell.outpins.size(); ++i) {
         if(cell.outpins[i] == UINT_MAX)
             continue;
         double maxCap = 0.0;
-        LibCellInfo *lib_cell_info = getLibCellInfo(cell);
-        if(lib_cell_info) {
-            maxCap = lib_cell_info->pins[pins[view][cell.outpins[i]].lib_pin]
-                         .maxCapacitance;
-            if(maxCap == std::numeric_limits< double >::max()) {
-                string pin_name = getFullPinName(pins[view][cell.outpins[i]]);
-                auto pin_ =
-                    _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
-                double cap_limit =
-                    _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
-                    cap_unit;
-                lib_cell_info->pins[pins[view][cell.outpins[i]].lib_pin]
-                    .maxCapacitance = cap_limit;
-                maxCap = cap_limit;
+        maxCap = lib_cell_info->pins[pins[view][cell.outpins[i]].lib_pin]
+                     .maxCapacitance;
+        if(maxCap == std::numeric_limits< double >::max()) {
+            string pin_name = getFullPinName(pins[view][cell.outpins[i]]);
+            auto pin_ =
+                _ckt->_ord_design->getBlock()->findITerm2(pin_name.c_str());
+            if(pin_ == nullptr) {
+                continue;
             }
+            sta::dbNetwork* network =
+                _ckt->_ord_timing->getSta()->getDbNetwork();
+            sta::Port* port = network->dbToSta(pin_->getMTerm());
+            sta::LibertyPort* lib_port =
+                port ? network->libertyPort(port) : nullptr;
+            if(lib_port == nullptr) {
+                continue;
+            }
+            double cap_limit =
+                _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) / cap_unit;
+            lib_cell_info->pins[pins[view][cell.outpins[i]].lib_pin]
+                .maxCapacitance = cap_limit;
+            maxCap = cap_limit;
         }
         if(use_margin) {
             maxCap *= cap_margin;
@@ -920,7 +932,7 @@ unsigned Sizer::FindAvailablePreCell(unsigned prev_cell_input_pin,
                 arc_error = true;
             }
 
-            if(arc->fromPin != pins[view][in_pin].name) {
+            else if(arc->fromPin != pins[view][in_pin].name) {
                 if(VERBOSE >= 3)
                     cout << "timing arc error : " << arc->fromPin
                          << " != " << pins[view][in_pin].name << endl;
@@ -3652,7 +3664,7 @@ void Sizer::LookupSTLoad(CELL &cell, double &rtran, double &ftran,
                 arc_error = true;
             }
 
-            if(arc->fromPin != pins[view][curpin].name) {
+            else if(arc->fromPin != pins[view][curpin].name) {
                 if(VERBOSE >= 3)
                     cout << "timing arc error : " << arc->fromPin
                          << " != " << pins[view][curpin].name << endl;
@@ -3740,7 +3752,7 @@ void Sizer::LookupSTTran(CELL &cell, vector< double > in_rtrans,
                 arc_error = true;
             }
 
-            if(arc->fromPin != pins[view][curpin].name) {
+            else if(arc->fromPin != pins[view][curpin].name) {
                 if(VERBOSE >= 3)
                     cout << "timing arc error : " << arc->fromPin
                          << " != " << pins[view][curpin].name << endl;
@@ -6334,11 +6346,19 @@ void Sizer::GetMaxTranConst(unsigned view) {
     }
 #endif
     auto design = this->_ckt->_ord_design;
+    sta::dbNetwork* network =
+        this->_ckt->_ord_timing->getSta()->getDbNetwork();
     for(auto pin_ : design->getBlock()->getITerms()) {
         if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
            pin_->getNet()->getSigType() != "GROUND" &&
            pin_->getNet()->getSigType() != "CLOCK") {
             auto mterm = pin_->getMTerm();
+            sta::Port* port = network->dbToSta(mterm);
+            sta::LibertyPort* lib_port =
+                port ? network->libertyPort(port) : nullptr;
+            if(lib_port == nullptr) {
+                continue;
+            }
             double slew_limit = this->_ckt->_ord_timing->getMaxSlewLimit(mterm);
             slew_limit /= this->time_unit;
             bool is_input = false;

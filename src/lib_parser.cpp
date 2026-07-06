@@ -303,7 +303,7 @@ void Circuit::parse_pin(sta::LibertyLibrary* sta_lib,
     // Direction
     auto dir = sta_port->direction();
     out_pin.isInput = dir->isInput() || dir->isBidirect();
-    out_pin.isOutput = dir->isOutput() || dir->isBidirect();
+    out_pin.isOutput = dir->isOutput() || dir->isBidirect() || dir->isTristate();
     if(!out_pin.isInput && !out_pin.isOutput && !dir->isInternal()) {
         assert(false && "Unknown pin direction!");
     }
@@ -322,46 +322,6 @@ void Circuit::parse_pin(sta::LibertyLibrary* sta_lib,
             out_pin.IQN = true;
         }
     }
-}
-
-// Extract footprint according to technology-node naming rules.
-static std::string determine_footprint(Sizer* sizer,
-                                       const std::string& cell_name) {
-    if(ASAP7) {
-        return std::to_string(sizer->cellName2EquaivaID.at(cell_name));
-    }
-
-    // Extract the substring between two underscores.
-    auto extract_mid = [](std::string& s) {
-        size_t p1 = s.find('_');
-        if(p1 == string::npos) {
-            return;
-        }
-        size_t p2 = s.find('_', p1 + 1);
-        if(p2 != string::npos) {
-            s = s.substr(p1 + 1, p2 - p1 - 1);
-        }
-    };
-
-    std::string fp = cell_name;
-
-    if(STM28) {
-        // Extract STM28-style suffix: _X...
-        size_t x_pos = fp.find_last_of('X');
-        if(x_pos != string::npos) {
-            fp.erase(x_pos);
-        }
-        extract_mid(fp);
-        return fp;
-    }
-
-    if(C40) {
-        extract_mid(fp);
-        return fp;
-    }
-
-    size_t u_pos = fp.find_first_of('_');
-    return (u_pos != string::npos) ? fp.substr(0, u_pos) : "NA";
 }
 
 // Determine Vt type.
@@ -389,11 +349,13 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
     out_cell.name = sta_cell->name();
     out_cell.libname = sta_lib->name();
 
-    // Footprint
-    out_cell.footprint = sta_cell->footprint();
-    if(out_cell.footprint.empty() || NO_FOOTPRINT) {
-        out_cell.footprint = determine_footprint(_sizer, out_cell.name);
+    auto equiv_iter = _sizer->cellName2EquaivaID.find(out_cell.name);
+    if(equiv_iter == _sizer->cellName2EquaivaID.end()) {
+        cout << "Error: OpenROAD equivalent-cell class not found for "
+             << out_cell.name << endl;
+        exit(1);
     }
+    out_cell.footprint = std::to_string(equiv_iter->second);
 
     // Vt Type
     out_cell.c_vtype = determine_vt_type(out_cell.name, _sizer);
@@ -429,6 +391,10 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
     sta::LibertyCellPortIterator port_iter(sta_cell);
     while(port_iter.hasNext()) {
         auto* sta_port = port_iter.next();
+        auto* dir = sta_port->direction();
+        if(dir->isPowerGround() || dir->isUnknown()) {
+            continue;
+        }
         LibPinInfo pin;
         parse_pin(sta_lib, sta_port, out_cell, pin);
 
@@ -634,7 +600,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
             lib_cell_info->partial_order = partial_order / partial_count;
         }
         (it->second).sort([&](LibCellInfo* c1, LibCellInfo* c2) {
-            return c1->leakagePower < c2->leakagePower;
+            return _sizer->compareEquivCellsForSizing(c1, c2);
         });
     }
 #endif

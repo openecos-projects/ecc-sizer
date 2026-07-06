@@ -99,6 +99,19 @@ These files may contain benchmark-specific paths or contest-flow assumptions.
 Before running on a new design, update the Liberty, LEF, Verilog, SDC, DEF,
 SPEF, output, and top-module settings for your local benchmark environment.
 
+Equivalent-cell candidates are grouped through OpenROAD/OpenSTA equivalence
+classes. Candidate order can be selected in the command file or environment
+file:
+
+```text
+-equiv_cell_sort drive_resistance
+-equiv_cell_sort leakage
+```
+
+The default is `drive_resistance`, which follows the OpenSTA equivalent-cell
+order. The `leakage` mode sorts candidates in each equivalence class by leakage
+power first.
+
 ## Submodule Notes
 
 The top-level repository tracks OpenROAD as a submodule. OpenROAD then tracks

@@ -644,12 +644,19 @@ void Sizer::UpdateCapsFromCells() {
                         string pin_name = getFullPinName(pins[view][input_j]);
                         auto pin_ = _ckt->_ord_design->getBlock()->findITerm2(
                             pin_name.c_str());
+                        if(pin_ == nullptr) {
+                            continue;
+                        }
                         sta::dbSta* sta = _ckt->_ord_timing->getSta();
                         sta::dbNetwork* network = sta->getDbNetwork();
                         sta::Port* port = network->dbToSta(pin_->getMTerm());
-                        sta::LibertyPort* lib_port = network->libertyPort(port);
+                        sta::LibertyPort* lib_port =
+                            port ? network->libertyPort(port) : nullptr;
                         sta::LibertyLibrary* lib =
                             network->defaultLibertyLibrary();
+                        if(lib_port == nullptr) {
+                            continue;
+                        }
                         pins[view][input_j].cap =
                             lib_port->capacitance() / cap_unit;
                         lib_cell_info->pins[pins[view][input_j].lib_pin]
@@ -689,6 +696,17 @@ double Sizer::CalcCapViolation(unsigned view) {
                         getFullPinName(pins[view][cells[i].outpins[k]]);
                     auto pin_ = _ckt->_ord_design->getBlock()->findITerm2(
                         pin_name.c_str());
+                    if(pin_ == nullptr) {
+                        continue;
+                    }
+                    sta::dbSta* sta = _ckt->_ord_timing->getSta();
+                    sta::dbNetwork* network = sta->getDbNetwork();
+                    sta::Port* port = network->dbToSta(pin_->getMTerm());
+                    sta::LibertyPort* lib_port =
+                        port ? network->libertyPort(port) : nullptr;
+                    if(lib_port == nullptr) {
+                        continue;
+                    }
                     double cap_limit =
                         _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
                         cap_unit;
@@ -748,6 +766,13 @@ double Sizer::CalcCapViolation(unsigned view) {
                 }
                 float pin_cap2;
                 float wire_cap2;
+                sta::dbNetwork* network = sta->getDbNetwork();
+                sta::Port* port = network->dbToSta(pin_->getMTerm());
+                sta::LibertyPort* lib_port =
+                    port ? network->libertyPort(port) : nullptr;
+                if(lib_port == nullptr) {
+                    continue;
+                }
                 sta->connectedCap(sta_net, _corner, sta::MinMax::max(),
                                   pin_cap2, wire_cap2);
                 wire_cap2 /= cap_unit;
