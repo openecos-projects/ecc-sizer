@@ -112,6 +112,12 @@ The default is `drive_resistance`, which follows the OpenSTA equivalent-cell
 order. The `leakage` mode sorts candidates in each equivalence class by leakage
 power first.
 
+For single-VT libraries, `leakage` sorting is usually a good starting point
+because the timing spread within an equivalence class is relatively limited and
+lower-leakage candidates can improve the power/timing tradeoff. For multi-VT
+libraries, `drive_resistance` sorting is recommended because candidate ordering
+should preserve timing convergence before favoring lower-leakage, slower cells.
+
 ## Submodule Notes
 
 The top-level repository tracks OpenROAD as a submodule. OpenROAD then tracks
