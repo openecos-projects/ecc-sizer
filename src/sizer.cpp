@@ -1590,11 +1590,9 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
             // cells[i].static_power =
             //     this->_ckt->_ord_timing->staticPower(inst, corner);
         }
-#ifdef USE_GR_RC
-        _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
-#else
-        _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
-#endif
+        _ckt->_ord_design->evalTclString(
+            use_gr_rc ? "estimate_parasitics -global_routing"
+                      : "estimate_parasitics -placement");
         _sta->findRequireds();
         T[0]->pt_time += cpuTime() - begin;
     }
@@ -6152,36 +6150,36 @@ void Sizer::FinalReport() {
     _ord_design->evalTclString(string(padding_str));
     _ord_design->evalTclString("detailed_placement");
 
-#ifdef USE_GR_RC 
-    // Global Route and Estimate Global Route RC
-    double begin = cpuTime();
-    auto db_tech = _ord_design->getTech()->getDB()->getTech();
-    auto signal_low_layer =
-        db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
-    auto signal_high_layer =
-        db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
-    auto clk_low_layer =
-        db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
-    auto clk_high_layer =
-        db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
-    auto grt = _ord_design->getGlobalRouter();
-    grt->setCongestionIterations(10);
-    grt->clear();
-    grt->setAllowCongestion(true);
-    grt->setMinRoutingLayer(signal_low_layer);
-    grt->setMaxRoutingLayer(signal_high_layer);
-    grt->setMinLayerForClock(clk_low_layer);
-    grt->setMaxLayerForClock(clk_high_layer);
-    grt->setAdjustment(0.5);
-    grt->setVerbose(true);
-    printf("Run Global Routing...\n");
-    grt->globalRoute(false, false);
-    printf("Run Global Routing Time %f\n", cpuTime() - begin);
-    begin = cpuTime();
-    _ord_design->evalTclString("estimate_parasitics -global_routing");
-#else
-    _ord_design->evalTclString("estimate_parasitics -placement");
-#endif
+    if(use_gr_rc) {
+        // Global Route and estimate global-route RC.
+        double begin = cpuTime();
+        auto db_tech = _ord_design->getTech()->getDB()->getTech();
+        auto signal_low_layer =
+            db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
+        auto signal_high_layer =
+            db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
+        auto clk_low_layer =
+            db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
+        auto clk_high_layer =
+            db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
+        auto grt = _ord_design->getGlobalRouter();
+        grt->setCongestionIterations(10);
+        grt->clear();
+        grt->setAllowCongestion(true);
+        grt->setMinRoutingLayer(signal_low_layer);
+        grt->setMaxRoutingLayer(signal_high_layer);
+        grt->setMinLayerForClock(clk_low_layer);
+        grt->setMaxLayerForClock(clk_high_layer);
+        grt->setAdjustment(0.5);
+        grt->setVerbose(true);
+        printf("Run Global Routing...\n");
+        grt->globalRoute(false);
+        printf("Run Global Routing Time %f\n", cpuTime() - begin);
+        _ord_design->evalTclString("estimate_parasitics -global_routing");
+    }
+    else {
+        _ord_design->evalTclString("estimate_parasitics -placement");
+    }
     _sta->findRequireds();
     _ckt->readSpef_opensta(_sta);
     int corner = 0;
@@ -9362,6 +9360,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
     timerTestCnt = 0;
     timerTestCell = 0;
     timerTestMove = 0;
+    use_gr_rc = false;
 
     bool set_margin = false;
     bool GWTW_flag = false;
@@ -9401,6 +9400,14 @@ void Sizer::readCmdFile(string cmdFileStr) {
             min_route_layer = getTokenS(line, "-min_route_layer ");
         if(line.find("-max_route_layer ") != string::npos)
             max_route_layer = getTokenS(line, "-max_route_layer ");
+        if(line.find("-use_gr_rc ") != string::npos) {
+            const int use_gr_rc_value = getTokenI(line, "-use_gr_rc ");
+            if(use_gr_rc_value != 0 && use_gr_rc_value != 1) {
+                cout << "Error: -use_gr_rc must be 0 or 1." << endl;
+                exit(1);
+            }
+            use_gr_rc = use_gr_rc_value == 1;
+        }
         if(line.find("-equiv_cell_sort ") != string::npos)
             setEquivCellSortMode(getTokenS(line, "-equiv_cell_sort "));
         if(line.find("-sdc ") != string::npos)
@@ -10022,6 +10029,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
     if(noSPEF) {
         WIRE_METRIC = ND;
     }
+    cout << "Parasitics mode: "
+         << (use_gr_rc ? "global_routing" : "placement") << endl;
 }
 
 void Sizer::main(unsigned thread_id, bool postGTR) {

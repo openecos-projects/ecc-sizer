@@ -112,6 +112,16 @@ The default is `drive_resistance`, which follows the OpenSTA equivalent-cell
 order. The `leakage` mode sorts candidates in each equivalence class by leakage
 power first.
 
+Parasitic estimation defaults to placement RC. Set the following command-file
+option to run global routing and estimate RC from the routed topology after
+detailed placement:
+
+```text
+-use_gr_rc 1
+```
+
+The accepted values are `0` and `1`; the default is `0`.
+
 For single-VT libraries, `leakage` sorting is usually a good starting point
 because the timing spread within an equivalence class is relatively limited and
 lower-leakage candidates can improve the power/timing tradeoff. For multi-VT

@@ -1819,53 +1819,51 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     _ord_design->evalTclString(string(padding_str));
     _ord_design->evalTclString("detailed_placement");
     double begin = cpuTime();
-#ifdef USE_GR_RC
-    // _ord_design->evalTclString("detailed_placement_debug");
-    // _ord_design->getOpendp()->VERBOSE
-    // _ord_design->getOpendp()->detailedPlacement(500, 500, "./dp.log");
-    // Global Route and Estimate Global Route RC
-    auto db_tech = _ord_design->getTech()->getDB()->getTech();
-    auto signal_low_layer =
-        db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
-    auto signal_high_layer =
-        db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
-    auto clk_low_layer =
-        db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
-    auto clk_high_layer =
-        db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
-    auto grt = _ord_design->getGlobalRouter();
-    grt->clear();
-    grt->setAllowCongestion(true);
-    grt->setMinRoutingLayer(signal_low_layer);
-    grt->setMaxRoutingLayer(signal_high_layer);
-    grt->setMinLayerForClock(clk_low_layer);
-    grt->setMaxLayerForClock(clk_high_layer);
-    grt->setAdjustment(0.5);
-    grt->setVerbose(true);
-    grt->setCongestionIterations(gr_overflow_iterations);
-    printf("Run Global Routing...\n");
-    grt->globalRoute(false, false, false);
-    int iter = 0;
+    if(_sizer->use_gr_rc) {
+        // Global Route and estimate global-route RC.
+        auto db_tech = _ord_design->getTech()->getDB()->getTech();
+        auto signal_low_layer =
+            db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
+        auto signal_high_layer =
+            db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
+        auto clk_low_layer =
+            db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
+        auto clk_high_layer =
+            db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
+        auto grt = _ord_design->getGlobalRouter();
+        grt->clear();
+        grt->setAllowCongestion(true);
+        grt->setMinRoutingLayer(signal_low_layer);
+        grt->setMaxRoutingLayer(signal_high_layer);
+        grt->setMinLayerForClock(clk_low_layer);
+        grt->setMaxLayerForClock(clk_high_layer);
+        grt->setAdjustment(0.5);
+        grt->setVerbose(true);
+        grt->setCongestionIterations(gr_overflow_iterations);
+        printf("Run Global Routing...\n");
+        grt->globalRoute(false);
+        int iter = 0;
 #if 0
-    if(use_gr_correlation) {
-        for(auto db_inst : block->getInsts()) {
-            string old_type = old_master_map[iter];
-            string new_libcell_str = old_type;
-            auto new_master = _ord_design->getTech()->getDB()->findMaster(
-                new_libcell_str.c_str());
-            if(!db_inst->isBlock() &&
-               !_ord_design->isSequential(db_inst->getMaster())) {
-                db_inst->swapMaster(new_master);
+        if(use_gr_correlation) {
+            for(auto db_inst : block->getInsts()) {
+                string old_type = old_master_map[iter];
+                string new_libcell_str = old_type;
+                auto new_master = _ord_design->getTech()->getDB()->findMaster(
+                    new_libcell_str.c_str());
+                if(!db_inst->isBlock() &&
+                   !_ord_design->isSequential(db_inst->getMaster())) {
+                    db_inst->swapMaster(new_master);
+                }
+                iter++;
             }
-            iter++;
         }
+#endif
+        printf("Run Global Routing Time %f\n", cpuTime() - begin);
+        _ord_design->evalTclString("estimate_parasitics -global_routing");
     }
-#endif
-    printf("Run Global Routing Time %f\n", cpuTime() - begin);
-    _ord_design->evalTclString("estimate_parasitics -global_routing");
-#else
-    _ord_design->evalTclString("estimate_parasitics -placement");
-#endif
+    else {
+        _ord_design->evalTclString("estimate_parasitics -placement");
+    }
     _sta->findRequireds();
     _ord_design->evalTclString("report_tns");
     printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);

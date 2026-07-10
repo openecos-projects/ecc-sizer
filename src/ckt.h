@@ -78,7 +78,7 @@
 #include "ord/Tech.h"
 #include "ord/Design.h"
 
-// #define USE_GR_RC
+// Global-routing RC is controlled by the -use_gr_rc command-file option.
 #define NUM_VTS 3
 #define NUM_SIZES 10
 
