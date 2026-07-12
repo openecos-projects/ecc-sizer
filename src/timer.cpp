@@ -3043,9 +3043,6 @@ double Sizer::CalSens(CELL &cell, int steps, int dir, int option, double gamma,
     else if(option == 16) {
         double delta_delay = EstDeltaDelay(cell, steps, dir, view);
         ulong cell_npath = GetCellNPathsLessThanSlack(cell);
-        if(VERBOSE >= 1) {
-            cout << "SF 16 " << 1 / (delta_delay * cell_npath) << endl;
-        }
         return 1 / (delta_delay * cell_npath);
     }
     else {

@@ -53,6 +53,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <list>
@@ -458,6 +459,8 @@ class Sizer {
                       unsigned thread_id, double toler, unsigned view);
     bool replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
                      std::unordered_set< odb::dbNet * > &parasitics_invalid_);
+    void applyOpenStaDbChanges(const std::function< void() > &apply_changes);
+    void refreshOpenStaParasitics(bool verbose_global_route = false);
     inline bool isMin(const CELL &cell) {
         return (cell.c_size == 0);
     }

@@ -1821,6 +1821,10 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     double begin = cpuTime();
     if(_sizer->use_gr_rc) {
         // Global Route and estimate global-route RC.
+        // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
+        // Rebuild pin access points before invoking the global router.
+        _ord_design->evalTclString(
+            "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
         auto db_tech = _ord_design->getTech()->getDB()->getTech();
         auto signal_low_layer =
             db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
@@ -1838,10 +1842,13 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
         grt->setMinLayerForClock(clk_low_layer);
         grt->setMaxLayerForClock(clk_high_layer);
         grt->setAdjustment(0.5);
+        grt->setResistanceAware(false);
         grt->setVerbose(true);
         grt->setCongestionIterations(gr_overflow_iterations);
         printf("Run Global Routing...\n");
-        grt->globalRoute(false);
+        _ord_design->evalTclString(
+            "global_route -congestion_iterations " +
+            to_string(gr_overflow_iterations) + " -allow_congestion -verbose");
         int iter = 0;
 #if 0
         if(use_gr_correlation) {

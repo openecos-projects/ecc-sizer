@@ -39,6 +39,7 @@
 
 #include "rsz/Resizer.hh"
 #include "dpl/Opendp.h"
+#include "est/EstimateParasitics.h"
 
 #include "sizer.h"
 #include <omp.h>
@@ -1538,6 +1539,83 @@ void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
     }
 }
 
+void Sizer::refreshOpenStaParasitics(bool verbose_global_route) {
+    auto design = _ckt->_ord_design;
+    auto sta = _ckt->_ord_timing->getSta();
+
+    if(!use_gr_rc) {
+        design->evalTclString("estimate_parasitics -placement");
+        sta->findRequireds();
+        return;
+    }
+
+    // Master swaps invalidate timing data before timing-aware global routing
+    // asks STA for net slacks. Use placement RC only as a complete routing
+    // seed, then replace it with freshly routed parasitics.
+    design->evalTclString("estimate_parasitics -placement");
+
+    auto db_tech = design->getTech()->getDB()->getTech();
+    auto signal_low_layer =
+        db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
+    auto signal_high_layer =
+        db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
+    auto grt = design->getGlobalRouter();
+    grt->clear();
+    grt->setAllowCongestion(true);
+    grt->setMinRoutingLayer(signal_low_layer);
+    grt->setMaxRoutingLayer(signal_high_layer);
+    grt->setMinLayerForClock(signal_low_layer);
+    grt->setMaxLayerForClock(signal_high_layer);
+    grt->setAdjustment(0.5);
+    grt->setResistanceAware(false);
+    grt->setVerbose(verbose_global_route);
+    grt->setCongestionIterations(10);
+    printf("Run Global Routing after size update...\n");
+    design->evalTclString(
+        verbose_global_route
+            ? "global_route -congestion_iterations 10 -allow_congestion "
+              "-verbose"
+            : "global_route -congestion_iterations 10 -allow_congestion");
+    design->evalTclString("estimate_parasitics -global_routing");
+    sta->findRequireds();
+}
+
+void Sizer::applyOpenStaDbChanges(
+    const std::function< void() > &apply_changes) {
+    auto design = _ckt->_ord_design;
+    auto sta = _ckt->_ord_timing->getSta();
+
+    if(!use_gr_rc) {
+        apply_changes();
+        design->evalTclString("estimate_parasitics -placement");
+        sta->findRequireds();
+        return;
+    }
+
+    auto grt = design->getGlobalRouter();
+    auto resizer = design->getResizer();
+    auto estimate_parasitics = resizer->getEstimateParasitics();
+
+    // The incremental API requires a routed GR parasitics seed. This fallback
+    // is only for callers that reach a size update before the normal GR setup.
+    if(estimate_parasitics->getParasiticsSrc() !=
+       est::ParasiticsSrc::kGlobalRouting) {
+        refreshOpenStaParasitics(false);
+    }
+
+    if(estimate_parasitics->isIncrementalParasiticsEnabled()) {
+        apply_changes();
+        resizer->updateParasiticsAndTiming();
+        return;
+    }
+
+    est::IncrementalParasiticsGuard parasitics_guard(estimate_parasitics);
+    grt->startIncremental();
+    apply_changes();
+    resizer->updateParasiticsAndTiming();
+    grt->endIncremental();
+}
+
 void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
     std::cerr << "Update PT sizes... " << std::endl;
     std::cerr << "numcell = " << cells.size() << std::endl;
@@ -1552,48 +1630,35 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
             continue;
         count++;
     }
-    auto sta_ = _ckt->_ord_timing->getSta();
-    auto db_network_ = sta_->getDbNetwork();
-    auto global_router_ = _ckt->_ord_design->getGlobalRouter();
-
     printf("Update PT sizes changed count %d\n", count);
-    std::unordered_set< odb::dbNet * > parasitics_invalid_;
-    // UnorderedSet< const Net *, NetHash > parasitics_invalid_;
     if(count > 0) {
         double begin = cpuTime();
-        // this->_sta->networkChanged();
-        auto corner = this->_ckt->_ord_timing->getCorners()[0];
-        for(unsigned i = 0; i < cells.size(); i++) {
-            LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
-            if(lib_cell_info == NULL || cells[i].isDontTouch)
-                continue;
-            if(!PT_FULL_UPDATE && !cells[i].isChanged)
-                continue;
-            auto inst = block->findInst(cells[i].name.c_str());
-            // inst->swapMaster();
-            assert(inst);
-            auto new_master = db->findMaster(cells[i].type.c_str());
-            if(new_master) {
-                inst->swapMaster(new_master);
-                cells[i].isChanged = 0;
-                cells[i].isStaticChanged = true;
+        applyOpenStaDbChanges([&]() {
+            for(unsigned i = 0; i < cells.size(); i++) {
+                LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+                if(lib_cell_info == NULL || cells[i].isDontTouch)
+                    continue;
+                if(!PT_FULL_UPDATE && !cells[i].isChanged)
+                    continue;
+                auto inst = block->findInst(cells[i].name.c_str());
+                assert(inst);
+                auto new_master = db->findMaster(cells[i].type.c_str());
+                if(new_master) {
+                    inst->swapMaster(new_master);
+                    cells[i].isChanged = 0;
+                    cells[i].isStaticChanged = true;
+                }
+                else {
+                    string type = inst->getMaster()->getName();
+                    std::cerr << "Error: cannot find master " << cells[i].type
+                              << " for cell " << cells[i].name
+                              << ", current master is " << type << std::endl;
+                    cells[i].type = type;
+                    cells[i].isChanged = 0;
+                    cells[i].isStaticChanged = true;
+                }
             }
-            else {
-                string type = inst->getMaster()->getName();
-                std::cerr << "Error: cannot find master " << cells[i].type
-                          << " for cell " << cells[i].name
-                          << ", current master is " << type << std::endl;
-                cells[i].type = type;
-                cells[i].isChanged = 0;
-                cells[i].isStaticChanged = true;
-            }
-            // cells[i].static_power =
-            //     this->_ckt->_ord_timing->staticPower(inst, corner);
-        }
-        _ckt->_ord_design->evalTclString(
-            use_gr_rc ? "estimate_parasitics -global_routing"
-                      : "estimate_parasitics -placement");
-        _sta->findRequireds();
+        });
         T[0]->pt_time += cpuTime() - begin;
     }
 
@@ -1754,52 +1819,35 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
         count++;
     }
     auto sta_ = _ckt->_ord_timing->getSta();
-    auto db_network_ = sta_->getDbNetwork();
-    auto global_router_ = _ckt->_ord_design->getGlobalRouter();
-
     printf("Update PT sizes changed count %d\n", count);
-    std::unordered_set< odb::dbNet * > parasitics_invalid_;
-    // UnorderedSet< const Net *, NetHash > parasitics_invalid_;
     if(count > 0) {
         double begin = cpuTime();
-        // this->_sta->networkChanged();
-        auto corner = this->_ckt->_ord_timing->getCorners()[0];
-        for(unsigned i = 0; i < numcells; i++) {
-            LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
-            if(lib_cell_info == NULL || cells[i].isDontTouch)
-                continue;
-            if(!PT_FULL_UPDATE && !cells[i].isChanged)
-                continue;
-            auto inst = block->findInst(cells[i].name.c_str());
-            assert(inst);
-            auto new_master = db->findMaster(cells[i].type.c_str());
-            if(new_master == NULL) {
-                string type = inst->getMaster()->getName();
-                std::cerr << "Error: cannot find master " << cells[i].type
-                          << " for cell " << cells[i].name
-                          << ", current master is " << type << std::endl;
-                cells[i].type = type;
-                cells[i].isChanged = 0;
-                cells[i].isStaticChanged = true;
+        applyOpenStaDbChanges([&]() {
+            for(unsigned i = 0; i < numcells; i++) {
+                LibCellInfo *lib_cell_info = getLibCellInfo(cells[i]);
+                if(lib_cell_info == NULL || cells[i].isDontTouch)
+                    continue;
+                if(!PT_FULL_UPDATE && !cells[i].isChanged)
+                    continue;
+                auto inst = block->findInst(cells[i].name.c_str());
+                assert(inst);
+                auto new_master = db->findMaster(cells[i].type.c_str());
+                if(new_master == NULL) {
+                    string type = inst->getMaster()->getName();
+                    std::cerr << "Error: cannot find master " << cells[i].type
+                              << " for cell " << cells[i].name
+                              << ", current master is " << type << std::endl;
+                    cells[i].type = type;
+                    cells[i].isChanged = 0;
+                    cells[i].isStaticChanged = true;
+                }
+                else {
+                    inst->swapMaster(new_master);
+                    cells[i].isChanged = 0;
+                    cells[i].isStaticChanged = true;
+                }
             }
-            else {
-                inst->swapMaster(new_master);
-                cells[i].isChanged = 0;
-                cells[i].isStaticChanged = true;
-            }
-            // cells[i].static_power =
-            //     this->_ckt->_ord_timing->staticPower(inst, corner);
-        }
-        // incr_groute_->updateRoutes(false);
-        // _ckt->_ord_design->evalTclString("estimate_parasitics
-        // -global_routing");
-        parasitics_invalid_.clear();
-#if 0
-        _ckt->_ord_design->evalTclString("estimate_parasitics -global_routing");
-#else
-        _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
-#endif
-        sta_->findRequireds();
+        });
         T[0]->pt_time += cpuTime() - begin;
     }
     // else cout << "No cell has been changed." << endl;
@@ -6093,94 +6141,74 @@ void Sizer::FinalReport() {
     auto _ord_design = _ckt->_ord_design;
     auto block = _ord_design->getBlock();
     auto _sta = ord::OpenRoad::openRoad()->getSta();
-    // _sta->networkChanged();
-    int inst_iter = 0;
-    for(unsigned i = 0; i < numcells; i++) {
-        LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
-        if(lib_cell_info == NULL || best_cells_poweropt[i].isDontTouch)
-            continue;
-        auto inst = block->findInst(best_cells_poweropt[i].name.c_str());
-        auto new_master = _ord_design->getTech()->getDB()->findMaster(
-            best_cells_poweropt[i].type.c_str());
-        if(inst->getMaster()->getName() != best_cells_poweropt[i].type) {
-            if(new_master) {
-                printf("Change %s %s\n", inst->getMaster()->getName().c_str(),
-                       best_cells_poweropt[i].type.c_str());
-                inst->swapMaster(new_master);
+    applyOpenStaDbChanges([&]() {
+        for(unsigned i = 0; i < numcells; i++) {
+            LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
+            if(lib_cell_info == NULL || best_cells_poweropt[i].isDontTouch)
+                continue;
+            auto inst = block->findInst(best_cells_poweropt[i].name.c_str());
+            auto new_master = _ord_design->getTech()->getDB()->findMaster(
+                best_cells_poweropt[i].type.c_str());
+            if(inst->getMaster()->getName() != best_cells_poweropt[i].type) {
+                if(new_master) {
+                    printf("Change %s %s\n",
+                           inst->getMaster()->getName().c_str(),
+                           best_cells_poweropt[i].type.c_str());
+                    inst->swapMaster(new_master);
+                }
+                else {
+                    printf("Change %s %s not found\n",
+                           inst->getMaster()->getName().c_str(),
+                           best_cells_poweropt[i].type.c_str());
+                }
+                best_cells_poweropt[i].isStaticChanged = true;
             }
             else {
-                printf("Change %s %s not found\n",
-                       inst->getMaster()->getName().c_str(),
-                       best_cells_poweropt[i].type.c_str());
+                best_cells_poweropt[i].isStaticChanged = false;
             }
-            best_cells_poweropt[i].isStaticChanged = true;
+            best_cells_poweropt[i].isChanged = 1;
         }
-        else {
-            best_cells_poweropt[i].isStaticChanged = false;
+
+        if(spefFile != "") {
+            return;
         }
-        best_cells_poweropt[i].isChanged = 1;
-    }
+
+        int inst_iter = 0;
+        for(auto db_inst : block->getInsts()) {
+            int inst_x, inst_y;
+            int old_x, old_y;
+            db_inst->getLocation(old_x, old_y);
+            if((old_x != _ckt->old_localtion_x[inst_iter] ||
+                old_y != _ckt->old_localtion_y[inst_iter]) &&
+               !db_inst->getPlacementStatus().isFixed()) {
+                db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
+                                     _ckt->old_localtion_y[inst_iter]);
+            }
+            inst_iter++;
+        }
+
+        char padding_str[100];
+        sprintf(padding_str,
+                "set_placement_padding -global -left %d -right %d",
+                dp_padding,
+                dp_padding);
+        _ord_design->evalTclString(string(padding_str));
+        _ord_design->evalTclString("detailed_placement");
+    });
+
     if(spefFile != "") {
         return;
     }
-    for(auto db_inst : block->getInsts()) {
-        int inst_x, inst_y;
-        int old_x, old_y;
-        db_inst->getLocation(old_x, old_y);
-        if((old_x != _ckt->old_localtion_x[inst_iter] ||
-            old_y != _ckt->old_localtion_y[inst_iter]) &&
-           !db_inst->getPlacementStatus().isFixed()) {
-            db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
-                                 _ckt->old_localtion_y[inst_iter]);
-            // cout << "Move " << db_inst->getName() << " from (" << old_x
-            //      << ", " << old_y << ") to ("
-            //      << _ckt->old_localtion_x[inst_iter] << ", "
-            //      << _ckt->old_localtion_y[inst_iter] << ")" << endl;
-        }
-        inst_iter++;
-    }
-    // auto site = _ord_design->getBlock()->getRows().begin()->getSite();
-    // auto max_disp_x = int(_ord_design->micronToDBU(0.1) / site->getWidth());
-    // auto max_disp_y = int(_ord_design->micronToDBU(0.1) / site->getHeight());
-    // _sta = ord::OpenRoad::openRoad()->getSta();
-    // _ord_design->getOpendp()->detailedPlacement(max_disp_x, max_disp_y);
-    char padding_str[100];
-    sprintf(padding_str, "set_placement_padding -global -left %d -right %d",
-            dp_padding, dp_padding);
-    _ord_design->evalTclString(string(padding_str));
-    _ord_design->evalTclString("detailed_placement");
 
+    double begin = cpuTime();
     if(use_gr_rc) {
-        // Global Route and estimate global-route RC.
-        double begin = cpuTime();
-        auto db_tech = _ord_design->getTech()->getDB()->getTech();
-        auto signal_low_layer =
-            db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
-        auto signal_high_layer =
-            db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
-        auto clk_low_layer =
-            db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
-        auto clk_high_layer =
-            db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
-        auto grt = _ord_design->getGlobalRouter();
-        grt->setCongestionIterations(10);
-        grt->clear();
-        grt->setAllowCongestion(true);
-        grt->setMinRoutingLayer(signal_low_layer);
-        grt->setMaxRoutingLayer(signal_high_layer);
-        grt->setMinLayerForClock(clk_low_layer);
-        grt->setMaxLayerForClock(clk_high_layer);
-        grt->setAdjustment(0.5);
-        grt->setVerbose(true);
-        printf("Run Global Routing...\n");
-        grt->globalRoute(false);
-        printf("Run Global Routing Time %f\n", cpuTime() - begin);
-        _ord_design->evalTclString("estimate_parasitics -global_routing");
+        // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
+        // Rebuild pin access points before invoking the global router.
+        _ord_design->evalTclString(
+            "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
     }
-    else {
-        _ord_design->evalTclString("estimate_parasitics -placement");
-    }
-    _sta->findRequireds();
+    refreshOpenStaParasitics(true);
+    printf("Run Global Routing Time %f\n", cpuTime() - begin);
     _ckt->readSpef_opensta(_sta);
     int corner = 0;
     ofstream ofs("net_changed.log");
