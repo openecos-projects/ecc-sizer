@@ -5484,6 +5484,13 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) + " -verbose");
     _ckt->_ord_design->evalTclString("detailed_placement");
+    if(use_gr_rc) {
+        // repair_* and detailed placement change the final DB state. Rebuild
+        // GR parasitics once so the in-process final report matches the
+        // exported design state.
+        printf("Run final global-routing RC refresh after runOrdTO...\n");
+        refreshOpenStaParasitics(true);
+    }
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -5501,15 +5508,15 @@ void Sizer::runOrdTO() {
     cap_tot = cap_max = 0.0;
     int cap_num = 0;
     T[view]->getCapVio(cap_tot, cap_max, cap_num);
-    cout << "[view " << view << "] Initial WNS from Timer    : " << wns << " ps"
+    cout << "[view " << view << "] Final WNS after runOrdTO  : " << wns << " ns"
          << endl;
-    cout << "[view " << view << "] Initial TNS            : " << tns << " ps"
+    cout << "[view " << view << "] Final TNS after runOrdTO  : " << tns << " ns"
          << endl;
     // cout << "[view " << view << "] Initial Leakage Power    : " << leak
     //      << endl;
     // cout << "[view " << view << "] Initial Total Power    : " << tot
     //      << endl;
-    cout << "[view " << view << "] Initial Tran           : " << tran_tot
+    cout << "[view " << view << "] Final Tran after runOrdTO : " << tran_tot
          << " ps " << tran_num << " " << tran_max << " ps" << endl;
 }
 void Sizer::Parallel_Sizer_Launcher() {
