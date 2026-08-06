@@ -1826,14 +1826,18 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
         _ord_design->evalTclString(
             "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
         auto db_tech = _ord_design->getTech()->getDB()->getTech();
-        auto signal_low_layer =
-            db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
-        auto signal_high_layer =
-            db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
-        auto clk_low_layer =
-            db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
-        auto clk_high_layer =
-            db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
+        auto* low_layer = db_tech->findLayer(_sizer->min_route_layer.c_str());
+        auto* high_layer = db_tech->findLayer(_sizer->max_route_layer.c_str());
+        if(low_layer == nullptr || high_layer == nullptr) {
+            printf("Error: invalid routing layer(s): min=%s max=%s\n",
+                   _sizer->min_route_layer.c_str(),
+                   _sizer->max_route_layer.c_str());
+            exit(1);
+        }
+        auto signal_low_layer = low_layer->getRoutingLevel();
+        auto signal_high_layer = high_layer->getRoutingLevel();
+        auto clk_low_layer = signal_low_layer;
+        auto clk_high_layer = signal_high_layer;
         auto grt = _ord_design->getGlobalRouter();
         grt->clear();
         grt->setAllowCongestion(true);
