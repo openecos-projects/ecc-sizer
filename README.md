@@ -99,6 +99,35 @@ These files may contain benchmark-specific paths or contest-flow assumptions.
 Before running on a new design, update the Liberty, LEF, Verilog, SDC, DEF,
 SPEF, output, and top-module settings for your local benchmark environment.
 
+Equivalent-cell candidates are grouped through OpenROAD/OpenSTA equivalence
+classes. Candidate order can be selected in the command file or environment
+file:
+
+```text
+-equiv_cell_sort drive_resistance
+-equiv_cell_sort leakage
+```
+
+The default is `drive_resistance`, which follows the OpenSTA equivalent-cell
+order. The `leakage` mode sorts candidates in each equivalence class by leakage
+power first.
+
+Parasitic estimation defaults to placement RC. Set the following command-file
+option to run global routing and estimate RC from the routed topology after
+detailed placement:
+
+```text
+-use_gr_rc 1
+```
+
+The accepted values are `0` and `1`; the default is `0`.
+
+For single-VT libraries, `leakage` sorting is usually a good starting point
+because the timing spread within an equivalence class is relatively limited and
+lower-leakage candidates can improve the power/timing tradeoff. For multi-VT
+libraries, `drive_resistance` sorting is recommended because candidate ordering
+should preserve timing convergence before favoring lower-leakage, slower cells.
+
 ## Submodule Notes
 
 The top-level repository tracks OpenROAD as a submodule. OpenROAD then tracks

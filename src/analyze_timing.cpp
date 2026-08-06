@@ -458,6 +458,8 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
         _tclInputString = "OSGetTranVio ";
         double begin = cpuTime();
         auto design = _sizer->_ckt->_ord_design;
+        sta::dbNetwork* network =
+            _sizer->_ckt->_ord_timing->getSta()->getDbNetwork();
         ofstream ofs("opensta_tran_vio.txt");
         for(auto inst : design->getBlock()->getInsts()) {
             for(auto pin_ : inst->getITerms()) {
@@ -465,6 +467,12 @@ void designTiming::getTranVio(double &tot, double &max, int &num) {
                    pin_->getNet()->getSigType() != "GROUND" &&
                    pin_->getNet()->getSigType() != "CLOCK") {
                     auto m_term = pin_->getMTerm();
+                    sta::Port* port = network->dbToSta(m_term);
+                    sta::LibertyPort* lib_port =
+                        port ? network->libertyPort(port) : nullptr;
+                    if(lib_port == nullptr) {
+                        continue;
+                    }
                     double r_slew = _sizer->_ckt->_ord_timing->getPinSlew(
                         pin_, ord::Timing::Rise);
                     double f_slew = _sizer->_ckt->_ord_timing->getPinSlew(
@@ -517,6 +525,8 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
         auto design = _sizer->_ckt->_ord_design;
         ofstream ofs("opensta_cap_vio.txt");
         auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+        sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
+        sta::dbNetwork* network = sta->getDbNetwork();
         for(auto inst : design->getBlock()->getInsts()) {
             for(auto pin_ : inst->getITerms()) {
                 if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
@@ -524,11 +534,16 @@ void designTiming::getCapVio(double &tot, double &max, int &num) {
                    pin_->getNet()->getSigType() != "CLOCK" &&
                    pin_->isOutputSignal()) {
                     auto m_term = pin_->getMTerm();
+                    sta::Port* port = network->dbToSta(m_term);
+                    sta::LibertyPort* lib_port =
+                        port ? network->libertyPort(port) : nullptr;
+                    if(lib_port == nullptr) {
+                        continue;
+                    }
                     float pin_cap;
                     float wire_cap;
-                    sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
                     sta::Net *sta_net =
-                        sta->getDbNetwork()->dbToSta(pin_->getNet());
+                        network->dbToSta(pin_->getNet());
                     _sizer->_sta->connectedCap(
                         sta_net, corner, sta::MinMax::max(), pin_cap, wire_cap);
                     wire_cap /= _sizer->cap_unit;

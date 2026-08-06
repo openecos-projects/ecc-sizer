@@ -14,6 +14,10 @@
 # -tcf ./test.tcf
 -ptLog
 -useOpenSTA
+# Equivalent-cell candidate order: drive_resistance (default) or leakage.
+# -equiv_cell_sort drive_resistance
+# Use global-routing RC instead of placement RC after detailed placement.
+# -use_gr_rc 1
 -alpha 0.0
 -dont_touch_cell TIEL
 -dont_touch_cell TIEH
@@ -39,4 +43,3 @@
 # -gtr_input /home/zhaoxueyan/code/gpu_gate_sizing/build/NV_NVDLA_partition_m.prft.sizes
 # -test ALL_TEST
 # -dont_use_lis
-

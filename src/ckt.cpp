@@ -136,29 +136,43 @@ void Circuit::Parser(string benchmark) {
     ifstream infile;
     _ord_timing->makeEquivCells();
     int maxx = 0;
+    _sizer->cellName2EquaivaID.clear();
+    _sizer->cellName2EquivOrder.clear();
+    _sizer->EquaivaID2cellNames.clear();
     for(auto lib : _ord_tech->getDB()->getLibs()) {
         for(auto master : lib->getMasters()) {
-            auto dbmaster =
-                _ord_tech->getDB()->findMaster(master->getName().c_str());
+            auto dbmaster = master;
             auto equicCells = _ord_timing->equivCells(dbmaster);
-            string eq_name = equicCells.at(0)->getName();
-            if(_sizer->cellName2EquaivaID.count(eq_name) > 0) {
+            vector< odb::dbMaster* > valid_equiv_cells;
+            for(auto equicCell : equicCells) {
+                if(equicCell != nullptr) {
+                    valid_equiv_cells.push_back(equicCell);
+                }
+            }
+            if(valid_equiv_cells.empty()) {
                 continue;
             }
-            for(auto equicCell : equicCells) {
-                _sizer->cellName2EquaivaID.insert(
-                    make_pair(equicCell->getName(), maxx));
+
+            bool already_seen = false;
+            for(auto equicCell : valid_equiv_cells) {
+                if(_sizer->cellName2EquaivaID.count(equicCell->getName()) > 0) {
+                    already_seen = true;
+                    break;
+                }
+            }
+            if(already_seen) {
+                continue;
+            }
+
+            _sizer->EquaivaID2cellNames.push_back(vector< string >());
+            for(unsigned order = 0; order < valid_equiv_cells.size(); ++order) {
+                string cell_name = valid_equiv_cells[order]->getName();
+                _sizer->cellName2EquaivaID.insert(make_pair(cell_name, maxx));
+                _sizer->cellName2EquivOrder.insert(make_pair(cell_name, order));
+                _sizer->EquaivaID2cellNames.back().push_back(cell_name);
             }
             maxx++;
         }
-    }
-
-    _sizer->EquaivaID2cellNames.resize(maxx + 1);
-    for(auto it = _sizer->cellName2EquaivaID.begin();
-        it != _sizer->cellName2EquaivaID.end(); ++it) {
-        string cell_name = it->first;
-        unsigned cell_id = it->second;
-        _sizer->EquaivaID2cellNames[cell_id].push_back(cell_name);
     }
     infile.close();
     if(!_sizer->mmmcOn) {
@@ -257,7 +271,7 @@ void Circuit::Parser(string benchmark) {
         }
         auto& list = _sizer->func_lib_cell_list[t_corner][it->first];
         list.sort([&](LibCellInfo* c1, LibCellInfo* c2) {
-            return c1->leakagePower < c2->leakagePower;
+            return _sizer->compareEquivCellsForSizing(c1, c2);
         });
         std::sort(cap_vec.begin(), cap_vec.end(),
                   [&](LibCellInfo* c1, LibCellInfo* c2) {
@@ -498,18 +512,17 @@ void Circuit::assignLibPinId() {
             CELL& cell = g_cells[pin->owner];
             // cout << pin->name << " " << pin2id[cell.name+"/"+pin->name] << "
             // " << pin->owner << endl;
-            LibCellInfo* lib_cell_info =
-                &(_sizer->libs[corner].find(cell.type)->second);
             // Resize the rdelay/fdelay vector size
             pin->rdelay.resize(cell.outpins.size(), 0.0);
             pin->fdelay.resize(cell.outpins.size(), 0.0);
             pin->bb_checked_delay.resize(cell.outpins.size(), false);
-            if(lib_cell_info == NULL) {
-                cout << "Error: cell " << cell.type << " not found in lib"
-                     << endl;
-                assert(0);
+            auto lib_cell_iter = _sizer->libs[corner].find(cell.type);
+            if(lib_cell_iter == _sizer->libs[corner].end()) {
+                cell.isDontTouch = true;
+                cell.isChanged = 0;
                 continue;
             }
+            LibCellInfo* lib_cell_info = &(lib_cell_iter->second);
             if((temp_iter = lib_cell_info->lib_pin2id_map.find(pin->name)) !=
                lib_cell_info->lib_pin2id_map.end()) {
                 pin->lib_pin = temp_iter->second;
@@ -522,6 +535,11 @@ void Circuit::assignLibPinId() {
             else if(pin->name.find("]") != std::string::npos) {
                 string new_pin_name = pin->name.substr(0, pin->name.find("["));
                 temp_iter = lib_cell_info->lib_pin2id_map.find(new_pin_name);
+                if(temp_iter == lib_cell_info->lib_pin2id_map.end()) {
+                    cout << "Error: pin " << pin->name << " not found in cell "
+                         << cell.type << endl;
+                    assert(0);
+                }
                 pin->lib_pin = temp_iter->second;
                 pin->cap = lib_cell_info->pins[pin->lib_pin].capacitance;
                 // assert(pin->cap < 1e31);
@@ -845,10 +863,11 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
         return;
         // exit(0);
     }
-    // If multiple high-Vt cells exist, sort them by leakage.
+    // If multiple equivalent cells exist, use the configured candidate order.
     // list size first
     std::set< string > lib_cell_size_set;
-    printf("sort by leakage candidate_cell_info->name list: ");
+    printf("sort by %s candidate_cell_info->name list: ",
+           _sizer->equivCellSortModeName().c_str());
     for(auto candidate_cell_info : candidate_list) {
         // slowest vt first
         // if((*it)->c_vtype != 0) {
@@ -1800,53 +1819,62 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     _ord_design->evalTclString(string(padding_str));
     _ord_design->evalTclString("detailed_placement");
     double begin = cpuTime();
-#ifdef USE_GR_RC
-    // _ord_design->evalTclString("detailed_placement_debug");
-    // _ord_design->getOpendp()->VERBOSE
-    // _ord_design->getOpendp()->detailedPlacement(500, 500, "./dp.log");
-    // Global Route and Estimate Global Route RC
-    auto db_tech = _ord_design->getTech()->getDB()->getTech();
-    auto signal_low_layer =
-        db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
-    auto signal_high_layer =
-        db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
-    auto clk_low_layer =
-        db_tech->findLayer(_sizer->min_route_layer.c_str())->getRoutingLevel();
-    auto clk_high_layer =
-        db_tech->findLayer(_sizer->max_route_layer.c_str())->getRoutingLevel();
-    auto grt = _ord_design->getGlobalRouter();
-    grt->clear();
-    grt->setAllowCongestion(true);
-    grt->setMinRoutingLayer(signal_low_layer);
-    grt->setMaxRoutingLayer(signal_high_layer);
-    grt->setMinLayerForClock(clk_low_layer);
-    grt->setMaxLayerForClock(clk_high_layer);
-    grt->setAdjustment(0.5);
-    grt->setVerbose(true);
-    grt->setCongestionIterations(gr_overflow_iterations);
-    printf("Run Global Routing...\n");
-    grt->globalRoute(false, false, false);
-    int iter = 0;
-#if 0
-    if(use_gr_correlation) {
-        for(auto db_inst : block->getInsts()) {
-            string old_type = old_master_map[iter];
-            string new_libcell_str = old_type;
-            auto new_master = _ord_design->getTech()->getDB()->findMaster(
-                new_libcell_str.c_str());
-            if(!db_inst->isBlock() &&
-               !_ord_design->isSequential(db_inst->getMaster())) {
-                db_inst->swapMaster(new_master);
-            }
-            iter++;
+    if(_sizer->use_gr_rc) {
+        // Global Route and estimate global-route RC.
+        // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
+        // Rebuild pin access points before invoking the global router.
+        _ord_design->evalTclString(
+            "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
+        auto db_tech = _ord_design->getTech()->getDB()->getTech();
+        auto* low_layer = db_tech->findLayer(_sizer->min_route_layer.c_str());
+        auto* high_layer = db_tech->findLayer(_sizer->max_route_layer.c_str());
+        if(low_layer == nullptr || high_layer == nullptr) {
+            printf("Error: invalid routing layer(s): min=%s max=%s\n",
+                   _sizer->min_route_layer.c_str(),
+                   _sizer->max_route_layer.c_str());
+            exit(1);
         }
+        auto signal_low_layer = low_layer->getRoutingLevel();
+        auto signal_high_layer = high_layer->getRoutingLevel();
+        auto clk_low_layer = signal_low_layer;
+        auto clk_high_layer = signal_high_layer;
+        auto grt = _ord_design->getGlobalRouter();
+        grt->clear();
+        grt->setAllowCongestion(true);
+        grt->setMinRoutingLayer(signal_low_layer);
+        grt->setMaxRoutingLayer(signal_high_layer);
+        grt->setMinLayerForClock(clk_low_layer);
+        grt->setMaxLayerForClock(clk_high_layer);
+        grt->setAdjustment(0.5);
+        grt->setResistanceAware(false);
+        grt->setVerbose(true);
+        grt->setCongestionIterations(gr_overflow_iterations);
+        printf("Run Global Routing...\n");
+        _ord_design->evalTclString(
+            "global_route -congestion_iterations " +
+            to_string(gr_overflow_iterations) + " -allow_congestion -verbose");
+        int iter = 0;
+#if 0
+        if(use_gr_correlation) {
+            for(auto db_inst : block->getInsts()) {
+                string old_type = old_master_map[iter];
+                string new_libcell_str = old_type;
+                auto new_master = _ord_design->getTech()->getDB()->findMaster(
+                    new_libcell_str.c_str());
+                if(!db_inst->isBlock() &&
+                   !_ord_design->isSequential(db_inst->getMaster())) {
+                    db_inst->swapMaster(new_master);
+                }
+                iter++;
+            }
+        }
+#endif
+        printf("Run Global Routing Time %f\n", cpuTime() - begin);
+        _ord_design->evalTclString("estimate_parasitics -global_routing");
     }
-#endif
-    printf("Run Global Routing Time %f\n", cpuTime() - begin);
-    _ord_design->evalTclString("estimate_parasitics -global_routing");
-#else
-    _ord_design->evalTclString("estimate_parasitics -placement");
-#endif
+    else {
+        _ord_design->evalTclString("estimate_parasitics -placement");
+    }
     _sta->findRequireds();
     _ord_design->evalTclString("report_tns");
     printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);
@@ -1989,8 +2017,8 @@ void Circuit::init_opensta() {
     _ord_design->evalTclString("set_wire_rc -clock -layer " +
                                _sizer->min_route_layer);
     _ord_design->evalTclString("estimate_parasitics -placement");
-    _ord_design->evalTclString("repair_clock_nets");
-    _ord_design->evalTclString("set_propagated_clock [all_clocks]");
+    // _ord_design->evalTclString("repair_clock_nets");
+    // _ord_design->evalTclString("set_propagated_clock [all_clocks]");
 
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
     // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +
@@ -2063,31 +2091,33 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     string viewName = strViewName;
     string libPath = _sizer->benchname;
 
-    int gateNum = network->instanceCount();
+    auto* db_network = _sta->getDbNetwork();
+    auto* block = _ord_design->getBlock();
+    int gateNum = block->getInsts().size();
 
     // read in the gates
-    InstanceChildIterator* inst_it =
-        network->childIterator(network->topInstance());
     int iter_i = 0;
-    while(inst_it->hasNext()) {
-        Instance* inst = inst_it->next();
+    for(auto* db_inst : block->getInsts()) {
         if(iter_i % 1000 == 0) {
             printf("Read %d / %d Instances\n", iter_i, gateNum);
+            fflush(stdout);
         }
         iter_i++;
-        string str_cell_name = "";
-        if(network->libertyCell(inst) == nullptr) {
-            // printf("Error: %s\n", network->pathName(inst));
-            continue;
-        }
-        else {
-            str_cell_name = network->libertyCell(inst)->name();
-        }
+        auto* master = db_inst->getMaster();
+        assert(master != nullptr);
+        auto* liberty_cell = db_network->libertyCell(db_inst);
+        string str_cell_name = liberty_cell != nullptr ? liberty_cell->name()
+                                                       : master->getName();
+
         // NEW CELL
         CELL tmpCell;
         tmpCell.type = str_cell_name;
-        tmpCell.name = network->pathName(inst);
+        tmpCell.name = db_inst->getName();
         tmpCell.isFF = false;
+        if(liberty_cell == nullptr || !master->isCore()) {
+            tmpCell.isDontTouch = true;
+            tmpCell.isChanged = 0;
+        }
 
         if(_sizer->numVt == 3) {
             if(cellName.find(_sizer->suffixLVT.c_str()) != std::string::npos) {
@@ -2122,7 +2152,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         unsigned tmpCellId = _sizer->_ckt->g_cells.size();
 
         _sizer->_ckt->cell2id.insert(
-            pair< string, unsigned >(network->pathName(inst), tmpCellId));
+            pair< string, unsigned >(tmpCell.name, tmpCellId));
 
         //       cout << "Name and ID: " << network->pathName(inst) << " : " <<
         //       tmpCellId << endl;
@@ -2189,7 +2219,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         int net_pin_num = 0;
         for(auto instTerms_iter : net->getITerms()) {
             net_pin_num++;
-            string instGateName = instTerms_iter->getInst()->getName();
+            auto* db_inst = instTerms_iter->getInst();
+            string instGateName = db_inst ? db_inst->getName() : "<null>";
             char tmpName[2000];
             strcpy(tmpName, instGateName.c_str());
 
@@ -2199,8 +2230,19 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
                _sizer->_ckt->cell2id.end())
                 gateId = _sizer->_ckt->cell2id[tmpName];
 
-            if(gateId >= _sizer->_ckt->g_cells.size() || gateId < 0)
+            if(gateId >= _sizer->_ckt->g_cells.size() || gateId < 0) {
                 printf("error gate id %d\n", gateId);
+                printf("unmapped iterm: net=%s inst=%s pin=%s\n",
+                       netName.c_str(), instGateName.c_str(),
+                       instTerms_iter->getName().c_str());
+                if(db_inst != nullptr && db_inst->getMaster() != nullptr) {
+                    auto* master = db_inst->getMaster();
+                    printf("unmapped master: name=%s is_block=%d\n",
+                           master->getName().c_str(), master->isBlock());
+                }
+                fflush(stdout);
+                assert(false && "ITerm instance is missing from cell2id");
+            }
 
             CELL& cell = _sizer->_ckt->g_cells[gateId];
 

@@ -53,6 +53,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <list>
@@ -425,10 +426,18 @@ class Sizer {
     bool use_slew_margin = true;
     designTiming **T;
     std::map< string, int > cellName2EquaivaID;
+    std::map< string, int > cellName2EquivOrder;
     std::vector< std::vector< string > > EquaivaID2cellNames;
     void runOrdTO();
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
+    bool use_gr_rc = false;
+    bool sortEquivCellsByLeakage = false;
+    void setEquivCellSortMode(const string& mode);
+    string equivCellSortModeName() const;
+    int equivCellDriveOrder(const string& cell_name) const;
+    bool compareEquivCellsForSizing(const LibCellInfo* lhs,
+                                    const LibCellInfo* rhs) const;
 
    private:
     double tnsPenalty = 10, slewPenalty = 20, capPenalty = 20;
@@ -450,6 +459,8 @@ class Sizer {
                       unsigned thread_id, double toler, unsigned view);
     bool replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
                      std::unordered_set< odb::dbNet * > &parasitics_invalid_);
+    void applyOpenStaDbChanges(const std::function< void() > &apply_changes);
+    void refreshOpenStaParasitics(bool verbose_global_route = false);
     inline bool isMin(const CELL &cell) {
         return (cell.c_size == 0);
     }
