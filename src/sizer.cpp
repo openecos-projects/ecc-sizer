@@ -665,8 +665,8 @@ void Sizer::setEquivCellSortMode(const string& mode) {
         sortEquivCellsByLeakage = true;
         return;
     }
-    if(mode == "drive_resistance" || mode == "drive_resitance" ||
-       mode == "drive_res" || mode == "drive") {
+    if(mode == "drive_resistance" || mode == "drive_res" ||
+       mode == "drive") {
         sortEquivCellsByLeakage = false;
         return;
     }
