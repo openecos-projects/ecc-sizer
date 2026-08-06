@@ -1555,10 +1555,15 @@ void Sizer::refreshOpenStaParasitics(bool verbose_global_route) {
     design->evalTclString("estimate_parasitics -placement");
 
     auto db_tech = design->getTech()->getDB()->getTech();
-    auto signal_low_layer =
-        db_tech->findLayer(min_route_layer.c_str())->getRoutingLevel();
-    auto signal_high_layer =
-        db_tech->findLayer(max_route_layer.c_str())->getRoutingLevel();
+    auto* low_layer = db_tech->findLayer(min_route_layer.c_str());
+    auto* high_layer = db_tech->findLayer(max_route_layer.c_str());
+    if(low_layer == nullptr || high_layer == nullptr) {
+        cout << "Error: invalid routing layer(s): min=" << min_route_layer
+             << " max=" << max_route_layer << endl;
+        exit(1);
+    }
+    auto signal_low_layer = low_layer->getRoutingLevel();
+    auto signal_high_layer = high_layer->getRoutingLevel();
     auto grt = design->getGlobalRouter();
     grt->clear();
     grt->setAllowCongestion(true);
