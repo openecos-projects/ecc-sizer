@@ -3435,6 +3435,7 @@ double Sizer::LookupIntPower(CELL &cell, LibCellInfo *cur, unsigned view) {
 double Sizer::LookupIntPowerTran(CELL &cell, LibCellInfo *cur,
                                  vector< double > rtrans,
                                  vector< double > ftrans, unsigned view) {
+    unsigned corner = 0;  // mmmcViewList[view].corner;
     if(cur == NULL) {
         return 0.0;
     }
@@ -3447,6 +3448,10 @@ double Sizer::LookupIntPowerTran(CELL &cell, LibCellInfo *cur,
         ipower = .0;
         for(unsigned j = 0; j < cell.inpins.size(); ++j) {
             unsigned curpin = cell.inpins[j];
+            if(curpin == UINT_MAX || pins[view][curpin].net == UINT_MAX ||
+               nets[corner][pins[view][curpin].net].inpin == UINT_MAX) {
+                continue;
+            }
             if(isff(cell) && !cur->pins[pins[view][curpin].lib_pin].isClock) {
                 continue;
             }
@@ -3734,6 +3739,10 @@ void Sizer::LookupSTTran(CELL &cell, vector< double > in_rtrans,
 
         for(unsigned j = 0; j < cell.inpins.size(); ++j) {
             unsigned curpin = cell.inpins[j];
+            if(curpin == UINT_MAX || pins[view][curpin].net == UINT_MAX ||
+               nets[corner][pins[view][curpin].net].inpin == UINT_MAX) {
+                continue;
+            }
             LibPinInfo &lib_pin_info = cur->pins[pins[view][curpin].lib_pin];
 
             if(isff(cell) && !lib_pin_info.isClock)
@@ -3895,8 +3904,10 @@ double Sizer::LookupDeltaIntPower(CELL &cell, int steps, int dir,
         pin_ids.push_back(nets[corner][pins[view][cell.inpins[i]].net].inpin);
     }
 
-    vector< double > fi_rtrans;
-    vector< double > fi_ftrans;
+    // Keep transition entries indexed by the original input-pin position.
+    // Floating inputs below are intentionally skipped by the timing model.
+    vector< double > fi_rtrans(cell.inpins.size(), 0.0);
+    vector< double > fi_ftrans(cell.inpins.size(), 0.0);
     if(VERBOSE >= 3)
         cout << "Fanin cell" << endl;
     for(unsigned i = 0; i < cell.inpins.size(); ++i) {
@@ -3916,12 +3927,12 @@ double Sizer::LookupDeltaIntPower(CELL &cell, int steps, int dir,
                 double tmp_rtran = .0, tmp_ftran = .0;
                 LookupSTLoad(cells[ficell], tmp_rtran, tmp_ftran, fi_loads[i],
                              pin_ids[i], view);
-                fi_rtrans.push_back(tmp_rtran);
-                fi_ftrans.push_back(tmp_ftran);
+                fi_rtrans[i] = tmp_rtran;
+                fi_ftrans[i] = tmp_ftran;
             }
             else {
-                fi_rtrans.push_back(pins[view][cell.inpins[i]].rtran);
-                fi_ftrans.push_back(pins[view][cell.inpins[i]].ftran);
+                fi_rtrans[i] = pins[view][cell.inpins[i]].rtran;
+                fi_ftrans[i] = pins[view][cell.inpins[i]].ftran;
             }
         }
     }
