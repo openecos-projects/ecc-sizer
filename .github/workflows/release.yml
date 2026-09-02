@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release tag
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check tag against default.nix version
+        id: check
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          nix_version="$(grep -oP 'version = "\K[^"]+' default.nix | head -1)"
+          echo "tag version:        ${version}"
+          echo "default.nix version: ${nix_version}"
+          if [[ "${version}" != "${nix_version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match the version \"${nix_version}\" in default.nix. Bump the version and retag."
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build release package
+    needs: verify
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.verify.outputs.version }}
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - verify
+      - build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ecc-sizer-linux-x64
+
+      - name: Generate checksums
+        run: sha256sum -- *.tar.gz > SHA256SUMS.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.tar.gz
+            SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
