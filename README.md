@@ -144,6 +144,26 @@ git -C thirdparty/OpenROAD/src/sta status --short --branch
 git -C thirdparty/OpenROAD/third-party/abc status --short --branch
 ```
 
+## Releasing
+
+Releases are published by pushing a version tag. The Release workflow
+verifies the tag, rebuilds the self-contained Linux x64 package, and
+publishes a GitHub Release with the tarball and its SHA256 checksums.
+
+1. Bump the version in `default.nix` and the `SIZER_VERSION` default in
+   `.github/scripts/build-sizer.sh`, then merge the change to `main`.
+2. Tag the release commit and push the tag:
+
+   ```bash
+   git tag -a v0.1.0-alpha -m "Sizer 0.1.0-alpha"
+   git push origin v0.1.0-alpha
+   ```
+
+The tag must match the `version` field in `default.nix` (without the
+leading `v`), otherwise the workflow fails before building. Tags carrying
+a prerelease suffix (for example `-alpha` or `-rc.1`) are published as
+prereleases.
+
 ## References
 
 - [TritonSizer](https://github.com/The-OpenROAD-Project/TritonSizer)
