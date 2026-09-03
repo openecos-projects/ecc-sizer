@@ -25,8 +25,17 @@ if [[ -f "${openroad_deps_prefixes}" ]]; then
   done
 fi
 
+cmake_compiler_launcher_args=()
+if command -v sccache >/dev/null 2>&1; then
+  cmake_compiler_launcher_args=(
+    -DCMAKE_C_COMPILER_LAUNCHER=sccache
+    -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+  )
+fi
+
 cmake -S . -B build \
   "${cmake_dependency_args[@]}" \
+  "${cmake_compiler_launcher_args[@]}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_TESTS=OFF \
   -DUSE_SYSTEM_BOOST=ON \

@@ -37,6 +37,10 @@ jobs:
         env:
           SIZER_VERSION: ${{ inputs.version }}
 
+      - name: Show sccache stats
+        if: always()
+        run: sccache --show-stats
+
       - name: Package Sizer with runtime wrapper
         id: package
         env:
