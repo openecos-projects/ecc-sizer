@@ -27,10 +27,13 @@ fi
 
 cmake_compiler_launcher_args=()
 if command -v sccache >/dev/null 2>&1; then
+  echo "sccache detected at $(command -v sccache); enabling CMake compiler launcher"
   cmake_compiler_launcher_args=(
     -DCMAKE_C_COMPILER_LAUNCHER=sccache
     -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
   )
+else
+  echo "sccache not found on PATH; building without a compiler cache"
 fi
 
 cmake -S . -B build \
@@ -48,5 +51,13 @@ cmake -S . -B build \
   -DCUDD_DIR="${cudd_dir}" \
   -DZLIB_HOME=/usr/lib/x86_64-linux-gnu \
   -DCMAKE_RULE_MESSAGES=OFF
+
+if [[ ${#cmake_compiler_launcher_args[@]} -gt 0 ]]; then
+  if grep -q "sccache" build/src/CMakeFiles/Sizer.dir/build.make; then
+    echo "Verified: generated compile rules invoke sccache"
+  else
+    echo "WARNING: sccache is missing from the generated compile rules" >&2
+  fi
+fi
 
 cmake --build build --target Sizer -j "${NPROC:-$(nproc)}"
