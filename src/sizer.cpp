@@ -72,6 +72,7 @@
 #endif
 #include "ord/OpenRoad.hh"
 #include "grt/GlobalRouter.h"
+#include "special_net.h"
 
 // global variables
 // Profiling runtime switch and output file name.
@@ -5489,6 +5490,13 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString("repair_timing -hold -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) + " -verbose");
+    const int connected_special_pins
+        = ecc::connectMissingWildcardSpecialNetPins(
+            _ckt->_ord_design->getBlock());
+    if(connected_special_pins > 0) {
+        cout << "Connected " << connected_special_pins
+             << " new instance pins to wildcard special nets." << endl;
+    }
     _ckt->_ord_design->evalTclString("detailed_placement");
     if(use_gr_rc) {
         // repair_* and detailed placement change the final DB state. Rebuild

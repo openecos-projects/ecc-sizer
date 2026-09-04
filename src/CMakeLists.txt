@@ -63,6 +63,19 @@ file(GLOB SOURCES "*.cpp")
 
 add_executable(Sizer ${SOURCES})
 
+if(BUILD_TESTING)
+    add_executable(ecc_sizer_special_net_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/special_net_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/special_net.cpp
+    )
+    target_include_directories(ecc_sizer_special_net_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${OPENROAD_HOME}/utl/include
+    )
+    target_link_libraries(ecc_sizer_special_net_test odb)
+    add_test(NAME ecc_sizer_special_net COMMAND ecc_sizer_special_net_test)
+endif()
+
 if(LIBPROFILER_FOUND)
     target_compile_definitions(Sizer PRIVATE HAVE_GPERFTOOLS_PROFILER)
     target_link_libraries(Sizer PRIVATE gperftools::profiler)
