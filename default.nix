@@ -42,7 +42,7 @@
 
 stdenv.mkDerivation {
   pname = "Sizer";
-  version = "0.1.0-alpha";
+  version = "0.1.0-alpha.1";
 
   src = with lib.fileset; toSource {
     root = ./.;
