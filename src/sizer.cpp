@@ -5485,6 +5485,7 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -violators "
         "-digits 3");
+    _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 20 -cap_margin 20 -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -hold -verbose");
