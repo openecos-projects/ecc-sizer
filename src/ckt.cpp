@@ -2221,17 +2221,10 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             net_pin_num++;
             auto* db_inst = instTerms_iter->getInst();
             string instGateName = db_inst ? db_inst->getName() : "<null>";
-            char tmpName[2000];
-            strcpy(tmpName, instGateName.c_str());
+            auto gate_iter = _sizer->_ckt->cell2id.find(instGateName);
 
-            int gateId = -1;
-
-            if(_sizer->_ckt->cell2id.find(tmpName) !=
-               _sizer->_ckt->cell2id.end())
-                gateId = _sizer->_ckt->cell2id[tmpName];
-
-            if(gateId >= _sizer->_ckt->g_cells.size() || gateId < 0) {
-                printf("error gate id %d\n", gateId);
+            if(gate_iter == _sizer->_ckt->cell2id.end() ||
+               gate_iter->second >= _sizer->_ckt->g_cells.size()) {
                 printf("unmapped iterm: net=%s inst=%s pin=%s\n",
                        netName.c_str(), instGateName.c_str(),
                        instTerms_iter->getName().c_str());
@@ -2241,9 +2234,10 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
                            master->getName().c_str(), master->isBlock());
                 }
                 fflush(stdout);
-                assert(false && "ITerm instance is missing from cell2id");
+                abort();
             }
 
+            const unsigned gateId = gate_iter->second;
             CELL& cell = _sizer->_ckt->g_cells[gateId];
 
             string pin_name = instTerms_iter->getName();
@@ -2287,33 +2281,31 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 
         for(auto term : net->getBTerms()) {
             string termName = term->getName();
-            char tmpName[120];
-            strcpy(tmpName, termName.c_str());
 
             // NEW PIN
             PIN tmpPin2;
             tmpPin2.id = _sizer->_ckt->g_pins.size();
-            tmpPin2.name = tmpName;
+            tmpPin2.name = termName;
             tmpPin2.net = tmpNetId;
             tmpPin2.owner = UINT_MAX;
-            assert(pin2id.find(tmpName) == pin2id.end());
+            assert(pin2id.find(termName) == pin2id.end());
 
             if(term->getIoType() == "OUTPUT") {
                 _sizer->_ckt->outdelays.insert(
-                    pair< string, double >(tmpName, 0.0));
+                    pair< string, double >(termName, 0.0));
                 _sizer->_ckt->POs.push_back(tmpPin2.id);
                 tmpNet.outpins.push_back(tmpPin2.id);
                 tmpPin2.isPO = true;
             }
             else {
                 _sizer->_ckt->indelays.insert(
-                    pair< string, double >(tmpName, 0.0));
+                    pair< string, double >(termName, 0.0));
                 _sizer->_ckt->PIs.push_back(tmpPin2.id);
                 tmpNet.inpin = tmpPin2.id;
                 tmpPin2.isPI = true;
             }
             _sizer->_ckt->pin2id.insert(
-                pair< string, unsigned >(tmpName, tmpPin2.id));
+                pair< string, unsigned >(termName, tmpPin2.id));
             _sizer->_ckt->g_pins.push_back(tmpPin2);
 
         }  // PI/PO END
