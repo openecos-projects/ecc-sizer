@@ -1998,7 +1998,6 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     strViewName = "abstract";
 
     string libName = _sizer->benchname;
-    string cellName = _sizer->benchname;
     string viewName = strViewName;
     string libPath = _sizer->benchname;
 
@@ -2031,11 +2030,12 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         }
 
         if(_sizer->numVt == 3) {
-            if(cellName.find(_sizer->suffixLVT.c_str()) != std::string::npos) {
+            if(str_cell_name.find(_sizer->suffixLVT.c_str()) !=
+               std::string::npos) {
                 tmpCell.c_vtype = f;
                 // tmpCell.orig_c_vtype = f;
             }
-            else if(cellName.find(_sizer->suffixHVT.c_str()) !=
+            else if(str_cell_name.find(_sizer->suffixHVT.c_str()) !=
                     std::string::npos) {
                 tmpCell.c_vtype = s;
                 // tmpCell.orig_c_vtype = s;
@@ -2046,7 +2046,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             }
         }
         else if(_sizer->numVt == 2) {
-            if(cellName.find(_sizer->suffixHVT.c_str()) != std::string::npos) {
+            if(str_cell_name.find(_sizer->suffixHVT.c_str()) !=
+               std::string::npos) {
                 tmpCell.c_vtype = s;
                 // tmpCell.orig_c_vtype = s;
             }
