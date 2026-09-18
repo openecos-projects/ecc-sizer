@@ -378,7 +378,7 @@ class Sizer {
     bool second_feasible;
     bool gtr1_feasible;
     bool gtr2_feasible;
-    double setup_margin = 0.0;
+    double setup_margin = 0.75;
     vector< CELL > best_cells;
     vector< CELL > second_best_cells;
     vector< CELL > best_cells_poweropt;
@@ -783,7 +783,7 @@ class Sizer {
     unsigned sensFunc;
     unsigned sensFunc2;
     unsigned sensFuncT;
-    unsigned dp_padding = 0;
+    unsigned dp_padding = 1;
     bool holdCheck;
     bool maxTrCheck;
     bool oaGenFlag;
