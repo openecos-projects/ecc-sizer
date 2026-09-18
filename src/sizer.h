@@ -432,7 +432,7 @@ class Sizer {
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
     bool use_gr_rc = false;
-    bool sortEquivCellsByLeakage = false;
+    bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;
     int equivCellDriveOrder(const string& cell_name) const;
