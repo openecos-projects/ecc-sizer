@@ -5488,7 +5488,7 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -hold -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -hold -hold_margin 0.4 -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) + " -verbose");
     const int connected_special_pins
@@ -5499,12 +5499,23 @@ void Sizer::runOrdTO() {
              << " new instance pins to wildcard special nets." << endl;
     }
     _ckt->_ord_design->evalTclString("detailed_placement");
+    // Legalization moves degrade the repaired timing state. Rebuild placement
+    // parasitics, run a margin-free recovery pass, then re-legalize any cells
+    // inserted by the recovery.
+    _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
+    _ckt->_ord_design->evalTclString(
+        "repair_design -slew_margin 20 -cap_margin 20 -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -hold -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -setup -verbose");
+    _ckt->_ord_design->evalTclString("detailed_placement");
+    // Rebuild parasitics after the final detailed placement so the reported
+    // final slacks match the exported design state.
     if(use_gr_rc) {
-        // repair_* and detailed placement change the final DB state. Rebuild
-        // GR parasitics once so the in-process final report matches the
-        // exported design state.
         printf("Run final global-routing RC refresh after runOrdTO...\n");
         refreshOpenStaParasitics(true);
+    }
+    else {
+        _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
     }
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
