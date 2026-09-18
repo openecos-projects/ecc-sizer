@@ -1931,22 +1931,22 @@ void Circuit::init_opensta() {
     _ord_design->evalTclString("estimate_parasitics -placement");
     // Reuse the SDC max_fanout limit when present; otherwise fall back to 64
     // so repair_design's gain buffering gets a finite fanout limit.
-    {
-        sta::Network* network = _sta->network();
-        sta::Cell* top_cell = network->cell(network->topInstance());
-        float sdc_max_fanout = 0.0f;
-        bool sdc_max_fanout_exists = false;
-        _sta->cmdSdc()->fanoutLimit(top_cell, sta::MinMax::max(),
-                                    sdc_max_fanout, sdc_max_fanout_exists);
-        if(sdc_max_fanout_exists && sdc_max_fanout > 0) {
-            printf("reuse SDC max_fanout %.0f for repair_design\n",
-                   sdc_max_fanout);
-        }
-        else {
-            _ord_design->evalTclString("set_max_fanout 64 [current_design]");
-        }
-    }
-    _ord_design->evalTclString("repair_design");
+    // {
+    //     sta::Network* network = _sta->network();
+    //     sta::Cell* top_cell = network->cell(network->topInstance());
+    //     float sdc_max_fanout = 0.0f;
+    //     bool sdc_max_fanout_exists = false;
+    //     _sta->cmdSdc()->fanoutLimit(top_cell, sta::MinMax::max(),
+    //                                 sdc_max_fanout, sdc_max_fanout_exists);
+    //     if(sdc_max_fanout_exists && sdc_max_fanout > 0) {
+    //         printf("reuse SDC max_fanout %.0f for repair_design\n",
+    //                sdc_max_fanout);
+    //     }
+    //     else {
+    //         _ord_design->evalTclString("set_max_fanout 64 [current_design]");
+    //     }
+    // }
+    // _ord_design->evalTclString("repair_design");
     // _ord_design->evalTclString("set_propagated_clock [all_clocks]");
 
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
