@@ -865,7 +865,7 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
     }
     // If multiple equivalent cells exist, use the configured candidate order.
     // list size first
-    std::set< string > lib_cell_size_set;
+    std::unordered_map< string, int > lib_cell_size_index;
     printf("sort by %s candidate_cell_info->name list: ",
            _sizer->equivCellSortModeName().c_str());
     for(auto candidate_cell_info : candidate_list) {
@@ -923,113 +923,25 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
                        newCellName.c_str());
             }
         }
-        int c_size = lib_cell_table.lib_vt_size_table.size();
-        if(!lib_cell_size_set.count(newCellName)) {
-            lib_cell_size_set.insert(newCellName);
+        auto size_iter = lib_cell_size_index.find(newCellName);
+        if(size_iter == lib_cell_size_index.end()) {
+            const int c_size = lib_cell_table.lib_vt_size_table.size();
             vector< LibCellInfo* > lib_size_table;
-            candidate_cell_info->c_size = c_size;
-            lib_size_table.resize(_sizer->numVt);
-            lib_size_table[vt] = candidate_cell_info;
+            lib_size_table.resize(_sizer->numVt, nullptr);
             lib_cell_table.lib_vt_size_table.push_back(lib_size_table);
+            size_iter =
+                lib_cell_size_index.emplace(newCellName, c_size).first;
         }
-        else {
-            printf("Aready have the same size %s\n", newCellName.c_str());
-            // lib_cell_table.lib_vt_size_table[c_size][vt] =
-            // candidate_cell_info;
-        }
+        // Register every VT variant under the same size row so that
+        // cell_retype() can swap VT; without this the other slots stay
+        // NULL and every lookup for them fails silently.
+        candidate_cell_info->c_size = size_iter->second;
+        lib_cell_table.lib_vt_size_table[size_iter->second][vt] =
+            candidate_cell_info;
     }
     printf("\n");
     // cout << "-------------------" << endl;
 
-    // add vt
-    // assert(lib_cell_table.lib_vt_size_table.size() > 0);
-#if 0
-    for(unsigned i = 0; i < lib_cell_table.lib_vt_size_table.size(); ++i) {
-        LibCellInfo* lib_cell = lib_cell_table.lib_vt_size_table[i][0];
-
-        string lib_cell_name = lib_cell->name;
-
-        if(_sizer->numVt > 1) {
-            size_t start = lib_cell_name.find(_sizer->suffixHVT.c_str());
-            lib_cell_name.erase(start, _sizer->suffixHVT.size());
-        }
-
-        for(std::list< LibCellInfo* >::iterator it = candidate_list.begin();
-            it != candidate_list.end(); it++) {
-            string newCellName = (*it)->name;
-            unsigned vt = 0;
-
-            if(_sizer->numVt == 3) {
-                if(newCellName.find(_sizer->suffixHVT.c_str()) !=
-                   std::string::npos) {
-                    size_t start = newCellName.find(_sizer->suffixHVT.c_str());
-                    newCellName.erase(start, _sizer->suffixHVT.size());
-                    vt = 0;
-                }
-                else if(newCellName.find(_sizer->suffixLVT.c_str()) !=
-                        std::string::npos) {
-                    size_t start = newCellName.find(_sizer->suffixLVT.c_str());
-                    newCellName.erase(start, _sizer->suffixLVT.size());
-                    vt = 2;
-                }
-                else if(newCellName.find(_sizer->suffixNVT.c_str()) !=
-                        std::string::npos) {
-                    size_t start = newCellName.find(_sizer->suffixNVT.c_str());
-                    newCellName.erase(start, _sizer->suffixNVT.size());
-                    vt = 1;
-                }
-                else {
-                    if(_sizer->suffixLVT.c_str() == "") {
-                        vt = 2;
-                    }
-                    else if(_sizer->suffixNVT.c_str() == "") {
-                        vt = 1;
-                    }
-                    else if(_sizer->suffixHVT.c_str() == "") {
-                        vt = 0;
-                    }
-                }
-            }
-            else if(_sizer->numVt == 2) {
-                if(newCellName.find(_sizer->suffixHVT.c_str()) !=
-                   std::string::npos) {
-                    size_t start = newCellName.find(_sizer->suffixHVT.c_str());
-                    newCellName.erase(start, _sizer->suffixHVT.size());
-                    vt = 0;
-                }
-                else if(newCellName.find(_sizer->suffixNVT.c_str()) !=
-                        std::string::npos) {
-                    size_t start = newCellName.find(_sizer->suffixNVT.c_str());
-                    newCellName.erase(start, _sizer->suffixNVT.size());
-                    vt = 1;
-                }
-                else {
-                    if(_sizer->suffixNVT.c_str() == "") {
-                        vt = 1;
-                    }
-                    else if(_sizer->suffixHVT.c_str() == "") {
-                        vt = 0;
-                    }
-                }
-            }
-            else {
-                continue;
-            }
-
-            if(newCellName != lib_cell_name) {
-                continue;
-            }
-
-            if((*it)->c_vtype == 0) {
-                continue;
-            }
-
-            (*it)->c_size = lib_cell->c_size;
-            // lib_cell_table.lib_vt_size_table[i].push_back(&(*it));
-            lib_cell_table.lib_vt_size_table[i][vt] = (*it);
-        }
-    }
-#endif
     // test
     if(VERBOSE >= 1) {
         cout << "LIB CELL TABLE " << type
