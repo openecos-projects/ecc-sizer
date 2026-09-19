@@ -429,9 +429,13 @@ class Sizer {
     std::map< string, int > cellName2EquivOrder;
     std::vector< std::vector< string > > EquaivaID2cellNames;
     void runOrdTO();
+    void runPreplace();
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
     bool use_gr_rc = false;
+    // Pre-place mode: repair DRV (fanout/slew/cap) once via OpenROAD
+    // repair_design and write out; no sizing loop, no placement.
+    bool preplaceMode = false;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;

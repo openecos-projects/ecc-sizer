@@ -5473,6 +5473,57 @@ void *static_poweropt_driver(void *void_thread_args) {
     _this->Post_PowerOpt(thread_args->thread_id);
     return void_thread_args;
 }
+
+// Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
+// out. No sizing loop, no placement.
+void Sizer::runPreplace() {
+    // Give gain buffering a finite fanout limit: reuse the design-level SDC
+    // max_fanout when present, otherwise fall back to 64.
+
+    // Detect an unplaced input DEF (the expected pre-place case): wire RC is
+    // then ~0, so slew/cap repair runs optimistic. Fanout repair is
+    // topological and unaffected.
+    {
+        int unplaced = 0, total = 0;
+        for(auto* inst : _ckt->_ord_design->getBlock()->getInsts()) {
+            ++total;
+            if(!inst->isPlaced()) {
+                ++unplaced;
+            }
+        }
+        if(total > 0 && unplaced * 2 > total) {
+            printf("WARNING: input design appears unplaced (%d/%d instances "
+                   "unplaced); wire RC ~ 0, slew/capacitance repair will be "
+                   "optimistic. Fanout repair is unaffected.\n",
+                   unplaced, total);
+        }
+    }
+    sta::Network* network = _ckt->_sta->network();
+    sta::Cell* top_cell = network->cell(network->topInstance());
+    float sdc_max_fanout = 0.0f;
+    bool sdc_max_fanout_exists = false;
+    _ckt->_sta->cmdSdc()->fanoutLimit(top_cell, sta::MinMax::max(),
+                                      sdc_max_fanout, sdc_max_fanout_exists);
+    if(!(sdc_max_fanout_exists && sdc_max_fanout > 0)) {
+        printf("preplace: no SDC max_fanout, fall back to 64\n");
+        _ckt->_ord_design->evalTclString("set_max_fanout 64 [current_design]");
+    }
+
+    _ckt->_ord_design->evalTclString(
+        "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
+    _ckt->_ord_design->evalTclString("repair_design -verbose");
+    _ckt->_ord_design->evalTclString(
+        "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
+
+    if(resultDefFile == "") {
+        resultDefFile = benchname + ".size.def";
+    }
+    if(resultVerilogFile == "") {
+        resultVerilogFile = benchname + ".size.v";
+    }
+    _ckt->_ord_design->writeDef(resultDefFile);
+    _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
+}
 void Sizer::runOrdTO() {
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
@@ -9616,6 +9667,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             noSPEF = true;
         if(line.find("-noDEF") != string::npos)
             noDEF = true;
+        if(line.find("-preplace") != string::npos)
+            preplaceMode = true;
         if(line.find("-eco") != string::npos)
             exePNRFlag = true;
         if(line.find("-chkWNS") != string::npos)
@@ -10618,6 +10671,11 @@ int main(int argc, char **argv) {
     _sizer.ReportOptions();
 
     _sizer.Parser();
+
+    if(_sizer.preplaceMode) {
+        _sizer.runPreplace();
+        return 0;
+    }
 
     if(GTR_IN) {
         _sizer.SizeInit(GTR_FI);

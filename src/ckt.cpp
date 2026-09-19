@@ -1928,7 +1928,9 @@ void Circuit::init_opensta() {
                                _sizer->min_route_layer);
     _ord_design->evalTclString("set_wire_rc -clock -layer " +
                                _sizer->min_route_layer);
-    _ord_design->evalTclString("estimate_parasitics -placement");
+    if(!_sizer->preplaceMode) {
+        _ord_design->evalTclString("estimate_parasitics -placement");
+    }
     // _ord_design->evalTclString("set_propagated_clock [all_clocks]");
 
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
