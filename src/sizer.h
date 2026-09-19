@@ -436,6 +436,9 @@ class Sizer {
     // Pre-place mode: repair DRV (fanout/slew/cap) once via OpenROAD
     // repair_design and write out; no sizing loop, no placement.
     bool preplaceMode = false;
+    // With preplaceMode, select the upstream-style gain-buffering round
+    // (repair_design -pre_placement) instead of plain violation repair.
+    bool preplaceGain = false;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;

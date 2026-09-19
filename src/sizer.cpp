@@ -5511,7 +5511,14 @@ void Sizer::runPreplace() {
 
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
-    _ckt->_ord_design->evalTclString("repair_design -verbose");
+    if(preplaceGain) {
+        // Gain-buffering round: rebuilds buffer trees electrically (fanout
+        // of 4 rule + max fanout), non-geometric, works on unplaced input.
+        _ckt->_ord_design->evalTclString("repair_design -pre_placement -verbose");
+    }
+    else {
+        _ckt->_ord_design->evalTclString("repair_design -verbose");
+    }
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
 
@@ -9635,8 +9642,12 @@ void Sizer::readCmdFile(string cmdFileStr) {
             MAX_TRAN_CONST = getTokenF(line, "-maxTr ");
         if(line.find("-g ") != string::npos)
             GUARD_BAND = getTokenF(line, "-g ");
-        if(line.find("-rpt ") != string::npos)
-            reportFile = getTokenS(line, "-rpt ");
+        if(line.find("-preplace_gain") != string::npos) {
+            preplaceMode = true;
+            preplaceGain = true;
+        }
+        else if(line.find("-preplace") != string::npos)
+            preplaceMode = true;
         if(line.find("-vout ") != string::npos)
             verilogOutFile = getTokenS(line, "-vout ");
         if(line.find("-defout ") != string::npos)
