@@ -534,6 +534,20 @@ void Circuit::lib_parser(string filename, unsigned corner) {
         }
     }
 
+    // Auto-detect the ics55 3-VT library from the liberty name and force
+    // num_vt=3 with its VT suffixes. Overrides the env "-num_vt 1" seed,
+    // which is only a default; an explicit -num_vt > 1 stays untouched.
+    const string sta_lib_name = sta_lib->name();
+    if(_sizer->numVt == 1 && sta_lib_name.find("ics55") != string::npos) {
+        _sizer->numVt = 3;
+        _sizer->suffixHVT = "H7H";
+        _sizer->suffixNVT = "H7R";
+        _sizer->suffixLVT = "H7L";
+        printf("Auto-detected ics55 library '%s': forcing num_vt=3 "
+               "(VT suffixes H7H/H7R/H7L)\n",
+               sta_lib_name.c_str());
+    }
+
     // Parse cells.
     std::vector< LibCellInfo > cells;
     sta::LibertyCellIterator it(sta_lib);
