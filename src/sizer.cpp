@@ -154,6 +154,7 @@ bool FIX_CAP = true;
 bool FIX_SLEW = true;
 bool FIX_SLEW_POST = false;
 bool FIX_GLOBAL = true;
+bool FIXDRV_VT_SWAP = false;  // allow VT-swap (retype) moves in fix cap/slew phases
 int GWTW_MAX = 1;
 int GWTW_DIV = 4;
 int GWTW_NUM_START = 4;
@@ -5543,10 +5544,10 @@ void Sizer::runOrdTO() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -violators "
         "-digits 3");
-    _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
+    // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
-        "repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -hold -hold_margin 0.4 -verbose");
+        "repair_design -slew_margin 10 -cap_margin 10 -verbose");
+    _ckt->_ord_design->evalTclString("repair_timing -hold -hold_margin 0.1 -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) + " -verbose");
     const int connected_special_pins
