@@ -203,6 +203,7 @@ extern int KICK_METHOD;
 extern bool FIX_CAP;
 extern bool FIX_SLEW;
 extern bool FIX_GLOBAL;
+extern bool FIXDRV_VT_SWAP;
 extern bool VT_ONLY;
 extern bool SIZE_ONLY;
 extern bool DATA_PIN_ONLY;

@@ -160,7 +160,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                             }
                         }
                         // downgrading
-                        if(r_type(cells[curfo]) != 0) {
+                        if(FIXDRV_VT_SWAP && r_type(cells[curfo]) != 0) {
                             CELL &cell = cells[i];
                             // double delta_slack = EstDeltaSlackNEW(cell, 0,
                             // -1, view);
@@ -340,7 +340,7 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
                     cell_resize(cells[cur], 1);
                     ++change;
                 }
-                else if(r_type(cells[cur]) != (numVt - 1)) {
+                else if(FIXDRV_VT_SWAP && r_type(cells[cur]) != (numVt - 1)) {
                     bool ok = cell_retype(cells[cur], 1);
                     if(!ok) {
                         break;
@@ -562,7 +562,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     delta_impact_size = delta_tran / delta_power;
                 }
 
-                if(r_type(cells[cur]) != (numVt - 1)) {
+                if(FIXDRV_VT_SWAP && r_type(cells[cur]) != (numVt - 1)) {
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     prev_tns = viewTNS[view];
 
@@ -742,7 +742,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                     delta_impact_size = delta_tran / delta_power;
                 }
 
-                if(r_type(cells[ficell]) != (numVt - 1)) {
+                if(FIXDRV_VT_SWAP && r_type(cells[ficell]) != (numVt - 1)) {
                     // CalcStats((unsigned)thread_id, false, "", view, false);
                     prev_tns = viewTNS[view];
 
