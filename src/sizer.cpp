@@ -5532,6 +5532,182 @@ void Sizer::runPreplace() {
     _ckt->_ord_design->writeDef(resultDefFile);
     _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
 }
+
+// Hold-only mode: single repair_timing -hold round, then write results out.
+// Input must be placed (parasitics estimated during load). No sizing loop.
+void Sizer::runHoldOnly() {
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
+    _ckt->_ord_design->evalTclString(
+        "repair_timing -hold -hold_margin 0.1 -verbose");
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
+    // guard: hold buffering must not have broken setup
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
+    if(resultDefFile == "") {
+        resultDefFile = benchname + ".size.def";
+    }
+    if(resultVerilogFile == "") {
+        resultVerilogFile = benchname + ".size.v";
+    }
+    _ckt->_ord_design->writeDef(resultDefFile);
+    _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
+}
+
+#include "greedy_legalize/src/function_cpu.h"
+#include "abacus_legalize/src/abacus_legalize_cpu.h"
+
+// DreamPlace greedy+abacus legalization (vendored ops). Greedy distributes
+// cells across rows by bin capacity, then abacus legalizes in-row with
+// fixed cells as first-class obstacles. Movable core cells are indexed
+// [0, M), fixed core cells [M, N) per the DREAMPlace convention.
+// Returns movable cells placed, -1 when inapplicable (caller falls back).
+int Sizer::legalizeDreamplace() {
+    auto block = _ckt->_ord_design->getBlock();
+    std::vector<odb::dbRow*> rows;
+    for(auto* row : block->getRows()) {
+        rows.push_back(row);
+    }
+    if(rows.empty()) {
+        printf("dp-legalize: no rows, fall back to detailed_placement\n");
+        return -1;
+    }
+    const int site_w = rows[0]->getSite()->getWidth();
+    const int site_h = rows[0]->getSite()->getHeight();
+    int base_x = rows[0]->getOrigin().x();
+    int base_y = rows[0]->getOrigin().y();
+    for(auto* row : rows) {
+        if(row->getSite()->getWidth() != site_w ||
+           row->getSite()->getHeight() != site_h) {
+            printf("dp-legalize: non-uniform rows, fall back\n");
+            return -1;
+        }
+        base_x = std::min(base_x, row->getOrigin().x());
+        base_y = std::min(base_y, row->getOrigin().y());
+    }
+    int max_right = 0;
+    for(auto* row : rows) {
+        max_right = std::max(max_right, row->getOrigin().x() - base_x +
+                                            row->getSiteCount() * site_w);
+    }
+    std::sort(rows.begin(), rows.end(), [](odb::dbRow* a, odb::dbRow* b) {
+        return a->getOrigin().y() != b->getOrigin().y()
+                   ? a->getOrigin().y() < b->getOrigin().y()
+                   : a->getOrigin().x() < b->getOrigin().x();
+    });
+    for(size_t i = 1; i < rows.size(); ++i) {
+        if(rows[i]->getOrigin().y() == rows[i - 1]->getOrigin().y()) {
+            printf("dp-legalize: segmented rows at y=%d, fall back\n",
+                   rows[i]->getOrigin().y());
+            return -1;
+        }
+    }
+
+    std::vector<odb::dbInst*> insts;
+    std::vector<double> sx, sy, px, py, wts;
+    const double core_xh = double(base_x + max_right);
+    const double core_yh = double(base_y + (int)rows.size() * site_h);
+    auto push_node = [&](odb::dbInst* inst) {
+        auto* master = inst->getMaster();
+        int ix = 0, iy = 0;
+        inst->getLocation(ix, iy);
+        double cx = std::max(double(base_x),
+                             std::min(double(ix), core_xh - master->getWidth()));
+        double cy = std::max(double(base_y),
+                             std::min(double(iy), core_yh - master->getHeight()));
+        insts.push_back(inst);
+        sx.push_back(master->getWidth());
+        sy.push_back(master->getHeight());
+        px.push_back(cx);
+        py.push_back(cy);
+        wts.push_back(1.0);
+    };
+    for(auto* inst : block->getInsts()) {
+        auto* master = inst->getMaster();
+        if(!master->isCore() || inst->isFixed()) {
+            continue;
+        }
+        if((int)master->getHeight() != site_h) {
+            printf("dp-legalize: multi-row movable cell %s, fall back\n",
+                   master->getName().c_str());
+            return -1;
+        }
+        push_node(inst);
+    }
+    const int num_movable = (int)insts.size();
+    for(auto* inst : block->getInsts()) {
+        auto* master = inst->getMaster();
+        if(!master->isCore() || !inst->isFixed()) {
+            continue;
+        }
+        push_node(inst);
+    }
+    const int num_nodes = (int)insts.size();
+    if(num_movable == 0) {
+        return 0;
+    }
+
+    std::vector<double> x(px), y(py);
+    DreamPlace::LegalizationDB<double> db;
+    memset(&db, 0, sizeof(db));
+    db.init_x = px.data();
+    db.init_y = py.data();
+    db.node_size_x = sx.data();
+    db.node_size_y = sy.data();
+    db.node_weights = wts.data();
+    db.x = x.data();
+    db.y = y.data();
+    db.xl = base_x;
+    db.yl = base_y;
+    db.xh = core_xh;
+    db.yh = core_yh;
+    db.site_width = site_w;
+    db.row_height = site_h;
+    db.bin_size_x = db.xh - db.xl;
+    db.bin_size_y = site_h;
+    db.num_bins_x = 1;
+    db.num_bins_y = (int)rows.size();
+    db.num_sites_x = max_right / site_w;
+    db.num_sites_y = (int)rows.size();
+    db.num_nodes = num_nodes;
+    db.num_movable_nodes = num_movable;
+    db.num_regions = 0;
+
+    DreamPlace::greedyLegalizationCPU(
+        db, px.data(), py.data(), sx.data(), sy.data(), x.data(), y.data(),
+        db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
+        db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
+    DreamPlace::abacusLegalizationCPU(
+        px.data(), py.data(), sx.data(), sy.data(), wts.data(), x.data(),
+        y.data(), db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
+        db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
+
+    double max_disp = 0.0;
+    for(int i = 0; i < num_movable; ++i) {
+        int rid = (int)llround((y[i] - base_y) / site_h);
+        rid = std::max(0, std::min((int)rows.size() - 1, rid));
+        auto* row = rows[rid];
+        insts[i]->setOrient(row->getOrient());
+        insts[i]->setLocation((int)llround(x[i]), row->getOrigin().y());
+        insts[i]->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+        max_disp =
+            std::max(max_disp, fabs(x[i] - px[i]) + fabs(y[i] - py[i]));
+    }
+    printf("dp-legalize: placed %d cells (%d fixed obstacles), max "
+           "displacement %.0f dbu\n",
+           num_movable, num_nodes - num_movable, max_disp);
+    return num_movable;
+}
+
+
+void Sizer::legalizePlacement() {
+    if(use_native_abacus && legalizeDreamplace() >= 0) {
+        return;
+    }
+    _ckt->_ord_design->evalTclString(
+        "detailed_placement -use_negotiation -abacus");
+}
+
 void Sizer::runOrdTO() {
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
@@ -9649,6 +9825,10 @@ void Sizer::readCmdFile(string cmdFileStr) {
         }
         else if(line.find("-preplace") != string::npos)
             preplaceMode = true;
+        if(line.find("-hold_only") != string::npos)
+            holdOnlyMode = true;
+        if(line.find("-use_native_abacus ") != string::npos)
+            use_native_abacus = getTokenI(line, "-use_native_abacus ");
         if(line.find("-vout ") != string::npos)
             verilogOutFile = getTokenS(line, "-vout ");
         if(line.find("-defout ") != string::npos)
@@ -10686,6 +10866,11 @@ int main(int argc, char **argv) {
 
     if(_sizer.preplaceMode) {
         _sizer.runPreplace();
+        return 0;
+    }
+
+    if(_sizer.holdOnlyMode) {
+        _sizer.runHoldOnly();
         return 0;
     }
 

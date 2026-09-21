@@ -431,6 +431,11 @@ class Sizer {
     std::vector< std::vector< string > > EquaivaID2cellNames;
     void runOrdTO();
     void runPreplace();
+    void runHoldOnly();
+    // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
+    void legalizePlacement();
+    // DreamPlace greedy+abacus legalization (vendored ops).
+    int legalizeDreamplace();
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
     bool use_gr_rc = false;
@@ -440,6 +445,8 @@ class Sizer {
     // With preplaceMode, select the upstream-style gain-buffering round
     // (repair_design -pre_placement) instead of plain violation repair.
     bool preplaceGain = false;
+    // Hold-only mode: run repair_timing -hold then write out. No sizing loop.
+    bool holdOnlyMode = false;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;

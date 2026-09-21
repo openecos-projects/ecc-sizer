@@ -1663,11 +1663,13 @@ ostream& operator<<(ostream& os, SOL& sol) {
 void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     auto corner = _ord_timing->getCorners()[0];
     auto block = _ord_design->getBlock();
-    for(auto db_inst : block->getInsts()) {
-        int inst_x, inst_y;
-        db_inst->getLocation(inst_x, inst_y);
-        old_localtion_x.push_back(inst_x);
-        old_localtion_y.push_back(inst_y);
+    if(old_localtion_x.empty()) {
+        for(auto db_inst : block->getInsts()) {
+            int inst_x, inst_y;
+            db_inst->getLocation(inst_x, inst_y);
+            old_localtion_x.push_back(inst_x);
+            old_localtion_y.push_back(inst_y);
+        }
     }
     bool use_gr_correlation = false;
     int cor_step = 0;
@@ -1729,7 +1731,7 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     sprintf(padding_str, "set_placement_padding -global -left %d -right %d",
             _sizer->dp_padding, _sizer->dp_padding);
     _ord_design->evalTclString(string(padding_str));
-    _ord_design->evalTclString("detailed_placement");
+    _sizer->legalizePlacement();
     double begin = cpuTime();
     if(_sizer->use_gr_rc) {
         // Global Route and estimate global-route RC.
@@ -1910,6 +1912,17 @@ void Circuit::init_opensta() {
     // _ord_design->readVerilog(_sizer->verilogFile);
     // _ord_design->link(_sizer->);
     _ord_design->readDef(_sizer->defFile, true);
+    auto block = _ord_design->getBlock();
+    old_localtion_x.clear();
+    old_localtion_y.clear();
+    old_localtion_x.reserve(block->getInsts().size());
+    old_localtion_y.reserve(block->getInsts().size());
+    for(auto db_inst : block->getInsts()) {
+        int inst_x, inst_y;
+        db_inst->getLocation(inst_x, inst_y);
+        old_localtion_x.push_back(inst_x);
+        old_localtion_y.push_back(inst_y);
+    }
     // std::string spefFile = design_dir + design_name + ".spef";
     if(_sizer->spefFile != "") {
         _ord_design->evalTclString("read_spef " + _sizer->spefFile);
@@ -1959,7 +1972,7 @@ void Circuit::init_opensta() {
     else {
         slack_max_iter = 3;
     }
-    if(_sizer->spefFile == "") {
+    if(_sizer->use_gr_rc && _sizer->spefFile == "" && !_sizer->preplaceMode) {
         runGR(10, false, slack_max_iter);
     }
 
