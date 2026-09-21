@@ -58,8 +58,11 @@ include_directories(${OPENSTA_HDEAR_HOME}
                     ${OPENDP_HDEAR_HOME}
                     ${FASTROUTE_HDEAR_HOME}
                     )
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize)
 
-file(GLOB SOURCES "*.cpp")
+file(GLOB SOURCES "*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/utility/src/*.cpp")
 
 add_executable(Sizer ${SOURCES})
 

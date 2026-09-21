@@ -799,6 +799,8 @@ class Sizer {
     unsigned sensFunc2;
     unsigned sensFuncT;
     unsigned dp_padding = 1;
+    // Use bundled abacus legalizer instead of OpenROAD detailed_placement.
+    bool use_native_abacus = true;
     bool holdCheck;
     bool maxTrCheck;
     bool oaGenFlag;
