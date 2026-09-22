@@ -1338,7 +1338,7 @@ void Sizer::Parser() {
                infdelays[0].count(pin.id) == 0 && _pos_set.count(pin.id) == 0) {
                 // outdelays has bug
                 NET net = _ckt->g_nets[j][net_id];
-                if(!net.is_clock) {
+                if(!net.is_clock && spefFile != "" && spefFile != "None") {
                     printf(
                         "Error: pin %s has no spef pin, pin's net name is %s\n",
                         getFullPinName(pin).c_str(), net.name.c_str());
