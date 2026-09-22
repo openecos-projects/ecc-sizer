@@ -5540,7 +5540,7 @@ void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin 0.1 -verbose");
+        "repair_timing -hold -hold_margin 0.1 -skip_pin_swap -verbose");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: hold buffering must not have broken setup
@@ -5724,9 +5724,11 @@ void Sizer::runOrdTO() {
     // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 10 -cap_margin 10 -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -hold -hold_margin 0.1 -verbose");
+    _ckt->_ord_design->evalTclString(
+        "repair_timing -hold -hold_margin 0.1 -skip_pin_swap -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
-                                     to_string(setup_margin) + " -verbose");
+                                     to_string(setup_margin) +
+                                     " -skip_pin_swap -verbose");
     const int connected_special_pins
         = ecc::connectMissingWildcardSpecialNetPins(
             _ckt->_ord_design->getBlock());
