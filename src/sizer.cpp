@@ -5591,15 +5591,36 @@ int Sizer::legalizeDreamplace() {
         max_right = std::max(max_right, row->getOrigin().x() - base_x +
                                             row->getSiteCount() * site_w);
     }
-    std::sort(rows.begin(), rows.end(), [](odb::dbRow* a, odb::dbRow* b) {
-        return a->getOrigin().y() != b->getOrigin().y()
-                   ? a->getOrigin().y() < b->getOrigin().y()
-                   : a->getOrigin().x() < b->getOrigin().x();
-    });
-    for(size_t i = 1; i < rows.size(); ++i) {
-        if(rows[i]->getOrigin().y() == rows[i - 1]->getOrigin().y()) {
-            printf("dp-legalize: segmented rows at y=%d, fall back\n",
-                   rows[i]->getOrigin().y());
+    // Segmented rows (macros splitting rows) are fine for the bin-based
+    // ops; only require all segments to share one site grid.
+    int max_y = base_y;
+    for(auto* row : rows) {
+        if((row->getOrigin().x() - base_x) % site_w != 0 ||
+           (row->getOrigin().y() - base_y) % site_h != 0) {
+            printf("dp-legalize: row %s off site grid, fall back\n",
+                   row->getName().c_str());
+            return -1;
+        }
+        max_y = std::max(max_y, row->getOrigin().y());
+    }
+    const int num_rows = (max_y - base_y) / site_h + 1;
+    // y-index -> row orient; every y must be covered and consistent.
+    std::vector<int> row_orient_seen(num_rows, 0);
+    std::vector<odb::dbOrientType> row_orient(num_rows);
+    for(auto* row : rows) {
+        int rid = (row->getOrigin().y() - base_y) / site_h;
+        if(row_orient_seen[rid] && !(row->getOrient() == row_orient[rid])) {
+            printf("dp-legalize: inconsistent orient at y=%d, fall back\n",
+                   row->getOrigin().y());
+            return -1;
+        }
+        row_orient_seen[rid] = 1;
+        row_orient[rid] = row->getOrient();
+    }
+    for(int r = 0; r < num_rows; ++r) {
+        if(!row_orient_seen[r]) {
+            printf("dp-legalize: missing row at y=%d, fall back\n",
+                   base_y + r * site_h);
             return -1;
         }
     }
@@ -5607,7 +5628,7 @@ int Sizer::legalizeDreamplace() {
     std::vector<odb::dbInst*> insts;
     std::vector<double> sx, sy, px, py, wts;
     const double core_xh = double(base_x + max_right);
-    const double core_yh = double(base_y + (int)rows.size() * site_h);
+    const double core_yh = double(base_y + num_rows * site_h);
     // Placement padding is enforced post-hoc after the ops (feeding padded
     // widths to the ops makes overfull bins assert inside the vendored
     // code). Per row: shift cells right to open dp_padding-site gaps;
@@ -5672,9 +5693,9 @@ int Sizer::legalizeDreamplace() {
     db.bin_size_x = db.xh - db.xl;
     db.bin_size_y = site_h;
     db.num_bins_x = 1;
-    db.num_bins_y = (int)rows.size();
+    db.num_bins_y = num_rows;
     db.num_sites_x = max_right / site_w;
-    db.num_sites_y = (int)rows.size();
+    db.num_sites_y = num_rows;
     db.num_nodes = num_nodes;
     db.num_movable_nodes = num_movable;
     db.num_regions = 0;
@@ -5693,22 +5714,22 @@ int Sizer::legalizeDreamplace() {
     // dp_padding-site gaps (fixed insts are obstacles). Rows that cannot
     // fit degrade to gap 0, keeping the ops' feasible positions.
     if(pad_dbu > 0) {
-        std::vector<std::vector<int>> row_cells(rows.size());
-        std::vector<std::vector<std::pair<double, double>>> fxd(rows.size());
+        std::vector<std::vector<int>> row_cells(num_rows);
+        std::vector<std::vector<std::pair<double, double>>> fxd(num_rows);
         for(int i = 0; i < num_movable; ++i) {
             int rid = std::max(
-                0, std::min((int)rows.size() - 1,
+                0, std::min(num_rows - 1,
                             (int)llround((y[i] - base_y) / site_h)));
             row_cells[rid].push_back(i);
         }
         for(int j = num_movable; j < num_nodes; ++j) {
             int rid = std::max(
-                0, std::min((int)rows.size() - 1,
+                0, std::min(num_rows - 1,
                             (int)llround((py[j] - base_y) / site_h)));
             fxd[rid].push_back({px[j], px[j] + sx[j]});
         }
         int degraded_rows = 0;
-        for(size_t r = 0; r < rows.size(); ++r) {
+        for(int r = 0; r < num_rows; ++r) {
             auto& cids = row_cells[r];
             auto& fiv = fxd[r];
             if(cids.empty()) {
@@ -5760,10 +5781,9 @@ int Sizer::legalizeDreamplace() {
     double max_disp = 0.0;
     for(int i = 0; i < num_movable; ++i) {
         int rid = (int)llround((y[i] - base_y) / site_h);
-        rid = std::max(0, std::min((int)rows.size() - 1, rid));
-        auto* row = rows[rid];
-        insts[i]->setOrient(row->getOrient());
-        insts[i]->setLocation((int)llround(x[i]), row->getOrigin().y());
+        rid = std::max(0, std::min(num_rows - 1, rid));
+        insts[i]->setOrient(row_orient[rid]);
+        insts[i]->setLocation((int)llround(x[i]), base_y + rid * site_h);
         insts[i]->setPlacementStatus(odb::dbPlacementStatus::PLACED);
         max_disp =
             std::max(max_disp, fabs(x[i] - px[i]) + fabs(y[i] - py[i]));
