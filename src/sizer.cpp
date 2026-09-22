@@ -5608,7 +5608,12 @@ int Sizer::legalizeDreamplace() {
     std::vector<double> sx, sy, px, py, wts;
     const double core_xh = double(base_x + max_right);
     const double core_yh = double(base_y + (int)rows.size() * site_h);
-    auto push_node = [&](odb::dbInst* inst) {
+    // Placement padding is enforced post-hoc after the ops (feeding padded
+    // widths to the ops makes overfull bins assert inside the vendored
+    // code). Per row: shift cells right to open dp_padding-site gaps;
+    // rows that cannot fit degrade to gap 0 for that row.
+    const double pad_dbu = 1.0 * dp_padding * site_w;
+    auto push_node = [&](odb::dbInst* inst, bool movable) {
         auto* master = inst->getMaster();
         int ix = 0, iy = 0;
         inst->getLocation(ix, iy);
@@ -5633,7 +5638,7 @@ int Sizer::legalizeDreamplace() {
                    master->getName().c_str());
             return -1;
         }
-        push_node(inst);
+        push_node(inst, true);
     }
     const int num_movable = (int)insts.size();
     for(auto* inst : block->getInsts()) {
@@ -5641,7 +5646,7 @@ int Sizer::legalizeDreamplace() {
         if(!master->isCore() || !inst->isFixed()) {
             continue;
         }
-        push_node(inst);
+        push_node(inst, false);
     }
     const int num_nodes = (int)insts.size();
     if(num_movable == 0) {
@@ -5682,6 +5687,75 @@ int Sizer::legalizeDreamplace() {
         px.data(), py.data(), sx.data(), sy.data(), wts.data(), x.data(),
         y.data(), db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
         db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
+
+    const std::vector<double> opx = x;
+    // Post-hoc placement padding: per row, shift cells right to open
+    // dp_padding-site gaps (fixed insts are obstacles). Rows that cannot
+    // fit degrade to gap 0, keeping the ops' feasible positions.
+    if(pad_dbu > 0) {
+        std::vector<std::vector<int>> row_cells(rows.size());
+        std::vector<std::vector<std::pair<double, double>>> fxd(rows.size());
+        for(int i = 0; i < num_movable; ++i) {
+            int rid = std::max(
+                0, std::min((int)rows.size() - 1,
+                            (int)llround((y[i] - base_y) / site_h)));
+            row_cells[rid].push_back(i);
+        }
+        for(int j = num_movable; j < num_nodes; ++j) {
+            int rid = std::max(
+                0, std::min((int)rows.size() - 1,
+                            (int)llround((py[j] - base_y) / site_h)));
+            fxd[rid].push_back({px[j], px[j] + sx[j]});
+        }
+        int degraded_rows = 0;
+        for(size_t r = 0; r < rows.size(); ++r) {
+            auto& cids = row_cells[r];
+            auto& fiv = fxd[r];
+            if(cids.empty()) {
+                continue;
+            }
+            std::sort(cids.begin(), cids.end(),
+                      [&](int a, int b) { return x[a] < x[b]; });
+            std::sort(fiv.begin(), fiv.end());
+            for(int attempt = 0; attempt < 2; ++attempt) {
+                const double gap = attempt == 0 ? pad_dbu : 0.0;
+                double prev_end = base_x;
+                size_t fi = 0;
+                bool overflow = false;
+                for(int ci : cids) {
+                    const double w = sx[ci];
+                    double cx = std::max(attempt == 0 ? x[ci] : opx[ci],
+                                         prev_end);
+                    while(fi < fiv.size() && fiv[fi].second <= cx) {
+                        ++fi;
+                    }
+                    while(fi < fiv.size() && cx + w > fiv[fi].first) {
+                        cx = fiv[fi].second;
+                        ++fi;
+                        while(fi < fiv.size() && fiv[fi].second <= cx) {
+                            ++fi;
+                        }
+                    }
+                    if(cx + w > core_xh + 1e-9) {
+                        overflow = true;
+                        break;
+                    }
+                    x[ci] = cx;
+                    prev_end = cx + w + gap;
+                }
+                if(!overflow) {
+                    if(attempt > 0) {
+                        ++degraded_rows;
+                    }
+                    break;
+                }
+            }
+        }
+        if(degraded_rows > 0) {
+            printf("dp-legalize: %d rows degraded to zero padding\n",
+                   degraded_rows);
+        }
+    }
 
     double max_disp = 0.0;
     for(int i = 0; i < num_movable; ++i) {
