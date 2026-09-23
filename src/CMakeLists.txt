@@ -77,6 +77,20 @@ if(BUILD_TESTING)
     )
     target_link_libraries(ecc_sizer_special_net_test odb)
     add_test(NAME ecc_sizer_special_net COMMAND ecc_sizer_special_net_test)
+
+    add_executable(ecc_sizer_legalize_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/legalize_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/legalize_core.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/greedy_legalize_cpu.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/legalize_bin_cpu.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/merge_bin_cpu.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/utility/src/msg.cpp
+    )
+    target_include_directories(ecc_sizer_legalize_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize
+    )
+    add_test(NAME ecc_sizer_legalize COMMAND ecc_sizer_legalize_test)
 endif()
 
 if(LIBPROFILER_FOUND)

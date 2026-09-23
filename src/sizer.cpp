@@ -5588,80 +5588,27 @@ int Sizer::legalizeDreamplace() {
     }
     const int site_w = rows[0]->getSite()->getWidth();
     const int site_h = rows[0]->getSite()->getHeight();
-    int base_x = rows[0]->getOrigin().x();
-    int base_y = rows[0]->getOrigin().y();
+    std::vector<ecc::LegalizeRowSeg> segs;
+    std::map<int, odb::dbOrientType> orient_of_y;
     for(auto* row : rows) {
         if(row->getSite()->getWidth() != site_w ||
            row->getSite()->getHeight() != site_h) {
             printf("dp-legalize: non-uniform rows, fall back\n");
             return -1;
         }
-        base_x = std::min(base_x, row->getOrigin().x());
-        base_y = std::min(base_y, row->getOrigin().y());
-    }
-    int max_right = 0;
-    for(auto* row : rows) {
-        max_right = std::max(max_right, row->getOrigin().x() - base_x +
-                                            row->getSiteCount() * site_w);
-    }
-    // Segmented rows (macros splitting rows) are fine for the bin-based
-    // ops; only require all segments to share one site grid.
-    int max_y = base_y;
-    for(auto* row : rows) {
-        if((row->getOrigin().x() - base_x) % site_w != 0 ||
-           (row->getOrigin().y() - base_y) % site_h != 0) {
-            printf("dp-legalize: row %s off site grid, fall back\n",
-                   row->getName().c_str());
-            return -1;
-        }
-        max_y = std::max(max_y, row->getOrigin().y());
-    }
-    const int num_rows = (max_y - base_y) / site_h + 1;
-    // y-index -> row orient; every y must be covered and consistent.
-    std::vector<int> row_orient_seen(num_rows, 0);
-    std::vector<odb::dbOrientType> row_orient(num_rows);
-    for(auto* row : rows) {
-        int rid = (row->getOrigin().y() - base_y) / site_h;
-        if(row_orient_seen[rid] && !(row->getOrient() == row_orient[rid])) {
+        segs.push_back({row->getOrigin().x(), row->getOrigin().y(),
+                        row->getSiteCount()});
+        int ry = row->getOrigin().y();
+        if(orient_of_y.count(ry) && orient_of_y[ry] != row->getOrient()) {
             printf("dp-legalize: inconsistent orient at y=%d, fall back\n",
-                   row->getOrigin().y());
+                   ry);
             return -1;
         }
-        row_orient_seen[rid] = 1;
-        row_orient[rid] = row->getOrient();
-    }
-    for(int r = 0; r < num_rows; ++r) {
-        if(!row_orient_seen[r]) {
-            printf("dp-legalize: missing row at y=%d, fall back\n",
-                   base_y + r * site_h);
-            return -1;
-        }
+        orient_of_y[ry] = row->getOrient();
     }
 
+    std::vector<ecc::LegalizeNode> nodes;
     std::vector<odb::dbInst*> insts;
-    std::vector<double> sx, sy, px, py, wts;
-    const double core_xh = double(base_x + max_right);
-    const double core_yh = double(base_y + num_rows * site_h);
-    // Placement padding is enforced post-hoc after the ops (feeding padded
-    // widths to the ops makes overfull bins assert inside the vendored
-    // code). Per row: shift cells right to open dp_padding-site gaps;
-    // rows that cannot fit degrade to gap 0 for that row.
-    const double pad_dbu = 1.0 * dp_padding * site_w;
-    auto push_node = [&](odb::dbInst* inst, bool movable) {
-        auto* master = inst->getMaster();
-        int ix = 0, iy = 0;
-        inst->getLocation(ix, iy);
-        double cx = std::max(double(base_x),
-                             std::min(double(ix), core_xh - master->getWidth()));
-        double cy = std::max(double(base_y),
-                             std::min(double(iy), core_yh - master->getHeight()));
-        insts.push_back(inst);
-        sx.push_back(master->getWidth());
-        sy.push_back(master->getHeight());
-        px.push_back(cx);
-        py.push_back(cy);
-        wts.push_back(1.0);
-    };
     for(auto* inst : block->getInsts()) {
         auto* master = inst->getMaster();
         if(!master->isCore() || inst->isFixed()) {
@@ -5672,138 +5619,48 @@ int Sizer::legalizeDreamplace() {
                    master->getName().c_str());
             return -1;
         }
-        push_node(inst, true);
+        int ix = 0, iy = 0;
+        inst->getLocation(ix, iy);
+        insts.push_back(inst);
+        nodes.push_back({double(ix), double(iy), double(master->getWidth()),
+                         double(master->getHeight()), false});
     }
     const int num_movable = (int)insts.size();
     for(auto* inst : block->getInsts()) {
-        auto* master = inst->getMaster();
-        if(!master->isCore() || !inst->isFixed()) {
+        // Any fixed instance (macros included) is an obstacle for the ops.
+        if(!inst->isFixed()) {
             continue;
         }
-        push_node(inst, false);
+        auto* master = inst->getMaster();
+        int ix = 0, iy = 0;
+        inst->getLocation(ix, iy);
+        nodes.push_back({double(ix), double(iy), double(master->getWidth()),
+                         double(master->getHeight()), true});
     }
-    const int num_nodes = (int)insts.size();
     if(num_movable == 0) {
         return 0;
     }
 
-    std::vector<double> x(px), y(py);
-    DreamPlace::LegalizationDB<double> db;
-    memset(&db, 0, sizeof(db));
-    db.init_x = px.data();
-    db.init_y = py.data();
-    db.node_size_x = sx.data();
-    db.node_size_y = sy.data();
-    db.node_weights = wts.data();
-    db.x = x.data();
-    db.y = y.data();
-    db.xl = base_x;
-    db.yl = base_y;
-    db.xh = core_xh;
-    db.yh = core_yh;
-    db.site_width = site_w;
-    db.row_height = site_h;
-    db.bin_size_x = db.xh - db.xl;
-    db.bin_size_y = site_h;
-    db.num_bins_x = 1;
-    db.num_bins_y = num_rows;
-    db.num_sites_x = max_right / site_w;
-    db.num_sites_y = num_rows;
-    db.num_nodes = num_nodes;
-    db.num_movable_nodes = num_movable;
-    db.num_regions = 0;
-
-    DreamPlace::greedyLegalizationCPU(
-        db, px.data(), py.data(), sx.data(), sy.data(), x.data(), y.data(),
-        db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
-        db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
-    DreamPlace::abacusLegalizationCPU(
-        px.data(), py.data(), sx.data(), sy.data(), wts.data(), x.data(),
-        y.data(), db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
-        db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
-
-    const std::vector<double> opx = x;
-    // Post-hoc placement padding: per row, shift cells right to open
-    // dp_padding-site gaps (fixed insts are obstacles). Rows that cannot
-    // fit degrade to gap 0, keeping the ops' feasible positions.
-    if(pad_dbu > 0) {
-        std::vector<std::vector<int>> row_cells(num_rows);
-        std::vector<std::vector<std::pair<double, double>>> fxd(num_rows);
-        for(int i = 0; i < num_movable; ++i) {
-            int rid = std::max(
-                0, std::min(num_rows - 1,
-                            (int)llround((y[i] - base_y) / site_h)));
-            row_cells[rid].push_back(i);
-        }
-        for(int j = num_movable; j < num_nodes; ++j) {
-            int rid = std::max(
-                0, std::min(num_rows - 1,
-                            (int)llround((py[j] - base_y) / site_h)));
-            fxd[rid].push_back({px[j], px[j] + sx[j]});
-        }
-        int degraded_rows = 0;
-        for(int r = 0; r < num_rows; ++r) {
-            auto& cids = row_cells[r];
-            auto& fiv = fxd[r];
-            if(cids.empty()) {
-                continue;
-            }
-            std::sort(cids.begin(), cids.end(),
-                      [&](int a, int b) { return x[a] < x[b]; });
-            std::sort(fiv.begin(), fiv.end());
-            for(int attempt = 0; attempt < 2; ++attempt) {
-                const double gap = attempt == 0 ? pad_dbu : 0.0;
-                double prev_end = base_x;
-                size_t fi = 0;
-                bool overflow = false;
-                for(int ci : cids) {
-                    const double w = sx[ci];
-                    double cx = std::max(attempt == 0 ? x[ci] : opx[ci],
-                                         prev_end);
-                    while(fi < fiv.size() && fiv[fi].second <= cx) {
-                        ++fi;
-                    }
-                    while(fi < fiv.size() && cx + w > fiv[fi].first) {
-                        cx = fiv[fi].second;
-                        ++fi;
-                        while(fi < fiv.size() && fiv[fi].second <= cx) {
-                            ++fi;
-                        }
-                    }
-                    if(cx + w > core_xh + 1e-9) {
-                        overflow = true;
-                        break;
-                    }
-                    x[ci] = cx;
-                    prev_end = cx + w + gap;
-                }
-                if(!overflow) {
-                    if(attempt > 0) {
-                        ++degraded_rows;
-                    }
-                    break;
-                }
-            }
-        }
-        if(degraded_rows > 0) {
-            printf("dp-legalize: %d rows degraded to zero padding\n",
-                   degraded_rows);
-        }
+    std::vector<double> out_x;
+    std::vector<int> out_row;
+    int base_x = 0, base_y = 0, num_rows = 0;
+    if(ecc::dpLegalizeCore(segs, site_w, site_h, nodes, num_movable,
+                           double(dp_padding), out_x, out_row, base_x, base_y,
+                           num_rows) != 0) {
+        return -1;
     }
 
     double max_disp = 0.0;
     for(int i = 0; i < num_movable; ++i) {
-        int rid = (int)llround((y[i] - base_y) / site_h);
-        rid = std::max(0, std::min(num_rows - 1, rid));
-        insts[i]->setOrient(row_orient[rid]);
-        insts[i]->setLocation((int)llround(x[i]), base_y + rid * site_h);
+        const int ry = base_y + out_row[i] * site_h;
+        insts[i]->setOrient(orient_of_y[ry]);
+        insts[i]->setLocation((int)llround(out_x[i]), ry);
         insts[i]->setPlacementStatus(odb::dbPlacementStatus::PLACED);
-        max_disp =
-            std::max(max_disp, fabs(x[i] - px[i]) + fabs(y[i] - py[i]));
+        max_disp = std::max(max_disp, fabs(out_x[i] - nodes[i].x) +
+                                          fabs(ry - nodes[i].y));
     }
-    printf("dp-legalize: placed %d cells (%d fixed obstacles), max "
-           "displacement %.0f dbu\n",
-           num_movable, num_nodes - num_movable, max_disp);
+    printf("dp-legalize: placed %d cells, max displacement %.0f dbu\n",
+           num_movable, max_disp);
     return num_movable;
 }
 
