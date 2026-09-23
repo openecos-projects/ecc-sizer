@@ -432,6 +432,7 @@ class Sizer {
     void runOrdTO();
     void runPreplace();
     void runHoldOnly();
+    void runLegalizeOnly();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
     void legalizePlacement();
     // DreamPlace greedy+abacus legalization (vendored ops).
@@ -442,10 +443,13 @@ class Sizer {
     // Pre-place mode: repair DRV (fanout/slew/cap) once via OpenROAD
     // repair_design and write out; no sizing loop, no placement.
     bool preplaceMode = false;
-    // With preplaceMode, select the upstream-style gain-buffering round
-    // (repair_design -pre_placement) instead of plain violation repair.
+    // With preplaceMode, -preplace_gain selects the upstream-style
+    // gain-buffering round instead of plain violation repair.
     bool preplaceGain = false;
+
     // Hold-only mode: run repair_timing -hold then write out. No sizing loop.
+    // Legalize-only mode: run legalizePlacement then write out.
+    bool legalizeOnlyMode = false;
     bool holdOnlyMode = false;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);

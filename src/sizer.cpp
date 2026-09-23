@@ -5555,8 +5555,21 @@ void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
 }
 
-#include "greedy_legalize/src/function_cpu.h"
-#include "abacus_legalize/src/abacus_legalize_cpu.h"
+// Legalize-only mode: load, legalizePlacement, write out. No repair, no
+// sizing loop. Fast legality verification for a design state.
+void Sizer::runLegalizeOnly() {
+    legalizePlacement();
+    if(resultDefFile == "") {
+        resultDefFile = benchname + ".size.def";
+    }
+    if(resultVerilogFile == "") {
+        resultVerilogFile = benchname + ".size.v";
+    }
+    _ckt->_ord_design->writeDef(resultDefFile);
+    _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
+}
+
+#include "legalize_core.h"
 
 // DreamPlace greedy+abacus legalization (vendored ops). Greedy distributes
 // cells across rows by bin capacity, then abacus legalizes in-row with
@@ -9802,6 +9815,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             preplaceMode = true;
         if(line.find("-hold_only") != string::npos)
             holdOnlyMode = true;
+        if(line.find("-legalize_only") != string::npos)
+            legalizeOnlyMode = true;
         if(line.find("-use_native_abacus ") != string::npos)
             use_native_abacus = getTokenI(line, "-use_native_abacus ");
         if(line.find("-vout ") != string::npos)
@@ -10846,6 +10861,11 @@ int main(int argc, char **argv) {
 
     if(_sizer.holdOnlyMode) {
         _sizer.runHoldOnly();
+        return 0;
+    }
+
+    if(_sizer.legalizeOnlyMode) {
+        _sizer.runLegalizeOnly();
         return 0;
     }
 
