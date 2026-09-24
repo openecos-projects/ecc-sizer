@@ -5530,6 +5530,13 @@ void Sizer::runPreplace() {
     if(resultVerilogFile == "") {
         resultVerilogFile = benchname + ".size.v";
     }
+    const int connected_special_pins
+        = ecc::connectMissingWildcardSpecialNetPins(
+            _ckt->_ord_design->getBlock());
+    if(connected_special_pins > 0) {
+        cout << "Connected " << connected_special_pins
+             << " new instance pins to wildcard special nets." << endl;
+    }
     _ckt->_ord_design->writeDef(resultDefFile);
     _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
 }
@@ -5545,6 +5552,15 @@ void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: hold buffering must not have broken setup
     _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
+    {
+        const int connected_special_pins
+            = ecc::connectMissingWildcardSpecialNetPins(
+                _ckt->_ord_design->getBlock());
+        if(connected_special_pins > 0) {
+            cout << "Connected " << connected_special_pins
+                 << " new instance pins to wildcard special nets." << endl;
+        }
+    }
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }
