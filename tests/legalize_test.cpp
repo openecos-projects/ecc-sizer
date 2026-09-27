@@ -22,7 +22,9 @@ struct Scenario {
     std::vector<LegalizeRowSeg> segs;
     std::vector<LegalizeNode> nodes;  // movable first, then fixed
     int num_movable = 0;
-    double padding = 0.0;             // sites per side
+    double padding = 0.0;  // best-effort inter-cell gap in sites
+    bool require_padding = false;
+    bool expect_padding_relaxation = false;
 };
 
 // Row helpers: full rows [0, x1) at y = base_y + r*SITE_H
@@ -131,6 +133,12 @@ void verify(const Scenario& sc, const std::vector<LegalizeNode>& nodes,
         }
         printf("  padding violations: %d (allowed only on degraded rows)\n",
                pad_viol);
+        if(sc.require_padding) {
+            check(pad_viol == 0, "padding must be preserved when feasible");
+        }
+        if(sc.expect_padding_relaxation) {
+            check(pad_viol > 0, "full row must relax extra padding");
+        }
     }
 }
 
@@ -164,6 +172,14 @@ Scenario make_basic() {
     }
     sc.num_movable = 6;
     sc.padding = 1.0;
+    sc.require_padding = true;
+    return sc;
+}
+
+Scenario make_two_site_padding() {
+    Scenario sc = make_basic();
+    sc.name = "basic two-site padding";
+    sc.padding = 2.0;
     return sc;
 }
 
@@ -205,7 +221,56 @@ Scenario make_macro_row() {
     return sc;
 }
 
-// 3. Overfull row: 30 cells of 8 sites on a 237-site row + padding.
+// 3. Fixed macro is completely covered by a segmented-row gap. The obstacle
+// union fits, while summing the macro and gap independently would not.
+Scenario make_macro_inside_gap() {
+    Scenario sc;
+    sc.name = "macro inside row gap";
+    const int base_x = 2000, base_y = 2000;
+    sc.segs = {{base_x, base_y, 15},
+               {base_x + 35 * SITE_W, base_y, 15}};
+    sc.nodes.push_back({base_x + 15 * SITE_W, double(base_y),
+                        20.0 * SITE_W, double(SITE_H), true});
+    for(int i = 0; i < 10; ++i) {
+        sc.nodes.push_back({double(base_x + (i % 5) * 400),
+                            double(base_y), 2.0 * SITE_W, double(SITE_H),
+                            false});
+    }
+    std::vector<LegalizeNode> mv, fx;
+    for(auto& n : sc.nodes) {
+        (n.fixed ? fx : mv).push_back(n);
+    }
+    sc.nodes = mv;
+    sc.nodes.insert(sc.nodes.end(), fx.begin(), fx.end());
+    sc.num_movable = (int)mv.size();
+    sc.padding = 0.0;
+    return sc;
+}
+
+Scenario make_macro_inside_gap_with_padding() {
+    Scenario sc = make_macro_inside_gap();
+    sc.name = "macro inside row gap with padding";
+    sc.padding = 1.0;
+    sc.require_padding = true;
+    return sc;
+}
+
+// Physical cells fit exactly; extra gaps must not create overlaps or overflow.
+Scenario make_padding_relaxation() {
+    Scenario sc;
+    sc.name = "full row relaxes extra padding";
+    sc.segs = full_rows(1, 2000, 2000, 10);
+    for(int i = 0; i < 5; ++i) {
+        sc.nodes.push_back({2000.0 + i * 400, 2000.0, 400, SITE_H,
+                            false});
+    }
+    sc.num_movable = 5;
+    sc.padding = 2.0;
+    sc.expect_padding_relaxation = true;
+    return sc;
+}
+
+// 4. Overfull row: 30 cells of 8 sites on a 237-site row + padding.
 Scenario make_overfull() {
     Scenario sc;
     sc.name = "overfull row with padding";
@@ -220,7 +285,21 @@ Scenario make_overfull() {
     return sc;
 }
 
-// 4. Off-grid macro edge: fixed macro ending at x=20850 (not site-aligned).
+// 5. A genuinely overfull single row must still fall back.
+Scenario make_true_overfull() {
+    Scenario sc;
+    sc.name = "genuinely overfull row";
+    sc.segs = full_rows(1, 2000, 2000, 20);
+    for(int i = 0; i < 6; ++i) {
+        sc.nodes.push_back({2000.0 + i * 400, 2000.0, 800, SITE_H,
+                            false});
+    }
+    sc.num_movable = 6;
+    sc.padding = 0.0;
+    return sc;
+}
+
+// 6. Off-grid macro edge: fixed macro ending at x=20850 (not site-aligned).
 Scenario make_offgrid_macro() {
     Scenario sc;
     sc.name = "off-grid macro edge";
@@ -256,8 +335,13 @@ void run_expect_fallback(const Scenario& sc) {
 
 int main() {
     run(make_basic());
+    run(make_two_site_padding());
     run(make_macro_row());
+    run(make_macro_inside_gap());
+    run(make_macro_inside_gap_with_padding());
+    run(make_padding_relaxation());
     run(make_overfull());  // greedy relocates the excess cell to row 1
+    run_expect_fallback(make_true_overfull());
     run(make_offgrid_macro());
     if(failures == 0) {
         printf("ALL LEGALIZE TESTS PASSED\n");

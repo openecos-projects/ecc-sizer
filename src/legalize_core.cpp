@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include "greedy_legalize/src/function_cpu.h"
 #include "abacus_legalize/src/abacus_legalize_cpu.h"
@@ -60,54 +61,108 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     }
     num_rows_out = num_rows;
 
-    std::vector<double> sx, sy, px, py, wts;
     const double core_xh = double(base_x + max_right);
     const double core_yh = double(base_y + num_rows * site_h);
-    auto push_node = [&](LegalizeNode& nd) {
-        double cx = std::max(double(base_x), std::min(nd.x, core_xh - nd.w));
-        double cy = std::max(double(base_y), std::min(nd.y, core_yh - nd.h));
+    using Interval = std::pair<double, double>;
+    std::vector<std::vector<Interval>> row_obstacles(num_rows);
+    auto add_obstacle = [&](int rid_lo, int rid_hi, double x0, double x1) {
+        x0 = std::max(x0, double(base_x));
+        x1 = std::min(x1, core_xh);
+        if(x1 <= x0) {
+            return;
+        }
+        rid_lo = std::max(0, std::min(num_rows - 1, rid_lo));
+        rid_hi = std::max(0, std::min(num_rows - 1, rid_hi));
+        for(int rid = rid_lo; rid <= rid_hi; ++rid) {
+            row_obstacles[rid].push_back({x0, x1});
+        }
+    };
+    auto clamp_node_x = [&](const LegalizeNode& nd) {
+        return std::max(double(base_x), std::min(nd.x, core_xh - nd.w));
+    };
+    auto clamp_node_y = [&](const LegalizeNode& nd) {
+        return std::max(double(base_y), std::min(nd.y, core_yh - nd.h));
+    };
+
+    // Fixed instances and row gaps are both obstacles. Build their union per
+    // row before handing the geometry to DreamPlace so no fixed nodes overlap.
+    for(int j = num_movable; j < (int)nodes.size(); ++j) {
+        const LegalizeNode& nd = nodes[j];
+        const double x = clamp_node_x(nd);
+        const double y = clamp_node_y(nd);
+        const int rid_lo = (int)floor((y - base_y) / site_h);
+        const int rid_hi = (int)floor((y + nd.h - 1 - base_y) / site_h);
+        add_obstacle(rid_lo, rid_hi, x, x + nd.w);
+    }
+
+    std::vector<std::vector<std::pair<int, int>>> seg_ints(num_rows);
+    for(auto& row : segs) {
+        int rid = (row.origin_y - base_y) / site_h;
+        seg_ints[rid].push_back(
+            {row.origin_x, row.origin_x + row.site_count * site_w});
+    }
+    const int core_x0 = base_x;
+    const int core_x1 = base_x + max_right;
+    for(int r = 0; r < num_rows; ++r) {
+        auto& ivs = seg_ints[r];
+        std::sort(ivs.begin(), ivs.end());
+        int cursor = core_x0;
+        for(auto& iv : ivs) {
+            if(iv.first > cursor && iv.first - cursor >= site_w) {
+                add_obstacle(r, r, cursor, iv.first);
+            }
+            cursor = std::max(cursor, iv.second);
+        }
+        if(core_x1 - cursor >= site_w) {
+            add_obstacle(r, r, cursor, core_x1);
+        }
+    }
+
+    std::vector<double> row_obstacle_width(num_rows, 0.0);
+    for(int r = 0; r < num_rows; ++r) {
+        auto& obstacles = row_obstacles[r];
+        std::sort(obstacles.begin(), obstacles.end(),
+                  [](const Interval& lhs, const Interval& rhs) {
+                      return lhs.first < rhs.first ||
+                             (lhs.first == rhs.first &&
+                              lhs.second < rhs.second);
+                  });
+        std::vector<Interval> merged;
+        for(const Interval& obstacle : obstacles) {
+            if(merged.empty() || obstacle.first > merged.back().second) {
+                merged.push_back(obstacle);
+            }
+            else {
+                merged.back().second =
+                    std::max(merged.back().second, obstacle.second);
+            }
+        }
+        obstacles.swap(merged);
+        for(const Interval& obstacle : obstacles) {
+            row_obstacle_width[r] += obstacle.second - obstacle.first;
+        }
+    }
+
+    std::vector<double> sx, sy, px, py, wts;
+    auto push_node = [&](const LegalizeNode& nd) {
+        double cx = clamp_node_x(nd);
+        double cy = clamp_node_y(nd);
         sx.push_back(nd.w);
         sy.push_back(nd.h);
         px.push_back(cx);
         py.push_back(cy);
         wts.push_back(1.0);
     };
-    for(auto& nd : nodes) {
-        push_node(nd);
+    for(int i = 0; i < num_movable; ++i) {
+        push_node(nodes[i]);
     }
-    // Row-segment gaps (macro halos, row cuts) are invisible to the
-    // continuous bin model; add each gap as a fake fixed obstacle node so
-    // the ops never place cells there.
-    {
-        std::vector<std::vector<std::pair<int, int>>> seg_ints(num_rows);
-        for(auto& row : segs) {
-            int rid = (row.origin_y - base_y) / site_h;
-            seg_ints[rid].push_back(
-                {row.origin_x, row.origin_x + row.site_count * site_w});
-        }
-        const int core_x0 = base_x;
-        const int core_x1 = base_x + max_right;
-        for(int r = 0; r < num_rows; ++r) {
-            auto& ivs = seg_ints[r];
-            std::sort(ivs.begin(), ivs.end());
-            int cursor = core_x0;
-            for(auto& iv : ivs) {
-                if(iv.first > cursor && iv.first - cursor >= site_w) {
-                    sx.push_back(iv.first - cursor);
-                    sy.push_back(site_h);
-                    px.push_back(cursor);
-                    py.push_back(base_y + r * site_h);
-                    wts.push_back(1.0);
-                }
-                cursor = std::max(cursor, iv.second);
-            }
-            if(core_x1 - cursor >= site_w) {
-                sx.push_back(core_x1 - cursor);
-                sy.push_back(site_h);
-                px.push_back(cursor);
-                py.push_back(base_y + r * site_h);
-                wts.push_back(1.0);
-            }
+    for(int r = 0; r < num_rows; ++r) {
+        for(const Interval& obstacle : row_obstacles[r]) {
+            sx.push_back(obstacle.second - obstacle.first);
+            sy.push_back(site_h);
+            px.push_back(obstacle.first);
+            py.push_back(base_y + r * site_h);
+            wts.push_back(1.0);
         }
     }
     const int num_nodes = (int)sx.size();
@@ -150,7 +205,7 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     // capacity) would trip the vendored abacus' internal assert. Detect and
     // let the caller fall back to DPL instead of moving cells around.
     {
-        std::vector<double> row_mov(num_rows, 0.0), row_fix(num_rows, 0.0);
+        std::vector<double> row_mov(num_rows, 0.0);
         auto row_of = [&](double yy) {
             return std::max(
                 0, std::min(num_rows - 1,
@@ -159,23 +214,12 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         for(int i = 0; i < num_movable; ++i) {
             row_mov[row_of(y[i])] += sx[i];
         }
-        for(int j = num_movable; j < num_nodes; ++j) {
-            int rid_lo =
-                std::max(0, (int)floor((py[j] - base_y) / site_h));
-            int rid_hi = std::min(
-                num_rows - 1,
-                (int)floor((py[j] + sy[j] - 1 - base_y) / site_h));
-            rid_lo = std::min(rid_lo, num_rows - 1);
-            for(int rid = rid_lo; rid <= rid_hi; ++rid) {
-                row_fix[rid] += sx[j];
-            }
-        }
         const double row_cap = double(max_right);
         for(int r = 0; r < num_rows; ++r) {
-            if(row_mov[r] + row_fix[r] > row_cap) {
+            if(row_mov[r] + row_obstacle_width[r] > row_cap) {
                 printf("dp-legalize: row %d overfull (mov %.0f + fix %.0f > "
                        "%.0f), inapplicable\n",
-                       r, row_mov[r], row_fix[r], row_cap);
+                       r, row_mov[r], row_obstacle_width[r], row_cap);
                 return -1;
             }
         }
