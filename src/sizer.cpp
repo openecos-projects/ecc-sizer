@@ -73,6 +73,8 @@
 #endif
 #include "ord/OpenRoad.hh"
 #include "grt/GlobalRouter.h"
+#include "buffer_inserter.h"
+#include "fanout_repair.h"
 #include "special_net.h"
 
 // global variables
@@ -556,6 +558,14 @@ void Sizer::ReportOptions() {
     cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
          << GTRMetricNames[GTR_METRIC2] << endl;
     cout << "Test Mode      : " << TEST_MODE << endl;
+    if(sizerFanoutRepairMode) {
+        cout << "Sizer Fanout   : repair to " << sizerMaxFanout << endl;
+        cout << "Buffer Cell    : "
+             << (sizerBufferCell.empty() ? "auto" : sizerBufferCell)
+             << endl;
+        cout << "Repair Clocks  : "
+             << (sizerRepairClockNets ? "yes" : "no") << endl;
+    }
     cout << "ALPHA          : " << ALPHA << endl;
     cout << "TRIAL RATE     : " << TRIAL_RATE << endl;
     if(USE_PT)
@@ -1391,6 +1401,18 @@ void Sizer::Parser() {
     time_IO += cpuTime() - begin;
 }
 
+void Sizer::loadOpenRoadDesignForFanoutRepair() {
+    if(mmmcOn) {
+        cout << "Error: Sizer fanout repair currently requires single-mode "
+                "configuration."
+             << endl;
+        exit(1);
+    }
+    _ckt = new Circuit(this);
+    _ckt->init_opensta();
+    _sta = _ckt->_sta;
+}
+
 void Sizer::ExitPTimer() {
     for(unsigned i = 0; i < MAX_THREAD; i++) {
         for(int view = 0; view < numViews; view++) {
@@ -1623,6 +1645,79 @@ void Sizer::applyOpenStaDbChanges(
     apply_changes();
     resizer->updateParasiticsAndTiming();
     grt->endIncremental();
+}
+
+ecc::BufferInsertionResult Sizer::insertBufferAfterDriver(
+    odb::dbNet *net, odb::dbMaster *buffer_master,
+    const ecc::BufferInsertionOptions &options) {
+    ecc::BufferInsertionResult result;
+    applyOpenStaDbChanges([&]() {
+        result = ecc::OpenDbBufferInserter::insertBufferAfterDriver(
+            net, buffer_master, options);
+        if(result) {
+            if(use_gr_rc) {
+                _ckt->_ord_design->getOpendp()->legalCellPos(result.buffer);
+            }
+            ecc::connectMissingWildcardSpecialNetPins(net->getBlock());
+        }
+    });
+    return result;
+}
+
+ecc::BufferInsertionResult Sizer::insertBufferBeforeLoad(
+    odb::dbObject *load, odb::dbMaster *buffer_master,
+    const ecc::BufferInsertionOptions &options) {
+    ecc::BufferInsertionResult result;
+    applyOpenStaDbChanges([&]() {
+        result = ecc::OpenDbBufferInserter::insertBufferBeforeLoad(
+            load, buffer_master, options);
+        if(result) {
+            if(use_gr_rc) {
+                _ckt->_ord_design->getOpendp()->legalCellPos(result.buffer);
+            }
+            ecc::connectMissingWildcardSpecialNetPins(result.buffer->getBlock());
+        }
+    });
+    return result;
+}
+
+ecc::BufferInsertionResult Sizer::insertBufferBeforeLoads(
+    odb::dbNet *net, const std::vector< odb::dbObject * > &loads,
+    odb::dbMaster *buffer_master,
+    const ecc::BufferInsertionOptions &options) {
+    ecc::BufferInsertionResult result;
+    applyOpenStaDbChanges([&]() {
+        result = ecc::OpenDbBufferInserter::insertBufferBeforeLoads(
+            net, loads, buffer_master, options);
+        if(result) {
+            if(use_gr_rc) {
+                _ckt->_ord_design->getOpendp()->legalCellPos(result.buffer);
+            }
+            ecc::connectMissingWildcardSpecialNetPins(net->getBlock());
+        }
+    });
+    return result;
+}
+
+ecc::FanoutRepairResult Sizer::repairFanout(
+    odb::dbMaster *buffer_master,
+    const ecc::FanoutRepairOptions &options) {
+    ecc::FanoutRepairResult result;
+    odb::dbBlock *block = _ckt->_ord_design->getBlock();
+    applyOpenStaDbChanges([&]() {
+        result = ecc::OpenDbFanoutRepairer::repair(block, buffer_master,
+                                                   options);
+        if(result) {
+            if(use_gr_rc) {
+                auto *opendp = _ckt->_ord_design->getOpendp();
+                for(odb::dbInst *buffer : result.inserted_buffers) {
+                    opendp->legalCellPos(buffer);
+                }
+            }
+            ecc::connectMissingWildcardSpecialNetPins(block);
+        }
+    });
+    return result;
 }
 
 void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
@@ -5474,6 +5569,98 @@ void *static_poweropt_driver(void *void_thread_args) {
     Sizer *_this = thread_args->this_instance;
     _this->Post_PowerOpt(thread_args->thread_id);
     return void_thread_args;
+}
+
+void Sizer::runSizerFanoutRepair() {
+    auto *design = _ckt->_ord_design;
+    odb::dbDatabase *db = design->getTech()->getDB();
+    odb::dbMaster *buffer_master = nullptr;
+
+    if(!sizerBufferCell.empty()) {
+        buffer_master = db->findMaster(sizerBufferCell.c_str());
+        if(buffer_master == nullptr || !design->isBuffer(buffer_master)) {
+            cout << "Error: -buffer_cell '" << sizerBufferCell
+                 << "' is not a known buffer master." << endl;
+            exit(1);
+        }
+    }
+    else {
+        uint64_t best_area = numeric_limits< uint64_t >::max();
+        for(odb::dbLib *lib : db->getLibs()) {
+            for(odb::dbMaster *master : lib->getMasters()) {
+                if(!master->isFrozen() || !design->isBuffer(master)
+                   || _ckt->isDontUse(master->getName())) {
+                    continue;
+                }
+                const uint64_t area
+                    = static_cast< uint64_t >(master->getWidth())
+                      * static_cast< uint64_t >(master->getHeight());
+                if(buffer_master == nullptr || area < best_area
+                   || (area == best_area
+                       && master->getName() < buffer_master->getName())) {
+                    buffer_master = master;
+                    best_area = area;
+                }
+            }
+        }
+        if(buffer_master == nullptr) {
+            cout << "Error: no usable buffer master was found. Specify one "
+                    "with -buffer_cell."
+                 << endl;
+            exit(1);
+        }
+    }
+
+    cout << "Sizer fanout repair: buffer=" << buffer_master->getName()
+         << " max_fanout=" << sizerMaxFanout << endl;
+    design->evalTclString("set_max_fanout "
+                          + to_string(sizerMaxFanout)
+                          + " [current_design]");
+    design->evalTclString(
+        "report_check_types -max_fanout -digits 3");
+
+    ecc::FanoutRepairOptions options;
+    options.max_fanout = sizerMaxFanout;
+    options.repair_clock_nets = sizerRepairClockNets;
+    options.insertion.buffer_name_prefix = "sizer_fanout_buf";
+    options.insertion.net_name_prefix = "sizer_fanout_net";
+    if(!sizerRepairClockNets) {
+        sta::dbSta *db_sta = _ckt->_ord_timing->getSta();
+        sta::dbNetwork *db_network = db_sta->getDbNetwork();
+        for(odb::dbNet *net : design->getBlock()->getNets()) {
+            sta::Net *sta_net = db_network->dbToSta(net);
+            if(sta_net != nullptr
+               && db_sta->isClock(sta_net, db_sta->cmdMode())) {
+                options.excluded_nets.push_back(net);
+            }
+        }
+    }
+    const ecc::FanoutRepairResult result
+        = repairFanout(buffer_master, options);
+    if(!result) {
+        cout << "Error: Sizer fanout repair failed: " << result.message
+             << endl;
+        exit(1);
+    }
+
+    cout << "Sizer fanout repair complete: examined=" << result.nets_examined
+         << " violating=" << result.violating_nets
+         << " inserted_buffers=" << result.inserted_buffers.size()
+         << " max_fanout_before=" << result.before_max_fanout
+         << " max_fanout_after=" << result.after_max_fanout << endl;
+    design->evalTclString(
+        "report_check_types -max_fanout -digits 3");
+
+    if(resultDefFile.empty()) {
+        resultDefFile = benchname + ".fanout.def";
+    }
+    if(resultVerilogFile.empty()) {
+        resultVerilogFile = benchname + ".fanout.v";
+    }
+    design->writeDef(resultDefFile);
+    design->evalTclString("write_verilog " + resultVerilogFile);
+    cout << "Wrote fanout-repaired DEF: " << resultDefFile << endl;
+    cout << "Wrote fanout-repaired Verilog: " << resultVerilogFile << endl;
 }
 
 // Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
@@ -9690,6 +9877,22 @@ void Sizer::readCmdFile(string cmdFileStr) {
         }
         else if(line.find("-preplace") != string::npos)
             preplaceMode = true;
+        if(line.find("-sizer_fanout_repair ") != string::npos) {
+            const int max_fanout
+                = getTokenI(line, "-sizer_fanout_repair ");
+            if(max_fanout < 2) {
+                cout << "Error: -sizer_fanout_repair requires a maximum "
+                        "fanout of at least two."
+                     << endl;
+                exit(1);
+            }
+            sizerFanoutRepairMode = true;
+            sizerMaxFanout = static_cast< unsigned >(max_fanout);
+        }
+        if(line.find("-buffer_cell ") != string::npos)
+            sizerBufferCell = getTokenS(line, "-buffer_cell ");
+        if(line.find("-fanout_repair_clock_nets") != string::npos)
+            sizerRepairClockNets = true;
         if(line.find("-hold_only") != string::npos)
             holdOnlyMode = true;
         if(line.find("-legalize_only") != string::npos)
@@ -10728,6 +10931,12 @@ int main(int argc, char **argv) {
         _sizer.initSingleMode();
     }
     _sizer.ReportOptions();
+
+    if(_sizer.sizerFanoutRepairMode) {
+        _sizer.loadOpenRoadDesignForFanoutRepair();
+        _sizer.runSizerFanoutRepair();
+        return 0;
+    }
 
     _sizer.Parser();
 

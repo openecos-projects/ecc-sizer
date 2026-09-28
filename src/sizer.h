@@ -64,6 +64,8 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include "buffer_inserter.h"
+#include "fanout_repair.h"
 #include "grt/GlobalRouter.h"
 #include "sta/ArcDelayCalc.hh"
 #include "sta/Bfs.hh"
@@ -430,13 +432,30 @@ class Sizer {
     std::map< string, int > cellName2EquivOrder;
     std::vector< std::vector< string > > EquaivaID2cellNames;
     void runOrdTO();
+    void loadOpenRoadDesignForFanoutRepair();
     void runPreplace();
+    void runSizerFanoutRepair();
     void runHoldOnly();
     void runLegalizeOnly();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
     void legalizePlacement();
     // DreamPlace greedy+abacus legalization (vendored ops).
     int legalizeDreamplace();
+    // These APIs update OpenDB, OpenSTA and parasitics. Callers using the
+    // legacy CELL/PIN/NET snapshot must rebuild it after topology changes.
+    ecc::BufferInsertionResult insertBufferAfterDriver(
+        odb::dbNet *net, odb::dbMaster *buffer_master,
+        const ecc::BufferInsertionOptions &options = {});
+    ecc::BufferInsertionResult insertBufferBeforeLoad(
+        odb::dbObject *load, odb::dbMaster *buffer_master,
+        const ecc::BufferInsertionOptions &options = {});
+    ecc::BufferInsertionResult insertBufferBeforeLoads(
+        odb::dbNet *net, const std::vector< odb::dbObject * > &loads,
+        odb::dbMaster *buffer_master,
+        const ecc::BufferInsertionOptions &options = {});
+    ecc::FanoutRepairResult repairFanout(
+        odb::dbMaster *buffer_master,
+        const ecc::FanoutRepairOptions &options = {});
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
     bool use_gr_rc = false;
@@ -446,6 +465,10 @@ class Sizer {
     // With preplaceMode, -preplace_gain selects the upstream-style
     // gain-buffering round instead of plain violation repair.
     bool preplaceGain = false;
+    bool sizerFanoutRepairMode = false;
+    unsigned sizerMaxFanout = 64;
+    string sizerBufferCell;
+    bool sizerRepairClockNets = false;
 
     // Hold-only mode: run repair_timing -hold then write out. No sizing loop.
     // Legalize-only mode: run legalizePlacement then write out.

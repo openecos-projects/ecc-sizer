@@ -67,6 +67,56 @@ file(GLOB SOURCES "*.cpp"
 add_executable(Sizer ${SOURCES})
 
 if(BUILD_TESTING)
+    find_package(GTest REQUIRED)
+
+    add_executable(ecc_sizer_buffer_inserter_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/buffer_inserter.cpp
+    )
+    target_include_directories(ecc_sizer_buffer_inserter_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${OPENROAD_HOME}/utl/include
+    )
+    target_link_libraries(ecc_sizer_buffer_inserter_test odb)
+    add_test(NAME ecc_sizer_buffer_inserter
+             COMMAND ecc_sizer_buffer_inserter_test)
+
+    add_executable(ecc_sizer_fanout_repair_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/fanout_repair_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/buffer_inserter.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/fanout_repair.cpp
+    )
+    target_include_directories(ecc_sizer_fanout_repair_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${OPENROAD_HOME}/utl/include
+    )
+    target_link_libraries(ecc_sizer_fanout_repair_test odb)
+    add_test(NAME ecc_sizer_fanout_repair
+             COMMAND ecc_sizer_fanout_repair_test)
+
+    add_executable(ecc_sizer_buffer_inserter_sta_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/buffer_inserter.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/fanout_repair.cpp
+    )
+    target_include_directories(ecc_sizer_buffer_inserter_sta_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_compile_definitions(ecc_sizer_buffer_inserter_sta_test PRIVATE
+        ECC_SIZER_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data"
+        ECC_SIZER_TEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}"
+    )
+    target_link_libraries(ecc_sizer_buffer_inserter_sta_test PRIVATE
+        GTest::gtest
+        GTest::gtest_main
+        tst
+    )
+    add_test(NAME ecc_sizer_buffer_inserter_sta
+             COMMAND ecc_sizer_buffer_inserter_sta_test)
+    set_tests_properties(ecc_sizer_buffer_inserter_sta PROPERTIES
+        WORKING_DIRECTORY ${OpenROAD_DIR}/src/est
+    )
+
     add_executable(ecc_sizer_special_net_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/special_net_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/special_net.cpp
