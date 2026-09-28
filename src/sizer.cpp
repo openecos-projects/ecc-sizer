@@ -5561,6 +5561,10 @@ void Sizer::runHoldOnly() {
                  << " new instance pins to wildcard special nets." << endl;
         }
     }
+    // Hold repair can insert new movable buffers. Re-legalize that updated
+    // placement before exporting it so downstream legalization sees a legal
+    // starting geometry rather than overlapping inserted instances.
+    legalizePlacement();
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }

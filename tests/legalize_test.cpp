@@ -270,6 +270,30 @@ Scenario make_padding_relaxation() {
     return sc;
 }
 
+// A hold repair can add many small movable buffers to an already dense
+// placement. The physical cells still fit, while best-effort padding must
+// relax without creating overlaps.
+Scenario make_hold_buffer_burst() {
+    Scenario sc;
+    sc.name = "hold buffer burst with padding relaxation";
+    sc.segs = full_rows(4, 2000, 2000, 40);
+    for(int i = 0; i < 60; ++i) {
+        sc.nodes.push_back({2000.0 + (i / 4) * 400,
+                            2000.0 + (i % 4) * SITE_H, 400, SITE_H,
+                            false});
+    }
+    // Model 20 newly inserted hold buffers after the original 60 cells.
+    for(int i = 0; i < 20; ++i) {
+        sc.nodes.push_back({2000.0 + (i / 4) * 400,
+                            2000.0 + (i % 4) * SITE_H, 400, SITE_H,
+                            false});
+    }
+    sc.num_movable = (int)sc.nodes.size();
+    sc.padding = 2.0;
+    sc.expect_padding_relaxation = true;
+    return sc;
+}
+
 // 4. Overfull row: 30 cells of 8 sites on a 237-site row + padding.
 Scenario make_overfull() {
     Scenario sc;
@@ -340,6 +364,7 @@ int main() {
     run(make_macro_inside_gap());
     run(make_macro_inside_gap_with_padding());
     run(make_padding_relaxation());
+    run(make_hold_buffer_burst());
     run(make_overfull());  // greedy relocates the excess cell to row 1
     run_expect_fallback(make_true_overfull());
     run(make_offgrid_macro());
