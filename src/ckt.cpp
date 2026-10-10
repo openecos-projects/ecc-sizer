@@ -1737,8 +1737,28 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
         // Global Route and estimate global-route RC.
         // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
         // Rebuild pin access points before invoking the global router.
-        _ord_design->evalTclString(
-            "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
+        bool missing_pin_geometry = false;
+        std::vector<std::pair<odb::dbBPin*, odb::dbPlacementStatus>> existing_pins;
+        for(auto* term : block->getBTerms()) {
+            bool has_geometry = false;
+            for(auto* pin : term->getBPins()) {
+                if(!pin->getBoxes().empty()) {
+                    has_geometry = true;
+                    existing_pins.emplace_back(pin, pin->getPlacementStatus());
+                }
+            }
+            missing_pin_geometry |= !has_geometry;
+        }
+        if(missing_pin_geometry) {
+            for(auto& entry : existing_pins) {
+                entry.first->setPlacementStatus(odb::dbPlacementStatus::FIRM);
+            }
+            _ord_design->evalTclString(
+                "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
+            for(auto& entry : existing_pins) {
+                entry.first->setPlacementStatus(entry.second);
+            }
+        }
         auto db_tech = _ord_design->getTech()->getDB()->getTech();
         auto* low_layer = db_tech->findLayer(_sizer->min_route_layer.c_str());
         auto* high_layer = db_tech->findLayer(_sizer->max_route_layer.c_str());
@@ -1937,11 +1957,14 @@ void Circuit::init_opensta() {
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
     _ord_design->evalTclString("set_thread_count 32");
-    _ord_design->evalTclString("set_wire_rc -signal -layer " +
-                               _sizer->min_route_layer);
-    _ord_design->evalTclString("set_wire_rc -clock -layer " +
-                               _sizer->min_route_layer);
-    if(!_sizer->preplaceMode) {
+    if(_sizer->preplaceMode) {
+        _ord_design->evalTclString("set_wire_rc");
+    }
+    else {
+        _ord_design->evalTclString("set_wire_rc -signal -layer " +
+                                   _sizer->min_route_layer);
+        _ord_design->evalTclString("set_wire_rc -clock -layer " +
+                                   _sizer->min_route_layer);
         _ord_design->evalTclString("estimate_parasitics -placement");
     }
     // _ord_design->evalTclString("set_propagated_clock [all_clocks]");
