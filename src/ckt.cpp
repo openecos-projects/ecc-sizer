@@ -7,6 +7,7 @@
 #include <tcl8.6/tclDecls.h>
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -27,6 +28,8 @@
 #include "ord/OpenRoad.hh"
 #include "odb/db.h"
 #include "ord/Timing.h"
+#include "est/EstimateParasitics.h"
+#include "lef_layer_rc.h"
 // #include "dpl/Opendp.h"
 #include "grt/GlobalRouter.h"
 #include "db_sta/dbSta.hh"
@@ -1957,10 +1960,137 @@ void Circuit::init_opensta() {
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
     _ord_design->evalTclString("set_thread_count 32");
+    _ord_design->evalTclString("unset_propagated_clock [all_clocks]");
     if(_sizer->preplaceMode) {
+        // No -layer/-resistance/-capacitance means zero signal and clock RC.
+        // repair_design also consumes wire RC without estimate_parasitics.
         _ord_design->evalTclString("set_wire_rc");
+        _ord_design->evalTclString(
+            "puts [format {preplace_wire_rc resistance=%g capacitance=%g estimated=%d} "
+            "[est::wire_signal_resistance [sta::cmd_scene]] "
+            "[est::wire_signal_capacitance [sta::cmd_scene]] "
+            "[est::have_estimated_parasitics]]");
     }
     else {
+        if(_sizer->use_gr_rc) {
+            auto* tech = _ord_tech->getDB()->getTech();
+            auto* estimate_parasitics =
+                ord::OpenRoad::openRoad()->getEstimateParasitics();
+            const double dbu_per_micron = tech->getDbUnitsPerMicron();
+            auto* min_layer = tech->findLayer(_sizer->min_route_layer.c_str());
+            auto* max_layer = tech->findLayer(_sizer->max_route_layer.c_str());
+            if(!min_layer || !max_layer ||
+               min_layer->getRoutingLevel() == 0 ||
+               max_layer->getRoutingLevel() < min_layer->getRoutingLevel()) {
+                std::cerr << "Error: invalid GR routing-layer range: "
+                          << _sizer->min_route_layer << ".."
+                          << _sizer->max_route_layer << '\n';
+                exit(1);
+            }
+
+            int initialized_routing_layers = 0;
+            int initialized_cut_layers = 0;
+            for(auto* layer : tech->getLayers()) {
+                const bool routing = layer->getType() == odb::dbTechLayerType::ROUTING;
+                const bool cut = layer->getType() == odb::dbTechLayerType::CUT;
+                if(!routing && !cut) {
+                    continue;
+                }
+
+                std::optional<ecc::LefLayerRC> lef_rc;
+                if(routing && dbu_per_micron > 0.0) {
+                    lef_rc = ecc::lefLayerRC(
+                        layer->getWidth() / dbu_per_micron,
+                        layer->getResistance(),
+                        layer->getCapacitance(),
+                        layer->getEdgeCapacitance());
+                }
+                std::optional<double> lef_via_resistance;
+                bool conflicting_vias = false;
+                if(cut && layer->getResistance() <= 0.0) {
+                    for(auto* via : tech->getVias()) {
+                        auto* bottom = via->getBottomLayer();
+                        if(!via->isDefault() || !bottom ||
+                           bottom->getUpperLayer() != layer ||
+                           via->getTopLayer() != layer->getUpperLayer() ||
+                           via->getResistance() <= 0.0) {
+                            continue;
+                        }
+                        const double resistance = via->getResistance();
+                        if(lef_via_resistance &&
+                           std::abs(*lef_via_resistance - resistance) >
+                               1e-9 * std::max(1.0, *lef_via_resistance)) {
+                            conflicting_vias = true;
+                            break;
+                        }
+                        lef_via_resistance = resistance;
+                    }
+                }
+                for(auto* scene : _sta->scenes()) {
+                    double resistance = 0.0;
+                    double capacitance = 0.0;
+                    estimate_parasitics->layerRC(
+                        layer, scene, resistance, capacitance);
+                    if(routing && lef_rc) {
+                        const auto filled = ecc::fillMissingLayerRC(
+                            {resistance, capacitance}, *lef_rc);
+                        if(filled.resistance_per_meter != resistance ||
+                           filled.capacitance_per_meter != capacitance) {
+                            estimate_parasitics->setLayerRC(
+                                layer, scene, filled.resistance_per_meter,
+                                filled.capacitance_per_meter);
+                            ++initialized_routing_layers;
+                        }
+                    }
+                    else if(cut && resistance == 0.0) {
+                        const double lef_cut_resistance =
+                            layer->getResistance() > 0.0
+                                ? layer->getResistance()
+                                : (!conflicting_vias && lef_via_resistance
+                                       ? *lef_via_resistance : 0.0);
+                        if(lef_cut_resistance > 0.0) {
+                            estimate_parasitics->setLayerRC(
+                                layer, scene, lef_cut_resistance, capacitance);
+                            ++initialized_cut_layers;
+                        }
+                    }
+
+                    if(cut) {
+                        estimate_parasitics->layerRC(
+                            layer, scene, resistance, capacitance);
+                        if(resistance <= 0.0) {
+                            std::cerr << "Warning: cut layer " << layer->getName()
+                                      << " has no layer resistance in corner "
+                                      << scene->name() << "; no unambiguous "
+                                      << "default LEF via RC; configure "
+                                      << "-setRCFile if needed\n";
+                        }
+                    }
+                    if(routing &&
+                       layer->getRoutingLevel() >= min_layer->getRoutingLevel() &&
+                       layer->getRoutingLevel() <= max_layer->getRoutingLevel()) {
+                        estimate_parasitics->layerRC(
+                            layer, scene, resistance, capacitance);
+                        if(!std::isfinite(resistance) ||
+                           !std::isfinite(capacitance) ||
+                           resistance <= 0.0 || capacitance <= 0.0) {
+                            std::cerr << "Error: GR layer " << layer->getName()
+                                      << " has missing RC in corner "
+                                      << scene->name() << "; check tech LEF or "
+                                      << "-setRCFile\n";
+                            exit(1);
+                        }
+                        std::cout << "GR layer RC " << layer->getName()
+                                  << " corner=" << scene->name()
+                                  << " R=" << resistance << " ohm/m C="
+                                  << capacitance << " F/m\n";
+                    }
+                }
+            }
+            std::cout << "Initialized " << initialized_routing_layers
+                      << " routing and " << initialized_cut_layers
+                      << " cut layer/corner RC entries from tech LEF.\n";
+        }
         _ord_design->evalTclString("set_wire_rc -signal -layer " +
                                    _sizer->min_route_layer);
         _ord_design->evalTclString("set_wire_rc -clock -layer " +

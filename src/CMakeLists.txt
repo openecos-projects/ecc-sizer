@@ -67,6 +67,15 @@ file(GLOB SOURCES "*.cpp"
 add_executable(Sizer ${SOURCES})
 
 if(BUILD_TESTING)
+    add_executable(ecc_sizer_lef_layer_rc_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/lef_layer_rc_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/lef_layer_rc.cpp
+    )
+    target_include_directories(ecc_sizer_lef_layer_rc_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(NAME ecc_sizer_lef_layer_rc COMMAND ecc_sizer_lef_layer_rc_test)
+
     add_executable(ecc_sizer_special_net_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/special_net_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/special_net.cpp
