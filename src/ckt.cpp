@@ -1786,10 +1786,12 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
         grt->setResistanceAware(false);
         grt->setVerbose(true);
         grt->setCongestionIterations(gr_overflow_iterations);
+        _sizer->addSignalNetsToGlobalRoute();
         printf("Run Global Routing...\n");
         _ord_design->evalTclString(
             "global_route -congestion_iterations " +
-            to_string(gr_overflow_iterations) + " -allow_congestion -verbose");
+            to_string(gr_overflow_iterations) +
+            " -skip_large_fanout_nets 100 -allow_congestion -verbose");
         int iter = 0;
 #if 0
         if(use_gr_correlation) {
@@ -2126,7 +2128,7 @@ void Circuit::init_opensta() {
         slack_max_iter = 3;
     }
     if(_sizer->use_gr_rc && _sizer->spefFile == "" && !_sizer->preplaceMode) {
-        runGR(10, false, slack_max_iter);
+        runGR(_sizer->gr_rc_congestion_iterations, false, slack_max_iter);
     }
 
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);

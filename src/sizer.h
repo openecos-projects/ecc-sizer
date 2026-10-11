@@ -435,11 +435,17 @@ class Sizer {
     void runLegalizeOnly();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
     void legalizePlacement();
+    // Add only signal nets to the global-router net selection, matching the
+    // external GR evaluator's clock and large-fanout filtering contract.
+    void addSignalNetsToGlobalRoute();
     // DreamPlace greedy+abacus legalization (vendored ops).
     int legalizeDreamplace();
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
     bool use_gr_rc = false;
+    // Congestion-iteration budget for in-process GR-based RC refreshes.
+    // The supported experiment modes are 10 (default) and 50.
+    int gr_rc_congestion_iterations = 10;
     // Pre-place mode: repair DRV (fanout/slew/cap) once via OpenROAD
     // repair_design and write out; no sizing loop, no placement.
     bool preplaceMode = false;

@@ -121,6 +121,9 @@ detailed placement:
 ```
 
 The accepted values are `0` and `1`; the default is `0`.
+When global-routing RC is enabled, the in-process congestion iteration budget
+can be selected with `-gr_rc_congestion_iterations 10` or
+`-gr_rc_congestion_iterations 50`; the default is `10`.
 
 For single-VT libraries, `leakage` sorting is usually a good starting point
 because the timing spread within an equivalence class is relatively limited and
