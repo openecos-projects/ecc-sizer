@@ -437,9 +437,6 @@ class Sizer {
     void runLegalizeOnly();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
     void legalizePlacement();
-    // Add only signal nets to the global-router net selection, matching the
-    // external GR evaluator's clock and large-fanout filtering contract.
-    void addSignalNetsToGlobalRoute();
     // DreamPlace greedy+abacus legalization (vendored ops).
     int legalizeDreamplace();
     string min_route_layer = "METAL1";

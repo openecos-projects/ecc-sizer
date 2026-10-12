@@ -1786,12 +1786,11 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
         grt->setResistanceAware(false);
         grt->setVerbose(true);
         grt->setCongestionIterations(gr_overflow_iterations);
-        _sizer->addSignalNetsToGlobalRoute();
         printf("Run Global Routing...\n");
         _ord_design->evalTclString(
             "global_route -congestion_iterations " +
             to_string(gr_overflow_iterations) +
-            " -skip_large_fanout_nets 100 -allow_congestion -verbose");
+            " -allow_congestion -verbose");
         int iter = 0;
 #if 0
         if(use_gr_correlation) {
@@ -1962,8 +1961,8 @@ void Circuit::init_opensta() {
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
     _ord_design->evalTclString("set_thread_count 32");
-    _ord_design->evalTclString("unset_propagated_clock [all_clocks]");
     if(_sizer->preplaceMode) {
+        _ord_design->evalTclString("unset_propagated_clock [all_clocks]");
         // No -layer/-resistance/-capacitance means zero signal and clock RC.
         // repair_design also consumes wire RC without estimate_parasitics.
         _ord_design->evalTclString("set_wire_rc");
@@ -1974,6 +1973,7 @@ void Circuit::init_opensta() {
             "[est::have_estimated_parasitics]]");
     }
     else {
+        _ord_design->evalTclString("set_propagated_clock [all_clocks]");
         if(_sizer->use_gr_rc && !_sizer->holdOnlyMode) {
             auto* tech = _ord_tech->getDB()->getTech();
             auto* estimate_parasitics =
@@ -2099,7 +2099,6 @@ void Circuit::init_opensta() {
                                    _sizer->min_route_layer);
         _ord_design->evalTclString("estimate_parasitics -placement");
     }
-    // _ord_design->evalTclString("set_propagated_clock [all_clocks]");
 
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
     // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +

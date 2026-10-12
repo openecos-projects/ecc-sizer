@@ -1582,59 +1582,16 @@ void Sizer::refreshOpenStaParasitics(bool verbose_global_route) {
     grt->setVerbose(verbose_global_route);
     const int gr_iterations = gr_rc_congestion_iterations;
     grt->setCongestionIterations(gr_iterations);
-    addSignalNetsToGlobalRoute();
     printf("Run Global Routing after size update...\n");
     string global_route_cmd =
         "global_route -congestion_iterations " + to_string(gr_iterations) +
-        " -skip_large_fanout_nets 100 -allow_congestion";
+        " -allow_congestion";
     if(verbose_global_route) {
         global_route_cmd += " -verbose";
     }
     design->evalTclString(global_route_cmd);
     design->evalTclString("estimate_parasitics -global_routing");
     sta->findRequireds();
-}
-
-void Sizer::addSignalNetsToGlobalRoute() {
-    // Keep this Tcl block identical in meaning to the external GR evaluator.
-    // In particular, clock-net identity comes from STA clock pins/sources;
-    // dbSigType alone is insufficient for every imported DEF.
-    _ckt->_ord_design->getGlobalRouter()->clearNetsToRoute();
-    _ckt->_ord_design->evalTclString(R"tcl(
-set clock_nets [dict create]
-set clock_pins [all_registers -clock_pins]
-foreach clock [all_clocks] {
-    set clock_pins [concat $clock_pins [get_property $clock sources]]
-}
-foreach pin $clock_pins {
-    set iterm [sta::sta_to_db_pin $pin]
-    if {$iterm ne "NULL"} {
-        set db_net [$iterm getNet]
-    } else {
-        set bterm [sta::sta_to_db_port [sta::sta_pin_to_port $pin]]
-        if {$bterm eq "NULL"} {continue}
-        set db_net [$bterm getNet]
-    }
-    if {$db_net ne "NULL"} {dict set clock_nets [$db_net getName] 1}
-}
-set skipped_clock_net_count 0
-set skipped_fanout_net_count 0
-set routed_signal_net_count 0
-foreach db_net [[ord::get_db_block] getNets] {
-    set name [$db_net getName]
-    set terms [$db_net getTermCount]
-    if {[$db_net getSigType] in {POWER GROUND}} {continue}
-    if {[dict exists $clock_nets $name] || [$db_net getSigType] eq "CLOCK"} {
-        incr skipped_clock_net_count
-    } elseif {$terms > 100} {
-        incr skipped_fanout_net_count
-    } else {
-        grt::add_net_to_route $db_net
-        incr routed_signal_net_count
-    }
-}
-puts "SIZER_GR_NET_FILTER clock=$skipped_clock_net_count fanout=$skipped_fanout_net_count signal=$routed_signal_net_count"
-)tcl");
 }
 
 void Sizer::applyOpenStaDbChanges(
