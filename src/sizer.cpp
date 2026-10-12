@@ -555,6 +555,7 @@ void Sizer::ReportOptions() {
     cout << "Cap. Metric    : " << CapMetricNames[CAP_METRIC] << endl;
     cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
          << GTRMetricNames[GTR_METRIC2] << endl;
+    cout << "Hold margin    : " << hold_margin << " ns" << endl;
     cout << "GR RC iterations: " << gr_rc_congestion_iterations << endl;
     cout << "Test Mode      : " << TEST_MODE << endl;
     cout << "ALPHA          : " << ALPHA << endl;
@@ -5594,7 +5595,8 @@ void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin 0.1 -skip_pin_swap -verbose");
+        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
+        " -skip_pin_swap -verbose");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: hold buffering must not have broken setup
@@ -5755,8 +5757,6 @@ void Sizer::runOrdTO() {
     // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 10 -cap_margin 10 -verbose");
-    _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin 0.1 -skip_pin_swap -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) +
                                      " -skip_pin_swap -verbose");
@@ -5774,7 +5774,6 @@ void Sizer::runOrdTO() {
     // _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
     // _ckt->_ord_design->evalTclString(
     //     "repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    // _ckt->_ord_design->evalTclString("repair_timing -hold -verbose");
     // _ckt->_ord_design->evalTclString("repair_timing -setup -verbose");
     // legalizePlacement();
     // Rebuild parasitics after the final detailed placement so the reported
@@ -9570,6 +9569,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
     timerTestMove = 0;
     use_gr_rc = false;
     gr_rc_congestion_iterations = 10;
+    hold_margin = 0.1;
 
     bool set_margin = false;
     bool GWTW_flag = false;
@@ -9667,6 +9667,14 @@ void Sizer::readCmdFile(string cmdFileStr) {
             ALPHA_STUCK = getTokenF(line, "-alpha_stuck ");
         if(line.find("-setup_margin ") != string::npos)
             setup_margin = getTokenF(line, "-setup_margin ");
+        if(line.find("-hold_margin ") != string::npos) {
+            const double value = getTokenF(line, "-hold_margin ");
+            if(value < 0.0) {
+                cout << "Error: -hold_margin must be non-negative." << endl;
+                exit(1);
+            }
+            hold_margin = value;
+        }
         if(line.find("-def_out_path ") != string::npos)
             resultDefFile = getTokenS(line, "-def_out_path ");
         if(line.find("-verilog_out_path ") != string::npos)
@@ -10261,7 +10269,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
         WIRE_METRIC = ND;
     }
     cout << "Parasitics mode: "
-         << (use_gr_rc ? "global_routing" : "placement") << endl;
+         << (use_gr_rc && !holdOnlyMode ? "global_routing" : "placement")
+         << endl;
 }
 
 void Sizer::main(unsigned thread_id, bool postGTR) {

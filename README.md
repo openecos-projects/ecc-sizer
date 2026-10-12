@@ -125,6 +125,10 @@ When global-routing RC is enabled, the in-process congestion iteration budget
 can be selected with `-gr_rc_congestion_iterations 10` or
 `-gr_rc_congestion_iterations 50`; the default is `10`.
 
+Hold-only repair uses placement RC by default, even when `-use_gr_rc 1` is
+present. Its target margin can be set in the command file with
+`-hold_margin <ns>`; the default is `0.1` ns.
+
 For single-VT libraries, `leakage` sorting is usually a good starting point
 because the timing spread within an equivalence class is relatively limited and
 lower-leakage candidates can improve the power/timing tradeoff. For multi-VT

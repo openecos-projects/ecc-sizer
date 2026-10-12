@@ -1974,7 +1974,7 @@ void Circuit::init_opensta() {
             "[est::have_estimated_parasitics]]");
     }
     else {
-        if(_sizer->use_gr_rc) {
+        if(_sizer->use_gr_rc && !_sizer->holdOnlyMode) {
             auto* tech = _ord_tech->getDB()->getTech();
             auto* estimate_parasitics =
                 ord::OpenRoad::openRoad()->getEstimateParasitics();
@@ -2127,7 +2127,8 @@ void Circuit::init_opensta() {
     else {
         slack_max_iter = 3;
     }
-    if(_sizer->use_gr_rc && _sizer->spefFile == "" && !_sizer->preplaceMode) {
+    if(_sizer->use_gr_rc && _sizer->spefFile == "" &&
+       !_sizer->preplaceMode && !_sizer->holdOnlyMode) {
         runGR(_sizer->gr_rc_congestion_iterations, false, slack_max_iter);
     }
 
