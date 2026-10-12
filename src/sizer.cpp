@@ -5484,8 +5484,8 @@ void *static_poweropt_driver(void *void_thread_args) {
 // Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
 // out. No sizing loop, no placement.
 void Sizer::runPreplace() {
-    // Give gain buffering a finite fanout limit: reuse the design-level SDC
-    // max_fanout when present, otherwise fall back to 64.
+    // Cap pre-place repair fanout at 32 and preserve a stricter design-level
+    // SDC max_fanout when present.
 
     // Detect an unplaced input DEF (the expected pre-place case): wire RC is
     // then ~0, so slew/cap repair runs optimistic. Fanout repair is
@@ -5511,10 +5511,17 @@ void Sizer::runPreplace() {
     bool sdc_max_fanout_exists = false;
     _ckt->_sta->cmdSdc()->fanoutLimit(top_cell, sta::MinMax::max(),
                                       sdc_max_fanout, sdc_max_fanout_exists);
-    if(!(sdc_max_fanout_exists && sdc_max_fanout > 0)) {
-        printf("preplace: no SDC max_fanout, fall back to 64\n");
-        _ckt->_ord_design->evalTclString("set_max_fanout 64 [current_design]");
+    float max_fanout = 32.0f;
+    if(sdc_max_fanout_exists && sdc_max_fanout > 0) {
+        max_fanout = std::min(max_fanout, sdc_max_fanout);
+        printf("preplace: SDC max_fanout %g, effective max_fanout %g\n",
+               sdc_max_fanout, max_fanout);
     }
+    else {
+        printf("preplace: no SDC max_fanout, fall back to 32\n");
+    }
+    _ckt->_sta->cmdSdc()->setFanoutLimit(top_cell, sta::MinMax::max(),
+                                      max_fanout);
 
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");

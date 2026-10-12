@@ -129,6 +129,10 @@ Hold-only repair uses placement RC by default, even when `-use_gr_rc 1` is
 present. Its target margin can be set in the command file with
 `-hold_margin <ns>`; the default is `0.1` ns.
 
+Pre-place repair (`-preplace` and `-preplace_gain`) uses a design-level maximum
+fanout of `32`. If the input SDC sets a positive design-level `max_fanout`,
+the effective limit is `min(32, max_fanout)`.
+
 For single-VT libraries, `leakage` sorting is usually a good starting point
 because the timing spread within an equivalence class is relatively limited and
 lower-leakage candidates can improve the power/timing tradeoff. For multi-VT
