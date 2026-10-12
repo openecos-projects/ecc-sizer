@@ -380,7 +380,7 @@ class Sizer {
     bool gtr1_feasible;
     bool gtr2_feasible;
     double setup_margin = 0.75;
-    // Hold repair target margin in ns. Hold-only uses placement RC by default.
+    // Hold repair target margin in ns. Hold-only uses propagated clocks.
     double hold_margin = 0.1;
     vector< CELL > best_cells;
     vector< CELL > second_best_cells;
@@ -452,7 +452,8 @@ class Sizer {
     // gain-buffering round instead of plain violation repair.
     bool preplaceGain = false;
 
-    // Hold-only mode: run repair_timing -hold then write out. No sizing loop.
+    // Hold-only mode: propagated clocks, GR RC by default, repair_timing -hold.
+    // No sizing loop; -use_gr_rc 0 selects placement RC.
     // Legalize-only mode: run legalizePlacement then write out.
     bool legalizeOnlyMode = false;
     bool holdOnlyMode = false;

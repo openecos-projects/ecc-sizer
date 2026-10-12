@@ -1974,7 +1974,10 @@ void Circuit::init_opensta() {
     }
     else {
         _ord_design->evalTclString("set_propagated_clock [all_clocks]");
-        if(_sizer->use_gr_rc && !_sizer->holdOnlyMode) {
+        if(_sizer->holdOnlyMode) {
+            std::cout << "Hold-only clock mode: propagated\n";
+        }
+        if(_sizer->use_gr_rc) {
             auto* tech = _ord_tech->getDB()->getTech();
             auto* estimate_parasitics =
                 ord::OpenRoad::openRoad()->getEstimateParasitics();
@@ -2126,8 +2129,7 @@ void Circuit::init_opensta() {
     else {
         slack_max_iter = 3;
     }
-    if(_sizer->use_gr_rc && _sizer->spefFile == "" &&
-       !_sizer->preplaceMode && !_sizer->holdOnlyMode) {
+    if(_sizer->use_gr_rc && _sizer->spefFile == "" && !_sizer->preplaceMode) {
         runGR(_sizer->gr_rc_congestion_iterations, false, slack_max_iter);
     }
 

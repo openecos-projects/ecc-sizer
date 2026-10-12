@@ -5578,6 +5578,10 @@ void Sizer::runHoldOnly() {
     // placement before exporting it so downstream legalization sees a legal
     // starting geometry rather than overlapping inserted instances.
     legalizePlacement();
+    // Report timing on the legalized geometry using the requested RC mode.
+    refreshOpenStaParasitics(true);
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }
@@ -9534,6 +9538,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
     use_gr_rc = false;
     gr_rc_congestion_iterations = 10;
     hold_margin = 0.1;
+    bool use_gr_rc_explicit = false;
 
     bool set_margin = false;
     bool GWTW_flag = false;
@@ -9580,6 +9585,7 @@ void Sizer::readCmdFile(string cmdFileStr) {
                 exit(1);
             }
             use_gr_rc = use_gr_rc_value == 1;
+            use_gr_rc_explicit = true;
         }
         if(line.find("-gr_rc_congestion_iterations ") != string::npos) {
             const int value =
@@ -10232,9 +10238,11 @@ void Sizer::readCmdFile(string cmdFileStr) {
     if(noSPEF) {
         WIRE_METRIC = ND;
     }
+    if(holdOnlyMode && !use_gr_rc_explicit) {
+        use_gr_rc = true;
+    }
     cout << "Parasitics mode: "
-         << (use_gr_rc && !holdOnlyMode ? "global_routing" : "placement")
-         << endl;
+         << (use_gr_rc ? "global_routing" : "placement") << endl;
 }
 
 void Sizer::main(unsigned thread_id, bool postGTR) {

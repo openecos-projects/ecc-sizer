@@ -112,22 +112,24 @@ The default is `drive_resistance`, which follows the OpenSTA equivalent-cell
 order. The `leakage` mode sorts candidates in each equivalence class by leakage
 power first.
 
-Parasitic estimation defaults to placement RC. Set the following command-file
-option to run global routing and estimate RC from the routed topology after
-detailed placement:
+Parasitic estimation defaults to placement RC for setup repair. Set the
+following command-file option to run global routing and estimate RC from the
+routed topology after detailed placement:
 
 ```text
 -use_gr_rc 1
 ```
 
-The accepted values are `0` and `1`; the default is `0`.
+The accepted values are `0` and `1`; the default is `0` for setup repair.
 When global-routing RC is enabled, the in-process congestion iteration budget
 can be selected with `-gr_rc_congestion_iterations 10` or
 `-gr_rc_congestion_iterations 50`; the default is `10`.
 
-Hold-only repair uses placement RC by default, even when `-use_gr_rc 1` is
-present. Its target margin can be set in the command file with
-`-hold_margin <ns>`; the default is `0.1` ns.
+Hold-only repair uses propagated clocks and global-routing RC by default. Set
+`-use_gr_rc 0` to select placement RC. The
+`-gr_rc_congestion_iterations` setting is shared with setup repair. Parasitics
+are refreshed after the final legalization. Its target margin can be set in
+the command file with `-hold_margin <ns>`; the default is `0.1` ns.
 
 Pre-place repair (`-preplace` and `-preplace_gain`) uses a design-level maximum
 fanout of `32`. If the input SDC sets a positive design-level `max_fanout`,
