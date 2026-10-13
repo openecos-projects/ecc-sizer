@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 
-#include "fanout_repair.h"
+#include "repair_fanout.h"
 
 #include <algorithm>
 #include <deque>

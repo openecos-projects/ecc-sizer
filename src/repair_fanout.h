@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef ECC_SIZER_FANOUT_REPAIR_H_
-#define ECC_SIZER_FANOUT_REPAIR_H_
+#ifndef ECC_SIZER_REPAIR_FANOUT_H_
+#define ECC_SIZER_REPAIR_FANOUT_H_
 
 #include <string>
 #include <vector>
@@ -66,4 +66,4 @@ class OpenDbFanoutRepairer {
 
 }  // namespace ecc
 
-#endif  // ECC_SIZER_FANOUT_REPAIR_H_
+#endif  // ECC_SIZER_REPAIR_FANOUT_H_

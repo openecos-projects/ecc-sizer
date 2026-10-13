@@ -74,7 +74,12 @@
 #include "ord/OpenRoad.hh"
 #include "grt/GlobalRouter.h"
 #include "buffer_inserter.h"
-#include "fanout_repair.h"
+#include "repair_fanout.h"
+#include "repair_design.h"
+#include "repair_timing.h"
+#include "repair_power.h"
+#include "repair_placement.h"
+#include <stdexcept>
 #include "special_net.h"
 
 // global variables
@@ -113,6 +118,11 @@ bool PEEPHOLE = false;
 int PEEPHOLE_NUMCELL = 1;
 int PEEPHOLE_ITER = 3;
 bool NO_SEQ_OPT = false;
+// Keep the input placement fixed for sizing-only A/B experiments.  The
+// historical flow normally calls runOrdTO() before export, which can move
+// cells during legalization and makes a placement-controlled comparison
+// impossible.
+bool PRESERVE_PLACEMENT = false;
 bool NO_CLKBUF_OPT = true;
 double ISO_TNS = 0.0;
 bool VAR_GB = false;
@@ -558,6 +568,13 @@ void Sizer::ReportOptions() {
     cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
          << GTRMetricNames[GTR_METRIC2] << endl;
     cout << "Test Mode      : " << TEST_MODE << endl;
+    if(sizerDesignRepairMode) {
+        cout << "Sizer DRV      : native cap/slew/fanout repair, max fanout "
+             << nativeRepairConfig.design.max_fanout << endl;
+        cout << "Sizer repair configuration begin" << endl;
+        nativeRepairConfig.write(cout);
+        cout << "Sizer repair configuration end" << endl;
+    }
     if(sizerFanoutRepairMode) {
         cout << "Sizer Fanout   : repair to " << sizerMaxFanout << endl;
         cout << "Buffer Cell    : "
@@ -1403,7 +1420,7 @@ void Sizer::Parser() {
 
 void Sizer::loadOpenRoadDesignForFanoutRepair() {
     if(mmmcOn) {
-        cout << "Error: Sizer fanout repair currently requires single-mode "
+        cout << "Error: Sizer native repair currently requires single-mode "
                 "configuration."
              << endl;
         exit(1);
@@ -5663,6 +5680,176 @@ void Sizer::runSizerFanoutRepair() {
     cout << "Wrote fanout-repaired Verilog: " << resultVerilogFile << endl;
 }
 
+void Sizer::runSizerDesignRepair() {
+    auto* design = _ckt->_ord_design;
+    auto* block = design->getBlock();
+    auto* sta = _ckt->_ord_timing->getSta();
+    if(use_gr_rc) {
+        cout << "Error: native design repair currently requires placement RC."
+             << endl;
+        exit(1);
+    }
+    auto options = nativeRepairConfig.design;
+    for(auto* inst : block->getInsts()) {
+        if(std::find(dontTouchInst.begin(), dontTouchInst.end(),
+                     inst->getName()) != dontTouchInst.end() ||
+           std::find(dontTouchCell.begin(), dontTouchCell.end(),
+                     inst->getMaster()->getName()) != dontTouchCell.end()) {
+            options.excluded_instances.push_back(inst);
+        }
+    }
+    for(auto* lib : block->getDataBase()->getLibs()) {
+        for(auto* master : lib->getMasters()) {
+            if(_ckt->isDontUse(master->getName()) ||
+               (!sizerBufferCell.empty() &&
+                sta->getDbNetwork()->libertyCell(
+                    sta->getDbNetwork()->dbToSta(master)) &&
+                sta->getDbNetwork()
+                    ->libertyCell(sta->getDbNetwork()->dbToSta(master))
+                    ->isBuffer() &&
+                master->getName() != sizerBufferCell)) {
+                options.excluded_masters.push_back(master);
+            }
+        }
+    }
+    // Design::evalTclString returns a string and discards Tcl_Eval's status.
+    // Convert errors into exceptions so the ECO cannot accept stale timing.
+    const auto checked_tcl = [&](const std::string& command) {
+        const auto status = design->evalTclString(
+            "if {[catch {" + command +
+            "} __sizer_repair_error]} {"
+            "set __sizer_repair_status \"ERROR: $__sizer_repair_error\""
+            "} else {set __sizer_repair_status OK}");
+        if(status != "OK")
+            throw std::runtime_error(status);
+    };
+    const auto missing_supplies = [&]() {
+        unsigned missing = 0;
+        for(auto* inst : block->getInsts()) {
+            for(auto* pin : inst->getITerms()) {
+                const auto type = pin->getSigType();
+                if((type == odb::dbSigType::POWER ||
+                    type == odb::dbSigType::GROUND) &&
+                   (!pin->getNet() || pin->getNet()->getSigType() != type))
+                    ++missing;
+            }
+        }
+        return missing;
+    };
+    ecc::connectMissingWildcardSpecialNetPins(block);
+    const auto baseline_missing = missing_supplies();
+    const auto refresh = [&]() {
+        ecc::connectMissingWildcardSpecialNetPins(block);
+        if(missing_supplies() > baseline_missing)
+            throw std::runtime_error(
+                "repair introduced disconnected or mismatched supply pins");
+        checked_tcl("estimate_parasitics -placement");
+        sta->findRequireds();
+    };
+    options.prepare = [&]() {
+        ecc::legalizeRepairPlacement(block,
+                                     ord::OpenRoad::openRoad()->getOpendp(),
+                                     options.excluded_instances);
+    };
+    ecc::DesignRepairResult result;
+    ecc::SetupRepairResult setup_result;
+    ecc::PowerRepairResult power_result;
+    try {
+        checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
+                    " [current_design]");
+        options
+            .prepare();  // Establish a legal baseline for timing comparisons.
+        refresh();
+        result =
+            ecc::OpenDbDesignRepairer::repair(block, sta, refresh, options);
+        if(result.ok && sizerSetupRepairMode) {
+            auto setup_options = nativeRepairConfig.setupOptions();
+            setup_options.common = options;
+            setup_result = ecc::OpenDbSetupRepairer::repair(block, sta, refresh, setup_options);
+            if(!setup_result.ok) throw std::runtime_error(setup_result.message);
+        }
+        if(result.ok && nativeRepairConfig.power.enabled) {
+            auto power_options = nativeRepairConfig.powerOptions();
+            power_options.common = options;
+            power_result = ecc::OpenDbPowerRepairer::repair(block, sta, refresh, power_options);
+            if(!power_result.ok) throw std::runtime_error(power_result.message);
+        }
+        if(result.ok)
+            checked_tcl("check_placement");
+    }
+    catch(const std::exception& error) {
+        cerr << "Native design repair failed: " << error.what() << endl;
+        exit(1);
+    }
+    cout << "Sizer design repair: " << result.message
+         << " accepted_passes=" << result.accepted_passes
+         << " rejected_passes=" << result.rejected_passes
+         << " inserted_buffers=" << result.inserted_buffers
+         << " resized_buffers=" << result.resized_buffers
+         << " resized_gates=" << result.resized_gates
+         << " vt_swaps=" << result.vt_swaps
+         << " downsized_loads=" << result.downsized_loads
+         << " rejected_load_batches=" << result.rejected_load_batches
+         << " supply_pin_errors=" << missing_supplies()
+         << " placement_legal=" << result.ok
+         << " severity_before=" << result.before.severity
+         << " severity_after=" << result.after.severity
+         << " remaining_fanout_nets=" << result.after.fanout_nets
+         << " remaining_cap_nets=" << result.after.capacitance_nets
+         << " remaining_slew_nets=" << result.after.slew_nets
+         << " skipped_nets=" << result.after.skipped_nets
+         << " converged=" << result.converged << endl;
+    if(sizerSetupRepairMode && result.ok) {
+        cout << "Sizer setup repair: " << setup_result.message
+             << " accepted_batches=" << setup_result.accepted_batches
+             << " rejected_batches=" << setup_result.rejected_batches
+             << " attempted_batches=" << setup_result.attempted_batches
+             << " skipped_duplicate_batches=" << setup_result.skipped_duplicate_batches
+             << " refreshes=" << setup_result.refreshes
+             << " rollback_refreshes=" << setup_result.rollback_refreshes
+             << " candidate_ms=" << setup_result.candidate_ms
+             << " prepare_ms=" << setup_result.prepare_ms
+             << " refresh_ms=" << setup_result.refresh_ms
+             << " measure_ms=" << setup_result.measure_ms
+             << " inserted_buffers=" << setup_result.inserted_buffers
+             << " resized_cells=" << setup_result.resized_cells
+             << " vt_swaps=" << setup_result.vt_swaps
+             << " downsized_loads=" << setup_result.downsized_loads
+             << " wns_before_ns=" << setup_result.before.design.setup_wns * 1e9
+             << " wns_after_ns=" << setup_result.after.design.setup_wns * 1e9
+             << " tns_before_ns=" << setup_result.before.setup_tns * 1e9
+             << " tns_after_ns=" << setup_result.after.setup_tns * 1e9
+             << " converged=" << setup_result.converged << endl;
+    }
+    if(result.ok && nativeRepairConfig.power.enabled) {
+        cout << "Sizer power repair: " << power_result.message
+             << " objective=" << nativeRepairConfig.power.objective
+             << " accepted_batches=" << power_result.accepted_batches
+             << " rejected_batches=" << power_result.rejected_batches
+             << " attempted_batches=" << power_result.attempted_batches
+             << " downsized_cells=" << power_result.downsized_cells
+             << " vt_swaps=" << power_result.vt_swaps
+             << " refreshes=" << power_result.refreshes
+             << " elapsed_ms=" << power_result.elapsed_ms
+             << " leakage_before_w=" << power_result.before.leakage
+             << " leakage_after_w=" << power_result.after.leakage
+             << " total_before_w=" << power_result.before.total
+             << " total_after_w=" << power_result.after.total << endl;
+    }
+    if(!result.ok)
+        exit(1);
+    design->evalTclString(
+        "report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
+    design->evalTclString("report_wns");
+    design->evalTclString("report_tns");
+    if(resultDefFile.empty())
+        resultDefFile = benchname + ".repair.def";
+    if(resultVerilogFile.empty())
+        resultVerilogFile = benchname + ".repair.v";
+    design->writeDef(resultDefFile);
+    design->evalTclString("write_verilog " + resultVerilogFile);
+}
+
 // Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
 // out. No sizing loop, no placement.
 void Sizer::runPreplace() {
@@ -5681,10 +5868,11 @@ void Sizer::runPreplace() {
             }
         }
         if(total > 0 && unplaced * 2 > total) {
-            printf("WARNING: input design appears unplaced (%d/%d instances "
-                   "unplaced); wire RC ~ 0, slew/capacitance repair will be "
-                   "optimistic. Fanout repair is unaffected.\n",
-                   unplaced, total);
+            printf(
+                "WARNING: input design appears unplaced (%d/%d instances "
+                "unplaced); wire RC ~ 0, slew/capacitance repair will be "
+                "optimistic. Fanout repair is unaffected.\n",
+                unplaced, total);
         }
     }
     sta::Network* network = _ckt->_sta->network();
@@ -6493,27 +6681,30 @@ void Sizer::FinalReport() {
             return;
         }
 
-        int inst_iter = 0;
-        for(auto db_inst : block->getInsts()) {
-            int inst_x, inst_y;
-            int old_x, old_y;
-            db_inst->getLocation(old_x, old_y);
-            if((old_x != _ckt->old_localtion_x[inst_iter] ||
-                old_y != _ckt->old_localtion_y[inst_iter]) &&
-               !db_inst->getPlacementStatus().isFixed()) {
-                db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
-                                     _ckt->old_localtion_y[inst_iter]);
+        if(!PRESERVE_PLACEMENT) {
+            int inst_iter = 0;
+            for(auto db_inst : block->getInsts()) {
+                int old_x, old_y;
+                db_inst->getLocation(old_x, old_y);
+                if((old_x != _ckt->old_localtion_x[inst_iter] ||
+                    old_y != _ckt->old_localtion_y[inst_iter]) &&
+                   !db_inst->getPlacementStatus().isFixed()) {
+                    db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
+                                         _ckt->old_localtion_y[inst_iter]);
+                }
+                inst_iter++;
             }
-            inst_iter++;
         }
 
-        char padding_str[100];
-        sprintf(padding_str,
-                "set_placement_padding -global -left %d -right %d",
-                dp_padding,
-                dp_padding);
-        _ord_design->evalTclString(string(padding_str));
-        legalizePlacement();
+        if(!PRESERVE_PLACEMENT) {
+            char padding_str[100];
+            sprintf(padding_str,
+                    "set_placement_padding -global -left %d -right %d",
+                    dp_padding,
+                    dp_padding);
+            _ord_design->evalTclString(string(padding_str));
+            legalizePlacement();
+        }
     });
 
     if(spefFile != "") {
@@ -9710,11 +9901,25 @@ void Sizer::readCmdFile(string cmdFileStr) {
     timerTestMove = 0;
     use_gr_rc = false;
 
+    try {
+        ecc::loadRepairConfigFiles(nativeRepairConfig, cmdFileStr);
+    } catch(const std::exception& error) {
+        cerr << "Error: " << error.what() << endl;
+        exit(1);
+    }
+
     bool set_margin = false;
     bool GWTW_flag = false;
     bool thread_flag = false;
 
     while(std::getline(file, line)) {
+        try {
+            if(ecc::applyRepairConfigOverride(nativeRepairConfig, line))
+                continue;
+        } catch(const std::exception& error) {
+            cerr << "Error: " << error.what() << endl;
+            exit(1);
+        }
         if(line.find_first_of("#") == 0)
             continue;
         if(line.find("-corr_aat") != string::npos)
@@ -9888,6 +10093,27 @@ void Sizer::readCmdFile(string cmdFileStr) {
             }
             sizerFanoutRepairMode = true;
             sizerMaxFanout = static_cast< unsigned >(max_fanout);
+        }
+        if(line.find("-sizer_repair_design ") != string::npos) {
+            const int max_fanout = getTokenI(line, "-sizer_repair_design ");
+            if(max_fanout < 2) {
+                cout << "Error: -sizer_repair_design requires fanout >= 2." << endl;
+                exit(1);
+            }
+            sizerDesignRepairMode = true;
+            sizerMaxFanout = static_cast<unsigned>(max_fanout);
+            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
+        }
+        if(line.find("-sizer_repair_setup ") != string::npos) {
+            const int max_fanout = getTokenI(line, "-sizer_repair_setup ");
+            if(max_fanout < 2) {
+                cerr << "Error: -sizer_repair_setup requires fanout >= 2." << endl;
+                exit(1);
+            }
+            sizerDesignRepairMode = true;
+            sizerSetupRepairMode = true;
+            sizerMaxFanout = static_cast<unsigned>(max_fanout);
+            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
         }
         if(line.find("-buffer_cell ") != string::npos)
             sizerBufferCell = getTokenS(line, "-buffer_cell ");
@@ -10279,6 +10505,15 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-fix_global") != string::npos) {
             FIX_GLOBAL = true;
         }
+        // Sizing-only legacy experiments can disable the historical fixdrv
+        // cleanup, whose exhaustive slew loop is prohibitively slow on the
+        // large JPEG benchmark.
+        if(line.find("-no_fixdrv") != string::npos) {
+            FIX_CAP = false;
+            FIX_SLEW = false;
+            FIX_GLOBAL = false;
+            FIX_SLEW_POST = false;
+        }
 
         if(line.find("-common_thresh ") != string::npos) {
             COMMON_THRESH = getTokenF(line, "-common_thresh ");
@@ -10313,6 +10548,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
             OLD_SIZER = true;
             ALPHA = 0.0;
         }
+        if(line.find("-preserve_placement") != string::npos)
+            PRESERVE_PLACEMENT = true;
         if(line.find("-stm28") != string::npos) {
             NO_FOOTPRINT = true;
             STM28 = true;
@@ -10932,6 +11169,19 @@ int main(int argc, char **argv) {
     }
     _sizer.ReportOptions();
 
+    if(_sizer.sizerDesignRepairMode) {
+        if(_sizer.sizerFanoutRepairMode || _sizer.preplaceMode ||
+           _sizer.holdOnlyMode || _sizer.legalizeOnlyMode ||
+           _sizer.sizerRepairClockNets || _sizer.use_gr_rc) {
+            cerr << "Error: -sizer_repair_design requires placement RC and "
+                    "cannot be combined with other repair modes or clock repair."
+                 << endl;
+            return 1;
+        }
+        _sizer.loadOpenRoadDesignForFanoutRepair();
+        _sizer.runSizerDesignRepair();
+        return 0;
+    }
     if(_sizer.sizerFanoutRepairMode) {
         _sizer.loadOpenRoadDesignForFanoutRepair();
         _sizer.runSizerFanoutRepair();
@@ -11098,7 +11348,8 @@ int main(int argc, char **argv) {
 #endif
     printMemoryUsage();
     _sizer.FinalReport();
-    _sizer.runOrdTO();
+    if(!PRESERVE_PLACEMENT)
+        _sizer.runOrdTO();
     if(_sizer.resultDefFile == "") {
         _sizer.resultDefFile = _sizer.benchname + ".size.def";
     }

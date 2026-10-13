@@ -1,0 +1,30 @@
+/* Synthetic characterization for native repair tests; not a technology model. */
+library (repair_vt_L) {
+ delay_model : table_lookup;
+ time_unit : "1ns"; voltage_unit : "1V"; current_unit : "1mA";
+ leakage_power_unit : "1nW"; capacitive_load_unit (1,pf);
+ nom_process : 1; nom_temperature : 25; nom_voltage : 1.1;
+ input_threshold_pct_rise : 50; input_threshold_pct_fall : 50;
+ output_threshold_pct_rise : 50; output_threshold_pct_fall : 50;
+ slew_lower_threshold_pct_rise : 20; slew_upper_threshold_pct_rise : 80;
+ slew_lower_threshold_pct_fall : 20; slew_upper_threshold_pct_fall : 80;
+ default_max_transition : 1;
+ lu_table_template (delay_template) {
+  variable_1 : input_net_transition; variable_2 : total_output_net_capacitance;
+  index_1 ("0.001, 1"); index_2 ("0.001, 1");
+ }
+ cell (VTBUF_L) {
+  area : 1; cell_leakage_power : 10;
+  pin (A) { direction : input; capacitance : 0.001; }
+  pin (Z) {
+   direction : output; function : "A"; max_capacitance : 1;
+   timing () {
+    related_pin : "A"; timing_sense : positive_unate; timing_type : combinational;
+    cell_rise (delay_template) { values ("0.01, 0.01", "0.01, 0.01"); }
+    cell_fall (delay_template) { values ("0.01, 0.01", "0.01, 0.01"); }
+    rise_transition (delay_template) { values ("0.01, 0.01", "0.01, 0.01"); }
+    fall_transition (delay_template) { values ("0.01, 0.01", "0.01, 0.01"); }
+   }
+  }
+ }
+}

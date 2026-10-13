@@ -1936,11 +1936,16 @@ void Circuit::init_opensta() {
     }
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->evalTclString("set_thread_count 32");
-    _ord_design->evalTclString("set_wire_rc -signal -layer " +
-                               _sizer->min_route_layer);
-    _ord_design->evalTclString("set_wire_rc -clock -layer " +
-                               _sizer->min_route_layer);
+    _ord_design->evalTclString("set_thread_count " + std::to_string(
+        _sizer->sizerDesignRepairMode ? _sizer->nativeRepairConfig.sta_threads : 32));
+    // The native DRV optimizer must evaluate candidates with the supplied RC,
+    // rather than overwriting benchmark wire RC with the default layer model.
+    if(!_sizer->sizerDesignRepairMode || _sizer->setRCFile.empty()) {
+        _ord_design->evalTclString("set_wire_rc -signal -layer " +
+                                 _sizer->min_route_layer);
+        _ord_design->evalTclString("set_wire_rc -clock -layer " +
+                                 _sizer->min_route_layer);
+    }
     if(!_sizer->preplaceMode) {
         _ord_design->evalTclString("estimate_parasitics -placement");
     }

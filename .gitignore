@@ -62,3 +62,6 @@ smic110
 
 # Local platform data and generated benchmark files
 /platform/
+
+# Synthetic Liberty fixtures are source data, not compiled static libraries.
+!/tests/data/repair_vt_*.lib

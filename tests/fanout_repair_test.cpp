@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "fanout_repair.h"
+#include "repair_fanout.h"
 #include "odb/db.h"
 #include "utl/Logger.h"
 

@@ -1,6 +1,7 @@
 
 #ifndef __SIZER_H__
 #define __SIZER_H__
+#include "repair_config.h"
 ///////////////////////////////////////////////////////////////////////////////
 // Authors: Hyein Lee and Jiajia Li
 //          (Ph.D. advisor: Andrew B. Kahng)
@@ -65,7 +66,7 @@
 #include <unordered_set>
 #include <vector>
 #include "buffer_inserter.h"
-#include "fanout_repair.h"
+#include "repair_fanout.h"
 #include "grt/GlobalRouter.h"
 #include "sta/ArcDelayCalc.hh"
 #include "sta/Bfs.hh"
@@ -435,6 +436,7 @@ class Sizer {
     void loadOpenRoadDesignForFanoutRepair();
     void runPreplace();
     void runSizerFanoutRepair();
+    void runSizerDesignRepair();
     void runHoldOnly();
     void runLegalizeOnly();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
@@ -466,7 +468,10 @@ class Sizer {
     // gain-buffering round instead of plain violation repair.
     bool preplaceGain = false;
     bool sizerFanoutRepairMode = false;
-    unsigned sizerMaxFanout = 64;
+    bool sizerDesignRepairMode = false;
+    bool sizerSetupRepairMode = false;
+    ecc::RepairConfig nativeRepairConfig;
+    unsigned sizerMaxFanout = ecc::RepairCommonOptions{}.max_fanout;
     string sizerBufferCell;
     bool sizerRepairClockNets = false;
 

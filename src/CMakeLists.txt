@@ -68,6 +68,16 @@ add_executable(Sizer ${SOURCES})
 
 if(BUILD_TESTING)
     find_package(GTest REQUIRED)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME ecc_sizer_repair_regression
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/repair_regression_test.py)
+
+    add_executable(ecc_sizer_repair_config_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_config_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp)
+    target_include_directories(ecc_sizer_repair_config_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(ecc_sizer_repair_config_test PRIVATE GTest::gtest_main)
+    add_test(NAME ecc_sizer_repair_config COMMAND ecc_sizer_repair_config_test)
 
     add_executable(ecc_sizer_buffer_inserter_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_test.cpp
@@ -84,7 +94,7 @@ if(BUILD_TESTING)
     add_executable(ecc_sizer_fanout_repair_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/fanout_repair_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/buffer_inserter.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/fanout_repair.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_fanout.cpp
     )
     target_include_directories(ecc_sizer_fanout_repair_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -97,7 +107,13 @@ if(BUILD_TESTING)
     add_executable(ecc_sizer_buffer_inserter_sta_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/buffer_inserter.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/fanout_repair.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_fanout.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_design.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_power.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_load.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_timing.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_placement.cpp
     )
     target_include_directories(ecc_sizer_buffer_inserter_sta_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
