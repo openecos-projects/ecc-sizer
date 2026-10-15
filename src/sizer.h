@@ -200,8 +200,9 @@ extern double KICK_RATIO;
 extern double KICK_SLACK;
 extern int KICK_MAX;
 extern int KICK_METHOD;
-extern bool FIX_CAP;
 extern bool FIX_SLEW;
+extern bool FIX_CAP_REPAIR;
+extern bool FIX_SLEW_REPAIR;
 extern bool FIX_GLOBAL;
 extern bool FIXDRV_VT_SWAP;
 extern bool VT_ONLY;
@@ -381,7 +382,13 @@ class Sizer {
     bool gtr2_feasible;
     double setup_margin = 0.75;
     // Hold repair target margin in ns. Hold-only uses propagated clocks.
-    double hold_margin = 0.1;
+    double hold_margin = 0.02;
+    // Optional placement wire RC override in the Liberty distance unit
+    // (CX55: ohm/um and pF/um). Both values must be supplied together.
+    double placement_wire_resistance = 0.0;
+    double placement_wire_capacitance = 0.0;
+    std::string placement_wire_rc_corner = "unspecified";
+    bool placement_wire_rc_explicit = false;
     vector< CELL > best_cells;
     vector< CELL > second_best_cells;
     vector< CELL > best_cells_poweropt;
@@ -442,6 +449,18 @@ class Sizer {
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
     bool use_gr_rc = false;
+    bool hasPlacementWireRCOverride() const {
+        return placement_wire_rc_explicit;
+    }
+    double placementWireResistance() const {
+        return placement_wire_resistance;
+    }
+    double placementWireCapacitance() const {
+        return placement_wire_capacitance;
+    }
+    const std::string& placementWireRCCorner() const {
+        return placement_wire_rc_corner;
+    }
     // Congestion-iteration budget for in-process GR-based RC refreshes.
     // The supported experiment modes are 10 (default) and 50.
     int gr_rc_congestion_iterations = 10;
@@ -452,8 +471,8 @@ class Sizer {
     // gain-buffering round instead of plain violation repair.
     bool preplaceGain = false;
 
-    // Hold-only mode: propagated clocks, GR RC by default, repair_timing -hold.
-    // No sizing loop; -use_gr_rc 0 selects placement RC.
+    // Hold-only mode: propagated clocks, placement RC by default, repair_timing -hold.
+    // No sizing loop; -use_gr_rc 1 selects global-routing RC.
     // Legalize-only mode: run legalizePlacement then write out.
     bool legalizeOnlyMode = false;
     bool holdOnlyMode = false;

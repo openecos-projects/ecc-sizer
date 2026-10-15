@@ -11,8 +11,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <ostream>
+#include <sstream>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -1750,7 +1752,9 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
                     existing_pins.emplace_back(pin, pin->getPlacementStatus());
                 }
             }
-            missing_pin_geometry |= !has_geometry;
+            if(!has_geometry) {
+                missing_pin_geometry = true;
+            }
         }
         if(missing_pin_geometry) {
             for(auto& entry : existing_pins) {
@@ -2100,6 +2104,26 @@ void Circuit::init_opensta() {
                                    _sizer->min_route_layer);
         _ord_design->evalTclString("set_wire_rc -clock -layer " +
                                    _sizer->min_route_layer);
+        if(_sizer->hasPlacementWireRCOverride() && !_sizer->use_gr_rc) {
+            // The ECC config stores physical CX55 values (ohm/um and pF/um).
+            // This Liberty uses 1kohm resistance and 1pf capacitance UI units;
+            // set_wire_rc performs the distance conversion after these values
+            // are converted to the Liberty command units.
+            std::ostringstream wire_rc_stream;
+            wire_rc_stream << std::setprecision(12)
+                           << " -resistance "
+                           << _sizer->placementWireResistance() / 1000.0
+                           << " -capacitance "
+                           << _sizer->placementWireCapacitance();
+            const std::string wire_rc = wire_rc_stream.str();
+            _ord_design->evalTclString("set_wire_rc -signal" + wire_rc);
+            _ord_design->evalTclString("set_wire_rc -clock" + wire_rc);
+            std::cout << "placement_wire_rc override resistance="
+                      << _sizer->placementWireResistance() << " ohm/um "
+                      << "capacitance=" << _sizer->placementWireCapacitance()
+                      << " pF/um source=" << _sizer->placementWireRCCorner()
+                      << std::endl;
+        }
         _ord_design->evalTclString("estimate_parasitics -placement");
     }
 

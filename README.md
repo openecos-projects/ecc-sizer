@@ -127,9 +127,11 @@ can be selected with `-gr_rc_congestion_iterations 10` or
 
 Hold-only repair uses propagated clocks and global-routing RC by default. Set
 `-use_gr_rc 0` to select placement RC. The
-`-gr_rc_congestion_iterations` setting is shared with setup repair. Parasitics
-are refreshed after the final legalization. Its target margin can be set in
-the command file with `-hold_margin <ns>`; the default is `0.1` ns.
+`-gr_rc_congestion_iterations` setting is shared with setup repair. Sizer
+legalizes the first hold-repair result, refreshes parasitics, runs one more
+hold-repair pass, and legalizes again before exporting. Parasitics are
+refreshed after the final legalization. Its target margin can be set in the
+command file with `-hold_margin <ns>`; the default is `0.02` ns.
 
 Pre-place repair (`-preplace` and `-preplace_gain`) uses a design-level maximum
 fanout of `32`. If the input SDC sets a positive design-level `max_fanout`,

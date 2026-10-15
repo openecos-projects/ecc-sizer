@@ -151,8 +151,12 @@ int KICK_MAX = 1;
 int KICK_STEP = 1;
 bool VT_ONLY = false;
 bool SIZE_ONLY = false;
-bool FIX_CAP = true;
+// FIX_SLEW selects the legacy slew-statistics source in CalcStats. The
+// command-file repair controls are kept separate so disabling repair does not
+// silently change the timing objective.
 bool FIX_SLEW = true;
+bool FIX_CAP_REPAIR = true;
+bool FIX_SLEW_REPAIR = true;
 bool FIX_SLEW_POST = false;
 bool FIX_GLOBAL = true;
 bool FIXDRV_VT_SWAP = false;  // allow VT-swap (retype) moves in fix cap/slew phases
@@ -555,7 +559,15 @@ void Sizer::ReportOptions() {
     cout << "Cap. Metric    : " << CapMetricNames[CAP_METRIC] << endl;
     cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
          << GTRMetricNames[GTR_METRIC2] << endl;
+    cout << "Timing repair  : cap=" << FIX_CAP_REPAIR
+         << " slew=" << FIX_SLEW_REPAIR << " global=" << FIX_GLOBAL << endl;
     cout << "Hold margin    : " << hold_margin << " ns" << endl;
+    if(placement_wire_rc_explicit) {
+        cout << "Placement wire RC override: resistance="
+             << placement_wire_resistance << " ohm/um capacitance="
+             << placement_wire_capacitance << " pF/um source="
+             << placement_wire_rc_corner << endl;
+    }
     cout << "GR RC iterations: " << gr_rc_congestion_iterations << endl;
     cout << "Test Mode      : " << TEST_MODE << endl;
     cout << "ALPHA          : " << ALPHA << endl;
@@ -5536,6 +5548,11 @@ void Sizer::runPreplace() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
 
+    _ckt->_ord_design->evalTclString(
+        "puts [format {preplace_after_repair resistance=%g capacitance=%g estimated=%d} "
+        "[est::wire_signal_resistance [sta::cmd_scene]] "
+        "[est::wire_signal_capacitance [sta::cmd_scene]] "
+        "[est::have_estimated_parasitics]]");
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }
@@ -5553,7 +5570,7 @@ void Sizer::runPreplace() {
     _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
 }
 
-// Hold-only mode: single repair_timing -hold round, then write results out.
+// Hold-only mode: repair_timing -hold, legalize, refresh, and repeat once.
 // Input must be placed (parasitics estimated during load). No sizing loop.
 void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
@@ -5578,9 +5595,32 @@ void Sizer::runHoldOnly() {
     // placement before exporting it so downstream legalization sees a legal
     // starting geometry rather than overlapping inserted instances.
     legalizePlacement();
-    // Report timing on the legalized geometry using the requested RC mode.
+    // Rebuild parasitics on the legalized geometry before a second hold pass.
     refreshOpenStaParasitics(true);
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
+    _ckt->_ord_design->evalTclString(
+        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
+        " -skip_pin_swap -verbose");
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
+    // guard: the second hold pass must not have broken setup
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
+    {
+        const int connected_special_pins
+            = ecc::connectMissingWildcardSpecialNetPins(
+                _ckt->_ord_design->getBlock());
+        if(connected_special_pins > 0) {
+            cout << "Connected " << connected_special_pins
+                 << " new instance pins to wildcard special nets." << endl;
+        }
+    }
+    // The second hold pass can insert another set of movable buffers; make
+    // the exported geometry legal once more before the final RC refresh.
+    legalizePlacement();
+    refreshOpenStaParasitics(true);
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
@@ -6151,14 +6191,10 @@ void Sizer::Parallel_Sizer_Launcher() {
                     }
                     InitNets();
                     max_time_recovery_iter = 2;
-                    FIX_GLOBAL = true;
-                    FIX_CAP = true;
                     ATTACK_RATIO = 30;
-                    FIX_SLEW = true;
                     FIX_SLEW_POST = true;
                     post_slew_opt_output = false;
                     // ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
-                    // FIX_SLEW = false;
                 }
                 // pthread_create(&threads[j], NULL, (),
                 //                ;
@@ -6458,11 +6494,11 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     while(skew_violation > clk_period[worst_corner] * 0.1) {
         skew_violation_prev = skew_violation;
         cout << "[PostWNSOpt] without correlation # " << optCnt++ << endl;
-        if(FIX_CAP) {
+        if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
             BwdFixCapViolation();
         }
-        if(FIX_SLEW) {
+        if(FIX_SLEW_REPAIR) {
             FwdFixSlewViolation(1.0);
         }
         CallTimer();
@@ -6496,11 +6532,11 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     while(skew_violation > 0.) {
         cout << "[PostWNSOpt] with correlation # " << optCnt++ << endl;
         skew_violation_prev = skew_violation;
-        if(FIX_CAP) {
+        if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
             BwdFixCapViolation();
         }
-        if(FIX_SLEW) {
+        if(FIX_SLEW_REPAIR) {
             FwdFixSlewViolation(1.0);
         }
         CallTimer();
@@ -6872,20 +6908,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                     }
 
-                    if(FIX_CAP && cap_violation != 0) {
+                    if(FIX_CAP_REPAIR && cap_violation != 0) {
                         // CalcStats((unsigned)thread_id, true,
                         //           "AFTER_FIX_CAP", view);
                         change += FwdFixCapViolation(view);
                         change += BwdFixCapViolation(view);
-                        CallTimer(view);
-                        if(change > 1000) {
-                            CorrelatePT((unsigned)thread_id, view);
-                        }
-                        CalcStats((unsigned)thread_id, true, "AFTER_FIX_CAP",
-                                  view);
-                    }
-                    else if(cap_violation != 0) {
-                        FwdFixCapViolation(view);
                         CallTimer(view);
                         if(change > 1000) {
                             CorrelatePT((unsigned)thread_id, view);
@@ -6917,7 +6944,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     all_change += change;
                     change = 0;
-                    if(FIX_SLEW && slew_violation != 0.0) {
+                    if(FIX_SLEW_REPAIR && slew_violation != 0.0) {
                         change += FwdFixSlewViolation(1.0, view);
                         // change += BwdFixSlewViolation(1.0, view);
                         if(FIX_SLEW_POST) {
@@ -6931,17 +6958,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                         CalcStats((unsigned)thread_id, true, "AFTER_FIX_SLEW",
                                   view);
-                    }
-                    else if(slew_violation != 0.0) {
-                        if(FIX_SLEW_POST) {
-                            change += FwdFixSlewViolationPost(1.0, view);
-                            CallTimer(view);
-                            if(change > 1000) {
-                                CorrelatePT((unsigned)thread_id, view);
-                            }
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_FIX_SLEW", view);
-                        }
                     }
 
                     printf(
@@ -7016,20 +7032,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     change = 0;
                     if(time_recovery_iter == max_time_recovery_iter - 1) {
-                        if(FIX_CAP) {
+                        if(FIX_CAP_REPAIR) {
                             change += FwdFixCapViolation(view);
                             change += BwdFixCapViolation(view);
                             CallTimer(view);
                             if(change > 0 && time_recovery_iter != 0) {
-                                CorrelatePT((unsigned)thread_id, view);
-                            }
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_FIX_CAP", view);
-                        }
-                        else if(cap_violation != 0) {
-                            FwdFixCapViolation(view);
-                            CallTimer(view);
-                            if(change > 1000) {
                                 CorrelatePT((unsigned)thread_id, view);
                             }
                             CalcStats((unsigned)thread_id, true,
@@ -7051,7 +7058,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             }
                             updated_local = true;
                         }
-                        if(FIX_SLEW) {
+                        if(FIX_SLEW_REPAIR) {
                             change += FwdFixSlewViolation(1.0, view);
                             // change += BwdFixSlewViolation(1.0, view);
                             if(FIX_SLEW_POST) {
@@ -7065,17 +7072,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                       "AFTER_FIX_SLEW", view);
                             all_change += change;
                             change = 0;
-                        }
-                        else if(slew_violation != 0.0) {
-                            if(FIX_SLEW_POST) {
-                                change += FwdFixSlewViolationPost(1.0, view);
-                                CallTimer(view);
-                                if(change > 1000) {
-                                    CorrelatePT((unsigned)thread_id, view);
-                                }
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_FIX_SLEW", view);
-                            }
                         }
                     }
                     printf(
@@ -9537,8 +9533,11 @@ void Sizer::readCmdFile(string cmdFileStr) {
     timerTestMove = 0;
     use_gr_rc = false;
     gr_rc_congestion_iterations = 10;
-    hold_margin = 0.1;
-    bool use_gr_rc_explicit = false;
+    hold_margin = 0.02;
+    placement_wire_resistance = 0.0;
+    placement_wire_capacitance = 0.0;
+    placement_wire_rc_corner = "unspecified";
+    placement_wire_rc_explicit = false;
 
     bool set_margin = false;
     bool GWTW_flag = false;
@@ -9585,7 +9584,6 @@ void Sizer::readCmdFile(string cmdFileStr) {
                 exit(1);
             }
             use_gr_rc = use_gr_rc_value == 1;
-            use_gr_rc_explicit = true;
         }
         if(line.find("-gr_rc_congestion_iterations ") != string::npos) {
             const int value =
@@ -9644,6 +9642,36 @@ void Sizer::readCmdFile(string cmdFileStr) {
                 exit(1);
             }
             hold_margin = value;
+        }
+        if(line.find("-placement_wire_resistance_ohm_per_um ") !=
+           string::npos) {
+            const double value = getTokenF(
+                line, "-placement_wire_resistance_ohm_per_um ");
+            if(!std::isfinite(value) || value <= 0.0) {
+                cout << "Error: -placement_wire_resistance_ohm_per_um must "
+                        "be positive."
+                     << endl;
+                exit(1);
+            }
+            placement_wire_resistance = value;
+            placement_wire_rc_explicit = true;
+        }
+        if(line.find("-placement_wire_rc_corner ") != string::npos) {
+            placement_wire_rc_corner =
+                getTokenS(line, "-placement_wire_rc_corner ");
+        }
+        if(line.find("-placement_wire_capacitance_pf_per_um ") !=
+           string::npos) {
+            const double value = getTokenF(
+                line, "-placement_wire_capacitance_pf_per_um ");
+            if(!std::isfinite(value) || value <= 0.0) {
+                cout << "Error: -placement_wire_capacitance_pf_per_um must "
+                        "be positive."
+                     << endl;
+                exit(1);
+            }
+            placement_wire_capacitance = value;
+            placement_wire_rc_explicit = true;
         }
         if(line.find("-def_out_path ") != string::npos)
             resultDefFile = getTokenS(line, "-def_out_path ");
@@ -10103,13 +10131,37 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-size_only") != string::npos) {
             SIZE_ONLY = true;
         }
-        if(line.find("-fix_cap") != string::npos) {
-            FIX_CAP = true;
+        if(line.find("-fix_cap ") != string::npos) {
+            const int value = getTokenI(line, "-fix_cap ");
+            if(value != 0 && value != 1) {
+                cout << "Error: -fix_cap must be 0 or 1." << endl;
+                exit(1);
+            }
+            FIX_CAP_REPAIR = value == 1;
         }
-        if(line.find("-fix_slew") != string::npos) {
-            FIX_SLEW = true;
+        else if(line.find("-fix_cap") != string::npos) {
+            FIX_CAP_REPAIR = true;
         }
-        if(line.find("-fix_global") != string::npos) {
+        if(line.find("-fix_slew ") != string::npos) {
+            const int value = getTokenI(line, "-fix_slew ");
+            if(value != 0 && value != 1) {
+                cout << "Error: -fix_slew must be 0 or 1." << endl;
+                exit(1);
+            }
+            FIX_SLEW_REPAIR = value == 1;
+        }
+        else if(line.find("-fix_slew") != string::npos) {
+            FIX_SLEW_REPAIR = true;
+        }
+        if(line.find("-fix_global ") != string::npos) {
+            const int value = getTokenI(line, "-fix_global ");
+            if(value != 0 && value != 1) {
+                cout << "Error: -fix_global must be 0 or 1." << endl;
+                exit(1);
+            }
+            FIX_GLOBAL = value == 1;
+        }
+        else if(line.find("-fix_global") != string::npos) {
             FIX_GLOBAL = true;
         }
 
@@ -10238,8 +10290,13 @@ void Sizer::readCmdFile(string cmdFileStr) {
     if(noSPEF) {
         WIRE_METRIC = ND;
     }
-    if(holdOnlyMode && !use_gr_rc_explicit) {
-        use_gr_rc = true;
+    if(placement_wire_rc_explicit &&
+       (placement_wire_resistance <= 0.0 || placement_wire_capacitance <= 0.0)) {
+        cout << "Error: -placement_wire_resistance_ohm_per_um and "
+                "-placement_wire_capacitance_pf_per_um must be specified "
+                "together."
+             << endl;
+        exit(1);
     }
     cout << "Parasitics mode: "
          << (use_gr_rc ? "global_routing" : "placement") << endl;
@@ -10340,7 +10397,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
 
         // pthread_mutex_unlock(&mutex1);
 
-        if(FIX_CAP) {
+        if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
             BwdFixCapViolation();
         }
@@ -10422,11 +10479,11 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                         swap_cnt = 0;
                     }
                 }
-                if(FIX_CAP) {
+                if(FIX_CAP_REPAIR) {
                     FwdFixCapViolation();
                     BwdFixCapViolation();
                 }
-                if(FIX_SLEW) {
+                if(FIX_SLEW_REPAIR) {
                     FwdFixSlewViolation(1.0);
                 }
                 CallTimer();
