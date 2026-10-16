@@ -203,6 +203,32 @@ int greedyLegalizationCPU(
     return 0; 
 }
 
+// Provide out-of-line definitions for callers that only see the
+// declaration in function_cpu.h. Recent GCC versions fully inline the
+// implicit instantiations used by the wrappers below in this translation
+// unit, leaving no symbol for the linker.
+template int greedyLegalizationCPU<double>(
+        const LegalizationDB<double>& db, 
+        const double* init_x, const double* init_y, 
+        const double* node_size_x, const double* node_size_y, 
+        double* x, double* y, 
+        const double xl, const double yl, const double xh, const double yh, 
+        const double site_width, const double row_height, 
+        int num_bins_x, int num_bins_y, 
+        const int num_nodes, 
+        const int num_movable_nodes);
+
+template int greedyLegalizationCPU<float>(
+        const LegalizationDB<float>& db, 
+        const float* init_x, const float* init_y, 
+        const float* node_size_x, const float* node_size_y, 
+        float* x, float* y, 
+        const float xl, const float yl, const float xh, const float yh, 
+        const float site_width, const float row_height, 
+        int num_bins_x, int num_bins_y, 
+        const int num_nodes, 
+        const int num_movable_nodes);
+
 int instantiateGreedyLegalizationCPU(
         const LegalizationDB<float>& db, 
         const float* init_x, const float* init_y, 
