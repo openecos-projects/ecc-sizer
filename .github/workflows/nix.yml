@@ -28,6 +28,15 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Use HTTPS for GitHub SSH submodule URLs
+        # OpenROAD's .gitmodules points OpenSTA and abc at
+        # ssh://git@github.com, and Nix recursively re-fetches submodules
+        # itself, where the runner has no SSH key. Perform the same
+        # conversion actions/checkout does for the top-level repo.
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
