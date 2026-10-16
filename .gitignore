@@ -62,3 +62,7 @@ smic110
 
 # Local platform data and generated benchmark files
 /platform/
+
+# Nix build outputs
+/result
+/result-*
