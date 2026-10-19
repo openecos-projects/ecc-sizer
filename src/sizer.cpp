@@ -5708,11 +5708,10 @@ int Sizer::legalizeDreamplace() {
         if(!inst->isFixed()) {
             continue;
         }
-        auto* master = inst->getMaster();
-        int ix = 0, iy = 0;
-        inst->getLocation(ix, iy);
-        nodes.push_back({double(ix), double(iy), double(master->getWidth()),
-                         double(master->getHeight()), true});
+        auto* bbox = inst->getBBox();
+        nodes.push_back({double(bbox->xMin()), double(bbox->yMin()),
+                         double(bbox->xMax() - bbox->xMin()),
+                         double(bbox->yMax() - bbox->yMin()), true});
     }
     if(num_movable == 0) {
         return 0;

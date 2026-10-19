@@ -66,6 +66,9 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     using Interval = std::pair<double, double>;
     std::vector<std::vector<Interval>> row_obstacles(num_rows);
     auto add_obstacle = [&](int rid_lo, int rid_hi, double x0, double x1) {
+        if(rid_hi < 0 || rid_lo >= num_rows) {
+            return;
+        }
         x0 = std::max(x0, double(base_x));
         x1 = std::min(x1, core_xh);
         if(x1 <= x0) {
@@ -88,11 +91,15 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     // row before handing the geometry to DreamPlace so no fixed nodes overlap.
     for(int j = num_movable; j < (int)nodes.size(); ++j) {
         const LegalizeNode& nd = nodes[j];
-        const double x = clamp_node_x(nd);
-        const double y = clamp_node_y(nd);
-        const int rid_lo = (int)floor((y - base_y) / site_h);
-        const int rid_hi = (int)floor((y + nd.h - 1 - base_y) / site_h);
-        add_obstacle(rid_lo, rid_hi, x, x + nd.w);
+        // Fixed I/O pads and the pad ring can sit outside the standard-cell
+        // row area. Clamping them into the core fabric creates fictitious
+        // obstacles along the boundary rows and cascades cells across the
+        // design. Preserve their physical coordinates and discard only those
+        // that do not intersect the row area.
+        const int rid_lo = (int)floor((nd.y - base_y) / site_h);
+        const int rid_hi =
+            (int)floor((nd.y + nd.h - 1 - base_y) / site_h);
+        add_obstacle(rid_lo, rid_hi, nd.x, nd.x + nd.w);
     }
 
     std::vector<std::vector<std::pair<int, int>>> seg_ints(num_rows);
@@ -141,6 +148,170 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         for(const Interval& obstacle : obstacles) {
             row_obstacle_width[r] += obstacle.second - obstacle.first;
         }
+    }
+
+    const double pad_dbu = padding_sites * site_w;
+
+    // Preserve an already-legal placement when its padding compliance is
+    // sufficient. Site/row legality and non-overlap are mandatory; padding is
+    // allowed to be best effort, matching the legalizer's padding behavior.
+    constexpr int kPaddingComplianceNumerator = 4;
+    constexpr int kPaddingComplianceDenominator = 5;
+    bool input_legal = true;
+    std::vector<std::vector<int>> input_row_cells(num_rows);
+    for(int i = 0; i < num_movable && input_legal; ++i) {
+        const LegalizeNode& nd = nodes[i];
+        const long long x = std::llround(nd.x);
+        const long long y = std::llround(nd.y);
+        const long long w = std::llround(nd.w);
+        if(std::fabs(nd.x - double(x)) > 1e-9 ||
+           std::fabs(nd.y - double(y)) > 1e-9 ||
+           std::fabs(nd.w - double(w)) > 1e-9 ||
+           std::fabs(nd.h - double(site_h)) > 1e-9 || w <= 0 ||
+           (x - base_x) % site_w != 0 || w % site_w != 0 ||
+           (y - base_y) % site_h != 0) {
+            input_legal = false;
+            break;
+        }
+        const long long rid_ll = (y - base_y) / site_h;
+        if(rid_ll < 0 || rid_ll >= num_rows) {
+            input_legal = false;
+            break;
+        }
+        const int rid = (int)rid_ll;
+        const auto& segs_at_y = seg_ints[rid];
+        auto seg_it = std::upper_bound(
+            segs_at_y.begin(), segs_at_y.end(), x,
+            [](long long value, const std::pair<int, int>& seg) {
+                return value < seg.first;
+            });
+        if(seg_it == segs_at_y.begin()) {
+            input_legal = false;
+            break;
+        }
+        --seg_it;
+        if(x < seg_it->first || x + w > seg_it->second) {
+            input_legal = false;
+            break;
+        }
+        input_row_cells[rid].push_back(i);
+    }
+    for(int r = 0; r < num_rows && input_legal; ++r) {
+        auto& cell_ids = input_row_cells[r];
+        std::sort(cell_ids.begin(), cell_ids.end(), [&](int lhs, int rhs) {
+            return nodes[lhs].x < nodes[rhs].x;
+        });
+        const auto& obstacles = row_obstacles[r];
+        size_t obstacle_idx = 0;
+        double previous_end = 0.0;
+        bool has_previous = false;
+        for(int cell_id : cell_ids) {
+            const double x0 = nodes[cell_id].x;
+            const double x1 = x0 + nodes[cell_id].w;
+            while(obstacle_idx < obstacles.size() &&
+                  obstacles[obstacle_idx].second <= x0 + 1e-9) {
+                ++obstacle_idx;
+            }
+            if(obstacle_idx < obstacles.size() &&
+               obstacles[obstacle_idx].first < x1 - 1e-9) {
+                input_legal = false;
+                break;
+            }
+            if(has_previous && x0 < previous_end - 1e-9) {
+                input_legal = false;
+                break;
+            }
+            previous_end = x1;
+            has_previous = true;
+        }
+    }
+
+    int padding_pair_count = 0;
+    int padding_pair_compliant = 0;
+    if(input_legal) {
+        struct RowInterval {
+            double x0;
+            double x1;
+            bool movable;
+        };
+        std::vector<std::vector<RowInterval>> row_intervals(num_rows);
+        for(int r = 0; r < num_rows; ++r) {
+            for(int cell_id : input_row_cells[r]) {
+                row_intervals[r].push_back(
+                    {nodes[cell_id].x,
+                     nodes[cell_id].x + nodes[cell_id].w, true});
+            }
+        }
+        for(int j = num_movable; j < (int)nodes.size(); ++j) {
+            const LegalizeNode& nd = nodes[j];
+            const double x0 = std::max(double(base_x), nd.x);
+            const double x1 =
+                std::min(core_xh, nd.x + nd.w);
+            if(x1 <= x0) {
+                continue;
+            }
+            const int rid_lo =
+                (int)floor((nd.y - base_y) / site_h);
+            const int rid_hi =
+                (int)floor((nd.y + nd.h - 1 - base_y) / site_h);
+            for(int rid = std::max(0, rid_lo);
+                rid <= std::min(num_rows - 1, rid_hi); ++rid) {
+                row_intervals[rid].push_back({x0, x1, false});
+            }
+        }
+        for(auto& intervals : row_intervals) {
+            std::sort(intervals.begin(), intervals.end(),
+                      [](const RowInterval& lhs, const RowInterval& rhs) {
+                          return lhs.x0 < rhs.x0 ||
+                                 (lhs.x0 == rhs.x0 &&
+                                  lhs.x1 < rhs.x1);
+                      });
+            std::vector<RowInterval> merged;
+            for(const RowInterval& interval : intervals) {
+                if(merged.empty() ||
+                   interval.x0 >= merged.back().x1 - 1e-9) {
+                    merged.push_back(interval);
+                }
+                else {
+                    merged.back().x1 =
+                        std::max(merged.back().x1, interval.x1);
+                    merged.back().movable =
+                        merged.back().movable || interval.movable;
+                }
+            }
+            for(size_t i = 1; i < merged.size(); ++i) {
+                if(!merged[i - 1].movable && !merged[i].movable) {
+                    continue;
+                }
+                ++padding_pair_count;
+                const double gap = merged[i].x0 - merged[i - 1].x1;
+                if(gap + 1e-9 >= pad_dbu) {
+                    ++padding_pair_compliant;
+                }
+            }
+        }
+    }
+    const bool padding_compliant =
+        padding_pair_count == 0 ||
+        padding_pair_compliant * kPaddingComplianceDenominator >=
+            padding_pair_count * kPaddingComplianceNumerator;
+    if(input_legal && padding_compliant) {
+        out_x.resize(num_movable);
+        out_row.resize(num_movable);
+        for(int i = 0; i < num_movable; ++i) {
+            out_x[i] = nodes[i].x;
+            out_row[i] = (int)llround((nodes[i].y - base_y) / site_h);
+        }
+        printf("dp-legalize: input already legal, preserving placement "
+               "(padding %d/%d)\n",
+               padding_pair_compliant, padding_pair_count);
+        return 0;
+    }
+    if(input_legal) {
+        printf("dp-legalize: input padding compliance %d/%d is below %d%%\n",
+               padding_pair_compliant, padding_pair_count,
+               kPaddingComplianceNumerator * 100 /
+                   kPaddingComplianceDenominator);
     }
 
     std::vector<double> sx, sy, px, py, wts;
@@ -231,7 +402,6 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
 
 
-    const double pad_dbu = padding_sites * site_w;
     const std::vector<double> opx = x;
     // Post-hoc placement padding: per row, shift cells right to open
     // dp_padding-site gaps (fixed insts are obstacles). Rows that cannot
