@@ -5764,6 +5764,10 @@ void Sizer::runOrdTO() {
     // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 10 -cap_margin 10 -verbose");
+    // Repair hold in the setup corner before setup optimization consumes slack.
+    _ckt->_ord_design->evalTclString(
+        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
+        " -skip_pin_swap -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) +
                                      " -skip_pin_swap -verbose");

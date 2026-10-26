@@ -125,6 +125,11 @@ When global-routing RC is enabled, the in-process congestion iteration budget
 can be selected with `-gr_rc_congestion_iterations 10` or
 `-gr_rc_congestion_iterations 50`; the default is `10`.
 
+The setup flow runs `repair_design`, then `repair_timing -hold`, then
+`repair_timing -setup`. This hold pass uses the loaded setup-corner libraries
+and the configured `-hold_margin` (default `0.02` ns). A later hold-only pass
+with MIN/FF libraries is still needed for fast-corner hold repair.
+
 Hold-only repair uses propagated clocks and global-routing RC by default. Set
 `-use_gr_rc 0` to select placement RC. The
 `-gr_rc_congestion_iterations` setting is shared with setup repair. Sizer
