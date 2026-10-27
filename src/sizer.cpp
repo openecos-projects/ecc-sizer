@@ -5750,6 +5750,7 @@ void Sizer::legalizePlacement() {
 }
 
 void Sizer::runOrdTO() {
+    _ckt->assertNoIllegalExternalPadBoundaryChain();
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
@@ -5796,6 +5797,7 @@ void Sizer::runOrdTO() {
     else {
         _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
     }
+    _ckt->assertNoIllegalExternalPadBoundaryChain();
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -6387,12 +6389,6 @@ void Sizer::FinalReport() {
     }
 
     double begin = cpuTime();
-    if(use_gr_rc) {
-        // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
-        // Rebuild pin access points before invoking the global router.
-        _ord_design->evalTclString(
-            "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
-    }
     refreshOpenStaParasitics(true);
     printf("Run Global Routing Time %f\n", cpuTime() - begin);
     _ckt->readSpef_opensta(_sta);

@@ -49,6 +49,154 @@ using namespace sta;
 
 void skip(istream& is);
 
+namespace {
+
+bool isInputLike(odb::dbIoType io_type)
+{
+    return io_type == odb::dbIoType::INPUT || io_type == odb::dbIoType::INOUT;
+}
+
+bool isOutputLike(odb::dbIoType io_type)
+{
+    return io_type == odb::dbIoType::OUTPUT || io_type == odb::dbIoType::INOUT;
+}
+
+bool isPadDataPin(odb::dbITerm* iterm)
+{
+    if(iterm == nullptr || iterm->getInst() == nullptr ||
+       iterm->getInst()->getMaster() == nullptr || iterm->getMTerm() == nullptr) {
+        return false;
+    }
+    return iterm->getInst()->getMaster()->isPad() &&
+           iterm->getMTerm()->getName() == "PAD";
+}
+
+bool isBoundaryBuffer(odb::dbInst* inst)
+{
+    if(inst == nullptr || inst->getMaster() == nullptr) {
+        return false;
+    }
+    const string inst_name = inst->getName();
+    if(inst_name.rfind("buffer_coord", 0) == 0) {
+        return true;
+    }
+    const string master_name = inst->getMaster()->getName();
+    return inst->getMaster()->isCore() &&
+           (master_name.find("BUF") != string::npos ||
+            master_name.find("INV") != string::npos);
+}
+
+[[noreturn]] void abortIllegalExternalPadBoundaryChain(
+    const string& direction,
+    odb::dbBTerm* bterm,
+    odb::dbNet* upstream_net,
+    odb::dbInst* buffer,
+    odb::dbNet* downstream_net,
+    odb::dbITerm* pad)
+{
+    const string bterm_name = bterm == nullptr ? "" : bterm->getName();
+    const string upstream_name =
+        upstream_net == nullptr ? "" : upstream_net->getName();
+    const string downstream_name =
+        downstream_net == nullptr ? "" : downstream_net->getName();
+    const string buffer_name = buffer == nullptr ? "" : buffer->getName();
+    const string master_name =
+        buffer == nullptr || buffer->getMaster() == nullptr
+            ? ""
+            : buffer->getMaster()->getName();
+    const string pad_inst_name =
+        pad == nullptr || pad->getInst() == nullptr ? "" : pad->getInst()->getName();
+    const string pad_pin_name =
+        pad == nullptr || pad->getMTerm() == nullptr ? "" : pad->getMTerm()->getName();
+    std::cerr << "illegal IO boundary buffering: direction=" << direction
+              << " bterm=" << bterm_name
+              << " upstream net=" << upstream_name
+              << " buffer inst=" << buffer_name
+              << " buffer master=" << master_name
+              << " downstream net=" << downstream_name
+              << " pad inst=" << pad_inst_name
+              << " pad pin=" << pad_pin_name << std::endl;
+    assert(false && "illegal external PAD boundary buffer chain");
+    std::abort();
+}
+
+void scanIllegalExternalPadBoundaryChain(odb::dbBlock* block)
+{
+    if(block == nullptr) {
+        return;
+    }
+    // Only top-level ports can start or end the forbidden chain.  Walking
+    // their connected nets avoids scanning every instance in large DEFs.
+    for(auto* bterm : block->getBTerms()) {
+        if(bterm == nullptr || bterm->getSigType().isSupply() ||
+           bterm->getNet() == nullptr ||
+           bterm->getNet()->getSigType().isSupply()) {
+            continue;
+        }
+        auto* port_net = bterm->getNet();
+
+        if(isInputLike(bterm->getIoType())) {
+            for(auto* buffer_input : port_net->getITerms()) {
+                auto* buffer = buffer_input == nullptr
+                                   ? nullptr
+                                   : buffer_input->getInst();
+                if(buffer == nullptr || buffer_input->getSigType().isSupply() ||
+                   !isBoundaryBuffer(buffer) ||
+                   !isInputLike(buffer_input->getIoType())) {
+                    continue;
+                }
+                for(auto* buffer_output : buffer->getITerms()) {
+                    auto* pad_net = buffer_output->getNet();
+                    if(buffer_output->getSigType().isSupply() ||
+                       !isOutputLike(buffer_output->getIoType()) ||
+                       pad_net == nullptr || pad_net->getSigType().isSupply() ||
+                       pad_net == port_net) {
+                        continue;
+                    }
+                    for(auto* pad : pad_net->getITerms()) {
+                        if(isPadDataPin(pad) && isInputLike(pad->getIoType())) {
+                            abortIllegalExternalPadBoundaryChain(
+                                "port_to_pad", bterm, port_net, buffer,
+                                pad_net, pad);
+                        }
+                    }
+                }
+            }
+        }
+
+        if(isOutputLike(bterm->getIoType())) {
+            for(auto* buffer_output : port_net->getITerms()) {
+                auto* buffer = buffer_output == nullptr
+                                   ? nullptr
+                                   : buffer_output->getInst();
+                if(buffer == nullptr || buffer_output->getSigType().isSupply() ||
+                   !isBoundaryBuffer(buffer) ||
+                   !isOutputLike(buffer_output->getIoType())) {
+                    continue;
+                }
+                for(auto* buffer_input : buffer->getITerms()) {
+                    auto* pad_net = buffer_input->getNet();
+                    if(buffer_input->getSigType().isSupply() ||
+                       !isInputLike(buffer_input->getIoType()) ||
+                       pad_net == nullptr || pad_net->getSigType().isSupply() ||
+                       pad_net == port_net) {
+                        continue;
+                    }
+                    for(auto* pad : pad_net->getITerms()) {
+                        if(isPadDataPin(pad) && isOutputLike(pad->getIoType())) {
+                            abortIllegalExternalPadBoundaryChain(
+                                "pad_to_port", bterm, pad_net, buffer,
+                                port_net, pad);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+}  // namespace
+
 // Sort the list by leakage
 //
 
@@ -74,6 +222,12 @@ bool Circuit::isDontUse(string master) {
         }
     }
     return false;
+}
+
+void Circuit::assertNoIllegalExternalPadBoundaryChain()
+{
+    scanIllegalExternalPadBoundaryChain(
+        _ord_design == nullptr ? nullptr : _ord_design->getBlock());
 }
 
 void Circuit::InitData() {
@@ -1741,31 +1895,8 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     if(_sizer->use_gr_rc) {
         // Global Route and estimate global-route RC.
         // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
-        // Rebuild pin access points before invoking the global router.
-        bool missing_pin_geometry = false;
-        std::vector<std::pair<odb::dbBPin*, odb::dbPlacementStatus>> existing_pins;
-        for(auto* term : block->getBTerms()) {
-            bool has_geometry = false;
-            for(auto* pin : term->getBPins()) {
-                if(!pin->getBoxes().empty()) {
-                    has_geometry = true;
-                    existing_pins.emplace_back(pin, pin->getPlacementStatus());
-                }
-            }
-            if(!has_geometry) {
-                missing_pin_geometry = true;
-            }
-        }
-        if(missing_pin_geometry) {
-            for(auto& entry : existing_pins) {
-                entry.first->setPlacementStatus(odb::dbPlacementStatus::FIRM);
-            }
-            _ord_design->evalTclString(
-                "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
-            for(auto& entry : existing_pins) {
-                entry.first->setPlacementStatus(entry.second);
-            }
-        }
+        // Keep the input IO-pin geometry and placement; do not synthesize
+        // top-level BPin geometry with place_pins during the RC refresh.
         auto db_tech = _ord_design->getTech()->getDB()->getTech();
         auto* low_layer = db_tech->findLayer(_sizer->min_route_layer.c_str());
         auto* high_layer = db_tech->findLayer(_sizer->max_route_layer.c_str());
@@ -1940,6 +2071,7 @@ void Circuit::init_opensta() {
     // _ord_design->readVerilog(_sizer->verilogFile);
     // _ord_design->link(_sizer->);
     _ord_design->readDef(_sizer->defFile, true);
+    assertNoIllegalExternalPadBoundaryChain();
     auto block = _ord_design->getBlock();
     old_localtion_x.clear();
     old_localtion_y.clear();
