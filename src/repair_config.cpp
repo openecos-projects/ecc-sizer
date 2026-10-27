@@ -150,6 +150,15 @@ void PowerRepairOptions::validate() const {
     common.validate();
     PowerRepairSettings::validate();
 }
+void GbiRepairSettings::validate() const {
+    require(cuda_max_memory_mb > 0, "gbi.cuda_max_memory_mb > 0");
+    require(backend == "cpu" || backend == "cuda",
+            "gbi.backend: cpu or cuda");
+    require(std::isfinite(min_gain) && min_gain >= 0,
+            "gbi.min_gain >= 0");
+    require(max_group_loads == 0 || max_group_loads >= 2,
+            "gbi.max_group_loads is zero or >= 2");
+}
 PowerRepairOptions RepairConfig::powerOptions() const {
     PowerRepairOptions result;
     static_cast< PowerRepairSettings& >(result) = power;
@@ -160,6 +169,7 @@ void RepairConfig::validate() const {
     design.validate();
     setup.validate();
     power.validate();
+    gbi.validate();
     require(sta_threads > 0 &&
                 sta_threads <= unsigned(std::numeric_limits< int >::max()),
             "runtime.sta_threads > 0");
@@ -217,6 +227,20 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         p.min_relative_improvement = real(value);
     else if(key == "power.min_absolute_improvement_w")
         p.min_absolute_improvement = real(value);
+    else if(key == "gbi.backend")
+        next.gbi.backend = value;
+    else if(key == "gbi.cuda_max_memory_mb")
+        next.gbi.cuda_max_memory_mb = count(value);
+    else if(key == "gbi.max_buffers")
+        next.gbi.max_buffers = count(value);
+    else if(key == "gbi.max_nets")
+        next.gbi.max_nets = count(value);
+    else if(key == "gbi.max_group_loads")
+        next.gbi.max_group_loads = count(value);
+    else if(key == "gbi.min_gain")
+        next.gbi.min_gain = real(value);
+    else if(key == "gbi.require_drv_reduction")
+        next.gbi.require_drv_reduction = boolean(value);
     else if(key == "common.allow_load_downsize")
         d.allow_load_downsize = boolean(value);
     else if(key == "common.load_downsize_slack_margin_ns")
@@ -282,7 +306,8 @@ void RepairConfig::read(std::istream& input, const std::string& source) {
                 section = trim(line.substr(1, line.size() - 2));
                 require(section == "common" || section == "design" ||
                             section == "setup" || section == "power" ||
-                            section == "tolerances" || section == "runtime",
+                            section == "gbi" || section == "tolerances" ||
+                            section == "runtime",
                         "unknown section " + section);
                 continue;
             }
@@ -371,6 +396,14 @@ void RepairConfig::write(std::ostream& output) const {
          << '\n'
          << "power.min_absolute_improvement_w="
          << power.min_absolute_improvement << '\n';
+    text << "gbi.backend=" << gbi.backend << '\n'
+         << "gbi.cuda_max_memory_mb=" << gbi.cuda_max_memory_mb << '\n'
+         << "gbi.max_buffers=" << gbi.max_buffers << '\n'
+         << "gbi.max_nets=" << gbi.max_nets << '\n'
+         << "gbi.max_group_loads=" << gbi.max_group_loads << '\n'
+         << "gbi.min_gain=" << gbi.min_gain << '\n'
+         << "gbi.require_drv_reduction="
+         << (gbi.require_drv_reduction ? "true" : "false") << '\n';
     output << text.str();
 }
 void loadRepairConfigFiles(RepairConfig& config,

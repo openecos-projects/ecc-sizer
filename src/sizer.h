@@ -67,6 +67,7 @@
 #include <vector>
 #include "buffer_inserter.h"
 #include "repair_fanout.h"
+#include "repair_gbi.h"
 #include "grt/GlobalRouter.h"
 #include "sta/ArcDelayCalc.hh"
 #include "sta/Bfs.hh"
@@ -437,6 +438,8 @@ class Sizer {
     void runPreplace();
     void runSizerFanoutRepair();
     void runSizerDesignRepair();
+    void runSizerGbiRepair(bool write_output = true);
+    void writeRepairStageSnapshot(const std::string& stage);
     void runHoldOnly();
     void runLegalizeOnly();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
@@ -469,7 +472,10 @@ class Sizer {
     bool preplaceGain = false;
     bool sizerFanoutRepairMode = false;
     bool sizerDesignRepairMode = false;
+    bool sizerGbiRepairMode = false;
     bool sizerSetupRepairMode = false;
+    // Optional DEF checkpoints for independent per-stage evaluation.
+    string sizerRepairStagePrefix;
     ecc::RepairConfig nativeRepairConfig;
     unsigned sizerMaxFanout = ecc::RepairCommonOptions{}.max_fanout;
     string sizerBufferCell;

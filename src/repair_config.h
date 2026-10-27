@@ -79,6 +79,18 @@ struct PowerRepairSettings {
     double min_absolute_improvement = 0;
     void validate() const;
 };
+struct GbiRepairSettings {
+    // VG solver backend. CUDA runs propagation, merge, pruning and selection;
+    // falls back to CPU if unavailable or over the GPU memory budget.
+    std::string backend = "cpu";
+    unsigned cuda_max_memory_mb = 512;
+    unsigned max_buffers = 64;
+    unsigned max_nets = 0;
+    unsigned max_group_loads = 0;
+    float min_gain = 0;
+    bool require_drv_reduction = true;
+    void validate() const;
+};
 struct PowerRepairOptions : PowerRepairSettings {
     RepairCommonOptions common;
     void validate() const;
@@ -90,6 +102,7 @@ struct RepairConfig {
     DesignRepairOptions design;
     SetupRepairSettings setup;
     PowerRepairSettings power;
+    GbiRepairSettings gbi;
     unsigned sta_threads = 32;
 
     SetupRepairOptions setupOptions() const;

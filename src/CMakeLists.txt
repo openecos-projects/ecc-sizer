@@ -57,6 +57,7 @@ include_directories(${OPENSTA_HDEAR_HOME}
                     ${OPENDB_HDEAR_HOME}
                     ${OPENDP_HDEAR_HOME}
                     ${FASTROUTE_HDEAR_HOME}
+                    ${OPENROAD_HOME}/rsz/src
                     )
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize)
 
@@ -64,7 +65,30 @@ file(GLOB SOURCES "*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/utility/src/*.cpp")
 
+if(ENABLE_GBI_CUDA)
+    include(CheckLanguage)
+    check_language(CUDA)
+    if(NOT CMAKE_CUDA_COMPILER)
+        message(FATAL_ERROR "ENABLE_GBI_CUDA=ON requires a CUDA compiler")
+    endif()
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cpp")
+    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cu")
+else()
+    message(STATUS "GBI CUDA solver disabled; using CPU VG solver")
+endif()
+
 add_executable(Sizer ${SOURCES})
+
+if(ENABLE_GBI_CUDA)
+    set_target_properties(Sizer PROPERTIES CUDA_STANDARD 17
+                          CUDA_STANDARD_REQUIRED ON
+                          CUDA_ARCHITECTURES native)
+    target_compile_definitions(Sizer PRIVATE ECC_SIZER_ENABLE_GBI_CUDA)
+    target_compile_options(Sizer PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+    target_link_libraries(Sizer CUDA::cudart)
+endif()
 
 if(BUILD_TESTING)
     find_package(GTest REQUIRED)
@@ -110,6 +134,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_fanout.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_design.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_power.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_load.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_timing.cpp
