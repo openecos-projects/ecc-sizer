@@ -11,6 +11,7 @@
 #include "buffer_inserter.h"
 #include "repair_fanout.h"
 #include "repair_design.h"
+#include "repair_gbi.h"
 #include "repair_timing.h"
 #include "repair_load.h"
 #include "repair_power.h"
@@ -237,6 +238,117 @@ TEST_F(BufferInserterStaTest, InsertBeforeLoadsUpdatesStaAndParasitics)
   verifyStaState(result);
   EXPECT_EQ(load1->findITerm("A")->getNet(), result.output_net);
   EXPECT_EQ(load2->findITerm("A")->getNet(), result.output_net);
+}
+
+TEST_F(BufferInserterStaTest, GbiOneShotLeavesCleanDesignUnchanged)
+{
+  readTestDesign();
+  const size_t instances_before = block_->getInsts().size();
+  const size_t nets_before = block_->getNets().size();
+  ecc::GbiRepairOptions options;
+  options.common.max_fanout = 64;
+  options.max_buffers = 4;
+  const auto result = ecc::OpenDbGbiRepairer::repair(
+      block_, sta_.get(), [this]() { refreshRepairTiming(); }, &resizer_, options);
+  EXPECT_TRUE(result.ok) << result.message;
+  EXPECT_FALSE(result.committed);
+  EXPECT_EQ(result.plans_collected, 0u);
+  EXPECT_EQ(block_->getInsts().size(), instances_before);
+  EXPECT_EQ(block_->getNets().size(), nets_before);
+}
+
+TEST_F(BufferInserterStaTest, GbiOneShotAppliesOneAtomicPlan)
+{
+  readTestDesign("fanout_repair_sta.v");
+  // The CLI has not necessarily called a Resizer command before GBI. Verify
+  // that GBI initializes DBU conversion even with a fresh Resizer instance.
+  rsz::Resizer cold_resizer(&logger_, db_.get(), sta_.get(), &stt_, &grt_,
+                            &dp_, &ep_);
+  // Give the timing-driven VG solver a wire-dominated net, where buffering
+  // improves delay as well as fanout (short wires may correctly be rejected).
+  block_->setDieArea(odb::Rect(0, 0, 2000000, 2000000));
+  block_->setCoreArea(odb::Rect(0, 0, 2000000, 2000000));
+  for(auto* inst : block_->getInsts()) {
+    int x, y;
+    inst->getLocation(x, y);
+    inst->setLocation(x * 100, y);
+  }
+  refreshRepairTiming();
+  const size_t instances_before = block_->getInsts().size();
+  ecc::GbiRepairOptions options;
+  // This integration target deliberately links the CPU stub: requesting
+  // CUDA must fall back before any ECO, then apply the same atomic plan.
+  options.backend = "cuda";
+  options.common.max_fanout = 3;
+  options.max_buffers = 64;
+  options.max_group_loads = 3;
+  options.require_drv_reduction = true;
+  const auto result = ecc::OpenDbGbiRepairer::repair(
+      block_, sta_.get(), [this]() { refreshRepairTiming(); }, &cold_resizer, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_EQ(result.backend_used, "cpu");
+  EXPECT_FALSE(result.cuda_fallback.empty());
+  EXPECT_TRUE(result.committed);
+  EXPECT_GT(result.plans_collected, 0u);
+  EXPECT_GT(result.inserted_buffers, 0u);
+  EXPECT_GT(block_->getInsts().size(), instances_before);
+  EXPECT_EQ(block_->getInsts().size() - instances_before, result.inserted_buffers);
+  EXPECT_LT(result.after.severity, result.before.severity);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+
+  // The next repairs must analyze the inserted topology, not a pre-GBI
+  // snapshot. Check the stage boundary metrics and instance accounting.
+  ecc::DesignRepairOptions design_options;
+  design_options.max_fanout = options.common.max_fanout;
+  const auto refresh = [this]() { refreshRepairTiming(); };
+  const auto design = ecc::OpenDbDesignRepairer::repair(
+      block_, sta_.get(), refresh, design_options);
+  ASSERT_TRUE(design.ok) << design.message;
+  EXPECT_NEAR(design.before.severity, result.after.severity, 1e-6);
+  EXPECT_NEAR(design.before.setup_wns, result.after.setup_wns, 1e-15);
+  const size_t after_design = block_->getInsts().size();
+  EXPECT_EQ(after_design, instances_before + result.inserted_buffers +
+                             design.inserted_buffers);
+  ecc::SetupRepairOptions setup_options;
+  setup_options.common = design_options;
+  const auto setup = ecc::OpenDbSetupRepairer::repair(
+      block_, sta_.get(), refresh, setup_options);
+  ASSERT_TRUE(setup.ok) << setup.message;
+  EXPECT_NEAR(setup.before.design.setup_wns, design.after.setup_wns, 1e-15);
+  EXPECT_GE(setup.after.design.setup_wns + 1e-15, setup.before.design.setup_wns);
+  EXPECT_EQ(block_->getInsts().size(), after_design + setup.inserted_buffers);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  EXPECT_TRUE(sta_->search()->arrivalsValid());
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, GbiOneShotRollsBackWhenTimingGetsWorse)
+{
+  readTestDesign("fanout_repair_sta.v");
+  const size_t instances_before = block_->getInsts().size();
+  ecc::GbiRepairOptions options;
+  options.common.max_fanout = 3;
+  options.max_buffers = 3;
+  options.max_group_loads = 3;
+  const auto refresh = [&]() {
+    const bool edited = block_->getInsts().size() > instances_before;
+    for(auto* scene : sta_->scenes()) {
+      ep_.setHWireSignalRC(scene, edited ? 1e12 : 1e6,
+                            edited ? 1e-4 : 1e-10);
+      ep_.setVWireSignalRC(scene, edited ? 1e12 : 1e6,
+                            edited ? 1e-4 : 1e-10);
+    }
+    ep_.estimateParasitics(est::ParasiticsSrc::kPlacement);
+    sta_->updateTiming(true);
+  };
+  const auto result =
+      ecc::OpenDbGbiRepairer::repair(block_, sta_.get(), refresh, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_FALSE(result.committed);
+  EXPECT_EQ(block_->getInsts().size(), instances_before);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
 }
 
 TEST_F(BufferInserterStaTest, RepairFanoutBuildsTreeAndKeepsStaValid)
