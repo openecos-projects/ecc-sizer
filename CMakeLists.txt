@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 
 option(ENABLE_VG_CUDA
        "Build the optional CUDA VG solver for Sizer VG" OFF)
+option(ENABLE_GBI_CUDA
+       "Build the CUDA GBI solver migrated from OpenROAD rsz" OFF)
 
 include(CTest)
 
