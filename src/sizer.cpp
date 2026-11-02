@@ -79,6 +79,8 @@
 #include "repair_design.h"
 #include "repair_vg.h"
 #include "repair_vg_cuda.h"
+#include "repair_gbi.h"
+#include "repair_gbi_cuda.h"
 #include "repair_timing.h"
 #include "repair_power.h"
 #include "repair_placement.h"
@@ -571,7 +573,7 @@ void Sizer::ReportOptions() {
     cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
          << GTRMetricNames[GTR_METRIC2] << endl;
     cout << "Test Mode      : " << TEST_MODE << endl;
-    if(sizerDesignRepairMode || sizerVgRepairMode) {
+    if(sizerDesignRepairMode || sizerVgRepairMode || sizerGbiRepairMode) {
         cout << "Sizer repair   : native repair, max fanout "
              << nativeRepairConfig.design.max_fanout << endl;
         cout << "Sizer repair configuration begin" << endl;
@@ -5999,6 +6001,125 @@ void Sizer::runSizerVgRepair(bool write_output) {
     design->evalTclString("write_verilog " + resultVerilogFile);
 }
 
+void Sizer::runSizerGbiRepair(bool write_output) {
+    auto* design = _ckt->_ord_design;
+    auto* block = design->getBlock();
+    auto* sta = _ckt->_ord_timing->getSta();
+    if(use_gr_rc) {
+        cerr << "GBI repair currently requires placement RC." << endl;
+        exit(1);
+    }
+    auto options = nativeRepairConfig.design;
+    options.max_fanout = sizerMaxFanout;
+    for(auto* inst : block->getInsts()) {
+        if(std::find(dontTouchInst.begin(), dontTouchInst.end(),
+                     inst->getName()) != dontTouchInst.end() ||
+           std::find(dontTouchCell.begin(), dontTouchCell.end(),
+                     inst->getMaster()->getName()) != dontTouchCell.end())
+            options.excluded_instances.push_back(inst);
+    }
+    for(auto* lib : block->getDataBase()->getLibs()) {
+        for(auto* master : lib->getMasters()) {
+            if(_ckt->isDontUse(master->getName()) ||
+               (!sizerBufferCell.empty() &&
+                sta->getDbNetwork()->libertyCell(
+                    sta->getDbNetwork()->dbToSta(master)) &&
+                sta->getDbNetwork()
+                    ->libertyCell(sta->getDbNetwork()->dbToSta(master))
+                    ->isBuffer() &&
+                master->getName() != sizerBufferCell))
+                options.excluded_masters.push_back(master);
+        }
+    }
+    const auto checked_tcl = [&](const std::string& command) {
+        const auto status = design->evalTclString(
+            "if {[catch {" + command +
+            "} __sizer_gbi_error]} {"
+            "set __sizer_gbi_status \"ERROR: $__sizer_gbi_error\""
+            "} else {set __sizer_gbi_status OK}");
+        if(status != "OK")
+            throw std::runtime_error(status);
+    };
+    const auto missing_supplies = [&]() {
+        unsigned missing = 0;
+        for(auto* inst : block->getInsts()) {
+            for(auto* pin : inst->getITerms()) {
+                const auto type = pin->getSigType();
+                if((type == odb::dbSigType::POWER ||
+                    type == odb::dbSigType::GROUND) &&
+                   (!pin->getNet() || pin->getNet()->getSigType() != type))
+                    ++missing;
+            }
+        }
+        return missing;
+    };
+    ecc::connectMissingWildcardSpecialNetPins(block);
+    const auto baseline_missing = missing_supplies();
+    const auto refresh = [&]() {
+        ecc::connectMissingWildcardSpecialNetPins(block);
+        if(missing_supplies() > baseline_missing)
+            throw std::runtime_error(
+                "GBI repair introduced disconnected or mismatched supply pins");
+        ecc::legalizeRepairPlacement(
+            block, ord::OpenRoad::openRoad()->getOpendp(),
+            options.excluded_instances);
+        checked_tcl("estimate_parasitics -placement");
+        sta->findRequireds();
+    };
+    try {
+        checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
+                    " [current_design]");
+        refresh();
+        writeRepairStageSnapshot("input");
+        ecc::GbiRepairOptions gbi_options;
+        gbi_options.common = options;
+        gbi_options.backend = nativeRepairConfig.gbi.backend;
+        gbi_options.max_buffers = nativeRepairConfig.gbi.max_buffers;
+        gbi_options.max_nets = nativeRepairConfig.gbi.max_nets;
+        gbi_options.require_drv_reduction =
+            nativeRepairConfig.gbi.require_drv_reduction;
+        const auto result =
+            ecc::OpenDbGbiRepairer::repair(
+                block, sta, refresh, design->getResizer(), gbi_options);
+        if(!result.ok)
+            throw std::runtime_error(result.message);
+        checked_tcl("check_placement");
+        cout << "Sizer GBI repair: " << result.message
+             << " backend=" << gbi_options.backend
+             << " backend_used=" << result.backend_used
+             << " cuda_available="
+             << (ecc::gbi::gbiCudaAvailable() ? "true" : "false")
+             << " nets_collected=" << result.nets_collected
+             << " plans_collected=" << result.plans_collected
+             << " attempted_buffers=" << result.attempted_buffers
+             << " inserted_buffers=" << result.inserted_buffers
+             << " refreshes=" << result.refreshes
+             << " collect_ms=" << result.collect_ms
+             << " solve_ms=" << result.solve_ms
+             << " apply_ms=" << result.apply_ms
+             << " severity_before=" << result.before.severity
+             << " severity_after=" << result.after.severity
+             << " setup_wns_before_ns=" << result.before.setup_wns * 1e9
+             << " setup_wns_after_ns=" << result.after.setup_wns * 1e9
+             << " committed=" << result.committed << endl;
+    } catch(const std::exception& error) {
+        cerr << "Sizer GBI repair failed: " << error.what() << endl;
+        exit(1);
+    }
+    writeRepairStageSnapshot("gbi");
+    if(!write_output)
+        return;
+    design->evalTclString("report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
+    design->evalTclString("report_wns");
+    design->evalTclString("report_tns");
+    if(resultDefFile.empty())
+        resultDefFile = benchname + ".gbi.def";
+    if(resultVerilogFile.empty())
+        resultVerilogFile = benchname + ".gbi.v";
+    design->writeDef(resultDefFile);
+    design->evalTclString("write_verilog " + resultVerilogFile);
+}
+
 // Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
 // out. No sizing loop, no placement.
 void Sizer::runPreplace() {
@@ -10274,6 +10395,16 @@ void Sizer::readCmdFile(string cmdFileStr) {
             sizerMaxFanout = static_cast<unsigned>(max_fanout);
             nativeRepairConfig.design.max_fanout = sizerMaxFanout;
         }
+        if(line.find("-sizer_repair_gbi ") != string::npos) {
+            const int max_fanout = getTokenI(line, "-sizer_repair_gbi ");
+            if(max_fanout < 2) {
+                cerr << "-sizer_repair_gbi requires fanout >= 2." << endl;
+                exit(1);
+            }
+            sizerGbiRepairMode = true;
+            sizerMaxFanout = static_cast<unsigned>(max_fanout);
+            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
+        }
         if(line.find("-sizer_repair_stage_prefix ") != string::npos)
             sizerRepairStagePrefix = getTokenS(line, "-sizer_repair_stage_prefix ");
         if(line.find("-buffer_cell ") != string::npos)
@@ -11330,6 +11461,19 @@ int main(int argc, char **argv) {
     }
     _sizer.ReportOptions();
 
+    if(_sizer.sizerGbiRepairMode) {
+        if(_sizer.sizerVgRepairMode || _sizer.sizerFanoutRepairMode ||
+           _sizer.preplaceMode || _sizer.holdOnlyMode ||
+           _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
+           _sizer.use_gr_rc) {
+            cerr << "Error: -sizer_repair_gbi requires placement RC and "
+                    "cannot be combined with other repair modes." << endl;
+            return 1;
+        }
+        _sizer.loadOpenRoadDesignForFanoutRepair();
+        _sizer.runSizerGbiRepair(true);
+        return 0;
+    }
     if(_sizer.sizerVgRepairMode) {
         if(_sizer.sizerFanoutRepairMode ||
            _sizer.preplaceMode || _sizer.holdOnlyMode ||

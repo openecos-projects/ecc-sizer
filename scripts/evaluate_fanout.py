@@ -41,6 +41,8 @@ def main():
                         help="run native DRV followed by setup repair")
     parser.add_argument("--repair-vg", action="store_true",
                         help="run CPU VG/VG; combine with --repair-setup for VG -> design -> setup")
+    parser.add_argument("--repair-gbi", action="store_true",
+                        help="run migrated GPU GBI buffer insertion")
     parser.add_argument("--stage-metrics", action="store_true",
                         help="save and independently evaluate each native repair stage")
     parser.add_argument("--setup-trials", type=int)
@@ -73,8 +75,8 @@ def main():
         env = dict(os.environ, PLATFORM_DIR=str(platform),
                    DESIGN_PATH=str(design), MAX_FANOUT=str(args.max_fanout),
                    EQUIV_DIR=str(args.equiv_dir.resolve()),
-                   CHECK_PLACEMENT=str(int(args.legalize or args.repair_design or args.repair_vg)),
-                   NATIVE_REPAIR=str(int(args.repair_design or args.repair_vg)))
+                   CHECK_PLACEMENT=str(int(args.legalize or args.repair_design or args.repair_vg or args.repair_gbi)),
+                   NATIVE_REPAIR=str(int(args.repair_design or args.repair_vg or args.repair_gbi)))
         libdir = platform / "ASAP7" / "lib"
         libs = sorted(libdir.glob("asap7sc7p5t_*_TT_*.lib"))
         libs.append(libdir / "sram_asap7_64x256_1rw.lib")
@@ -109,7 +111,9 @@ def main():
                                  if args.buffer_cell else "")
                 if args.no_gate_resize:
                     buffer_option += "-sizer_repair_no_gate_resize\n"
-                if args.repair_vg:
+                if args.repair_gbi:
+                    repair_flag = "-sizer_repair_gbi"
+                elif args.repair_vg:
                     repair_flag = "-sizer_repair_vg"
                 else:
                     repair_flag = "-sizer_repair_design" if args.repair_design else "-sizer_fanout_repair"
@@ -147,7 +151,9 @@ def main():
                     configured_fanout = re.search(r"^common.max_fanout=(\d+)$", effective.group(1), re.M)
                     if int(configured_fanout.group(1)) != args.max_fanout:
                         raise RuntimeError("repair config fanout differs from --max-fanout evaluation constraint")
-                if args.repair_vg:
+                if args.repair_gbi:
+                    pattern = r"Sizer GBI repair: (.*)"
+                elif args.repair_vg:
                     pattern = r"Sizer VG repair: (.*)"
                 else:
                     pattern = r"Sizer design repair: (.*)" if args.repair_design else r"Sizer fanout repair complete: (.*)"
@@ -216,11 +222,12 @@ def main():
                        buffer_cell=args.buffer_cell or "auto",
                        repair_design=args.repair_design,
                        repair_vg=args.repair_vg,
+                       repair_gbi=args.repair_gbi,
                        repair_overrides=args.repair_set,
-                       gate_resize=((not args.repair_vg or args.repair_design) and effective_config.get("common.allow_gate_resize",
+                       gate_resize=((not args.repair_vg and not args.repair_gbi or args.repair_design) and effective_config.get("common.allow_gate_resize",
                                     str(not args.no_gate_resize).lower()) == "true"),
                        effective_repair_config=effective_config,
-                       placement_checked=args.legalize or args.repair_design or args.repair_vg,
+                       placement_checked=args.legalize or args.repair_design or args.repair_vg or args.repair_gbi,
                        evaluation_seconds=elapsed, sizer_seconds=runtime,
                        topology=topology, setup_topology=setup_topology,
                        vg_topology=vg_topology, design_topology=design_topology,

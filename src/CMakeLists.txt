@@ -202,6 +202,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_design.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_power.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_load.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_timing.cpp

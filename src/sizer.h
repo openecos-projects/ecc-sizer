@@ -68,6 +68,7 @@
 #include "buffer_inserter.h"
 #include "repair_fanout.h"
 #include "repair_vg.h"
+#include "repair_gbi.h"
 #include "grt/GlobalRouter.h"
 #include "sta/ArcDelayCalc.hh"
 #include "sta/Bfs.hh"
@@ -439,6 +440,7 @@ class Sizer {
     void runSizerFanoutRepair();
     void runSizerDesignRepair();
     void runSizerVgRepair(bool write_output = true);
+    void runSizerGbiRepair(bool write_output = true);
     void writeRepairStageSnapshot(const std::string& stage);
     void runHoldOnly();
     void runLegalizeOnly();
@@ -473,6 +475,7 @@ class Sizer {
     bool sizerFanoutRepairMode = false;
     bool sizerDesignRepairMode = false;
     bool sizerVgRepairMode = false;
+    bool sizerGbiRepairMode = false;
     bool sizerSetupRepairMode = false;
     // Optional DEF checkpoints for independent per-stage evaluation.
     string sizerRepairStagePrefix;

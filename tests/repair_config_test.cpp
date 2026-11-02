@@ -38,6 +38,8 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.set("vg.max_group_loads", "4");
   config.set("vg.min_gain", "0.25");
   config.set("vg.require_drv_reduction", "false");
+  config.set("gbi.max_buffers", "9");
+  config.set("gbi.max_nets", "3");
   auto power = config.powerOptions();
   EXPECT_TRUE(power.enabled);
   EXPECT_EQ(power.objective, "total");
@@ -62,6 +64,8 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_EQ(config.vg.max_group_loads, 4u);
   EXPECT_FLOAT_EQ(config.vg.min_gain, 0.25f);
   EXPECT_FALSE(config.vg.require_drv_reduction);
+  EXPECT_EQ(config.gbi.max_buffers, 9u);
+  EXPECT_EQ(config.gbi.max_nets, 3u);
   setup.common.prepare();
   EXPECT_EQ(prepares, 1);
 }
@@ -119,7 +123,6 @@ TEST(RepairConfig, RejectsMalformedValuesAtomically)
          {"setup.batch_backoff", "1"},
          {"vg.max_group_loads", "1"},
          {"vg.backend", "opencl"},
-         {"gbi.backend", "cuda"},
          {"vg.cuda_max_memory_mb", "0"},
          {"vg.min_gain", "-1"},
          {"vg.require_drv_reduction", "maybe"},
