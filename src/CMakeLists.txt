@@ -65,27 +65,27 @@ file(GLOB SOURCES "*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/utility/src/*.cpp")
 
-if(ENABLE_GBI_CUDA)
+if(ENABLE_VG_CUDA)
     include(CheckLanguage)
     check_language(CUDA)
     if(NOT CMAKE_CUDA_COMPILER)
-        message(FATAL_ERROR "ENABLE_GBI_CUDA=ON requires a CUDA compiler")
+        message(FATAL_ERROR "ENABLE_VG_CUDA=ON requires a CUDA compiler")
     endif()
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED)
-    list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cpp")
-    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cu")
+    list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp")
+    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cu")
 else()
-    message(STATUS "GBI CUDA solver disabled; using CPU VG solver")
+    message(STATUS "VG CUDA solver disabled; using CPU VG solver")
 endif()
 
 add_executable(Sizer ${SOURCES})
 
-if(ENABLE_GBI_CUDA)
+if(ENABLE_VG_CUDA)
     set_target_properties(Sizer PROPERTIES CUDA_STANDARD 17
                           CUDA_STANDARD_REQUIRED ON
                           CUDA_ARCHITECTURES native)
-    target_compile_definitions(Sizer PRIVATE ECC_SIZER_ENABLE_GBI_CUDA)
+    target_compile_definitions(Sizer PRIVATE ECC_SIZER_ENABLE_VG_CUDA)
     target_compile_options(Sizer PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
     target_link_libraries(Sizer CUDA::cudart)
 endif()
@@ -103,30 +103,30 @@ if(BUILD_TESTING)
     target_link_libraries(ecc_sizer_repair_config_test PRIVATE GTest::gtest_main)
     add_test(NAME ecc_sizer_repair_config COMMAND ecc_sizer_repair_config_test)
 
-    set(GBI_CUDA_TEST_BACKEND
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cpp)
-    if(ENABLE_GBI_CUDA)
-        set(GBI_CUDA_TEST_BACKEND
-            ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cu)
+    set(VG_CUDA_TEST_BACKEND
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp)
+    if(ENABLE_VG_CUDA)
+        set(VG_CUDA_TEST_BACKEND
+            ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cu)
     endif()
-    add_executable(ecc_sizer_repair_gbi_cuda_test
-        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_gbi_cuda_test.cpp
-        ${GBI_CUDA_TEST_BACKEND})
-    target_include_directories(ecc_sizer_repair_gbi_cuda_test PRIVATE
+    add_executable(ecc_sizer_repair_vg_cuda_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_vg_cuda_test.cpp
+        ${VG_CUDA_TEST_BACKEND})
+    target_include_directories(ecc_sizer_repair_vg_cuda_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(ecc_sizer_repair_gbi_cuda_test PRIVATE
+    target_link_libraries(ecc_sizer_repair_vg_cuda_test PRIVATE
         GTest::gtest
         GTest::gtest_main)
-    if(ENABLE_GBI_CUDA)
-        set_target_properties(ecc_sizer_repair_gbi_cuda_test PROPERTIES
+    if(ENABLE_VG_CUDA)
+        set_target_properties(ecc_sizer_repair_vg_cuda_test PROPERTIES
             CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON
             CUDA_ARCHITECTURES native)
-        target_compile_definitions(ecc_sizer_repair_gbi_cuda_test PRIVATE ECC_SIZER_ENABLE_GBI_CUDA)
-        target_compile_options(ecc_sizer_repair_gbi_cuda_test PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
-        target_link_libraries(ecc_sizer_repair_gbi_cuda_test PRIVATE CUDA::cudart)
+        target_compile_definitions(ecc_sizer_repair_vg_cuda_test PRIVATE ECC_SIZER_ENABLE_VG_CUDA)
+        target_compile_options(ecc_sizer_repair_vg_cuda_test PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+        target_link_libraries(ecc_sizer_repair_vg_cuda_test PRIVATE CUDA::cudart)
     endif()
-    add_test(NAME ecc_sizer_repair_gbi_cuda
-             COMMAND ecc_sizer_repair_gbi_cuda_test)
+    add_test(NAME ecc_sizer_repair_vg_cuda
+             COMMAND ecc_sizer_repair_vg_cuda_test)
 
     add_executable(ecc_sizer_buffer_inserter_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_test.cpp
@@ -159,8 +159,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_fanout.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_design.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_power.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_load.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_timing.cpp

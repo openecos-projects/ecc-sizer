@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_gbi.h"
-#include "repair_gbi_cuda.h"
+#include "repair_vg.h"
+#include "repair_vg_cuda.h"
 
 #include "buffer_inserter.h"
 #include "repair_backend.h"
@@ -58,7 +58,7 @@ struct Timer {
     }
 };
 
-GbiRepairMetrics metrics(const DesignRepairMetrics& m) {
+VgRepairMetrics metrics(const DesignRepairMetrics& m) {
     return {.severity = m.severity,
             .setup_wns = m.setup_wns,
             .setup_tns = m.setup_tns,
@@ -70,8 +70,8 @@ GbiRepairMetrics metrics(const DesignRepairMetrics& m) {
             .total_fanout_violations = m.total_fanout_violations};
 }
 
-bool better(const GbiRepairMetrics& before, const GbiRepairMetrics& after,
-            const GbiRepairOptions& options) {
+bool better(const VgRepairMetrics& before, const VgRepairMetrics& after,
+            const VgRepairOptions& options) {
     const auto& tolerance = options.common.tolerances;
     const bool no_timing_loss =
         after.setup_wns + tolerance.wns_absolute >= before.setup_wns &&
@@ -95,7 +95,7 @@ bool better(const GbiRepairMetrics& before, const GbiRepairMetrics& after,
 
 std::vector< Plan > collectPlans(detail::Repair& backend,
                                  const std::vector< NetState >& states,
-                                 const GbiRepairOptions& options,
+                                 const VgRepairOptions& options,
                                  unsigned& nets_collected) {
     std::vector< Plan > plans;
     const unsigned group_limit = options.max_group_loads == 0
@@ -212,7 +212,7 @@ std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr& node,
                                rsz::Resizer* resizer,
                                const sta::Scene* scene,
                                const sta::MinMax* min_max,
-                               const GbiRepairOptions& options)
+                               const VgRepairOptions& options)
 {
     if(!node)
         return {};
@@ -305,9 +305,9 @@ std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr& node,
 
 // Flat postorder snapshot. Only this adapter knows about OpenROAD types.
 struct VgForest {
-    std::vector<GbiCudaNode> nodes;
+    std::vector<VgCudaNode> nodes;
     std::vector<rsz::BufferedNetPtr> originals;
-    std::vector<GbiCudaBuffer> buffers;
+    std::vector<VgCudaBuffer> buffers;
     sta::LibertyCellSeq cells;
     std::vector<int> roots;
     std::vector<double> resistance;
@@ -315,14 +315,14 @@ struct VgForest {
 
 int flattenVg(const rsz::BufferedNetPtr& node, VgForest& forest,
               rsz::Resizer* resizer, const sta::Scene* scene) {
-    if(!node) throw std::runtime_error("GBI CUDA null tree node");
-    GbiCudaNode flat;
+    if(!node) throw std::runtime_error("VG CUDA null tree node");
+    VgCudaNode flat;
     switch(node->type()) {
     case rsz::BufferedNetType::load:
         flat.cap = node->cap();
         break;
     case rsz::BufferedNetType::wire: {
-        flat.type = GbiCudaNodeType::wire;
+        flat.type = VgCudaNodeType::wire;
         flat.left = flattenVg(node->ref(), forest, resizer, scene);
         double resistance = 0, capacitance = 0;
         node->wireRC(scene, resizer, resizer->getEstimateParasitics(),
@@ -333,15 +333,15 @@ int flattenVg(const rsz::BufferedNetPtr& node, VgForest& forest,
         break;
     }
     case rsz::BufferedNetType::junction:
-        flat.type = GbiCudaNodeType::junction;
+        flat.type = VgCudaNodeType::junction;
         flat.left = flattenVg(node->ref(), forest, resizer, scene);
         flat.right = flattenVg(node->ref2(), forest, resizer, scene);
         break;
     default:
-        throw std::runtime_error("GBI CUDA unsupported Steiner node");
+        throw std::runtime_error("VG CUDA unsupported Steiner node");
     }
     if(forest.nodes.size() >= static_cast<size_t>(std::numeric_limits<int>::max()))
-        throw std::runtime_error("GBI CUDA tree index overflow");
+        throw std::runtime_error("VG CUDA tree index overflow");
     forest.nodes.push_back(flat);
     forest.originals.push_back(node);
     return static_cast<int>(forest.nodes.size() - 1);
@@ -349,7 +349,7 @@ int flattenVg(const rsz::BufferedNetPtr& node, VgForest& forest,
 
 void collectCudaBuffers(VgForest& forest, rsz::Resizer* resizer,
                         const sta::Scene* scene,
-                        const GbiRepairOptions& options) {
+                        const VgRepairOptions& options) {
     sta::LibertyCellSeq cells;
     resizer->getBufferList(cells);
     if(cells.empty()) {
@@ -369,7 +369,7 @@ void collectCudaBuffers(VgForest& forest, rsz::Resizer* resizer,
         sta::LibertyPort *input = nullptr, *output = nullptr;
         cell->bufferPorts(input, output);
         if(!input || !output) continue;
-        GbiCudaBuffer model{resizer->portCapacitance(input, scene),
+        VgCudaBuffer model{resizer->portCapacitance(input, scene),
                              static_cast<double>(output->intrinsicDelay(resizer->sta())),
                              output->driveResistance()};
         if(!std::isfinite(model.cap) || !std::isfinite(model.intrinsic) ||
@@ -380,14 +380,14 @@ void collectCudaBuffers(VgForest& forest, rsz::Resizer* resizer,
 }
 
 rsz::BufferedNetPtr tracebackVg(int id, int selected, const VgForest& forest,
-                               const GbiCudaForestResult& result,
+                               const VgCudaForestResult& result,
                                rsz::Resizer* resizer, const sta::Scene* scene) {
     const auto& node = forest.nodes.at(id);
     const auto& candidate = result.frontiers.at(id).at(selected);
     const auto& original = forest.originals.at(id);
-    if(node.type == GbiCudaNodeType::load) return original;
+    if(node.type == VgCudaNodeType::load) return original;
     auto left = tracebackVg(node.left, candidate.left, forest, result, resizer, scene);
-    if(node.type == GbiCudaNodeType::junction) {
+    if(node.type == VgCudaNodeType::junction) {
         auto right = tracebackVg(node.right, candidate.right, forest, result, resizer, scene);
         return std::make_shared<rsz::BufferedNet>(rsz::BufferedNetType::junction,
                                                  original->location(), left, right, resizer);
@@ -404,8 +404,8 @@ rsz::BufferedNetPtr tracebackVg(int id, int selected, const VgForest& forest,
 std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
                                            rsz::Resizer* resizer,
                                            sta::dbSta* sta,
-                                           const GbiRepairOptions& options,
-                                           GbiRepairResult& report)
+                                           const VgRepairOptions& options,
+                                           VgRepairResult& report)
 {
     std::vector<VgSolution> solutions;
     if(!resizer) return solutions;
@@ -437,7 +437,7 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
                 forest.roots.push_back(flattenVg(input.tree, forest, resizer, scene));
                 forest.resistance.push_back(input.resistance);
             }
-            const auto result = gbiCudaSolve(forest.nodes, forest.buffers,
+            const auto result = vgCudaSolve(forest.nodes, forest.buffers,
                 forest.roots, forest.resistance,
                 size_t(options.cuda_max_memory_mb) * 1024 * 1024);
             for(size_t i = 0; i < inputs.size(); ++i) {
@@ -524,31 +524,31 @@ std::vector<odb::dbObject*> applyVgNode(const rsz::BufferedNetPtr& node,
 
 }  // namespace
 
-void GbiRepairOptions::validate() const {
+void VgRepairOptions::validate() const {
     common.validate();
     if(cuda_max_memory_mb == 0)
-        throw std::invalid_argument("gbi.cuda_max_memory_mb must be positive");
+        throw std::invalid_argument("vg.cuda_max_memory_mb must be positive");
     if(backend != "cpu" && backend != "cuda")
-        throw std::invalid_argument("gbi.backend must be cpu or cuda");
+        throw std::invalid_argument("vg.backend must be cpu or cuda");
     if(max_group_loads != 0 && max_group_loads < 2)
-        throw std::invalid_argument("gbi.max_group_loads must be at least 2");
+        throw std::invalid_argument("vg.max_group_loads must be at least 2");
     if(!std::isfinite(min_gain) || min_gain < 0)
         throw std::invalid_argument(
-            "gbi.min_gain must be finite and nonnegative");
+            "vg.min_gain must be finite and nonnegative");
 }
 
-GbiRepairResult OpenDbGbiRepairer::repair(
+VgRepairResult OpenDbVgRepairer::repair(
     odb::dbBlock* block, sta::dbSta* sta,
-    const std::function< void() >& refresh, const GbiRepairOptions& options)
+    const std::function< void() >& refresh, const VgRepairOptions& options)
 {
     return repair(block, sta, refresh, nullptr, options);
 }
 
-GbiRepairResult OpenDbGbiRepairer::repair(
+VgRepairResult OpenDbVgRepairer::repair(
     odb::dbBlock* block, sta::dbSta* sta,
     const std::function< void() >& refresh, rsz::Resizer* resizer,
-    const GbiRepairOptions& options) {
-    GbiRepairResult result;
+    const VgRepairOptions& options) {
+    VgRepairResult result;
     try {
         options.validate();
     }
@@ -557,16 +557,16 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         return result;
     }
     if(block == nullptr || sta == nullptr || !refresh) {
-        result.message = "GBI repair requires block, STA, and refresh callback";
+        result.message = "VG repair requires block, STA, and refresh callback";
         return result;
     }
     if(sta->getDbNetwork()->block() != block) {
-        result.message = "GBI STA network does not reference the target block";
+        result.message = "VG STA network does not reference the target block";
         return result;
     }
     detail::Repair backend(block, sta, options.common);
     if(!backend.hasCells()) {
-        result.message = "GBI found no usable combinational cells";
+        result.message = "VG found no usable combinational cells";
         return result;
     }
     DesignRepairMetrics before_design;
@@ -650,7 +650,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         result.converged =
             result.before.severity <= options.common.tolerances.drv_severity;
         result.after = result.before;
-        result.message = "GBI found no applicable one-level buffer plan";
+        result.message = "VG found no applicable one-level buffer plan";
         return result;
     }
 
@@ -671,8 +671,8 @@ GbiRepairResult OpenDbGbiRepairer::repair(
                 continue;
             BufferInsertionOptions insertion;
             insertion.location = plan.location;
-            insertion.buffer_name_prefix = "sizer_gbi_buf";
-            insertion.net_name_prefix = "sizer_gbi_net";
+            insertion.buffer_name_prefix = "sizer_vg_buf";
+            insertion.net_name_prefix = "sizer_vg_net";
             const auto edit = OpenDbBufferInserter::insertBufferBeforeLoads(
                 plan.net, loads, plan.master, insertion);
             if(!edit)
@@ -684,7 +684,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
             active = false;
             result.ok = true;
             result.after = result.before;
-            result.message = "GBI plans became stale before apply";
+            result.message = "VG plans became stale before apply";
             return result;
         }
         refresh();
@@ -699,7 +699,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
             ++result.refreshes;
             result.after = result.before;
             result.ok = true;
-            result.message = "GBI plan rejected by timing/DRV acceptance";
+            result.message = "VG plan rejected by timing/DRV acceptance";
             return result;
         }
         odb::dbDatabase::commitEco(block);
@@ -709,7 +709,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         result.inserted_buffers = result.attempted_buffers;
         result.converged =
             result.after.severity <= options.common.tolerances.drv_severity;
-        result.message = "GBI one-shot plan applied";
+        result.message = "VG one-shot plan applied";
         return result;
     }
     catch(const std::exception& error) {

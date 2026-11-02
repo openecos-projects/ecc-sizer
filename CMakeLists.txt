@@ -4,8 +4,8 @@ cmake_minimum_required(VERSION 3.10)
 project(gsizer LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 
-option(ENABLE_GBI_CUDA
-       "Build the optional CUDA VG solver for Sizer GBI" OFF)
+option(ENABLE_VG_CUDA
+       "Build the optional CUDA VG solver for Sizer VG" OFF)
 
 include(CTest)
 

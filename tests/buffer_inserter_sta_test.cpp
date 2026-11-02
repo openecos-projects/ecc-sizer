@@ -11,7 +11,7 @@
 #include "buffer_inserter.h"
 #include "repair_fanout.h"
 #include "repair_design.h"
-#include "repair_gbi.h"
+#include "repair_vg.h"
 #include "repair_timing.h"
 #include "repair_load.h"
 #include "repair_power.h"
@@ -240,15 +240,15 @@ TEST_F(BufferInserterStaTest, InsertBeforeLoadsUpdatesStaAndParasitics)
   EXPECT_EQ(load2->findITerm("A")->getNet(), result.output_net);
 }
 
-TEST_F(BufferInserterStaTest, GbiOneShotLeavesCleanDesignUnchanged)
+TEST_F(BufferInserterStaTest, VgOneShotLeavesCleanDesignUnchanged)
 {
   readTestDesign();
   const size_t instances_before = block_->getInsts().size();
   const size_t nets_before = block_->getNets().size();
-  ecc::GbiRepairOptions options;
+  ecc::VgRepairOptions options;
   options.common.max_fanout = 64;
   options.max_buffers = 4;
-  const auto result = ecc::OpenDbGbiRepairer::repair(
+  const auto result = ecc::OpenDbVgRepairer::repair(
       block_, sta_.get(), [this]() { refreshRepairTiming(); }, &resizer_, options);
   EXPECT_TRUE(result.ok) << result.message;
   EXPECT_FALSE(result.committed);
@@ -257,11 +257,11 @@ TEST_F(BufferInserterStaTest, GbiOneShotLeavesCleanDesignUnchanged)
   EXPECT_EQ(block_->getNets().size(), nets_before);
 }
 
-TEST_F(BufferInserterStaTest, GbiOneShotAppliesOneAtomicPlan)
+TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
 {
   readTestDesign("fanout_repair_sta.v");
-  // The CLI has not necessarily called a Resizer command before GBI. Verify
-  // that GBI initializes DBU conversion even with a fresh Resizer instance.
+  // The CLI has not necessarily called a Resizer command before VG. Verify
+  // that VG initializes DBU conversion even with a fresh Resizer instance.
   rsz::Resizer cold_resizer(&logger_, db_.get(), sta_.get(), &stt_, &grt_,
                             &dp_, &ep_);
   // Give the timing-driven VG solver a wire-dominated net, where buffering
@@ -275,7 +275,7 @@ TEST_F(BufferInserterStaTest, GbiOneShotAppliesOneAtomicPlan)
   }
   refreshRepairTiming();
   const size_t instances_before = block_->getInsts().size();
-  ecc::GbiRepairOptions options;
+  ecc::VgRepairOptions options;
   // This integration target deliberately links the CPU stub: requesting
   // CUDA must fall back before any ECO, then apply the same atomic plan.
   options.backend = "cuda";
@@ -283,7 +283,7 @@ TEST_F(BufferInserterStaTest, GbiOneShotAppliesOneAtomicPlan)
   options.max_buffers = 64;
   options.max_group_loads = 3;
   options.require_drv_reduction = true;
-  const auto result = ecc::OpenDbGbiRepairer::repair(
+  const auto result = ecc::OpenDbVgRepairer::repair(
       block_, sta_.get(), [this]() { refreshRepairTiming(); }, &cold_resizer, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.backend_used, "cpu");
@@ -297,7 +297,7 @@ TEST_F(BufferInserterStaTest, GbiOneShotAppliesOneAtomicPlan)
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   db_network_->checkAxioms();
 
-  // The next repairs must analyze the inserted topology, not a pre-GBI
+  // The next repairs must analyze the inserted topology, not a pre-VG
   // snapshot. Check the stage boundary metrics and instance accounting.
   ecc::DesignRepairOptions design_options;
   design_options.max_fanout = options.common.max_fanout;
@@ -323,11 +323,11 @@ TEST_F(BufferInserterStaTest, GbiOneShotAppliesOneAtomicPlan)
   db_network_->checkAxioms();
 }
 
-TEST_F(BufferInserterStaTest, GbiOneShotRollsBackWhenTimingGetsWorse)
+TEST_F(BufferInserterStaTest, VgOneShotRollsBackWhenTimingGetsWorse)
 {
   readTestDesign("fanout_repair_sta.v");
   const size_t instances_before = block_->getInsts().size();
-  ecc::GbiRepairOptions options;
+  ecc::VgRepairOptions options;
   options.common.max_fanout = 3;
   options.max_buffers = 3;
   options.max_group_loads = 3;
@@ -343,7 +343,7 @@ TEST_F(BufferInserterStaTest, GbiOneShotRollsBackWhenTimingGetsWorse)
     sta_->updateTiming(true);
   };
   const auto result =
-      ecc::OpenDbGbiRepairer::repair(block_, sta_.get(), refresh, options);
+      ecc::OpenDbVgRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_FALSE(result.committed);
   EXPECT_EQ(block_->getInsts().size(), instances_before);

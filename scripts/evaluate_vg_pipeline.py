@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate GBI and native repair on identical inputs, including stage snapshots."""
+"""Evaluate VG and native repair on identical inputs, including stage snapshots."""
 import argparse
 import hashlib
 import json
@@ -16,16 +16,16 @@ def main():
     parser.add_argument('--sizer', type=Path, required=True)
     parser.add_argument('--openroad', type=Path, required=True)
     parser.add_argument('--budgets', type=int, nargs='+', default=[64, 512, 0],
-                        help='GBI buffer budgets for combined flows; 0 means unlimited')
+                        help='VG buffer budgets for combined flows; 0 means unlimited')
     args = parser.parse_args()
     if any(b < 0 for b in args.budgets) or len(set(args.budgets)) != len(args.budgets):
         parser.error('budgets must be distinct nonnegative integers')
     args.output.mkdir(parents=True, exist_ok=True)
     runner = Path(__file__).with_name('evaluate_fanout.py').resolve()
     variants = [('native', ['--repair-setup']),
-                ('gbi', ['--repair-gbi', '--repair-set', 'gbi.max_buffers=0'])]
+                ('vg', ['--repair-vg', '--repair-set', 'vg.max_buffers=0'])]
     variants += [(f'pipeline_{b or "unlimited"}',
-                  ['--repair-gbi', '--repair-setup', '--repair-set', f'gbi.max_buffers={b}'])
+                  ['--repair-vg', '--repair-setup', '--repair-set', f'vg.max_buffers={b}'])
                  for b in args.budgets]
     manifest = dict(commands={}, completed=[], budgets=args.budgets,
                     note='Sequential runs; stage metrics are independently reloaded placement estimates.')

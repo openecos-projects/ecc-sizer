@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check CPU/CUDA GBI parity from evaluate_fanout.py result directories."""
+"""Check CPU/CUDA VG parity from evaluate_fanout.py result directories."""
 import argparse
 import hashlib
 import json
@@ -35,7 +35,7 @@ def check(cpu_dir, cuda_dir):
         configs = []
         for row in (c, g):
             configs.append({k: v for k, v in row['effective_repair_config'].items()
-                            if k not in ('gbi.backend', 'gbi.cuda_max_memory_mb')})
+                            if k not in ('vg.backend', 'vg.cuda_max_memory_mb')})
             if row.get('contest_structural_check') != 'passed':
                 raise ValueError(f'{name}: missing structural check')
             for metric in ('unplaced', 'supply_pin_errors'):
@@ -47,7 +47,7 @@ def check(cpu_dir, cuda_dir):
             raise ValueError(f'{name}: repair settings differ')
         for directory, backend in ((cpu_dir, 'cpu'), (cuda_dir, 'cuda')):
             log = (directory / name / 'sizer' / 'sizer.log').read_text()
-            matches = re.findall(r'Sizer GBI repair: .*?backend_used=(\w+) cuda_fallback="([^"]*)"', log)
+            matches = re.findall(r'Sizer VG repair: .*?backend_used=(\w+) cuda_fallback="([^"]*)"', log)
             if matches != [(backend, '')]:
                 raise ValueError(f'{name}: expected {backend} without fallback, got {matches}')
         for metric, tolerance in tolerances.items():
@@ -55,7 +55,7 @@ def check(cpu_dir, cuda_dir):
                                 rel_tol=0, abs_tol=tolerance):
                 raise ValueError(f'{name}: {metric} differs')
         for key in ('nets_collected', 'plans_collected', 'attempted_buffers', 'inserted_buffers', 'committed'):
-            if c['gbi_topology'][key] != g['gbi_topology'][key]:
+            if c['vg_topology'][key] != g['vg_topology'][key]:
                 raise ValueError(f'{name}: {key} differs')
         hashes = {}
         for filename in ('repaired.v', 'repaired.def'):
@@ -67,10 +67,10 @@ def check(cpu_dir, cuda_dir):
         comparisons.append(dict(
             design=name, parity='passed', input_fingerprint=c['input_fingerprint'],
             output_sha256=hashes, metrics=g['metrics'],
-            inserted_buffers=g['gbi_topology']['inserted_buffers'],
-            cpu_solve_ms=c['gbi_topology']['solve_ms'],
-            cuda_solve_ms=g['gbi_topology']['solve_ms'],
-            solve_speedup=c['gbi_topology']['solve_ms']/g['gbi_topology']['solve_ms'],
+            inserted_buffers=g['vg_topology']['inserted_buffers'],
+            cpu_solve_ms=c['vg_topology']['solve_ms'],
+            cuda_solve_ms=g['vg_topology']['solve_ms'],
+            solve_speedup=c['vg_topology']['solve_ms']/g['vg_topology']['solve_ms'],
             cpu_seconds=c['sizer_seconds'], cuda_seconds=g['sizer_seconds'],
             total_speedup=c['sizer_seconds']/g['sizer_seconds']))
     return comparisons

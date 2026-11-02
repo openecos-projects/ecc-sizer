@@ -25,7 +25,7 @@ namespace ecc {
 
 // One-shot CPU/CUDA Van Ginneken repair over placement Steiner trees.
 // Both solvers share the same OpenDB apply/rollback path.
-struct GbiRepairOptions {
+struct VgRepairOptions {
     RepairCommonOptions common;
     std::string backend = "cpu";
     unsigned cuda_max_memory_mb = 512;
@@ -38,7 +38,7 @@ struct GbiRepairOptions {
     void validate() const;
 };
 
-struct GbiRepairMetrics {
+struct VgRepairMetrics {
     double severity = 0;
     float setup_wns = 0;
     float setup_tns = 0;
@@ -50,7 +50,7 @@ struct GbiRepairMetrics {
     unsigned total_fanout_violations = 0;
 };
 
-struct GbiRepairResult {
+struct VgRepairResult {
     bool ok = false;
     bool committed = false;
     bool converged = false;
@@ -65,23 +65,23 @@ struct GbiRepairResult {
     double collect_ms = 0;
     double solve_ms = 0;
     double apply_ms = 0;
-    GbiRepairMetrics before;
-    GbiRepairMetrics after;
+    VgRepairMetrics before;
+    VgRepairMetrics after;
 };
 
 // Collects all candidates from the current OpenDB/STA snapshot, solves the
 // independent net problems, and applies the accepted plan in one ECO.  The
 // refresh callback must rebuild placement parasitics and update STA.  A failed
 // acceptance check undoes the complete ECO and refreshes the restored design.
-class OpenDbGbiRepairer {
+class OpenDbVgRepairer {
    public:
-    static GbiRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
+    static VgRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
                                   const std::function<void()>& refresh,
-                                  const GbiRepairOptions& options = {});
-    static GbiRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
+                                  const VgRepairOptions& options = {});
+    static VgRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
                                   const std::function<void()>& refresh,
                                   rsz::Resizer* resizer,
-                                  const GbiRepairOptions& options = {});
+                                  const VgRepairOptions& options = {});
 };
 
 }  // namespace ecc

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-#include "repair_gbi_cuda.h"
+#include "repair_vg_cuda.h"
 
 #include <cuda_runtime.h>
 
@@ -75,18 +75,18 @@ bool validInput(const std::vector<int>& offsets,
 
 }  // namespace
 
-bool gbiCudaAvailable() {
+bool vgCudaAvailable() {
     int count = 0;
     return cudaGetDeviceCount(&count) == cudaSuccess && count > 0;
 }
 
-std::vector<int> gbiCudaSelect(const std::vector<int>& offsets,
+std::vector<int> vgCudaSelect(const std::vector<int>& offsets,
                                const std::vector<double>& cap,
                                const std::vector<double>& slack,
                                const std::vector<unsigned>& buffer_count,
                                const std::vector<double>& driver_resistance) {
     if(!validInput(offsets, cap, slack, buffer_count, driver_resistance))
-        throw std::invalid_argument("invalid GBI CUDA candidate batch");
+        throw std::invalid_argument("invalid VG CUDA candidate batch");
     const int nets = static_cast<int>(driver_resistance.size());
     std::vector<int> result(driver_resistance.size(), -1);
     if(nets == 0 || offsets.back() == 0)
@@ -153,7 +153,7 @@ std::vector<int> gbiCudaSelect(const std::vector<int>& offsets,
 
 }  // namespace ecc
 
-// The level schedule and flat frontiers follow the original GBI CUDA design.
+// The level schedule and flat frontiers match the CPU VG data model.
 // Unlike its Context/History structures, these records refer only to local
 // candidate indices and can be reconstructed into Sizer's BufferedNet trees.
 #include <thrust/device_vector.h>
@@ -166,7 +166,7 @@ std::vector<int> gbiCudaSelect(const std::vector<int>& offsets,
 namespace ecc {
 namespace {
 struct FrontierView {
-    GbiCudaCandidate* data = nullptr;
+    VgCudaCandidate* data = nullptr;
     int count = 0;
 };
 struct LevelTask {
@@ -175,29 +175,29 @@ struct LevelTask {
     int count;
 };
 struct CandidateLess {
-    __host__ __device__ bool operator()(const GbiCudaCandidate& a,
-                                       const GbiCudaCandidate& b) const {
+    __host__ __device__ bool operator()(const VgCudaCandidate& a,
+                                       const VgCudaCandidate& b) const {
         if(a.node != b.node) return a.node < b.node;
         return a.cap != b.cap ? a.cap < b.cap : a.slack > b.slack;
     }
 };
 
-__global__ void propagate_level(const GbiCudaNode* nodes,
-                                const GbiCudaBuffer* buffers,
+__global__ void propagate_level(const VgCudaNode* nodes,
+                                const VgCudaBuffer* buffers,
                                 int num_buffers,
                                 const LevelTask* tasks,
                                 const FrontierView* states,
-                                GbiCudaCandidate* output) {
+                                VgCudaCandidate* output) {
     const auto task = tasks[blockIdx.x];
     const auto node = nodes[task.node];
     for(int i = threadIdx.x; i < task.count; i += blockDim.x) {
-        GbiCudaCandidate c;
+        VgCudaCandidate c;
         c.node = task.node;
         c.order = i;
-        if(node.type == GbiCudaNodeType::load) {
+        if(node.type == VgCudaNodeType::load) {
             c.cap = node.cap;
             c.slack = node.required;
-        } else if(node.type == GbiCudaNodeType::wire) {
+        } else if(node.type == VgCudaNodeType::wire) {
             c.left = i / (num_buffers + 1);
             c.buffer = i % (num_buffers + 1) - 1;
             const auto child = states[node.left].data[c.left];
@@ -226,7 +226,7 @@ __global__ void propagate_level(const GbiCudaNode* nodes,
 // Each node is independent. Stable sorted order and the tolerance/preserved
 // maximum-buffer candidate match the existing CPU pruneVg policy exactly.
 __global__ void prune_level(const LevelTask* tasks,
-                            GbiCudaCandidate* data,
+                            VgCudaCandidate* data,
                             FrontierView* states,
                             int* counts, int task_count) {
     const int t = blockIdx.x * blockDim.x + threadIdx.x;
@@ -234,7 +234,7 @@ __global__ void prune_level(const LevelTask* tasks,
     if(t >= task_count) return;
     const auto task = tasks[t];
     auto* candidates = data + task.begin;
-    GbiCudaCandidate preserve = candidates[0];
+    VgCudaCandidate preserve = candidates[0];
     for(int i = 1; i < task.count; ++i) {
         const auto c = candidates[i];
         if(c.buffers > preserve.buffers ||
@@ -258,8 +258,8 @@ __global__ void prune_level(const LevelTask* tasks,
 }
 
 __global__ void compact_level(const LevelTask* tasks, const int* offsets,
-                              const GbiCudaCandidate* raw,
-                              GbiCudaCandidate* compact,
+                              const VgCudaCandidate* raw,
+                              VgCudaCandidate* compact,
                               FrontierView* states) {
     const int t = blockIdx.x;
     const auto task = tasks[t];
@@ -278,15 +278,15 @@ template<class T> T* devicePointer(thrust::device_vector<T>& v) {
 }
 }  // namespace
 
-GbiCudaForestResult gbiCudaSolve(
-    const std::vector<GbiCudaNode>& nodes,
-    const std::vector<GbiCudaBuffer>& buffers,
+VgCudaForestResult vgCudaSolve(
+    const std::vector<VgCudaNode>& nodes,
+    const std::vector<VgCudaBuffer>& buffers,
     const std::vector<int>& roots,
     const std::vector<double>& driver_resistance,
     size_t max_memory_bytes) {
     if(roots.size() != driver_resistance.size() || nodes.size() > INT_MAX ||
        buffers.size() >= INT_MAX || max_memory_bytes == 0)
-        throw std::invalid_argument("invalid GBI CUDA forest dimensions");
+        throw std::invalid_argument("invalid VG CUDA forest dimensions");
     std::vector<int> depth(nodes.size());
     std::vector<std::vector<int>> levels;
     for(size_t i = 0; i < nodes.size(); ++i) {
@@ -294,18 +294,18 @@ GbiCudaForestResult gbiCudaSolve(
         if(!std::isfinite(n.cap) || n.cap < 0 ||
            !std::isfinite(n.resistance) || n.resistance < 0 ||
            !std::isfinite(n.required))
-            throw std::invalid_argument("invalid GBI CUDA node RC/required time");
-        if(n.type != GbiCudaNodeType::load) {
+            throw std::invalid_argument("invalid VG CUDA node RC/required time");
+        if(n.type != VgCudaNodeType::load) {
             if(n.left < 0 || n.left >= static_cast<int>(i))
-                throw std::invalid_argument("GBI CUDA nodes must be postorder");
+                throw std::invalid_argument("VG CUDA nodes must be postorder");
             depth[i] = depth[n.left] + 1;
         }
-        if(n.type == GbiCudaNodeType::junction) {
+        if(n.type == VgCudaNodeType::junction) {
             if(n.right < 0 || n.right >= static_cast<int>(i))
-                throw std::invalid_argument("GBI CUDA junction child invalid");
+                throw std::invalid_argument("VG CUDA junction child invalid");
             depth[i] = std::max(depth[i], depth[n.right] + 1);
-        } else if(n.type != GbiCudaNodeType::load && n.type != GbiCudaNodeType::wire) {
-            throw std::invalid_argument("GBI CUDA unknown node type");
+        } else if(n.type != VgCudaNodeType::load && n.type != VgCudaNodeType::wire) {
+            throw std::invalid_argument("VG CUDA unknown node type");
         }
         if(levels.size() <= static_cast<size_t>(depth[i])) levels.resize(depth[i] + 1);
         levels[depth[i]].push_back(static_cast<int>(i));
@@ -313,24 +313,24 @@ GbiCudaForestResult gbiCudaSolve(
     for(const auto& b : buffers)
         if(!std::isfinite(b.cap) || b.cap < 0 || !std::isfinite(b.intrinsic) ||
            !std::isfinite(b.resistance) || b.resistance < 0)
-            throw std::invalid_argument("invalid GBI CUDA buffer model");
+            throw std::invalid_argument("invalid VG CUDA buffer model");
     for(size_t i = 0; i < roots.size(); ++i)
         if(roots[i] < 0 || roots[i] >= static_cast<int>(nodes.size()) ||
            !std::isfinite(driver_resistance[i]))
-            throw std::invalid_argument("invalid GBI CUDA root");
-    if(!gbiCudaAvailable()) throw std::runtime_error("GBI CUDA device unavailable");
-    GbiCudaForestResult result;
+            throw std::invalid_argument("invalid VG CUDA root");
+    if(!vgCudaAvailable()) throw std::runtime_error("VG CUDA device unavailable");
+    VgCudaForestResult result;
     result.frontiers.resize(nodes.size());
     if(nodes.empty()) return result;
-    const size_t base_bytes = nodes.size() * (sizeof(GbiCudaNode) + sizeof(FrontierView)) +
-                              buffers.size() * sizeof(GbiCudaBuffer);
+    const size_t base_bytes = nodes.size() * (sizeof(VgCudaNode) + sizeof(FrontierView)) +
+                              buffers.size() * sizeof(VgCudaBuffer);
     if(base_bytes > max_memory_bytes)
-        throw std::runtime_error("GBI CUDA memory budget exceeded");
-    thrust::device_vector<GbiCudaNode> d_nodes(nodes.begin(), nodes.end());
-    thrust::device_vector<GbiCudaBuffer> d_buffers(buffers.begin(), buffers.end());
+        throw std::runtime_error("VG CUDA memory budget exceeded");
+    thrust::device_vector<VgCudaNode> d_nodes(nodes.begin(), nodes.end());
+    thrust::device_vector<VgCudaBuffer> d_buffers(buffers.begin(), buffers.end());
     thrust::device_vector<FrontierView> d_states(nodes.size());
     std::vector<int> counts(nodes.size());
-    using DeviceCandidates = thrust::device_vector<GbiCudaCandidate>;
+    using DeviceCandidates = thrust::device_vector<VgCudaCandidate>;
     std::vector<std::unique_ptr<DeviceCandidates>> retained;
     size_t retained_bytes = base_bytes;
     for(const auto& level : levels) {
@@ -339,21 +339,21 @@ GbiCudaForestResult gbiCudaSolve(
         for(int id : level) {
             const auto& n = nodes[id];
             size_t count = 1;
-            if(n.type == GbiCudaNodeType::wire)
+            if(n.type == VgCudaNodeType::wire)
                 count = size_t(counts[n.left]) * (buffers.size() + 1);
-            else if(n.type == GbiCudaNodeType::junction)
+            else if(n.type == VgCudaNodeType::junction)
                 count = size_t(counts[n.left]) * counts[n.right];
             if(count == 0 || count > INT_MAX || total + count > INT_MAX)
-                throw std::runtime_error("GBI CUDA candidate count overflow");
+                throw std::runtime_error("VG CUDA candidate count overflow");
             tasks.push_back({id, static_cast<int>(total), static_cast<int>(count)});
             total += count;
         }
         // Include space for stable-sort temporary storage and level metadata.
-        const size_t level_bytes = total * sizeof(GbiCudaCandidate);
+        const size_t level_bytes = total * sizeof(VgCudaCandidate);
         const size_t temporary_bytes = level.size() * (sizeof(LevelTask) + sizeof(int));
         if(retained_bytes > max_memory_bytes ||
            3 * level_bytes + temporary_bytes > max_memory_bytes - retained_bytes)
-            throw std::runtime_error("GBI CUDA memory budget exceeded");
+            throw std::runtime_error("VG CUDA memory budget exceeded");
         auto data = std::make_unique<DeviceCandidates>(total);
         thrust::device_vector<LevelTask> d_tasks(tasks.begin(), tasks.end());
         thrust::device_vector<int> d_counts(level.size());
@@ -382,8 +382,8 @@ GbiCudaForestResult gbiCudaSolve(
         cudaCheck(cudaGetLastError());
         // Retain and download only pruned frontiers, not the Cartesian
         // products. The next level's device references point into compact.
-        const size_t compact_bytes = compact->size() * sizeof(GbiCudaCandidate);
-        std::vector<GbiCudaCandidate> host(compact->size());
+        const size_t compact_bytes = compact->size() * sizeof(VgCudaCandidate);
+        std::vector<VgCudaCandidate> host(compact->size());
         cudaCheck(cudaMemcpy(host.data(), devicePointer(*compact), compact_bytes,
                              cudaMemcpyDeviceToHost));
         for(size_t t = 0; t < tasks.size(); ++t) {
@@ -403,12 +403,12 @@ GbiCudaForestResult gbiCudaSolve(
             slack.push_back(c.slack);
             buffer_count.push_back(c.buffers);
         }
-        if(cap.size() > INT_MAX) throw std::runtime_error("GBI CUDA root count overflow");
+        if(cap.size() > INT_MAX) throw std::runtime_error("VG CUDA root count overflow");
         offsets.push_back(static_cast<int>(cap.size()));
     }
     // Release search storage before final root selection.
     retained.clear();
-    result.selected = gbiCudaSelect(offsets, cap, slack, buffer_count, driver_resistance);
+    result.selected = vgCudaSelect(offsets, cap, slack, buffer_count, driver_resistance);
     return result;
 }
 }  // namespace ecc

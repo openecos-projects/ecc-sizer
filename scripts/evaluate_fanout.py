@@ -39,8 +39,8 @@ def main():
                         help="evaluate native cap/slew/fanout repair instead of fanout-only")
     parser.add_argument("--repair-setup", action="store_true",
                         help="run native DRV followed by setup repair")
-    parser.add_argument("--repair-gbi", action="store_true",
-                        help="run CPU VG/GBI; combine with --repair-setup for GBI -> design -> setup")
+    parser.add_argument("--repair-vg", action="store_true",
+                        help="run CPU VG/VG; combine with --repair-setup for VG -> design -> setup")
     parser.add_argument("--stage-metrics", action="store_true",
                         help="save and independently evaluate each native repair stage")
     parser.add_argument("--setup-trials", type=int)
@@ -54,7 +54,7 @@ def main():
     parser.add_argument("--sizer", default="/build/src/Sizer")
     parser.add_argument("--openroad", default="/build/bin/openroad")
     parser.add_argument("--reference", action="store_true",
-                        help="also run repair_design and GBI buffer-only setup")
+                        help="also run repair_design and VG buffer-only setup")
     args = parser.parse_args()
     if args.repair_setup:
         args.repair_design = True
@@ -73,8 +73,8 @@ def main():
         env = dict(os.environ, PLATFORM_DIR=str(platform),
                    DESIGN_PATH=str(design), MAX_FANOUT=str(args.max_fanout),
                    EQUIV_DIR=str(args.equiv_dir.resolve()),
-                   CHECK_PLACEMENT=str(int(args.legalize or args.repair_design or args.repair_gbi)),
-                   NATIVE_REPAIR=str(int(args.repair_design or args.repair_gbi)))
+                   CHECK_PLACEMENT=str(int(args.legalize or args.repair_design or args.repair_vg)),
+                   NATIVE_REPAIR=str(int(args.repair_design or args.repair_vg)))
         libdir = platform / "ASAP7" / "lib"
         libs = sorted(libdir.glob("asap7sc7p5t_*_TT_*.lib"))
         libs.append(libdir / "sram_asap7_64x256_1rw.lib")
@@ -97,7 +97,7 @@ def main():
             input_def = design / "contest.def"
             runtime = None
             topology = {}
-            gbi_topology = {}
+            vg_topology = {}
             design_topology = {}
             setup_topology = {}
             stage_metrics = {}
@@ -109,8 +109,8 @@ def main():
                                  if args.buffer_cell else "")
                 if args.no_gate_resize:
                     buffer_option += "-sizer_repair_no_gate_resize\n"
-                if args.repair_gbi:
-                    repair_flag = "-sizer_repair_gbi"
+                if args.repair_vg:
+                    repair_flag = "-sizer_repair_vg"
                 else:
                     repair_flag = "-sizer_repair_design" if args.repair_design else "-sizer_fanout_repair"
                 if args.repair_setup:
@@ -119,8 +119,8 @@ def main():
                         buffer_option += f"-sizer_setup_trials {args.setup_trials}\n"
                     if args.setup_passes is not None:
                         buffer_option += f"-sizer_setup_passes {args.setup_passes}\n"
-                if args.repair_gbi and args.repair_design:
-                    buffer_option += f"-sizer_repair_gbi {args.max_fanout}\n"
+                if args.repair_vg and args.repair_design:
+                    buffer_option += f"-sizer_repair_vg {args.max_fanout}\n"
                     repair_flag = "-sizer_repair_setup" if args.repair_setup else "-sizer_repair_design"
                 if args.stage_metrics:
                     buffer_option += f"-sizer_repair_stage_prefix {dest}/stage\n"
@@ -147,8 +147,8 @@ def main():
                     configured_fanout = re.search(r"^common.max_fanout=(\d+)$", effective.group(1), re.M)
                     if int(configured_fanout.group(1)) != args.max_fanout:
                         raise RuntimeError("repair config fanout differs from --max-fanout evaluation constraint")
-                if args.repair_gbi:
-                    pattern = r"Sizer GBI repair: (.*)"
+                if args.repair_vg:
+                    pattern = r"Sizer VG repair: (.*)"
                 else:
                     pattern = r"Sizer design repair: (.*)" if args.repair_design else r"Sizer fanout repair complete: (.*)"
                 match = re.search(pattern, log_text)
@@ -157,7 +157,7 @@ def main():
                 topology = {k: float(v) for k, v in
                             re.findall(r"(\w+)=([0-9.eE+-]+)", match.group(1))}
                 for enabled, label, target in [
-                        (args.repair_gbi, "GBI", gbi_topology),
+                        (args.repair_vg, "VG", vg_topology),
                         (args.repair_design, "design", design_topology)]:
                     if enabled:
                         stage_match = re.search(rf"Sizer {label} repair: (.*)", log_text)
@@ -187,8 +187,8 @@ def main():
                 metrics[key] = float(value)
             if mode == "sizer" and args.stage_metrics:
                 stages = ["input"]
-                if args.repair_gbi:
-                    stages.append("gbi")
+                if args.repair_vg:
+                    stages.append("vg")
                 if args.repair_design:
                     stages.append("design")
                 if args.repair_setup:
@@ -215,15 +215,15 @@ def main():
             row = dict(design=name, mode=mode, power_topology=power_topology, input_fingerprint=fingerprint, max_fanout=args.max_fanout,
                        buffer_cell=args.buffer_cell or "auto",
                        repair_design=args.repair_design,
-                       repair_gbi=args.repair_gbi,
+                       repair_vg=args.repair_vg,
                        repair_overrides=args.repair_set,
-                       gate_resize=((not args.repair_gbi or args.repair_design) and effective_config.get("common.allow_gate_resize",
+                       gate_resize=((not args.repair_vg or args.repair_design) and effective_config.get("common.allow_gate_resize",
                                     str(not args.no_gate_resize).lower()) == "true"),
                        effective_repair_config=effective_config,
-                       placement_checked=args.legalize or args.repair_design or args.repair_gbi,
+                       placement_checked=args.legalize or args.repair_design or args.repair_vg,
                        evaluation_seconds=elapsed, sizer_seconds=runtime,
                        topology=topology, setup_topology=setup_topology,
-                       gbi_topology=gbi_topology, design_topology=design_topology,
+                       vg_topology=vg_topology, design_topology=design_topology,
                        stage_metrics=stage_metrics,
                        repair_setup=args.repair_setup, metrics=metrics)
             if mode != "baseline":

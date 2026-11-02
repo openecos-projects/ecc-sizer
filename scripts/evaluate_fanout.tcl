@@ -29,7 +29,7 @@ proc evaluate {} {
         repair_design
     } elseif {$::env(EVAL_MODE) eq "openroad_buffer"} {
         repair_design
-        # Match gbi_scripts/ISPD26/evaluation_setup.tcl's setup scope.
+        # Match ISPD26/evaluation_setup.tcl's setup scope.
         repair_timing -setup -sequence "buffer" -skip_pin_swap \
             -skip_gate_cloning -skip_size_down -skip_last_gasp \
             -skip_vt_swap -skip_crit_vt_swap

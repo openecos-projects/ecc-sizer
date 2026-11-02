@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-#include "repair_gbi_cuda.h"
+#include "repair_vg_cuda.h"
 #include <stdexcept>
 
 namespace ecc {
 
-bool gbiCudaAvailable() { return false; }
+bool vgCudaAvailable() { return false; }
 
-std::vector<int> gbiCudaSelect(const std::vector<int>& offsets,
+std::vector<int> vgCudaSelect(const std::vector<int>& offsets,
                                const std::vector<double>&,
                                const std::vector<double>&,
                                const std::vector<unsigned>&,
@@ -15,13 +15,13 @@ std::vector<int> gbiCudaSelect(const std::vector<int>& offsets,
     return std::vector<int>(driver_resistance.size(), -1);
 }
 
-GbiCudaForestResult gbiCudaSolve(
-    const std::vector<GbiCudaNode>&,
-    const std::vector<GbiCudaBuffer>&,
+VgCudaForestResult vgCudaSolve(
+    const std::vector<VgCudaNode>&,
+    const std::vector<VgCudaBuffer>&,
     const std::vector<int>&,
     const std::vector<double>&,
     size_t) {
-    throw std::runtime_error("GBI CUDA backend is not built");
+    throw std::runtime_error("VG CUDA backend is not built");
 }
 
 }  // namespace ecc

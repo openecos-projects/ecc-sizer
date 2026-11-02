@@ -32,12 +32,12 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.set("power.enabled", "true");
   config.set("power.objective", "total");
   config.set("power.slack_margin_ns", "0.02");
-  config.set("gbi.max_buffers", "7");
-  config.set("gbi.backend", "cuda");
-  config.set("gbi.cuda_max_memory_mb", "256");
-  config.set("gbi.max_group_loads", "4");
-  config.set("gbi.min_gain", "0.25");
-  config.set("gbi.require_drv_reduction", "false");
+  config.set("vg.max_buffers", "7");
+  config.set("vg.backend", "cuda");
+  config.set("vg.cuda_max_memory_mb", "256");
+  config.set("vg.max_group_loads", "4");
+  config.set("vg.min_gain", "0.25");
+  config.set("vg.require_drv_reduction", "false");
   auto power = config.powerOptions();
   EXPECT_TRUE(power.enabled);
   EXPECT_EQ(power.objective, "total");
@@ -56,12 +56,12 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_FALSE(setup.skip_duplicate_trials);
   EXPECT_FALSE(setup.defer_rollback_refresh);
   EXPECT_EQ(setup.max_passes, ecc::SetupRepairSettings{}.max_passes);
-  EXPECT_EQ(config.gbi.max_buffers, 7u);
-  EXPECT_EQ(config.gbi.backend, "cuda");
-  EXPECT_EQ(config.gbi.cuda_max_memory_mb, 256u);
-  EXPECT_EQ(config.gbi.max_group_loads, 4u);
-  EXPECT_FLOAT_EQ(config.gbi.min_gain, 0.25f);
-  EXPECT_FALSE(config.gbi.require_drv_reduction);
+  EXPECT_EQ(config.vg.max_buffers, 7u);
+  EXPECT_EQ(config.vg.backend, "cuda");
+  EXPECT_EQ(config.vg.cuda_max_memory_mb, 256u);
+  EXPECT_EQ(config.vg.max_group_loads, 4u);
+  EXPECT_FLOAT_EQ(config.vg.min_gain, 0.25f);
+  EXPECT_FALSE(config.vg.require_drv_reduction);
   setup.common.prepare();
   EXPECT_EQ(prepares, 1);
 }
@@ -77,8 +77,8 @@ TEST(RepairConfig, SectionsUnitsAndRoundTrip)
   EXPECT_FLOAT_EQ(config.setup.min_improvement, 2e-12f);
   EXPECT_EQ(config.sta_threads, 2);
   EXPECT_TRUE(config.power.enabled);
-  config.set("gbi.max_buffers", "3");
-  config.set("gbi.max_group_loads", "2");
+  config.set("vg.max_buffers", "3");
+  config.set("vg.max_group_loads", "2");
   EXPECT_EQ(config.power.objective, "total");
   EXPECT_EQ(config.design.vt_suffixes.size(), 3);
   auto text = serialized(config);
@@ -117,11 +117,12 @@ TEST(RepairConfig, RejectsMalformedValuesAtomically)
          {"design.max_load_downsizes_per_pass", "-1"},
          {"setup.batch_backoff", "0"},
          {"setup.batch_backoff", "1"},
-         {"gbi.max_group_loads", "1"},
-         {"gbi.backend", "opencl"},
-         {"gbi.cuda_max_memory_mb", "0"},
-         {"gbi.min_gain", "-1"},
-         {"gbi.require_drv_reduction", "maybe"},
+         {"vg.max_group_loads", "1"},
+         {"vg.backend", "opencl"},
+         {"gbi.backend", "cuda"},
+         {"vg.cuda_max_memory_mb", "0"},
+         {"vg.min_gain", "-1"},
+         {"vg.require_drv_reduction", "maybe"},
          {"setup.batch_size", "0"},
          {"common.recovered_slew_fraction", "0"},
          {"common.overload_group_fraction", "1"},

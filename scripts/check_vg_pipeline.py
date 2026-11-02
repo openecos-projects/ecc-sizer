@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check stage handoff, input parity and physical invariants of GBI comparisons."""
+"""Check stage handoff, input parity and physical invariants of VG comparisons."""
 import argparse
 import json
 import math
@@ -10,7 +10,7 @@ def check(directory):
     rows = json.loads((directory/'summary.json').read_text())
     errors = []
     manifest = json.loads((directory/'manifest.json').read_text())
-    variants = ['native', 'gbi'] + [f'pipeline_{b or "unlimited"}' for b in manifest['budgets']]
+    variants = ['native', 'vg'] + [f'pipeline_{b or "unlimited"}' for b in manifest['budgets']]
     if manifest['completed'] != variants:
         errors.append('comparison suite is incomplete')
     expected_rows = {(variant, design, mode) for variant in variants
@@ -53,7 +53,7 @@ def check(directory):
         if base['input_fingerprint']!=row['input_fingerprint']:
             errors.append(f'{label}: input fingerprint differs')
         stages = row['stage_metrics']
-        expected = ['input'] + (['gbi'] if row['repair_gbi'] else [])
+        expected = ['input'] + (['vg'] if row['repair_vg'] else [])
         expected += (['design'] if row['repair_design'] else [])
         expected += (['setup'] if row['repair_setup'] else [])
         if list(stages)!=expected:
@@ -79,20 +79,20 @@ def check(directory):
                 if after[key]>before[key]:
                     errors.append(f'{label}/{stage}: {key} increased')
             before = after
-        if row['repair_gbi']:
-            n = row['gbi_topology']['inserted_buffers']
-            budget = int(row['effective_repair_config']['gbi.max_buffers'])
+        if row['repair_vg']:
+            n = row['vg_topology']['inserted_buffers']
+            budget = int(row['effective_repair_config']['vg.max_buffers'])
             if budget and n>budget:
-                errors.append(f'{label}: GBI budget exceeded')
-            if n!=stages['gbi']['metrics']['instances']-stages['input']['metrics']['instances']:
-                errors.append(f'{label}: GBI inserted count differs from netlist')
-    # Unlimited standalone GBI and the GBI prefix of the combined flow must
+                errors.append(f'{label}: VG budget exceeded')
+            if n!=stages['vg']['metrics']['instances']-stages['input']['metrics']['instances']:
+                errors.append(f'{label}: VG inserted count differs from netlist')
+    # Unlimited standalone VG and the VG prefix of the combined flow must
     # produce the same state when all settings and input are identical.
     for design in reference:
-        standalone = index.get(('gbi', design, 'sizer'))
+        standalone = index.get(('vg', design, 'sizer'))
         combined = index.get(('pipeline_unlimited', design, 'sizer'))
         if standalone and combined:
-            equal_metrics(standalone['metrics'], combined['stage_metrics']['gbi']['metrics'],
+            equal_metrics(standalone['metrics'], combined['stage_metrics']['vg']['metrics'],
                           design+'/standalone-vs-prefix')
     return errors
 

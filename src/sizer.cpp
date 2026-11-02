@@ -77,8 +77,8 @@
 #include "buffer_inserter.h"
 #include "repair_fanout.h"
 #include "repair_design.h"
-#include "repair_gbi.h"
-#include "repair_gbi_cuda.h"
+#include "repair_vg.h"
+#include "repair_vg_cuda.h"
 #include "repair_timing.h"
 #include "repair_power.h"
 #include "repair_placement.h"
@@ -571,7 +571,7 @@ void Sizer::ReportOptions() {
     cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
          << GTRMetricNames[GTR_METRIC2] << endl;
     cout << "Test Mode      : " << TEST_MODE << endl;
-    if(sizerDesignRepairMode || sizerGbiRepairMode) {
+    if(sizerDesignRepairMode || sizerVgRepairMode) {
         cout << "Sizer repair   : native repair, max fanout "
              << nativeRepairConfig.design.max_fanout << endl;
         cout << "Sizer repair configuration begin" << endl;
@@ -5766,11 +5766,11 @@ void Sizer::runSizerDesignRepair() {
     try {
         checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
                     " [current_design]");
-        // GBI has already legalized and refreshed this same OpenDB block.
-        if(!sizerGbiRepairMode)
+        // VG has already legalized and refreshed this same OpenDB block.
+        if(!sizerVgRepairMode)
             options.prepare();
         refresh();
-        if(!sizerGbiRepairMode)
+        if(!sizerVgRepairMode)
             writeRepairStageSnapshot("input");
         const auto design_start = std::chrono::steady_clock::now();
         result =
@@ -5873,15 +5873,15 @@ void Sizer::runSizerDesignRepair() {
     design->evalTclString("write_verilog " + resultVerilogFile);
 }
 
-// One-shot CPU/CUDA GBI-style repair.  Candidate collection and solving happen on
+// One-shot CPU/CUDA VG-style repair.  Candidate collection and solving happen on
 // the same OpenDB/STA snapshot; all accepted buffer edits are applied in one
 // ECO and evaluated with one refresh.
-void Sizer::runSizerGbiRepair(bool write_output) {
+void Sizer::runSizerVgRepair(bool write_output) {
     auto* design = _ckt->_ord_design;
     auto* block = design->getBlock();
     auto* sta = _ckt->_ord_timing->getSta();
     if(use_gr_rc) {
-        cerr << "GBI repair currently requires placement RC." << endl;
+        cerr << "VG repair currently requires placement RC." << endl;
         exit(1);
     }
     auto options = nativeRepairConfig.design;
@@ -5909,9 +5909,9 @@ void Sizer::runSizerGbiRepair(bool write_output) {
     const auto checked_tcl = [&](const std::string& command) {
         const auto status = design->evalTclString(
             "if {[catch {" + command +
-            "} __sizer_gbi_error]} {"
-            "set __sizer_gbi_status \"ERROR: $__sizer_gbi_error\""
-            "} else {set __sizer_gbi_status OK}");
+            "} __sizer_vg_error]} {"
+            "set __sizer_vg_status \"ERROR: $__sizer_vg_error\""
+            "} else {set __sizer_vg_status OK}");
         if(status != "OK")
             throw std::runtime_error(status);
     };
@@ -5934,7 +5934,7 @@ void Sizer::runSizerGbiRepair(bool write_output) {
         ecc::connectMissingWildcardSpecialNetPins(block);
         if(missing_supplies() > baseline_missing)
             throw std::runtime_error(
-                "GBI repair introduced disconnected or mismatched supply pins");
+                "VG repair introduced disconnected or mismatched supply pins");
         ecc::legalizeRepairPlacement(
             block, ord::OpenRoad::openRoad()->getOpendp(),
             options.excluded_instances);
@@ -5946,28 +5946,28 @@ void Sizer::runSizerGbiRepair(bool write_output) {
                     " [current_design]");
         refresh();
         writeRepairStageSnapshot("input");
-        ecc::GbiRepairOptions gbi_options;
-        gbi_options.common = options;
-        gbi_options.backend = nativeRepairConfig.gbi.backend;
-        gbi_options.cuda_max_memory_mb = nativeRepairConfig.gbi.cuda_max_memory_mb;
-        gbi_options.max_buffers = nativeRepairConfig.gbi.max_buffers;
-        gbi_options.max_nets = nativeRepairConfig.gbi.max_nets;
-        gbi_options.max_group_loads = nativeRepairConfig.gbi.max_group_loads;
-        gbi_options.min_gain = nativeRepairConfig.gbi.min_gain;
-        gbi_options.require_drv_reduction =
-            nativeRepairConfig.gbi.require_drv_reduction;
+        ecc::VgRepairOptions vg_options;
+        vg_options.common = options;
+        vg_options.backend = nativeRepairConfig.vg.backend;
+        vg_options.cuda_max_memory_mb = nativeRepairConfig.vg.cuda_max_memory_mb;
+        vg_options.max_buffers = nativeRepairConfig.vg.max_buffers;
+        vg_options.max_nets = nativeRepairConfig.vg.max_nets;
+        vg_options.max_group_loads = nativeRepairConfig.vg.max_group_loads;
+        vg_options.min_gain = nativeRepairConfig.vg.min_gain;
+        vg_options.require_drv_reduction =
+            nativeRepairConfig.vg.require_drv_reduction;
         const auto result =
-            ecc::OpenDbGbiRepairer::repair(
-                block, sta, refresh, design->getResizer(), gbi_options);
+            ecc::OpenDbVgRepairer::repair(
+                block, sta, refresh, design->getResizer(), vg_options);
         if(!result.ok)
             throw std::runtime_error(result.message);
         checked_tcl("check_placement");
-        cout << "Sizer GBI repair: " << result.message
-             << " backend=" << gbi_options.backend
+        cout << "Sizer VG repair: " << result.message
+             << " backend=" << vg_options.backend
              << " backend_used=" << result.backend_used
              << " cuda_fallback=\"" << result.cuda_fallback << "\""
              << " cuda_available="
-             << (ecc::gbiCudaAvailable() ? "true" : "false")
+             << (ecc::vgCudaAvailable() ? "true" : "false")
              << " nets_collected=" << result.nets_collected
              << " plans_collected=" << result.plans_collected
              << " attempted_buffers=" << result.attempted_buffers
@@ -5982,19 +5982,19 @@ void Sizer::runSizerGbiRepair(bool write_output) {
              << " setup_wns_after_ns=" << result.after.setup_wns * 1e9
              << " committed=" << result.committed << endl;
     } catch(const std::exception& error) {
-        cerr << "Sizer GBI repair failed: " << error.what() << endl;
+        cerr << "Sizer VG repair failed: " << error.what() << endl;
         exit(1);
     }
-    writeRepairStageSnapshot("gbi");
+    writeRepairStageSnapshot("vg");
     if(!write_output)
         return;
     design->evalTclString("report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
     design->evalTclString("report_wns");
     design->evalTclString("report_tns");
     if(resultDefFile.empty())
-        resultDefFile = benchname + ".gbi.def";
+        resultDefFile = benchname + ".vg.def";
     if(resultVerilogFile.empty())
-        resultVerilogFile = benchname + ".gbi.v";
+        resultVerilogFile = benchname + ".vg.v";
     design->writeDef(resultDefFile);
     design->evalTclString("write_verilog " + resultVerilogFile);
 }
@@ -10264,13 +10264,13 @@ void Sizer::readCmdFile(string cmdFileStr) {
             sizerMaxFanout = static_cast<unsigned>(max_fanout);
             nativeRepairConfig.design.max_fanout = sizerMaxFanout;
         }
-        if(line.find("-sizer_repair_gbi ") != string::npos) {
-            const int max_fanout = getTokenI(line, "-sizer_repair_gbi ");
+        if(line.find("-sizer_repair_vg ") != string::npos) {
+            const int max_fanout = getTokenI(line, "-sizer_repair_vg ");
             if(max_fanout < 2) {
-                cerr << "-sizer_repair_gbi requires fanout >= 2." << endl;
+                cerr << "-sizer_repair_vg requires fanout >= 2." << endl;
                 exit(1);
             }
-            sizerGbiRepairMode = true;
+            sizerVgRepairMode = true;
             sizerMaxFanout = static_cast<unsigned>(max_fanout);
             nativeRepairConfig.design.max_fanout = sizerMaxFanout;
         }
@@ -11330,12 +11330,12 @@ int main(int argc, char **argv) {
     }
     _sizer.ReportOptions();
 
-    if(_sizer.sizerGbiRepairMode) {
+    if(_sizer.sizerVgRepairMode) {
         if(_sizer.sizerFanoutRepairMode ||
            _sizer.preplaceMode || _sizer.holdOnlyMode ||
            _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
            _sizer.use_gr_rc) {
-            cerr << "Error: -sizer_repair_gbi can only be combined with native "
+            cerr << "Error: -sizer_repair_vg can only be combined with native "
                     "design/setup repair and requires placement RC."
                  << endl;
             return 1;
@@ -11343,7 +11343,7 @@ int main(int argc, char **argv) {
         _sizer.loadOpenRoadDesignForFanoutRepair();
         // Each stage reconstructs candidates from the current OpenDB/STA.
         // Do not reload the original input between topology-changing stages.
-        _sizer.runSizerGbiRepair(!_sizer.sizerDesignRepairMode);
+        _sizer.runSizerVgRepair(!_sizer.sizerDesignRepairMode);
         if(_sizer.sizerDesignRepairMode)
             _sizer.runSizerDesignRepair();
         return 0;
