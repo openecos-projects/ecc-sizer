@@ -112,6 +112,12 @@ if(BUILD_TESTING)
     add_test(NAME ecc_sizer_repair_regression
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/repair_regression_test.py)
 
+    add_executable(ecc_sizer_repair_buffer_budget_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_buffer_budget_test.cpp)
+    target_include_directories(ecc_sizer_repair_buffer_budget_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(ecc_sizer_repair_buffer_budget_test PRIVATE GTest::gtest_main)
+    add_test(NAME ecc_sizer_repair_buffer_budget COMMAND ecc_sizer_repair_buffer_budget_test)
+
     add_executable(ecc_sizer_repair_config_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_config_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp)

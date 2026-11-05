@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_vg.h"
+#include "repair_buffer_budget.h"
 #include "repair_vg_cuda.h"
 
 #include "buffer_inserter.h"
@@ -469,14 +470,11 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
             }
         }
     }
-    unsigned budget = options.max_buffers;
-    for(auto& solution : best) {
-        const unsigned count = solution.tree ? solution.tree->bufferCount() : 0;
-        if(count > 0 && (options.max_buffers == 0 || count <= budget)) {
-            solutions.push_back(std::move(solution));
-            if(options.max_buffers != 0) budget -= count;
-        }
-    }
+    std::vector<std::size_t> counts;
+    for(const auto& solution : best)
+        counts.push_back(solution.tree ? solution.tree->bufferCount() : 0);
+    for(auto i : selectWholeBufferPlans(counts, options.max_buffers))
+        solutions.push_back(std::move(best[i]));
     return solutions;
 }
 
@@ -577,9 +575,11 @@ VgRepairResult OpenDbVgRepairer::repair(
     }
     result.before = metrics(before_design);
     if(resizer) {
-        Timer timer{&result.solve_ms};
-        auto solutions = collectVgSolutions(states, resizer, sta, options,
-                                            result);
+        std::vector<VgSolution> solutions;
+        {
+            Timer timer{&result.solve_ms};
+            solutions = collectVgSolutions(states, resizer, sta, options, result);
+        }
         result.plans_collected = solutions.size();
         if(solutions.empty()) {
             result.ok = true;
@@ -590,10 +590,12 @@ VgRepairResult OpenDbVgRepairer::repair(
         odb::dbDatabase::beginEco(block);
         bool active = true;
         try {
-            Timer apply_timer{&result.apply_ms};
-            for(const auto& solution : solutions) {
-                applyVgNode(solution.tree, solution.net, resizer);
-                result.attempted_buffers += solution.tree->bufferCount();
+            {
+                Timer apply_timer{&result.apply_ms};
+                for(const auto& solution : solutions) {
+                    applyVgNode(solution.tree, solution.net, resizer);
+                    result.attempted_buffers += solution.tree->bufferCount();
+                }
             }
             refresh();
             ++result.refreshes;

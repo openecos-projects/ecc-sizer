@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_gbi.h"
+#include "repair_buffer_budget.h"
 
 #include "BufferedNet.hh"
 #include "buffer_inserter.h"
@@ -54,7 +55,10 @@ bool better(const GbiRepairMetrics& before,
         after.total_fanout_violations <= before.total_fanout_violations;
     if(options.require_drv_reduction && !drv_non_worse)
         return false;
-    return after.severity + t.drv_severity < before.severity ||
+    return after.total_slew_violations < before.total_slew_violations ||
+           after.total_cap_violations < before.total_cap_violations ||
+           after.total_fanout_violations < before.total_fanout_violations ||
+           after.severity + t.drv_severity < before.severity ||
            after.setup_wns > before.setup_wns + t.wns_absolute ||
            after.setup_tns > before.setup_tns + t.tns_absolute;
 }
@@ -148,13 +152,14 @@ void finalizeForest(std::vector<RawNode>& raw,
     dummy.host.level = -1;
     raw.push_back(dummy);
     int maximum = 0;
+    std::vector<int> tree_depths(roots_old.size(), 0);
+    for(const auto& node : raw)
+        if(node.host.context_id >= 0)
+            tree_depths.at(node.host.context_id) =
+                std::max(tree_depths.at(node.host.context_id), node.host.depth);
     for(auto& node : raw) {
         if(node.host.type >= 0) {
-            int tree_depth = 0;
-            for(const auto& candidate : raw)
-                if(candidate.host.context_id == node.host.context_id)
-                    tree_depth = std::max(tree_depth, candidate.host.depth);
-            node.host.level = tree_depth - node.host.depth;
+            node.host.level = tree_depths.at(node.host.context_id) - node.host.depth;
             maximum = std::max(maximum, node.host.level);
         }
     }
@@ -269,6 +274,10 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         result.message = "GBI repair requires block, STA, resizer, and refresh";
         return result;
     }
+    if(sta->getDbNetwork()->block() != block) {
+        result.message = "GBI STA network does not reference the target block";
+        return result;
+    }
     detail::Repair backend(block, sta, options.common);
     DesignRepairMetrics before_design;
     const auto collect_start = Clock::now();
@@ -284,7 +293,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
     int next_id = 1;
     const auto solve_start = Clock::now();
     for(const auto& state : states) {
-        if(!state.driver || !state.violating() || state.loads.size() < 2)
+        if(!state.driver || !state.violating())
             continue;
         if(options.max_nets && result.nets_collected >= options.max_nets)
             break;
@@ -301,8 +310,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         roots.push_back(raw[root].host.old_id);
         ++result.nets_collected;
     }
-    // The temporary ID counter is kept local to the forest construction.
-    // Rebuild if no candidates; this also avoids invoking CUDA for an empty set.
+    // Avoid invoking CUDA for an empty forest.
     if(roots.empty()) {
         result.ok = true;
         result.after = result.before;
@@ -320,10 +328,19 @@ GbiRepairResult OpenDbGbiRepairer::repair(
            options.common.excluded_masters.end()) continue;
         forest.cells.push_back(cell);
     }
-    std::sort(forest.cells.begin(), forest.cells.end(), [](auto* a, auto* b) {
+    // The unchanged CUDA kernels have 32 constant-memory buffer slots.
+    if(forest.cells.empty() || forest.cells.size() > 32) {
+        result.message = "GBI requires between 1 and 32 buffer types, got " +
+                         std::to_string(forest.cells.size()) +
+                         "; restrict the library with excluded_masters / -dont_use_list";
+        return result;
+    }
+    std::sort(forest.cells.begin(), forest.cells.end(), [&](auto* a, auto* b) {
         sta::LibertyPort *ai = nullptr, *ao = nullptr, *bi = nullptr, *bo = nullptr;
         a->bufferPorts(ai, ao); b->bufferPorts(bi, bo);
-        return ai->capacitance() < bi->capacitance();
+        const double ac = resizer->portCapacitance(ai, scene);
+        const double bc = resizer->portCapacitance(bi, scene);
+        return ac != bc ? ac < bc : std::string(a->name()) < b->name();
     });
     auto buffers = std::make_shared<std::vector<gbi::Buffer>>();
     for(auto* cell : forest.cells) {
@@ -347,21 +364,25 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         result.message = e.what();
         return result;
     }
-    result.solve_ms = std::chrono::duration<double, std::milli>(Clock::now() - solve_start).count();
     std::vector<std::unordered_map<int, int>> selections(forest.nets.size());
-    unsigned budget = options.max_buffers;
-    unsigned selected_count = 0;
-    for(size_t i = 0; i < context.results.size(); ++i) {
+    std::vector<std::size_t> counts;
+    for(const auto& solved : context.results)
+        counts.push_back(solved->inserted_buffers.size());
+    for(auto i : selectWholeBufferPlans(counts, options.max_buffers)) {
         for(const auto& selected : context.results[i]->inserted_buffers) {
-            if(options.max_buffers && budget == 0) break;
-            selections[i][selected.node_id] = selected.buffer_type;
-            ++selected_count;
-            if(options.max_buffers) --budget;
+            if(selected.node_id <= 0 ||
+               selected.node_id >= forest.graph->num_nodes ||
+               forest.graph->context_id[selected.node_id] != static_cast<int>(i) ||
+               forest.graph->type[selected.node_id] != 1 ||
+               selected.buffer_type < 0 ||
+               selected.buffer_type >= static_cast<int>(forest.cells.size()) ||
+               !selections[i].emplace(selected.node_id, selected.buffer_type).second)
+                throw std::runtime_error("GBI returned an invalid or duplicate buffer selection");
         }
+        ++result.plans_collected;
+        result.attempted_buffers += selections[i].size();
     }
-    result.plans_collected = std::count_if(selections.begin(), selections.end(),
-                                           [](const auto& s) { return !s.empty(); });
-    result.attempted_buffers = selected_count;
+    result.solve_ms = std::chrono::duration<double, std::milli>(Clock::now() - solve_start).count();
     if(result.attempted_buffers == 0) {
         result.ok = true;
         result.after = result.before;
@@ -373,6 +394,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
     try {
         const auto apply_start = Clock::now();
         for(size_t i = 0; i < selections.size(); ++i) {
+            if(selections[i].empty()) continue;
             applyNode(forest.graph->root[i], *forest.graph, forest.source,
                       selections[i], forest.nets[i], resizer, forest.cells);
         }

@@ -6084,7 +6084,8 @@ void Sizer::runSizerGbiRepair(bool write_output) {
         if(!result.ok)
             throw std::runtime_error(result.message);
         checked_tcl("check_placement");
-        cout << "Sizer GBI repair: " << result.message
+        cout << std::defaultfloat << std::setprecision(9)
+             << "Sizer GBI repair: " << result.message
              << " backend=" << gbi_options.backend
              << " backend_used=" << result.backend_used
              << " cuda_available="
@@ -11462,7 +11463,8 @@ int main(int argc, char **argv) {
     _sizer.ReportOptions();
 
     if(_sizer.sizerGbiRepairMode) {
-        if(_sizer.sizerVgRepairMode || _sizer.sizerFanoutRepairMode ||
+        if(_sizer.sizerVgRepairMode || _sizer.sizerDesignRepairMode ||
+           _sizer.sizerFanoutRepairMode ||
            _sizer.preplaceMode || _sizer.holdOnlyMode ||
            _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
            _sizer.use_gr_rc) {

@@ -35,12 +35,14 @@ def main():
     parser.add_argument("--max-fanout", type=int, default=64)
     parser.add_argument("--buffer-cell", default="",
                         help="explicit Sizer buffer cell (default: auto)")
+    parser.add_argument("--dont-use-list", type=Path,
+                        help="exact master names excluded from repair (one per line)")
     parser.add_argument("--repair-design", action="store_true",
                         help="evaluate native cap/slew/fanout repair instead of fanout-only")
     parser.add_argument("--repair-setup", action="store_true",
                         help="run native DRV followed by setup repair")
     parser.add_argument("--repair-vg", action="store_true",
-                        help="run CPU VG/VG; combine with --repair-setup for VG -> design -> setup")
+                        help="run VG; combine with --repair-setup for VG -> design -> setup")
     parser.add_argument("--repair-gbi", action="store_true",
                         help="run migrated GPU GBI buffer insertion")
     parser.add_argument("--stage-metrics", action="store_true",
@@ -58,6 +60,8 @@ def main():
     parser.add_argument("--reference", action="store_true",
                         help="also run repair_design and VG buffer-only setup")
     args = parser.parse_args()
+    if args.repair_gbi and (args.repair_vg or args.repair_design or args.repair_setup):
+        parser.error("--repair-gbi is standalone; do not combine it with VG/design/setup")
     if args.repair_setup:
         args.repair_design = True
     if any(value is not None and value < 0 for value in (args.setup_trials, args.setup_passes)):
@@ -100,6 +104,7 @@ def main():
             runtime = None
             topology = {}
             vg_topology = {}
+            gbi_topology = {}
             design_topology = {}
             setup_topology = {}
             stage_metrics = {}
@@ -109,6 +114,8 @@ def main():
                 input_def = dest / "repaired.def"
                 buffer_option = (f"-buffer_cell {args.buffer_cell}\n"
                                  if args.buffer_cell else "")
+                if args.dont_use_list:
+                    buffer_option += f"-dont_use_list {args.dont_use_list.resolve()}\n"
                 if args.no_gate_resize:
                     buffer_option += "-sizer_repair_no_gate_resize\n"
                 if args.repair_gbi:
@@ -163,6 +170,7 @@ def main():
                 topology = {k: float(v) for k, v in
                             re.findall(r"(\w+)=([0-9.eE+-]+)", match.group(1))}
                 for enabled, label, target in [
+                        (args.repair_gbi, "GBI", gbi_topology),
                         (args.repair_vg, "VG", vg_topology),
                         (args.repair_design, "design", design_topology)]:
                     if enabled:
@@ -193,6 +201,8 @@ def main():
                 metrics[key] = float(value)
             if mode == "sizer" and args.stage_metrics:
                 stages = ["input"]
+                if args.repair_gbi:
+                    stages.append("gbi")
                 if args.repair_vg:
                     stages.append("vg")
                 if args.repair_design:
@@ -220,6 +230,7 @@ def main():
                                                contest_structural_check="passed")
             row = dict(design=name, mode=mode, power_topology=power_topology, input_fingerprint=fingerprint, max_fanout=args.max_fanout,
                        buffer_cell=args.buffer_cell or "auto",
+                       excluded_masters=args.dont_use_list.read_text().splitlines() if args.dont_use_list else [],
                        repair_design=args.repair_design,
                        repair_vg=args.repair_vg,
                        repair_gbi=args.repair_gbi,
@@ -230,7 +241,7 @@ def main():
                        placement_checked=args.legalize or args.repair_design or args.repair_vg or args.repair_gbi,
                        evaluation_seconds=elapsed, sizer_seconds=runtime,
                        topology=topology, setup_topology=setup_topology,
-                       vg_topology=vg_topology, design_topology=design_topology,
+                       vg_topology=vg_topology, gbi_topology=gbi_topology, design_topology=design_topology,
                        stage_metrics=stage_metrics,
                        repair_setup=args.repair_setup, metrics=metrics)
             if mode != "baseline":
