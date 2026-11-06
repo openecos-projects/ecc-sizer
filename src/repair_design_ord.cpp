@@ -90,8 +90,9 @@ OrdDesignRepairResult OpenDbOrdDesignRepairer::repair(
                         continue;
                     if(backend.edit(*found->second, inserted, resized_buffers,
                                     resized_gates,
-                                    options.max_inserted_buffers -
-                                        result.inserted_buffers,
+                                    detail::remainingBufferBudget(
+                                        options.max_inserted_buffers,
+                                        result.inserted_buffers),
                                     true, vt_swaps))
                         ++repaired;
                 }

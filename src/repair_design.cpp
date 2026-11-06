@@ -92,7 +92,9 @@ DesignRepairResult OpenDbDesignRepairer::repair(
                         continue;
                     repair.edit(
                         state, inserted, resized, resized_gates,
-                        options.max_inserted_buffers - result.inserted_buffers,
+                        detail::remainingBufferBudget(
+                            options.max_inserted_buffers,
+                            result.inserted_buffers),
                         allow_resize, vt_swaps);
                 }
             }

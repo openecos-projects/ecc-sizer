@@ -38,9 +38,10 @@ struct RepairCommonOptions {
     void validate() const;
 };
 struct DesignRepairOptions : RepairCommonOptions {
-    // Zero disables the corresponding work budget; it never means unlimited.
+    // Zero means unlimited. A positive value is an optional total buffer
+    // insertion cap used to bound runtime and memory during experiments.
     unsigned max_passes = 8;
-    unsigned max_inserted_buffers = 10000;
+    unsigned max_inserted_buffers = 0;
     unsigned max_load_downsizes_per_pass = 64;
     // OpenROAD-style repair commits driver edits in bounded traversal batches.
     unsigned ord_driver_batch_size = 10000;

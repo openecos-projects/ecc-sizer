@@ -131,6 +131,15 @@ class BufferInserterStaTest : public tst::IntegratedFixture
         3 * load->findLibertyPort("A")->capacitance(), sta::MinMax::max());
   }
 
+  void excludeAllBuffers(ecc::DesignRepairOptions& options)
+  {
+    for (auto* master : lib_->getMasters()) {
+      auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
+      if (cell && cell->isBuffer())
+        options.excluded_masters.push_back(master);
+    }
+  }
+
   void constrainSetup(bool only_out0 = false)
   {
     auto* sdc = sta_->cmdMode()->sdc();
@@ -508,20 +517,20 @@ TEST_F(BufferInserterStaTest,
   db_network_->checkAxioms();
 }
 
-TEST_F(BufferInserterStaTest, NativeDesignRepairReportsUnresolvedAtZeroBudget)
+TEST_F(BufferInserterStaTest, NativeDesignRepairHonorsPositiveBufferBudget)
 {
   readTestDesign("fanout_repair_sta.v");
   ecc::DesignRepairOptions options;
   options.max_fanout = 3;
-  options.max_inserted_buffers = 0;
+  options.max_inserted_buffers = 1;
   const auto count = block_->getInsts().size();
   const auto result = ecc::OpenDbDesignRepairer::repair(
       block_, sta_.get(), [&]() { sta_->updateTiming(true); }, options);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
   EXPECT_GT(result.after.fanout_nets, 0);
-  EXPECT_EQ(result.inserted_buffers, 0);
-  EXPECT_EQ(block_->getInsts().size(), count);
+  EXPECT_EQ(result.inserted_buffers, 1);
+  EXPECT_EQ(block_->getInsts().size(), count + 1);
 }
 
 TEST_F(BufferInserterStaTest,
@@ -685,7 +694,8 @@ TEST_F(BufferInserterStaTest,
   auto* driver = block_->findInst("driver");
   auto* original = driver->getMaster();
   ecc::DesignRepairOptions options;
-  options.max_inserted_buffers = 0;
+  options.max_inserted_buffers = 1;
+  excludeAllBuffers(options);
   // Other gates such as NOR2 have the same physical pin names but a different
   // Boolean function. They must not be considered when NAND upsizes are banned.
   options.excluded_masters
@@ -1164,7 +1174,7 @@ TEST_F(BufferInserterStaTest, LoadDownsizeRepairsCapWithoutGrowingDriverOrAdding
   auto* original = driver->getMaster();
   ecc::DesignRepairOptions options;
   options.allow_gate_resize = false;
-  options.max_inserted_buffers = 0;
+  options.max_inserted_buffers = 1;
   options.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   const auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
@@ -1193,7 +1203,7 @@ TEST_F(BufferInserterStaTest, LoadDownsizeIsConfigurableAndHonorsBatchBudget)
   ecc::DesignRepairOptions options;
   options.allow_load_downsize = false;
   options.allow_gate_resize = false;
-  options.max_inserted_buffers = 0;
+  options.max_inserted_buffers = 1;
   auto refresh = [&]() { refreshRepairTiming(); };
   auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok);

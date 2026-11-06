@@ -25,6 +25,18 @@
 
 namespace ecc::detail {
 constexpr float kInf = std::numeric_limits< float >::infinity();
+
+// Design repair follows OpenROAD's unbounded insertion behavior by default.
+// A positive limit remains available as an explicit experiment/runtime guard.
+inline unsigned remainingBufferBudget(unsigned max_inserted_buffers,
+                                      unsigned inserted_buffers) {
+    if(max_inserted_buffers == 0)
+        return std::numeric_limits< unsigned >::max();
+    if(inserted_buffers >= max_inserted_buffers)
+        return 0;
+    return max_inserted_buffers - inserted_buffers;
+}
+
 struct Load {
     odb::dbObject* term;
     float capacitance;
