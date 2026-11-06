@@ -48,6 +48,7 @@
 #include <algorithm>
 #include <cassert>
 #include <climits>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -5663,25 +5664,35 @@ int Sizer::legalizeDreamplace() {
         printf("dp-legalize: no rows, fall back to detailed_placement\n");
         return -1;
     }
-    const int site_w = rows[0]->getSite()->getWidth();
-    const int site_h = rows[0]->getSite()->getHeight();
+    auto* site = rows[0]->getSite();
+    if(!site || site->getWidth() == 0 || site->getHeight() == 0 ||
+       site->getWidth() > INT_MAX || site->getHeight() > INT_MAX) {
+        printf("dp-legalize: invalid row site, inapplicable\n");
+        return -1;
+    }
+    const int site_w = site->getWidth();
+    const int site_h = site->getHeight();
     std::vector<ecc::LegalizeRowSeg> segs;
     std::map<int, odb::dbOrientType> orient_of_y;
     for(auto* row : rows) {
-        if(row->getSite()->getWidth() != site_w ||
-           row->getSite()->getHeight() != site_h) {
-            printf("dp-legalize: non-uniform rows, fall back\n");
+        if(!row->getSite() || row->getSite()->getWidth() != site_w ||
+           row->getSite()->getHeight() != site_h ||
+           row->getDirection() != odb::dbRowDir::HORIZONTAL ||
+           row->getSiteCount() <= 0 ||
+           (row->getSiteCount() > 1 && row->getSpacing() != site_w) ||
+           row->getOrient().isRightAngleRotation()) {
+            printf("dp-legalize: unsupported row geometry, inapplicable\n");
             return -1;
         }
         segs.push_back({row->getOrigin().x(), row->getOrigin().y(),
                         row->getSiteCount()});
         int ry = row->getOrigin().y();
-        if(orient_of_y.count(ry) && orient_of_y[ry] != row->getOrient()) {
+        const auto inserted = orient_of_y.emplace(ry, row->getOrient());
+        if(!inserted.second && inserted.first->second != row->getOrient()) {
             printf("dp-legalize: inconsistent orient at y=%d, fall back\n",
                    ry);
             return -1;
         }
-        orient_of_y[ry] = row->getOrient();
     }
 
     std::vector<ecc::LegalizeNode> nodes;
@@ -5726,14 +5737,46 @@ int Sizer::legalizeDreamplace() {
         return -1;
     }
 
+    // The core has checked segment membership and all overlaps. Resolve the
+    // entire result against actual ROW orientations before mutating OpenDB.
+    if(out_x.size() != insts.size() || out_row.size() != insts.size() ||
+       num_rows <= 0) {
+        printf("dp-legalize: incomplete result, discarding placement\n");
+        return -1;
+    }
+    struct Candidate {
+        int x, y;
+        odb::dbOrientType orient;
+    };
+    std::vector<Candidate> candidates;
+    candidates.reserve(insts.size());
+    for(int i = 0; i < num_movable; ++i) {
+        const long long ry = (long long)base_y + (long long)out_row[i] * site_h;
+        if(out_row[i] < 0 || out_row[i] >= num_rows ||
+           ry < INT_MIN || ry > INT_MAX || !std::isfinite(out_x[i]) ||
+           out_x[i] < INT_MIN || out_x[i] > INT_MAX ||
+           std::fabs(out_x[i] - std::round(out_x[i])) > 1e-9 ||
+           (std::llround(out_x[i]) - base_x) % site_w != 0) {
+            printf("dp-legalize: invalid candidate %d, discarding placement\n", i);
+            return -1;
+        }
+        const auto orient = orient_of_y.find((int)ry);
+        if(orient == orient_of_y.end()) {
+            printf("dp-legalize: candidate %d has no ROW at y=%lld\n", i, ry);
+            return -1;
+        }
+        candidates.push_back({(int)std::llround(out_x[i]), (int)ry,
+                               orient->second});
+    }
+
     double max_disp = 0.0;
     for(int i = 0; i < num_movable; ++i) {
-        const int ry = base_y + out_row[i] * site_h;
-        insts[i]->setOrient(orient_of_y[ry]);
-        insts[i]->setLocation((int)llround(out_x[i]), ry);
+        const auto& candidate = candidates[i];
+        insts[i]->setOrient(candidate.orient);
+        insts[i]->setLocation(candidate.x, candidate.y);
         insts[i]->setPlacementStatus(odb::dbPlacementStatus::PLACED);
         max_disp = std::max(max_disp, fabs(out_x[i] - nodes[i].x) +
-                                          fabs(ry - nodes[i].y));
+                                          fabs(candidate.y - nodes[i].y));
     }
     printf("dp-legalize: placed %d cells, max displacement %.0f dbu\n",
            num_movable, max_disp);
@@ -5744,6 +5787,33 @@ int Sizer::legalizeDreamplace() {
 void Sizer::legalizePlacement() {
     if(use_native_abacus && legalizeDreamplace() >= 0) {
         return;
+    }
+    // In this integration, sparse-row native rejection has led to unsafe
+    // negotiation fallback. Stop here on sparse rows; retain dense fallback.
+    std::map<int, long long> row_tops;
+    for(auto* row : _ckt->_ord_design->getBlock()->getRows()) {
+        auto* site = row->getSite();
+        if(!site || site->getHeight() == 0 || row->getSiteCount() <= 0) {
+            fprintf(stderr, "Error: invalid ROW geometry; stopping legalization\n");
+            exit(EXIT_FAILURE);
+        }
+        const int y = row->getOrigin().y();
+        const long long top = (long long)y + site->getHeight();
+        const auto inserted = row_tops.emplace(y, top);
+        inserted.first->second = std::max(inserted.first->second, top);
+    }
+    if(!row_tops.empty()) {
+        long long covered_top = row_tops.begin()->second;
+        for(const auto& row : row_tops) {
+            if(row.first > covered_top) {
+                fprintf(stderr,
+                        "Error: native legalization failed or is disabled on a "
+                        "sparse ROW grid; refusing negotiation placement and "
+                        "stopping before routing/writeback\n");
+                exit(EXIT_FAILURE);
+            }
+            covered_top = std::max(covered_top, row.second);
+        }
     }
     _ckt->_ord_design->evalTclString(
         "detailed_placement -use_negotiation -abacus");

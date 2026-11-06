@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 #include "greedy_legalize/src/function_cpu.h"
@@ -15,51 +16,69 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
                    int site_h, std::vector<LegalizeNode>& nodes,
                    int num_movable, double padding_sites,
                    std::vector<double>& out_x, std::vector<int>& out_row,
-                   int& base_x, int& base_y, int& num_rows_out) {
-    if(segs.empty()) {
-        printf("dp-legalize: no rows, inapplicable\n");
+                   int& base_x_out, int& base_y_out, int& num_rows_out) {
+    const int int_max = std::numeric_limits<int>::max();
+    const int int_min = std::numeric_limits<int>::min();
+    if(segs.empty() || site_w <= 0 || site_h <= 0 ||
+       num_movable < 0 || nodes.size() > (size_t)int_max ||
+       (size_t)num_movable > nodes.size() ||
+       !std::isfinite(padding_sites) || padding_sites < 0 ||
+       padding_sites > double(int_max) / site_w) {
+        printf("dp-legalize: invalid rows, site size, node count or padding\n");
         return -1;
     }
-    base_x = segs[0].origin_x;
-    base_y = segs[0].origin_y;
+    int base_x = segs[0].origin_x;
+    int base_y = segs[0].origin_y;
     for(auto& row : segs) {
         base_x = std::min(base_x, row.origin_x);
         base_y = std::min(base_y, row.origin_y);
     }
-    int max_right = 0;
-    for(auto& row : segs) {
-        max_right = std::max(max_right,
-                             row.origin_x - base_x + row.site_count * site_w);
-    }
+    long long max_right_ll = 0;
     // Segmented rows (macros splitting rows) are fine for the bin-based
     // ops; only require all segments to share one site grid.
     int max_y = base_y;
     for(auto& row : segs) {
-        if((row.origin_x - base_x) % site_w != 0 ||
-           (row.origin_y - base_y) % site_h != 0) {
+        const long long right =
+            (long long)row.origin_x + (long long)row.site_count * site_w;
+        if(row.site_count <= 0 || right > int_max ||
+           (long long)row.origin_y + site_h > int_max ||
+           ((long long)row.origin_x - base_x) % site_w != 0 ||
+           ((long long)row.origin_y - base_y) % site_h != 0) {
             printf("dp-legalize: row segment at (%d,%d) off site grid, "
-                   "inapplicable\n",
+                   "empty or out of range, inapplicable\n",
                    row.origin_x, row.origin_y);
             return -1;
         }
+        max_right_ll = std::max(max_right_ll, right - base_x);
         max_y = std::max(max_y, row.origin_y);
     }
-    const int num_rows = (max_y - base_y) / site_h + 1;
-    // Every row y must be covered by at least one segment.
-    {
-        std::vector<char> seen(num_rows, 0);
-        for(auto& row : segs) {
-            seen[(row.origin_y - base_y) / site_h] = 1;
+    const long long height = (long long)max_y - base_y + site_h;
+    if(max_right_ll > int_max || height > int_max) {
+        printf("dp-legalize: row grid exceeds supported coordinate range\n");
+        return -1;
+    }
+    const int max_right = (int)max_right_ll;
+    const int num_rows = (int)(height / site_h);
+
+    for(size_t i = 0; i < nodes.size(); ++i) {
+        const auto& nd = nodes[i];
+        if(!std::isfinite(nd.x) || !std::isfinite(nd.y) ||
+           !std::isfinite(nd.w) || !std::isfinite(nd.h) ||
+           nd.x < int_min || nd.y < int_min || nd.w <= 0 || nd.h <= 0 ||
+           nd.w > int_max || nd.h > int_max ||
+           nd.x + nd.w > int_max || nd.y + nd.h > int_max ||
+           nd.fixed != (i >= (size_t)num_movable)) {
+            printf("dp-legalize: invalid node %zu\n", i);
+            return -1;
         }
-        for(int r = 0; r < num_rows; ++r) {
-            if(!seen[r]) {
-                printf("dp-legalize: missing row at y=%d, inapplicable\n",
-                       base_y + r * site_h);
-                return -1;
-            }
+        if(i < (size_t)num_movable &&
+           (nd.h != site_h || nd.w > max_right ||
+            std::fabs(nd.w - std::round(nd.w)) > 1e-9 ||
+            (long long)std::llround(nd.w) % site_w != 0)) {
+            printf("dp-legalize: unsupported movable dimensions at %zu\n", i);
+            return -1;
         }
     }
-    num_rows_out = num_rows;
 
     const double core_xh = double(base_x + max_right);
     const double core_yh = double(base_y + num_rows * site_h);
@@ -74,6 +93,9 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         if(x1 <= x0) {
             return;
         }
+        // A partially blocked site is unusable by an aligned cell.
+        x0 = base_x + std::floor((x0 - base_x) / site_w) * site_w;
+        x1 = base_x + std::ceil((x1 - base_x) / site_w) * site_w;
         rid_lo = std::max(0, std::min(num_rows - 1, rid_lo));
         rid_hi = std::max(0, std::min(num_rows - 1, rid_hi));
         for(int rid = rid_lo; rid <= rid_hi; ++rid) {
@@ -86,6 +108,15 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     auto clamp_node_y = [&](const LegalizeNode& nd) {
         return std::max(double(base_y), std::min(nd.y, core_yh - nd.h));
     };
+    auto covered_rows = [&](const LegalizeNode& nd) {
+        const double y0 = std::max(nd.y, double(base_y));
+        const double y1 = std::min(nd.y + nd.h, core_yh);
+        if(y1 <= y0) {
+            return std::make_pair(0, -1);
+        }
+        return std::make_pair((int)std::floor((y0 - base_y) / site_h),
+                              (int)std::ceil((y1 - base_y) / site_h) - 1);
+    };
 
     // Fixed instances and row gaps are both obstacles. Build their union per
     // row before handing the geometry to DreamPlace so no fixed nodes overlap.
@@ -96,17 +127,16 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         // obstacles along the boundary rows and cascades cells across the
         // design. Preserve their physical coordinates and discard only those
         // that do not intersect the row area.
-        const int rid_lo = (int)floor((nd.y - base_y) / site_h);
-        const int rid_hi =
-            (int)floor((nd.y + nd.h - 1 - base_y) / site_h);
-        add_obstacle(rid_lo, rid_hi, nd.x, nd.x + nd.w);
+        const auto covered = covered_rows(nd);
+        add_obstacle(covered.first, covered.second, nd.x, nd.x + nd.w);
     }
 
     std::vector<std::vector<std::pair<int, int>>> seg_ints(num_rows);
     for(auto& row : segs) {
         int rid = (row.origin_y - base_y) / site_h;
         seg_ints[rid].push_back(
-            {row.origin_x, row.origin_x + row.site_count * site_w});
+            {row.origin_x,
+             (int)((long long)row.origin_x + (long long)row.site_count * site_w)});
     }
     const int core_x0 = base_x;
     const int core_x1 = base_x + max_right;
@@ -121,11 +151,12 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
             cursor = std::max(cursor, iv.second);
         }
         if(core_x1 - cursor >= site_w) {
+            // An absent y stays at its physical grid index and is blocked
+            // across the full width, never fabricated as a usable ROW.
             add_obstacle(r, r, cursor, core_x1);
         }
     }
 
-    std::vector<double> row_obstacle_width(num_rows, 0.0);
     for(int r = 0; r < num_rows; ++r) {
         auto& obstacles = row_obstacles[r];
         std::sort(obstacles.begin(), obstacles.end(),
@@ -145,86 +176,92 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
             }
         }
         obstacles.swap(merged);
-        for(const Interval& obstacle : obstacles) {
-            row_obstacle_width[r] += obstacle.second - obstacle.first;
-        }
     }
 
-    const double pad_dbu = padding_sites * site_w;
+    const double pad_dbu = std::ceil(padding_sites) * site_w;
 
     // Preserve an already-legal placement when its padding compliance is
     // sufficient. Site/row legality and non-overlap are mandatory; padding is
     // allowed to be best effort, matching the legalizer's padding behavior.
     constexpr int kPaddingComplianceNumerator = 4;
     constexpr int kPaddingComplianceDenominator = 5;
-    bool input_legal = true;
-    std::vector<std::vector<int>> input_row_cells(num_rows);
-    for(int i = 0; i < num_movable && input_legal; ++i) {
-        const LegalizeNode& nd = nodes[i];
-        const long long x = std::llround(nd.x);
-        const long long y = std::llround(nd.y);
-        const long long w = std::llround(nd.w);
-        if(std::fabs(nd.x - double(x)) > 1e-9 ||
-           std::fabs(nd.y - double(y)) > 1e-9 ||
-           std::fabs(nd.w - double(w)) > 1e-9 ||
-           std::fabs(nd.h - double(site_h)) > 1e-9 || w <= 0 ||
-           (x - base_x) % site_w != 0 || w % site_w != 0 ||
-           (y - base_y) % site_h != 0) {
-            input_legal = false;
-            break;
+    auto placement_legal = [&](const std::vector<double>& xx,
+                               const std::vector<double>& yy,
+                               std::vector<std::vector<int>>& row_cells) {
+        row_cells.assign(num_rows, {});
+        for(int i = 0; i < num_movable; ++i) {
+            if(!std::isfinite(xx[i]) || !std::isfinite(yy[i]) ||
+               xx[i] < base_x || xx[i] + nodes[i].w > core_xh ||
+               yy[i] < base_y || yy[i] + site_h > core_yh) {
+                return false;
+            }
+            const long long x = std::llround(xx[i]);
+            const long long y = std::llround(yy[i]);
+            if(std::fabs(xx[i] - double(x)) > 1e-9 ||
+               std::fabs(yy[i] - double(y)) > 1e-9 ||
+               (x - base_x) % site_w != 0 ||
+               (y - base_y) % site_h != 0) {
+                return false;
+            }
+            const long long rid = (y - base_y) / site_h;
+            if(rid < 0 || rid >= num_rows) {
+                return false;
+            }
+            const auto& segs_at_y = seg_ints[rid];
+            if(!std::any_of(segs_at_y.begin(), segs_at_y.end(),
+                            [&](const std::pair<int, int>& seg) {
+                                return x >= seg.first &&
+                                       x + nodes[i].w <= seg.second;
+                            })) {
+                return false;
+            }
+            row_cells[rid].push_back(i);
         }
-        const long long rid_ll = (y - base_y) / site_h;
-        if(rid_ll < 0 || rid_ll >= num_rows) {
-            input_legal = false;
-            break;
-        }
-        const int rid = (int)rid_ll;
-        const auto& segs_at_y = seg_ints[rid];
-        auto seg_it = std::upper_bound(
-            segs_at_y.begin(), segs_at_y.end(), x,
-            [](long long value, const std::pair<int, int>& seg) {
-                return value < seg.first;
+        for(int r = 0; r < num_rows; ++r) {
+            auto& cell_ids = row_cells[r];
+            std::sort(cell_ids.begin(), cell_ids.end(), [&](int lhs, int rhs) {
+                return xx[lhs] < xx[rhs];
             });
-        if(seg_it == segs_at_y.begin()) {
-            input_legal = false;
-            break;
+            const auto& obstacles = row_obstacles[r];
+            size_t obstacle_idx = 0;
+            double previous_end = base_x;
+            for(int cell_id : cell_ids) {
+                const double x0 = xx[cell_id];
+                const double x1 = x0 + nodes[cell_id].w;
+                while(obstacle_idx < obstacles.size() &&
+                      obstacles[obstacle_idx].second <= x0 + 1e-9) {
+                    ++obstacle_idx;
+                }
+                if((obstacle_idx < obstacles.size() &&
+                    obstacles[obstacle_idx].first < x1 - 1e-9) ||
+                   x0 < previous_end - 1e-9) {
+                    return false;
+                }
+                previous_end = x1;
+            }
         }
-        --seg_it;
-        if(x < seg_it->first || x + w > seg_it->second) {
-            input_legal = false;
-            break;
+        return true;
+    };
+    auto publish = [&](const std::vector<double>& xx,
+                       const std::vector<double>& yy) {
+        std::vector<double> result_x(xx.begin(), xx.begin() + num_movable);
+        std::vector<int> result_row(num_movable);
+        for(int i = 0; i < num_movable; ++i) {
+            result_row[i] = (int)std::llround((yy[i] - base_y) / site_h);
         }
-        input_row_cells[rid].push_back(i);
+        out_x.swap(result_x);
+        out_row.swap(result_row);
+        base_x_out = base_x;
+        base_y_out = base_y;
+        num_rows_out = num_rows;
+    };
+    std::vector<double> input_x, input_y;
+    for(int i = 0; i < num_movable; ++i) {
+        input_x.push_back(nodes[i].x);
+        input_y.push_back(nodes[i].y);
     }
-    for(int r = 0; r < num_rows && input_legal; ++r) {
-        auto& cell_ids = input_row_cells[r];
-        std::sort(cell_ids.begin(), cell_ids.end(), [&](int lhs, int rhs) {
-            return nodes[lhs].x < nodes[rhs].x;
-        });
-        const auto& obstacles = row_obstacles[r];
-        size_t obstacle_idx = 0;
-        double previous_end = 0.0;
-        bool has_previous = false;
-        for(int cell_id : cell_ids) {
-            const double x0 = nodes[cell_id].x;
-            const double x1 = x0 + nodes[cell_id].w;
-            while(obstacle_idx < obstacles.size() &&
-                  obstacles[obstacle_idx].second <= x0 + 1e-9) {
-                ++obstacle_idx;
-            }
-            if(obstacle_idx < obstacles.size() &&
-               obstacles[obstacle_idx].first < x1 - 1e-9) {
-                input_legal = false;
-                break;
-            }
-            if(has_previous && x0 < previous_end - 1e-9) {
-                input_legal = false;
-                break;
-            }
-            previous_end = x1;
-            has_previous = true;
-        }
-    }
+    std::vector<std::vector<int>> input_row_cells;
+    const bool input_legal = placement_legal(input_x, input_y, input_row_cells);
 
     int padding_pair_count = 0;
     int padding_pair_compliant = 0;
@@ -250,12 +287,8 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
             if(x1 <= x0) {
                 continue;
             }
-            const int rid_lo =
-                (int)floor((nd.y - base_y) / site_h);
-            const int rid_hi =
-                (int)floor((nd.y + nd.h - 1 - base_y) / site_h);
-            for(int rid = std::max(0, rid_lo);
-                rid <= std::min(num_rows - 1, rid_hi); ++rid) {
+            const auto covered = covered_rows(nd);
+            for(int rid = covered.first; rid <= covered.second; ++rid) {
                 row_intervals[rid].push_back({x0, x1, false});
             }
         }
@@ -293,15 +326,10 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     }
     const bool padding_compliant =
         padding_pair_count == 0 ||
-        padding_pair_compliant * kPaddingComplianceDenominator >=
-            padding_pair_count * kPaddingComplianceNumerator;
+        (long long)padding_pair_compliant * kPaddingComplianceDenominator >=
+            (long long)padding_pair_count * kPaddingComplianceNumerator;
     if(input_legal && padding_compliant) {
-        out_x.resize(num_movable);
-        out_row.resize(num_movable);
-        for(int i = 0; i < num_movable; ++i) {
-            out_x[i] = nodes[i].x;
-            out_row[i] = (int)llround((nodes[i].y - base_y) / site_h);
-        }
+        publish(input_x, input_y);
         printf("dp-legalize: input already legal, preserving placement "
                "(padding %d/%d)\n",
                padding_pair_compliant, padding_pair_count);
@@ -336,10 +364,11 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
             wts.push_back(1.0);
         }
     }
-    const int num_nodes = (int)sx.size();
-    if(num_movable == 0) {
-        return 0;
+    if(sx.size() > (size_t)int_max) {
+        printf("dp-legalize: too many obstacle fragments\n");
+        return -1;
     }
+    const int num_nodes = (int)sx.size();
 
     std::vector<double> x(px), y(py);
     DreamPlace::LegalizationDB<double> db;
@@ -372,27 +401,53 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
         db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
 
-    // Guard: a genuinely overfull row (movable + fixed width beyond row
-    // capacity) would trip the vendored abacus' internal assert. Detect and
-    // let the caller fall back to DPL instead of moving cells around.
-    {
-        std::vector<double> row_mov(num_rows, 0.0);
-        auto row_of = [&](double yy) {
-            return std::max(
-                0, std::min(num_rows - 1,
-                            (int)llround((yy - base_y) / site_h)));
-        };
-        for(int i = 0; i < num_movable; ++i) {
-            row_mov[row_of(y[i])] += sx[i];
+    // Greedy can leave overlaps for abacus to repair. Check the capacity of
+    // each free interval in abacus' center ordering before it can assert.
+    std::vector<std::vector<int>> row_cells(num_rows);
+    for(int i = 0; i < num_movable; ++i) {
+        if(!std::isfinite(x[i]) || !std::isfinite(y[i]) ||
+           x[i] < base_x || x[i] + sx[i] > core_xh ||
+           y[i] < base_y || y[i] + site_h > core_yh ||
+           std::fabs(y[i] - std::round(y[i])) > 1e-9 ||
+           (std::llround(y[i]) - base_y) % site_h != 0) {
+            printf("dp-legalize: greedy returned invalid coordinates\n");
+            return -1;
         }
-        const double row_cap = double(max_right);
-        for(int r = 0; r < num_rows; ++r) {
-            if(row_mov[r] + row_obstacle_width[r] > row_cap) {
-                printf("dp-legalize: row %d overfull (mov %.0f + fix %.0f > "
-                       "%.0f), inapplicable\n",
-                       r, row_mov[r], row_obstacle_width[r], row_cap);
+        const int rid = (int)((std::llround(y[i]) - base_y) / site_h);
+        if(rid < 0 || rid >= num_rows || seg_ints[rid].empty()) {
+            printf("dp-legalize: greedy left a cell on an absent row\n");
+            return -1;
+        }
+        row_cells[rid].push_back(i);
+    }
+    for(int r = 0; r < num_rows; ++r) {
+        auto& cids = row_cells[r];
+        auto center = [&](int i) { return x[i] + sx[i] / 2; };
+        std::sort(cids.begin(), cids.end(), [&](int a, int b) {
+            return center(a) < center(b) || (center(a) == center(b) && a < b);
+        });
+        size_t ci = 0;
+        double left = base_x;
+        for(const auto& obstacle : row_obstacles[r]) {
+            const double fixed_center = (obstacle.first + obstacle.second) / 2;
+            double width = 0;
+            // Movables precede fixed nodes when their centers coincide.
+            while(ci < cids.size() && center(cids[ci]) <= fixed_center) {
+                width += sx[cids[ci++]];
+            }
+            if(width > obstacle.first - left) {
+                printf("dp-legalize: row %d has an overfull free interval\n", r);
                 return -1;
             }
+            left = obstacle.second;
+        }
+        double width = 0;
+        while(ci < cids.size()) {
+            width += sx[cids[ci++]];
+        }
+        if(width > core_xh - left) {
+            printf("dp-legalize: row %d has an overfull free interval\n", r);
+            return -1;
         }
     }
 
@@ -401,41 +456,24 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         y.data(), db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
         db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
 
+    if(!placement_legal(x, y, row_cells)) {
+        printf("dp-legalize: abacus did not produce a legal placement\n");
+        return -1;
+    }
 
     const std::vector<double> opx = x;
     // Post-hoc placement padding: per row, shift cells right to open
     // dp_padding-site gaps (fixed insts are obstacles). Rows that cannot
     // fit degrade to gap 0, keeping the ops' feasible positions.
     if(pad_dbu > 0) {
-        std::vector<std::vector<int>> row_cells(num_rows);
-        std::vector<std::vector<std::pair<double, double>>> fxd(num_rows);
-        for(int i = 0; i < num_movable; ++i) {
-            int rid = std::max(
-                0, std::min(num_rows - 1,
-                            (int)llround((y[i] - base_y) / site_h)));
-            row_cells[rid].push_back(i);
-        }
-        for(int j = num_movable; j < num_nodes; ++j) {
-            // Multi-row-height fixed insts (macros) block every row their
-            // footprint covers, not just the origin row.
-            int rid_lo = (int)floor((py[j] - base_y) / site_h);
-            int rid_hi = (int)floor((py[j] + sy[j] - 1 - base_y) / site_h);
-            rid_lo = std::max(0, std::min(num_rows - 1, rid_lo));
-            rid_hi = std::max(0, std::min(num_rows - 1, rid_hi));
-            for(int rid = rid_lo; rid <= rid_hi; ++rid) {
-                fxd[rid].push_back({px[j], px[j] + sx[j]});
-            }
-        }
         int degraded_rows = 0;
         for(int r = 0; r < num_rows; ++r) {
             auto& cids = row_cells[r];
-            auto& fiv = fxd[r];
+            const auto& fiv = row_obstacles[r];
             if(cids.empty()) {
                 continue;
             }
-            std::sort(cids.begin(), cids.end(),
-                      [&](int a, int b) { return x[a] < x[b]; });
-            std::sort(fiv.begin(), fiv.end());
+            bool placed = false;
             for(int attempt = 0; attempt < 2; ++attempt) {
                 const double gap = attempt == 0 ? pad_dbu : 0.0;
                 double prev_end = base_x;
@@ -443,8 +481,7 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
                 bool overflow = false;
                 for(int ci : cids) {
                     const double w = sx[ci];
-                    double cx = std::max(attempt == 0 ? x[ci] : opx[ci],
-                                         prev_end);
+                    double cx = std::max(opx[ci], prev_end);
                     while(fi < fiv.size() && fiv[fi].second <= cx) {
                         ++fi;
                     }
@@ -463,11 +500,18 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
                     prev_end = cx + w + gap;
                 }
                 if(!overflow) {
+                    placed = true;
                     if(attempt > 0) {
                         ++degraded_rows;
                     }
                     break;
                 }
+            }
+            if(!placed) {
+                for(int ci : cids) {
+                    x[ci] = opx[ci];
+                }
+                ++degraded_rows;
             }
         }
         if(degraded_rows > 0) {
@@ -477,13 +521,11 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     }
 
 
-    out_x.resize(num_movable);
-    out_row.resize(num_movable);
-    for(int i = 0; i < num_movable; ++i) {
-        int rid = (int)llround((y[i] - base_y) / site_h);
-        out_row[i] = std::max(0, std::min(num_rows - 1, rid));
-        out_x[i] = llround(x[i]);
+    if(!placement_legal(x, y, row_cells)) {
+        printf("dp-legalize: padded result is not legal; discarding result\n");
+        return -1;
     }
+    publish(x, y);
     return 0;
 }
 
