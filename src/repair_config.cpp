@@ -100,6 +100,11 @@ void RepairCommonOptions::validate() const {
         std::isfinite(tolerances.drv_severity) && tolerances.drv_severity >= 0,
         "tolerances.drv_severity >= 0");
 }
+void DesignRepairOptions::validate() const {
+    RepairCommonOptions::validate();
+    require(ord_driver_batch_size > 0,
+            "design.ord_driver_batch_size > 0");
+}
 void SetupRepairSettings::validate() const {
     require(max_path_ends > 0 &&
                 max_path_ends <= unsigned(std::numeric_limits< int >::max()),
@@ -264,6 +269,8 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         d.max_passes = count(value);
     else if(key == "design.max_inserted_buffers")
         d.max_inserted_buffers = count(value);
+    else if(key == "design.ord_driver_batch_size")
+        d.ord_driver_batch_size = count(value);
     else if(key == "setup.max_passes")
         s.max_passes = count(value);
     else if(key == "setup.skip_duplicate_trials")
@@ -368,6 +375,7 @@ void RepairConfig::write(std::ostream& output) const {
          << d.max_load_downsizes_per_pass << '\n'
          << "design.max_passes=" << d.max_passes << '\n'
          << "design.max_inserted_buffers=" << d.max_inserted_buffers << '\n'
+         << "design.ord_driver_batch_size=" << d.ord_driver_batch_size << '\n'
          << "setup.max_passes=" << s.max_passes << '\n'
          << "setup.skip_duplicate_trials="
          << (s.skip_duplicate_trials ? "true" : "false") << '\n'

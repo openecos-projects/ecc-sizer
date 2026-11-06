@@ -1937,12 +1937,13 @@ void Circuit::init_opensta() {
     _ord_timing = new ord::Timing(_ord_design);
     _sta = ord::OpenRoad::openRoad()->getSta();
     _ord_design->evalTclString("set_thread_count " + std::to_string(
-        (_sizer->sizerDesignRepairMode || _sizer->sizerVgRepairMode ||
-         _sizer->sizerGbiRepairMode)
+        (_sizer->sizerDesignRepairMode || _sizer->sizerOrdDesignRepairMode ||
+         _sizer->sizerVgRepairMode || _sizer->sizerGbiRepairMode)
             ? _sizer->nativeRepairConfig.sta_threads : 32));
     // Native repair (including standalone VG) must use the supplied RC,
     // rather than overwriting benchmark wire RC with the default layer model.
-    if((!_sizer->sizerDesignRepairMode && !_sizer->sizerVgRepairMode &&
+    if((!_sizer->sizerDesignRepairMode &&
+        !_sizer->sizerOrdDesignRepairMode && !_sizer->sizerVgRepairMode &&
         !_sizer->sizerGbiRepairMode) ||
        _sizer->setRCFile.empty()) {
         _ord_design->evalTclString("set_wire_rc -signal -layer " +

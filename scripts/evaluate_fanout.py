@@ -39,6 +39,8 @@ def main():
                         help="exact master names excluded from repair (one per line)")
     parser.add_argument("--repair-design", action="store_true",
                         help="evaluate native cap/slew/fanout repair instead of fanout-only")
+    parser.add_argument("--repair-ord-design", action="store_true",
+                        help="evaluate OpenROAD-style levelized-driver repair")
     parser.add_argument("--repair-setup", action="store_true",
                         help="run native DRV followed by setup repair")
     parser.add_argument("--repair-vg", action="store_true",
@@ -60,8 +62,12 @@ def main():
     parser.add_argument("--reference", action="store_true",
                         help="also run repair_design and VG buffer-only setup")
     args = parser.parse_args()
-    if args.repair_gbi and (args.repair_vg or args.repair_design or args.repair_setup):
+    if args.repair_gbi and (args.repair_vg or args.repair_design or
+                            args.repair_ord_design or args.repair_setup):
         parser.error("--repair-gbi is standalone; do not combine it with VG/design/setup")
+    if args.repair_ord_design and (args.repair_vg or args.repair_design or
+                                   args.repair_setup):
+        parser.error("--repair-ord-design is standalone; do not combine it with VG/design/setup")
     if args.repair_setup:
         args.repair_design = True
     if any(value is not None and value < 0 for value in (args.setup_trials, args.setup_passes)):
@@ -79,8 +85,10 @@ def main():
         env = dict(os.environ, PLATFORM_DIR=str(platform),
                    DESIGN_PATH=str(design), MAX_FANOUT=str(args.max_fanout),
                    EQUIV_DIR=str(args.equiv_dir.resolve()),
-                   CHECK_PLACEMENT=str(int(args.legalize or args.repair_design or args.repair_vg or args.repair_gbi)),
-                   NATIVE_REPAIR=str(int(args.repair_design or args.repair_vg or args.repair_gbi)))
+                   CHECK_PLACEMENT=str(int(args.legalize or args.repair_design or
+                                           args.repair_ord_design or args.repair_vg or args.repair_gbi)),
+                   NATIVE_REPAIR=str(int(args.repair_design or args.repair_ord_design or
+                                         args.repair_vg or args.repair_gbi)))
         libdir = platform / "ASAP7" / "lib"
         libs = sorted(libdir.glob("asap7sc7p5t_*_TT_*.lib"))
         libs.append(libdir / "sram_asap7_64x256_1rw.lib")
@@ -120,6 +128,8 @@ def main():
                     buffer_option += "-sizer_repair_no_gate_resize\n"
                 if args.repair_gbi:
                     repair_flag = "-sizer_repair_gbi"
+                elif args.repair_ord_design:
+                    repair_flag = "-sizer_repair_design_ord"
                 elif args.repair_vg:
                     repair_flag = "-sizer_repair_vg"
                 else:
@@ -160,6 +170,8 @@ def main():
                         raise RuntimeError("repair config fanout differs from --max-fanout evaluation constraint")
                 if args.repair_gbi:
                     pattern = r"Sizer GBI repair: (.*)"
+                elif args.repair_ord_design:
+                    pattern = r"Sizer OpenROAD-style design repair: (.*)"
                 elif args.repair_vg:
                     pattern = r"Sizer VG repair: (.*)"
                 else:
@@ -179,6 +191,10 @@ def main():
                             raise RuntimeError(f"missing {label} completion: {dest}")
                         target.update({k: float(v) for k, v in
                                        re.findall(r"(\w+)=([0-9.eE+-]+)", stage_match.group(1))})
+                if args.repair_ord_design:
+                    design_topology.update({k: float(v) for k, v in
+                                            re.findall(r"(\w+)=([0-9.eE+-]+)",
+                                                       match.group(1))})
                 if args.repair_setup:
                     setup_match = re.search(r"Sizer setup repair: (.*)", log_text)
                     if setup_match is None:
@@ -205,7 +221,7 @@ def main():
                     stages.append("gbi")
                 if args.repair_vg:
                     stages.append("vg")
-                if args.repair_design:
+                if args.repair_design or args.repair_ord_design:
                     stages.append("design")
                 if args.repair_setup:
                     stages.append("setup")
@@ -231,14 +247,15 @@ def main():
             row = dict(design=name, mode=mode, power_topology=power_topology, input_fingerprint=fingerprint, max_fanout=args.max_fanout,
                        buffer_cell=args.buffer_cell or "auto",
                        excluded_masters=args.dont_use_list.read_text().splitlines() if args.dont_use_list else [],
-                       repair_design=args.repair_design,
+                       repair_design=args.repair_design or args.repair_ord_design,
+                       repair_ord_design=args.repair_ord_design,
                        repair_vg=args.repair_vg,
                        repair_gbi=args.repair_gbi,
                        repair_overrides=args.repair_set,
-                       gate_resize=((not args.repair_vg and not args.repair_gbi or args.repair_design) and effective_config.get("common.allow_gate_resize",
+                       gate_resize=((not args.repair_vg and not args.repair_gbi or args.repair_design or args.repair_ord_design) and effective_config.get("common.allow_gate_resize",
                                     str(not args.no_gate_resize).lower()) == "true"),
                        effective_repair_config=effective_config,
-                       placement_checked=args.legalize or args.repair_design or args.repair_vg or args.repair_gbi,
+                       placement_checked=args.legalize or args.repair_design or args.repair_ord_design or args.repair_vg or args.repair_gbi,
                        evaluation_seconds=elapsed, sizer_seconds=runtime,
                        topology=topology, setup_topology=setup_topology,
                        vg_topology=vg_topology, gbi_topology=gbi_topology, design_topology=design_topology,

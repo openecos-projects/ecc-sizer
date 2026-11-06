@@ -77,6 +77,7 @@
 #include "buffer_inserter.h"
 #include "repair_fanout.h"
 #include "repair_design.h"
+#include "repair_design_ord.h"
 #include "repair_vg.h"
 #include "repair_vg_cuda.h"
 #include "repair_gbi.h"
@@ -5875,6 +5876,128 @@ void Sizer::runSizerDesignRepair() {
     design->evalTclString("write_verilog " + resultVerilogFile);
 }
 
+// OpenROAD-style native DRV repair.  This keeps the levelized driver walk and
+// repair-driver ordering as a separate A/B strategy from Sizer's batch-native
+// repair_design implementation.
+void Sizer::runSizerOrdDesignRepair() {
+    auto* design = _ckt->_ord_design;
+    auto* block = design->getBlock();
+    auto* sta = _ckt->_ord_timing->getSta();
+    if(use_gr_rc) {
+        cerr << "OpenROAD-style design repair requires placement RC." << endl;
+        exit(1);
+    }
+    auto options = nativeRepairConfig.design;
+    options.max_fanout = sizerMaxFanout;
+    for(auto* inst : block->getInsts()) {
+        if(std::find(dontTouchInst.begin(), dontTouchInst.end(),
+                     inst->getName()) != dontTouchInst.end() ||
+           std::find(dontTouchCell.begin(), dontTouchCell.end(),
+                     inst->getMaster()->getName()) != dontTouchCell.end())
+            options.excluded_instances.push_back(inst);
+    }
+    for(auto* lib : block->getDataBase()->getLibs()) {
+        for(auto* master : lib->getMasters()) {
+            if(_ckt->isDontUse(master->getName()) ||
+               (!sizerBufferCell.empty() &&
+                sta->getDbNetwork()->libertyCell(
+                    sta->getDbNetwork()->dbToSta(master)) &&
+                sta->getDbNetwork()
+                    ->libertyCell(sta->getDbNetwork()->dbToSta(master))
+                    ->isBuffer() &&
+                master->getName() != sizerBufferCell))
+                options.excluded_masters.push_back(master);
+        }
+    }
+    const auto checked_tcl = [&](const std::string& command) {
+        const auto status = design->evalTclString(
+            "if {[catch {" + command +
+            "} __sizer_ord_error]} {"
+            "set __sizer_ord_status \"ERROR: $__sizer_ord_error\""
+            "} else {set __sizer_ord_status OK}");
+        if(status != "OK")
+            throw std::runtime_error(status);
+    };
+    const auto missing_supplies = [&]() {
+        unsigned missing = 0;
+        for(auto* inst : block->getInsts()) {
+            for(auto* pin : inst->getITerms()) {
+                const auto type = pin->getSigType();
+                if((type == odb::dbSigType::POWER ||
+                    type == odb::dbSigType::GROUND) &&
+                   (!pin->getNet() || pin->getNet()->getSigType() != type))
+                    ++missing;
+            }
+        }
+        return missing;
+    };
+    ecc::connectMissingWildcardSpecialNetPins(block);
+    const auto baseline_missing = missing_supplies();
+    const auto refresh = [&]() {
+        ecc::connectMissingWildcardSpecialNetPins(block);
+        if(missing_supplies() > baseline_missing)
+            throw std::runtime_error(
+                "OpenROAD-style repair changed supply connectivity");
+        checked_tcl("estimate_parasitics -placement");
+        sta->findRequireds();
+    };
+    options.prepare = [&]() {
+        ecc::legalizeRepairPlacement(block,
+                                     ord::OpenRoad::openRoad()->getOpendp(),
+                                     options.excluded_instances);
+    };
+    ecc::OrdDesignRepairResult result;
+    try {
+        checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
+                    " [current_design]");
+        options.prepare();
+        refresh();
+        writeRepairStageSnapshot("input");
+        const auto start = std::chrono::steady_clock::now();
+        result = ecc::OpenDbOrdDesignRepairer::repair(block, sta, refresh,
+                                                       options);
+        const double elapsed_ms = std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() - start)
+                                      .count();
+        if(result.ok)
+            writeRepairStageSnapshot("design");
+        checked_tcl("check_placement");
+        cout << "Sizer OpenROAD-style design repair: " << result.message
+             << " elapsed_ms=" << elapsed_ms
+             << " passes=" << result.passes
+             << " rejected_passes=" << result.rejected_passes
+             << " repaired_nets=" << result.repaired_nets
+             << " inserted_buffers=" << result.inserted_buffers
+             << " resized_buffers=" << result.resized_buffers
+             << " resized_gates=" << result.resized_gates
+             << " vt_swaps=" << result.vt_swaps
+             << " supply_pin_errors=" << missing_supplies()
+             << " severity_before=" << result.before.severity
+             << " severity_after=" << result.after.severity
+             << " remaining_fanout_nets=" << result.after.fanout_nets
+             << " remaining_cap_nets=" << result.after.capacitance_nets
+             << " remaining_slew_nets=" << result.after.slew_nets
+             << " converged=" << result.converged << endl;
+    }
+    catch(const std::exception& error) {
+        cerr << "OpenROAD-style design repair failed: " << error.what()
+             << endl;
+        exit(1);
+    }
+    if(!result.ok)
+        exit(1);
+    design->evalTclString(
+        "report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
+    design->evalTclString("report_wns");
+    design->evalTclString("report_tns");
+    if(resultDefFile.empty())
+        resultDefFile = benchname + ".ord_design.def";
+    if(resultVerilogFile.empty())
+        resultVerilogFile = benchname + ".ord_design.v";
+    design->writeDef(resultDefFile);
+    design->evalTclString("write_verilog " + resultVerilogFile);
+}
+
 // One-shot CPU/CUDA VG-style repair.  Candidate collection and solving happen on
 // the same OpenDB/STA snapshot; all accepted buffer edits are applied in one
 // ECO and evaluated with one refresh.
@@ -10375,6 +10498,16 @@ void Sizer::readCmdFile(string cmdFileStr) {
             sizerMaxFanout = static_cast<unsigned>(max_fanout);
             nativeRepairConfig.design.max_fanout = sizerMaxFanout;
         }
+        if(line.find("-sizer_repair_design_ord ") != string::npos) {
+            const int max_fanout = getTokenI(line, "-sizer_repair_design_ord ");
+            if(max_fanout < 2) {
+                cout << "Error: -sizer_repair_design_ord requires fanout >= 2." << endl;
+                exit(1);
+            }
+            sizerOrdDesignRepairMode = true;
+            sizerMaxFanout = static_cast<unsigned>(max_fanout);
+            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
+        }
         if(line.find("-sizer_repair_setup ") != string::npos) {
             const int max_fanout = getTokenI(line, "-sizer_repair_setup ");
             if(max_fanout < 2) {
@@ -11464,6 +11597,7 @@ int main(int argc, char **argv) {
 
     if(_sizer.sizerGbiRepairMode) {
         if(_sizer.sizerVgRepairMode || _sizer.sizerDesignRepairMode ||
+           _sizer.sizerOrdDesignRepairMode ||
            _sizer.sizerFanoutRepairMode ||
            _sizer.preplaceMode || _sizer.holdOnlyMode ||
            _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
@@ -11478,6 +11612,7 @@ int main(int argc, char **argv) {
     }
     if(_sizer.sizerVgRepairMode) {
         if(_sizer.sizerFanoutRepairMode ||
+           _sizer.sizerOrdDesignRepairMode ||
            _sizer.preplaceMode || _sizer.holdOnlyMode ||
            _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
            _sizer.use_gr_rc) {
@@ -11492,6 +11627,20 @@ int main(int argc, char **argv) {
         _sizer.runSizerVgRepair(!_sizer.sizerDesignRepairMode);
         if(_sizer.sizerDesignRepairMode)
             _sizer.runSizerDesignRepair();
+        return 0;
+    }
+    if(_sizer.sizerOrdDesignRepairMode) {
+        if(_sizer.sizerFanoutRepairMode || _sizer.sizerDesignRepairMode ||
+           _sizer.sizerVgRepairMode || _sizer.sizerGbiRepairMode ||
+           _sizer.preplaceMode || _sizer.holdOnlyMode ||
+           _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
+           _sizer.use_gr_rc) {
+            cerr << "Error: -sizer_repair_design_ord is an independent "
+                    "placement-RC repair mode." << endl;
+            return 1;
+        }
+        _sizer.loadOpenRoadDesignForFanoutRepair();
+        _sizer.runSizerOrdDesignRepair();
         return 0;
     }
     if(_sizer.sizerDesignRepairMode) {

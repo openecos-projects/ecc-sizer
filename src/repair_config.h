@@ -42,6 +42,9 @@ struct DesignRepairOptions : RepairCommonOptions {
     unsigned max_passes = 8;
     unsigned max_inserted_buffers = 10000;
     unsigned max_load_downsizes_per_pass = 64;
+    // OpenROAD-style repair commits driver edits in bounded traversal batches.
+    unsigned ord_driver_batch_size = 10000;
+    void validate() const;
 };
 struct SetupRepairSettings {
     unsigned max_passes = 6;

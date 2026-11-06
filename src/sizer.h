@@ -439,6 +439,7 @@ class Sizer {
     void runPreplace();
     void runSizerFanoutRepair();
     void runSizerDesignRepair();
+    void runSizerOrdDesignRepair();
     void runSizerVgRepair(bool write_output = true);
     void runSizerGbiRepair(bool write_output = true);
     void writeRepairStageSnapshot(const std::string& stage);
@@ -474,6 +475,7 @@ class Sizer {
     bool preplaceGain = false;
     bool sizerFanoutRepairMode = false;
     bool sizerDesignRepairMode = false;
+    bool sizerOrdDesignRepairMode = false;
     bool sizerVgRepairMode = false;
     bool sizerGbiRepairMode = false;
     bool sizerSetupRepairMode = false;
