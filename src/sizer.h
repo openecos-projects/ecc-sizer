@@ -476,6 +476,12 @@ class Sizer {
     // Legalize-only mode: run legalizePlacement then write out.
     bool legalizeOnlyMode = false;
     bool holdOnlyMode = false;
+    // Post-route mode: requires SPEF parasitics, preserves SPEF on untouched/resized
+    // nets, and falls back to incremental RC estimation on topology-changed nets.
+    bool postrouteMode = false;
+    bool blockageAwareSteiner = true;
+    // Pre-CTS hold repair must not propagate an unbuffered clock network.
+    bool idealClockMode = false;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;

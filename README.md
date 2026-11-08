@@ -138,6 +138,27 @@ hold-repair pass, and legalizes again before exporting. Parasitics are
 refreshed after the final legalization. Its target margin can be set in the
 command file with `-hold_margin <ns>`; the default is `0.02` ns.
 
+For hold repair before CTS, combine `-hold_only -ideal_clock -use_gr_rc 0`.
+`-ideal_clock` keeps clocks ideal during initial parasitic estimation and
+subsequent refreshes, so the unbuffered clock network is not propagated.
+
+Post-route timing optimization can be enabled with `-postroute` (optionally
+paired with `-spef <file>`):
+
+```text
+-postroute
+-spef /path/to/design.spef
+```
+
+When `-postroute` is set without an explicit `-spef`, Sizer looks for
+`<top>.spef` in the working directory or alongside the input DEF file, and
+exits with an error if no SPEF file is found. Untouched and resized/VT-swapped
+nets retain their SPEF parasitic networks (`reduceToPiElmore` is re-evaluated
+with updated pin capacitances), while nets whose topology is modified or newly
+created by buffer insertion, load splitting, or gate cloning automatically fall
+back to incremental parasitic estimation (`placement` by default, or
+`global_routing` when `-use_gr_rc 1` is enabled).
+
 Pre-place repair (`-preplace` and `-preplace_gain`) uses a design-level maximum
 fanout of `32`. If the input SDC sets a positive design-level `max_fanout`,
 the effective limit is `min(32, max_fanout)`.

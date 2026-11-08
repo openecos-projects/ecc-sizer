@@ -2111,9 +2111,6 @@ void Circuit::init_opensta() {
              << endl;
     }
     // std::string spefFile = design_dir + design_name + ".spef";
-    if(_sizer->spefFile != "") {
-        _ord_design->evalTclString("read_spef " + _sizer->spefFile);
-    }
     _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
     if(_sizer->setRCFile != "") {
         std::string setrc_file = _sizer->setRCFile;
@@ -2134,13 +2131,21 @@ void Circuit::init_opensta() {
             "[est::wire_signal_resistance [sta::cmd_scene]] "
             "[est::wire_signal_capacitance [sta::cmd_scene]] "
             "[est::have_estimated_parasitics]]");
+        if(!_sizer->noSPEF && _sizer->spefFile != "") {
+            _ord_design->evalTclString("read_spef " + _sizer->spefFile);
+            ord::OpenRoad::openRoad()->getEstimateParasitics()->initSpefParasitics();
+        }
     }
     else {
-        _ord_design->evalTclString("set_propagated_clock [all_clocks]");
+        _ord_design->evalTclString(_sizer->idealClockMode
+            ? "unset_propagated_clock [all_clocks]"
+            : "set_propagated_clock [all_clocks]");
         if(_sizer->holdOnlyMode) {
-            std::cout << "Hold-only clock mode: propagated\n";
+            std::cout << "Hold-only clock mode: "
+                      << (_sizer->idealClockMode ? "ideal" : "propagated")
+                      << '\n';
         }
-        if(_sizer->use_gr_rc) {
+        if(_sizer->use_gr_rc || (!_sizer->noSPEF && !_sizer->spefFile.empty())) {
             auto* tech = _ord_tech->getDB()->getTech();
             auto* estimate_parasitics =
                 ord::OpenRoad::openRoad()->getEstimateParasitics();
@@ -2283,7 +2288,24 @@ void Circuit::init_opensta() {
                       << " pF/um source=" << _sizer->placementWireRCCorner()
                       << std::endl;
         }
-        _ord_design->evalTclString("estimate_parasitics -placement");
+        if(!_sizer->noSPEF && _sizer->spefFile != "") {
+            _ord_design->evalTclString("read_spef " + _sizer->spefFile);
+            ord::OpenRoad::openRoad()->getEstimateParasitics()->initSpefParasitics();
+        }
+        else {
+            _ord_design->evalTclString("estimate_parasitics -placement");
+        }
+        _ord_design->evalTclString("puts \"=== OpenSTA Initial Timing Summary ===\"");
+        _ord_design->evalTclString("report_worst_slack -max -digits 3");
+        _ord_design->evalTclString("report_tns -max -digits 3");
+        _ord_design->evalTclString("report_worst_slack -min -digits 3");
+        _ord_design->evalTclString("report_tns -min -digits 3");
+        _ord_design->evalTclString(
+            "puts \"max_slew_violations [sta::max_slew_violation_count] "
+            "worst_slew_slack [format %.3f [sta::max_slew_check_slack]]\"");
+        _ord_design->evalTclString(
+            "puts \"max_cap_violations [sta::max_capacitance_violation_count] "
+            "worst_cap_slack [format %.3f [sta::max_capacitance_check_slack]]\"");
     }
 
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
@@ -2724,6 +2746,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
     }
 
     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
+        node2id.clear();
         string netNameStr = g_nets[corner][i].name;
         assert(net2id[netNameStr] == i);
         double totcap = 0.0;
@@ -2878,28 +2901,17 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             }
             // printf("node str %s\n", pin_name.c_str());
         }
-        sta::ConcreteParasiticSubNodeMap* sub_nodes = conc_net_para->subNodes();
-        auto sub_nodes_iter = sub_nodes->begin();
-#if 0
-        double c1, c2, rpi;
-        sta::ConcretePi* para_pi =
-            conc_net_para->piModel(float& c2, float& rpi, float& c1);
-#endif
-        // CAP
-        while(sub_nodes_iter != sub_nodes->end()) {
-            ConcreteParasiticNode* node = sub_nodes_iter->second;
+        // CAP (both pin nodes and internal sub-nodes)
+        for(sta::ParasiticNode* para_node : conc_net_para->nodes()) {
+            ConcreteParasiticNode* node =
+                static_cast< ConcreteParasiticNode* >(para_node);
 
             string fromNodeNameStr = node->name(_sta->network());
             readSpefChangePinName(fromNodeNameStr);
-            // printf("node str %s\n", fromNodeNameStr.c_str());
             std::map< string, int >::const_iterator node2IdIter1 =
                 node2id.find(fromNodeNameStr);
             float value_cap =
-                node->capacitance() / _sizer->cap_unit;  // FIXME:?
-            // if(_sizer->use_margin) {
-            //     value_cap *= 1.1;
-            // }
-            // totcap += value_cap;
+                node->capacitance() / _sizer->cap_unit;
             if(node2IdIter1 != node2id.end()) {
                 subNodeVecPtr->at(node2IdIter1->second).cap = value_cap;
             }
@@ -2910,12 +2922,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 node2id[fromNodeNameStr] = sn.id;
                 subNodeVecPtr->push_back(sn);
             }
-            sub_nodes_iter++;
         }
-
-        // conc_net_para->findParasiticNode(connPin);
-        // sta::ConcreteParasiticNode* conc_node =
-        //     static_cast< sta::ConcreteParasiticNode* >(para_node);
 
         for(auto* pDev : conc_net_para->resistors()) {
             ConcreteParasiticResistor* paraDev =
@@ -2937,23 +2944,10 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
             float value = parasitics->value(paraDev) / _sizer->res_unit;
 
-            // RES
-            // RES
-            // if (parasitics->isResistor(paraDev)) {
-            // RES
-            // if (parasitics->isResistor(paraDev)) {
-            SUB_NODE sn;
-            sn.cap = 0.0;
-            sn.id = node_index++;
-            // assert();
-            assert(node2id.find(toNodeNameStr) != node2id.end());
-            assert(node2id.find(toNodeNameStr) != node2id.end());
-            // if(node2id.find(fromNodeNameStr) == node2id.end() ||
-            //    node2id.find(toNodeNameStr) == node2id.end()) {
-            //     printf("from %s to %s\n", fromNodeNameStr.c_str(),
-            //            toNodeNameStr.c_str());
-            // }
-            if(node2id.find(fromNodeNameStr) == node2id.end()) {
+            if(node2IdIter1 == node2id.end()) {
+                SUB_NODE sn;
+                sn.cap = 0.0;
+                sn.id = node_index++;
                 node2id[fromNodeNameStr] = sn.id;
                 subNodeVecPtr->push_back(sn);
                 index1 = sn.id;
@@ -2961,7 +2955,11 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             else {
                 index1 = node2IdIter1->second;
             }
-            if(node2id.find(toNodeNameStr) == node2id.end()) {
+            node2IdIter2 = node2id.find(toNodeNameStr);
+            if(node2IdIter2 == node2id.end()) {
+                SUB_NODE sn;
+                sn.cap = 0.0;
+                sn.id = node_index++;
                 node2id[toNodeNameStr] = sn.id;
                 subNodeVecPtr->push_back(sn);
                 index2 = sn.id;

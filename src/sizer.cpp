@@ -562,6 +562,8 @@ void Sizer::ReportOptions() {
     cout << "Timing repair  : cap=" << FIX_CAP_REPAIR
          << " slew=" << FIX_SLEW_REPAIR << " global=" << FIX_GLOBAL << endl;
     cout << "Hold margin    : " << hold_margin << " ns" << endl;
+    cout << "Postroute Mode : " << postrouteMode << endl;
+    cout << "Blockage-aware Steiner : " << blockageAwareSteiner << endl;
     if(placement_wire_rc_explicit) {
         cout << "Placement wire RC override: resistance="
              << placement_wire_resistance << " ohm/um capacitance="
@@ -1561,7 +1563,7 @@ void Sizer::refreshOpenStaParasitics(bool verbose_global_route) {
     auto design = _ckt->_ord_design;
     auto sta = _ckt->_ord_timing->getSta();
 
-    if(!use_gr_rc) {
+    if(!use_gr_rc || (!noSPEF && !spefFile.empty())) {
         design->evalTclString("estimate_parasitics -placement");
         sta->findRequireds();
         return;
@@ -1610,6 +1612,20 @@ void Sizer::applyOpenStaDbChanges(
     const std::function< void() > &apply_changes) {
     auto design = _ckt->_ord_design;
     auto sta = _ckt->_ord_timing->getSta();
+
+    if(!noSPEF && !spefFile.empty()) {
+        auto resizer = design->getResizer();
+        auto estimate_parasitics = resizer->getEstimateParasitics();
+        if(estimate_parasitics->isIncrementalParasiticsEnabled()) {
+            apply_changes();
+            resizer->updateParasiticsAndTiming();
+            return;
+        }
+        est::IncrementalParasiticsGuard parasitics_guard(estimate_parasitics);
+        apply_changes();
+        resizer->updateParasiticsAndTiming();
+        return;
+    }
 
     if(!use_gr_rc) {
         apply_changes();
@@ -5709,9 +5725,20 @@ int Sizer::legalizeDreamplace() {
             continue;
         }
         auto* bbox = inst->getBBox();
-        nodes.push_back({double(bbox->xMin()), double(bbox->yMin()),
-                         double(bbox->xMax() - bbox->xMin()),
-                         double(bbox->yMax() - bbox->yMin()), true});
+        int x_min = bbox->xMin();
+        int y_min = bbox->yMin();
+        int x_max = bbox->xMax();
+        int y_max = bbox->yMax();
+        if(inst->getHalo() != nullptr) {
+            odb::Rect halo = inst->getTransformedHalo();
+            x_min -= halo.xMin();
+            y_min -= halo.yMin();
+            x_max += halo.xMax();
+            y_max += halo.yMax();
+        }
+        nodes.push_back({double(x_min), double(y_min),
+                         double(x_max - x_min),
+                         double(y_max - y_min), true});
     }
     if(num_movable == 0) {
         return 0;
@@ -5753,6 +5780,7 @@ void Sizer::runOrdTO() {
     _ckt->assertNoIllegalExternalPadBoundaryChain();
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
+    resizer->setBlockageAwareSteiner(blockageAwareSteiner);
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
     // _ckt->_ord_design->evalTclString("buffer_ports");
@@ -5778,6 +5806,14 @@ void Sizer::runOrdTO() {
         cout << "Connected " << connected_special_pins
              << " new instance pins to wildcard special nets." << endl;
     }
+    const char *pre_final_legalization_def =
+        std::getenv("SIZER_PRE_FINAL_LEGALIZATION_DEF");
+    if(pre_final_legalization_def != nullptr &&
+       pre_final_legalization_def[0] != '\0') {
+        cout << "Write DEF before final legalization: "
+             << pre_final_legalization_def << endl;
+        _ckt->_ord_design->writeDef(pre_final_legalization_def);
+    }
     legalizePlacement();
     // Legalization moves degrade the repaired timing state. Rebuild placement
     // parasitics, run a margin-free recovery pass, then re-legalize any cells
@@ -5789,13 +5825,25 @@ void Sizer::runOrdTO() {
     // legalizePlacement();
     // Rebuild parasitics after the final detailed placement so the reported
     // final slacks match the exported design state.
-    if(use_gr_rc) {
+    if(use_gr_rc && (noSPEF || spefFile.empty())) {
         printf("Run final global-routing RC refresh after runOrdTO...\n");
         refreshOpenStaParasitics(true);
     }
     else {
         _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
+        _ckt->_ord_timing->getSta()->findRequireds();
     }
+    _ckt->_ord_design->evalTclString("puts \"=== OpenSTA Final Timing Summary ===\"");
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -max -digits 3");
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -min -digits 3");
+    _ckt->_ord_design->evalTclString(
+        "puts \"max_slew_violations [sta::max_slew_violation_count] "
+        "worst_slew_slack [format %.3f [sta::max_slew_check_slack]]\"");
+    _ckt->_ord_design->evalTclString(
+        "puts \"max_cap_violations [sta::max_capacitance_violation_count] "
+        "worst_cap_slack [format %.3f [sta::max_capacitance_check_slack]]\"");
     _ckt->assertNoIllegalExternalPadBoundaryChain();
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
@@ -6337,20 +6385,21 @@ void Sizer::FinalReport() {
             best_cells_poweropt[i].isChanged = 1;
         }
 
-        if(spefFile != "") {
-            return;
-        }
-
         char padding_str[100];
         sprintf(padding_str,
                 "set_placement_padding -global -left %d -right %d",
                 dp_padding,
                 dp_padding);
         _ord_design->evalTclString(string(padding_str));
+
+        if(!noSPEF && spefFile != "") {
+            return;
+        }
+
         legalizePlacement();
     });
 
-    if(spefFile != "") {
+    if(!noSPEF && spefFile != "") {
         return;
     }
 
@@ -9420,6 +9469,23 @@ void Sizer::readEnvFile(string envFileStr) {
             lefPath = getTokenS(line, "-lefPath ");
         if(line.find("-setRCFile ") != string::npos)
             setRCFile = getTokenS(line, "-setRCFile ");
+        if(line.find("-spef ") != string::npos)
+            spefFile = getTokenS(line, "-spef ");
+        if(line.find("-postroute") != string::npos) {
+            postrouteMode = true;
+            if(line.find("-setup_margin ") == string::npos) {
+                setup_margin = 0.02;
+            }
+        }
+        if(line.find("-no_blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = false;
+        }
+        else if(line.find("-blockage_aware_steiner ") != string::npos) {
+            blockageAwareSteiner = (getTokenI(line, "-blockage_aware_steiner ") != 0);
+        }
+        else if(line.find("-blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = true;
+        }
         if(line.find("-tclFile ") != string::npos)
             util_tcl_file = getTokenS(line, "-tclFile ");
         if(line.find("-suffix_nvt ") != string::npos) {
@@ -9721,6 +9787,23 @@ void Sizer::readCmdFile(string cmdFileStr) {
             preplaceMode = true;
         if(line.find("-hold_only") != string::npos)
             holdOnlyMode = true;
+        if(line.find("-postroute") != string::npos) {
+            postrouteMode = true;
+            if(line.find("-setup_margin ") == string::npos) {
+                setup_margin = 0.02;
+            }
+        }
+        if(line.find("-no_blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = false;
+        }
+        else if(line.find("-blockage_aware_steiner ") != string::npos) {
+            blockageAwareSteiner = (getTokenI(line, "-blockage_aware_steiner ") != 0);
+        }
+        else if(line.find("-blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = true;
+        }
+        if(line.find("-ideal_clock") != string::npos)
+            idealClockMode = true;
         if(line.find("-legalize_only") != string::npos)
             legalizeOnlyMode = true;
         if(line.find("-use_native_abacus ") != string::npos)
@@ -10263,8 +10346,14 @@ void Sizer::readCmdFile(string cmdFileStr) {
              << endl;
         exit(1);
     }
-    cout << "Parasitics mode: "
-         << (use_gr_rc ? "global_routing" : "placement") << endl;
+    if(postrouteMode || (!noSPEF && !spefFile.empty())) {
+        cout << "Parasitics mode: postroute_spef (fallback: "
+             << (use_gr_rc ? "global_routing" : "placement") << ")" << endl;
+    }
+    else {
+        cout << "Parasitics mode: "
+             << (use_gr_rc ? "global_routing" : "placement") << endl;
+    }
 }
 
 void Sizer::main(unsigned thread_id, bool postGTR) {
@@ -10754,6 +10843,9 @@ int main(int argc, char **argv) {
         _sizer.numCorners = _sizer.mmmcSpefList.size();
         _sizer.numModes = _sizer.mmmcSdcList.size();
         _sizer.numViews = _sizer.mmmcViewList.size();
+        if(_sizer.spefFile.empty() && !_sizer.mmmcSpefList.empty()) {
+            _sizer.spefFile = _sizer.mmmcSpefList[0];
+        }
 
         bool temp = false;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
@@ -10787,6 +10879,54 @@ int main(int argc, char **argv) {
     }
     else {
         _sizer.initSingleMode();
+    }
+    if(_sizer.postrouteMode) {
+        if(_sizer.preplaceMode) {
+            cout << "Error: -postroute cannot be combined with -preplace."
+                 << endl;
+            exit(1);
+        }
+        if(_sizer.legalizeOnlyMode) {
+            cout << "Error: -postroute cannot be combined with -legalize_only."
+                 << endl;
+            exit(1);
+        }
+        if(_sizer.noSPEF) {
+            cout << "Error: -postroute cannot be combined with -noSPEF."
+                 << endl;
+            exit(1);
+        }
+        if(_sizer.spefFile.empty()) {
+            string candidate = _sizer.benchname + ".spef";
+            ifstream f_local(candidate.c_str());
+            if(f_local.good()) {
+                _sizer.spefFile = candidate;
+            }
+            else {
+                size_t slash_pos = _sizer.defFile.find_last_of("/\\");
+                if(slash_pos != string::npos) {
+                    string def_dir = _sizer.defFile.substr(0, slash_pos + 1);
+                    string def_dir_candidate = def_dir + _sizer.benchname + ".spef";
+                    ifstream f_def_dir(def_dir_candidate.c_str());
+                    if(f_def_dir.good()) {
+                        _sizer.spefFile = def_dir_candidate;
+                    }
+                    else {
+                        _sizer.spefFile = candidate;
+                    }
+                }
+                else {
+                    _sizer.spefFile = candidate;
+                }
+            }
+        }
+        ifstream spef_check(_sizer.spefFile.c_str());
+        if(!spef_check.good()) {
+            cout << "Error: -postroute requires a valid SPEF file (-spef <file> "
+                    "or <top>.spef), cannot open: "
+                 << _sizer.spefFile << endl;
+            exit(1);
+        }
     }
     _sizer.ReportOptions();
 
