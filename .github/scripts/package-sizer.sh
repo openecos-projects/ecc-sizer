@@ -44,7 +44,7 @@ copy_library() {
 
   soname="$(
     readelf -d "${lib}" 2>/dev/null |
-      awk '/SONAME/ { name=$0; sub(/.*\[/, "", name); sub(/\].*/, "", name); print name; exit }'
+      awk '/SONAME/ { name=$0; sub(/.*\[/, "", name); sub(/\].*/, "", name); print name }'
   )"
 
   if [[ -n "${soname}" && "${soname}" != "${lib_base}" && ! -e "${package_root}/lib/${soname}" ]]; then
@@ -80,10 +80,18 @@ do
   fi
 done
 
-if [[ -d /usr/share/tcltk/tcl8.6 ]]; then
+if [[ -n "${SIZER_TCL_LIBRARY:-}" ]]; then
+  test -f "${SIZER_TCL_LIBRARY}/init.tcl"
+  cp -a "${SIZER_TCL_LIBRARY}" "${package_root}/lib/tcl8.6"
+elif [[ -d /usr/share/tcltk/tcl8.6 ]]; then
   cp -a /usr/share/tcltk/tcl8.6 "${package_root}/lib/"
 elif [[ -d /usr/lib/tcl8.6 ]]; then
   cp -a /usr/lib/tcl8.6 "${package_root}/lib/"
+fi
+
+if [[ -d "${package_root}/lib/tcl8.6" ]]; then
+  # Nix inputs are read-only; the distributable must remain replaceable.
+  chmod -R u+w "${package_root}/lib/tcl8.6"
 fi
 
 install -m 0755 .github/scripts/sizer-wrapper.sh "${package_root}/bin/Sizer"

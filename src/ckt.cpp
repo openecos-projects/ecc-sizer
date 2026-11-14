@@ -3,8 +3,8 @@
 #include "Transition.hh"
 #include "sizer.h"
 #include "ckt.h"
-#include <tcl8.6/tcl.h>
-#include <tcl8.6/tclDecls.h>
+#include <tcl.h>
+#include <tclDecls.h>
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
@@ -233,7 +233,10 @@ void Circuit::Parser(string benchmark) {
                     string new_pin_name = pin.name + "[0]";
                     m_term = db_master->findMTerm(new_pin_name.c_str());
                 }
-                assert(m_term);
+                if(!m_term) {
+                    throw std::runtime_error("Missing physical pin " +
+                        lib_cell_info->name + "/" + pin.name);
+                }
                 sta::dbSta* sta = _ord_timing->getSta();
                 sta::dbNetwork* network = sta->getDbNetwork();
                 sta::Port* port = network->dbToSta(m_term);

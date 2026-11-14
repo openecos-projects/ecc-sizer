@@ -253,4 +253,11 @@ int instantiateGreedyLegalizationCPU(
             );
 }
 
+// The Sizer calls this template from another translation unit. Emit its
+// double specialization even when the wrappers above are fully inlined.
+template int greedyLegalizationCPU<double>(
+    const LegalizationDB<double>&, const double*, const double*,
+    const double*, const double*, double*, double*,
+    double, double, double, double, double, double, int, int, int, int);
+
 DREAMPLACE_END_NAMESPACE

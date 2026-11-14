@@ -61,8 +61,8 @@
 #include "sta/Sta.hh"
 #include "utils.h"
 #include "sizer.h"
-#include <tcl8.6/tcl.h>
-#include <tcl8.6/tclDecls.h>
+#include <tcl.h>
+#include <tclDecls.h>
 #include "db_sta/dbNetwork.hh"
 designTiming::designTiming() {
     program = PT;
