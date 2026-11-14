@@ -50,6 +50,7 @@
 // #include "sizer.h"
 #include "tcl.h"
 #include "utils.h"
+#include "liberty_lut.h"
 #include <queue>
 #include <pthread.h>
 #include <signal.h>
@@ -533,21 +534,6 @@ struct CELL {
     }
 };
 
-struct LibLUT {
-    // Look up table is indexed by the output load and the input transition
-    // values
-    // Example:
-    //   Let L = loadIndices[i]
-    //       T = transitionIndices[j]
-    //   Then, the table value corresponding to L and T will be:
-    //       table[i][j]
-    //
-    // Always: index1 = load; index2 = tran
-    string templ;
-    vector< double > loadIndices;
-    vector< double > transitionIndices;
-    vector< vector< double > > tableVals;
-};
 
 ostream& operator<<(ostream& os, const LibLUT& lut);
 

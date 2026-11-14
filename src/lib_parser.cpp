@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -172,60 +173,6 @@ static void extract_axis(const sta::TableAxis* axis, const sta::Units* units,
     }
 }
 
-static void extract_lut(sta::LibertyLibrary* sta_lib,
-                        const sta::TableModel* sta_model, LibLUT& out_lut) {
-    out_lut.templ = sta_model->tblTemplate()->name();
-
-    const auto* units = sta_lib->units();
-    UnitScaler scale(units);
-    int order = sta_model->order();    // 1 or 2
-    assert(order == 1 || order == 2);  // Only 1D/2D tables are supported.
-
-    const auto* ax1 = sta_model->axis1();
-    bool ax1_is_trans =
-        (std::string(ax1->variableString()).find("transition") !=
-         std::string::npos);
-
-    auto& load_vec = out_lut.loadIndices;
-    auto& trans_vec = out_lut.transitionIndices;
-
-    auto& ax1_dest = ax1_is_trans ? trans_vec : load_vec;
-    extract_axis(ax1, units, ax1_dest);
-
-    if(const auto* ax2 = sta_model->axis2(); ax2) {
-        auto& ax2_dest = ax1_is_trans ? load_vec : trans_vec;
-        extract_axis(ax2, units, ax2_dest);
-    }
-
-    auto normalize_axis = [&](std::vector< double >& vec, double scale_factor) {
-        if(vec.empty()) {  // Missing dimension in a 1D table; synthesize axis [0, 100(scaled)].
-            vec = {0.0, 100.0 * scale_factor};
-            return;
-        }
-        for(double& v : vec) {
-            v *= scale_factor;
-        }
-    };
-
-    normalize_axis(load_vec, scale.cap);
-    normalize_axis(trans_vec, scale.time);
-
-    size_t rows = load_vec.size();
-    size_t cols = trans_vec.size();
-
-    out_lut.tableVals.assign(rows, std::vector< double >(cols));
-    // work for now
-    for(size_t i = 0; i < rows; ++i) {  // Always: index1 = load; index2 = tran
-        for(size_t j = 0; j < cols; ++j) {
-            int idx1 = ax1_is_trans ? j : i;
-            int idx2 = ax1_is_trans ? i : j;
-            idx2 = order == 1 ? 0 : idx2;
-            out_lut.tableVals[i][j] =
-                scale.to_ns(sta_model->value(idx1, idx2, 0));
-        }
-    }
-}
-
 // TODO: OpenSTA Power
 void Circuit::parse_power(sta::LibertyLibrary* sta_lib,
                           sta::InternalPower* sta_pwr, LibPowerInfo& out_pwr) {
@@ -266,17 +213,17 @@ void Circuit::parse_timing(sta::LibertyLibrary* sta_lib,
             is_fall ? out_timing.fallTransition : out_timing.riseTransition;
 
         if(auto* gate = dynamic_cast< sta::GateTableModel* >(arc->model())) {
-            extract_lut(sta_lib, gate->delayModel(), d_lut);
-            extract_lut(sta_lib, gate->slewModel(), s_lut);
+            extract_lut(sta_lib->units(), gate->delayModel(), d_lut);
+            extract_lut(sta_lib->units(), gate->slewModel(), s_lut);
         }
         else if(auto* check =
                     dynamic_cast< sta::CheckTableModel* >(arc->model())) {
             // NOTE: setup is stored in delay; hold is stored in transition.
             if(sta_arcset->role() == sta::TimingRole::setup()) {
-                extract_lut(sta_lib, check->checkModel(), d_lut);
+                extract_lut(sta_lib->units(), check->checkModel(), d_lut);
             }
             else if(sta_arcset->role() == sta::TimingRole::hold()) {
-                extract_lut(sta_lib, check->checkModel(), s_lut);
+                extract_lut(sta_lib->units(), check->checkModel(), s_lut);
             }
         }
     }
@@ -392,7 +339,7 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
     while(port_iter.hasNext()) {
         auto* sta_port = port_iter.next();
         auto* dir = sta_port->direction();
-        if(dir->isPowerGround() || dir->isUnknown()) {
+        if(dir->isPowerGround() || dir->isUnknown() || dir->isInternal()) {
             continue;
         }
         LibPinInfo pin;
@@ -461,6 +408,18 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
 
         if(pin.isInput || pin.isOutput) {
             out_cell.pins.emplace(get_pin_id(out_cell, pin.name), pin);
+        }
+    }
+
+    // A timing cell with unmatched physical pins cannot be a sizing candidate.
+    // For example, v2 BENC Liberty names M1/M2 while its LEF names MET1/MET2.
+    auto* master = _ord_tech->getDB()->findMaster(out_cell.name.c_str());
+    for(const auto& [id, pin] : out_cell.pins) {
+        if(!master || (!master->findMTerm(pin.name.c_str()) &&
+                       !master->findMTerm((pin.name + "[0]").c_str()))) {
+            out_cell.dontUse = true;
+            std::cerr << "Excluding sizing candidate " << out_cell.name
+                      << ": no physical pin " << pin.name << '\n';
         }
     }
 
@@ -534,18 +493,36 @@ void Circuit::lib_parser(string filename, unsigned corner) {
         }
     }
 
-    // Auto-detect the ics55 3-VT library from the liberty name and force
-    // num_vt=3 with its VT suffixes. Overrides the env "-num_vt 1" seed,
-    // which is only a default; an explicit -num_vt > 1 stays untouched.
+    // Auto-detect the ICS55 3-VT library from the Liberty name and force
+    // num_vt=3 with the suffix contract for that library generation. The
+    // env "-num_vt 1" value is only a default; explicit multi-VT settings
+    // stay untouched. Keep the legacy H7 contract for existing workspaces,
+    // while accepting v2's ICsprout55/9T names and their case.
     const string sta_lib_name = sta_lib->name();
-    if(_sizer->numVt == 1 && sta_lib_name.find("ics55") != string::npos) {
+    string sta_lib_name_lower = sta_lib_name;
+    std::transform(sta_lib_name_lower.begin(), sta_lib_name_lower.end(),
+                   sta_lib_name_lower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    const bool is_ics55_legacy = sta_lib_name_lower.find("ics55") != string::npos;
+    const bool is_ics55_v2 = sta_lib_name_lower.rfind("icsprout55_9t", 0) == 0;
+    if(_sizer->numVt == 1 && (is_ics55_legacy || is_ics55_v2)) {
         _sizer->numVt = 3;
-        _sizer->suffixHVT = "H7H";
-        _sizer->suffixNVT = "H7R";
-        _sizer->suffixLVT = "H7L";
-        printf("Auto-detected ics55 library '%s': forcing num_vt=3 "
-               "(VT suffixes H7H/H7R/H7L)\n",
-               sta_lib_name.c_str());
+        if(is_ics55_v2) {
+            _sizer->suffixHVT = "_9THVT";
+            _sizer->suffixNVT = "_9TSVT";
+            _sizer->suffixLVT = "_9TLVT";
+            printf("Auto-detected ICS55 v2 library '%s': forcing num_vt=3 "
+                   "(VT suffixes _9THVT/_9TSVT/_9TLVT)\n",
+                   sta_lib_name.c_str());
+        }
+        else {
+            _sizer->suffixHVT = "H7H";
+            _sizer->suffixNVT = "H7R";
+            _sizer->suffixLVT = "H7L";
+            printf("Auto-detected legacy ICS55 library '%s': forcing num_vt=3 "
+                   "(VT suffixes H7H/H7R/H7L)\n",
+                   sta_lib_name.c_str());
+        }
     }
 
     // Parse cells.
