@@ -44,6 +44,7 @@
 #include "sizer.h"
 
 #include <omp.h>
+#include <stdexcept>
 #include <stdlib.h>
 #include <algorithm>
 #include <cassert>
@@ -9390,12 +9391,12 @@ void Sizer::readEnvFile(string envFileStr) {
     string line;
     string tmp_str;
 
-    // TSMC 45
+    // Process settings are explicit; an unspecified configuration is single-VT.
     suffixHVT = "";
     suffixLVT = "";
     suffixNVT = "";
     suffix = "";
-    numVt = 3;
+    numVt = 1;
 
     dontTouchFile = "";
     dontUseFile = "";
@@ -9464,6 +9465,15 @@ void Sizer::readEnvFile(string envFileStr) {
         }
     }
     file.close();
+    if(numVt < 1 || numVt > 3) {
+        throw std::runtime_error("Sizer supports one to three explicitly configured VT groups");
+    }
+    if(numVt >= 2 && (suffixHVT.empty() || suffixNVT.empty() || suffixHVT == suffixNVT)) {
+        throw std::runtime_error("Multi-VT sizing requires distinct nonempty HVT/NVT suffixes");
+    }
+    if(numVt == 3 && (suffixLVT.empty() || suffixLVT == suffixHVT || suffixLVT == suffixNVT)) {
+        throw std::runtime_error("Three-VT sizing requires a distinct nonempty LVT suffix");
+    }
 }
 
 void Sizer::readCmdFile(string cmdFileStr) {
