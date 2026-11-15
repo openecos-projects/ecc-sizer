@@ -493,38 +493,6 @@ void Circuit::lib_parser(string filename, unsigned corner) {
         }
     }
 
-    // Auto-detect the ICS55 3-VT library from the Liberty name and force
-    // num_vt=3 with the suffix contract for that library generation. The
-    // env "-num_vt 1" value is only a default; explicit multi-VT settings
-    // stay untouched. Keep the legacy H7 contract for existing workspaces,
-    // while accepting v2's ICsprout55/9T names and their case.
-    const string sta_lib_name = sta_lib->name();
-    string sta_lib_name_lower = sta_lib_name;
-    std::transform(sta_lib_name_lower.begin(), sta_lib_name_lower.end(),
-                   sta_lib_name_lower.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    const bool is_ics55_legacy = sta_lib_name_lower.find("ics55") != string::npos;
-    const bool is_ics55_v2 = sta_lib_name_lower.rfind("icsprout55_9t", 0) == 0;
-    if(_sizer->numVt == 1 && (is_ics55_legacy || is_ics55_v2)) {
-        _sizer->numVt = 3;
-        if(is_ics55_v2) {
-            _sizer->suffixHVT = "_9THVT";
-            _sizer->suffixNVT = "_9TSVT";
-            _sizer->suffixLVT = "_9TLVT";
-            printf("Auto-detected ICS55 v2 library '%s': forcing num_vt=3 "
-                   "(VT suffixes _9THVT/_9TSVT/_9TLVT)\n",
-                   sta_lib_name.c_str());
-        }
-        else {
-            _sizer->suffixHVT = "H7H";
-            _sizer->suffixNVT = "H7R";
-            _sizer->suffixLVT = "H7L";
-            printf("Auto-detected legacy ICS55 library '%s': forcing num_vt=3 "
-                   "(VT suffixes H7H/H7R/H7L)\n",
-                   sta_lib_name.c_str());
-        }
-    }
-
     // Parse cells.
     std::vector< LibCellInfo > cells;
     sta::LibertyCellIterator it(sta_lib);
