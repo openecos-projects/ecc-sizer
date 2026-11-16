@@ -44,7 +44,7 @@ copy_library() {
 
   soname="$(
     readelf -d "${lib}" 2>/dev/null |
-      awk '/SONAME/ { name=$0; sub(/.*\[/, "", name); sub(/\].*/, "", name); print name; exit }'
+      awk '/SONAME/ && !found { name=$0; sub(/.*\[/, "", name); sub(/\].*/, "", name); print name; found=1 }'
   )"
 
   if [[ -n "${soname}" && "${soname}" != "${lib_base}" && ! -e "${package_root}/lib/${soname}" ]]; then

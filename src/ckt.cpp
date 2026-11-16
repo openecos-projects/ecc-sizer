@@ -3,8 +3,8 @@
 #include "Transition.hh"
 #include "sizer.h"
 #include "ckt.h"
-#include <tcl8.6/tcl.h>
-#include <tcl8.6/tclDecls.h>
+#include <tcl.h>
+#include <tclDecls.h>
 #include <algorithm>
 #include <cassert>
 #include <cmath>
