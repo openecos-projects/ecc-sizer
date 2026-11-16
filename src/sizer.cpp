@@ -1,3 +1,4 @@
+#include "replay_capture.h"
 ///////////////////////////////////////////////////////////////////////////////
 // Authors: Hyein Lee and Jiajia Li
 //          (Ph.D. advisor: Andrew B. Kahng)
@@ -3347,6 +3348,7 @@ inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
 unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                        double leak_exponent, double alpha, double break_ratio,
                        unsigned thread_id, double toler, unsigned view) {
+    ecc::replay::Decisions replay_decisions("Attack", thread_id);
     if(alpha == -1) {
         alpha = ALPHA;
     }
@@ -3683,6 +3685,8 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
 
             double delta_delay = 0.0;
 
+            const auto replay_before =
+                replay_decisions.active() ? cells[cur].type : std::string{};
             bool change = false;
             if(it->change == UPSIZE) {
                 if(STAGE == GLOBAL) {
@@ -3791,6 +3795,9 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 }
             }
 
+            if(change)
+                replay_decisions.record(cells[cur].name, replay_before,
+                                        cells[cur].type, !restore);
             if(restore && change) {  // restore
                 if(it->change == UPSIZE) {
                     cell_resize(cells[cur], -it->step);
@@ -5510,6 +5517,9 @@ void *static_poweropt_driver(void *void_thread_args) {
 // Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
 // out. No sizing loop, no placement.
 void Sizer::runPreplace() {
+    ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
+                                        _ckt->_ord_design->getBlock());
+    ecc::replay::capture(_ckt->_ord_design->getBlock(), "runPreplace_input");
     // Cap pre-place repair fanout at 32 and preserve a stricter design-level
     // SDC max_fanout when present.
 
@@ -5562,6 +5572,8 @@ void Sizer::runPreplace() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
 
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "preplace_repair_complete");
     _ckt->_ord_design->evalTclString(
         "puts [format {preplace_after_repair resistance=%g capacitance=%g estimated=%d} "
         "[est::wire_signal_resistance [sta::cmd_scene]] "
@@ -5587,11 +5599,15 @@ void Sizer::runPreplace() {
 // Hold-only mode: repair_timing -hold, legalize, refresh, and repeat once.
 // Input must be placed (parasitics estimated during load). No sizing loop.
 void Sizer::runHoldOnly() {
+    ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
+                                        _ckt->_ord_design->getBlock());
+    ecc::replay::capture(_ckt->_ord_design->getBlock(), "runHoldOnly_input");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
         "repair_timing -hold -hold_margin " + to_string(hold_margin) +
         " -skip_pin_swap -verbose");
+    ecc::replay::capture(_ckt->_ord_design->getBlock(), "hold_repair_complete");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: hold buffering must not have broken setup
@@ -5609,6 +5625,8 @@ void Sizer::runHoldOnly() {
     // placement before exporting it so downstream legalization sees a legal
     // starting geometry rather than overlapping inserted instances.
     legalizePlacement();
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "legalization_complete");
     // Rebuild parasitics on the legalized geometry before a second hold pass.
     refreshOpenStaParasitics(true);
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
@@ -5616,6 +5634,7 @@ void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString(
         "repair_timing -hold -hold_margin " + to_string(hold_margin) +
         " -skip_pin_swap -verbose");
+    ecc::replay::capture(_ckt->_ord_design->getBlock(), "hold_repair_complete");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: the second hold pass must not have broken setup
@@ -5632,6 +5651,8 @@ void Sizer::runHoldOnly() {
     // The second hold pass can insert another set of movable buffers; make
     // the exported geometry legal once more before the final RC refresh.
     legalizePlacement();
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "legalization_complete");
     refreshOpenStaParasitics(true);
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
@@ -5649,7 +5670,11 @@ void Sizer::runHoldOnly() {
 // Legalize-only mode: load, legalizePlacement, write out. No repair, no
 // sizing loop. Fast legality verification for a design state.
 void Sizer::runLegalizeOnly() {
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "runLegalizeOnly_input");
     legalizePlacement();
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "legalization_complete");
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }
@@ -5775,6 +5800,9 @@ void Sizer::legalizePlacement() {
 }
 
 void Sizer::runOrdTO() {
+    ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
+                                        _ckt->_ord_design->getBlock());
+    ecc::replay::capture(_ckt->_ord_design->getBlock(), "runOrdTO_input");
     _ckt->assertNoIllegalExternalPadBoundaryChain();
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
@@ -5790,13 +5818,18 @@ void Sizer::runOrdTO() {
     // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 10 -cap_margin 10 -verbose");
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "design_repair_complete");
     // Repair hold in the setup corner before setup optimization consumes slack.
     _ckt->_ord_design->evalTclString(
         "repair_timing -hold -hold_margin " + to_string(hold_margin) +
         " -skip_pin_swap -verbose");
+    ecc::replay::capture(_ckt->_ord_design->getBlock(), "hold_repair_complete");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) +
                                      " -skip_pin_swap -verbose");
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "setup_repair_complete");
     const int connected_special_pins
         = ecc::connectMissingWildcardSpecialNetPins(
             _ckt->_ord_design->getBlock());
@@ -5813,6 +5846,8 @@ void Sizer::runOrdTO() {
         _ckt->_ord_design->writeDef(pre_final_legalization_def);
     }
     legalizePlacement();
+    ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                         "legalization_complete");
     // Legalization moves degrade the repaired timing state. Rebuild placement
     // parasitics, run a margin-free recovery pass, then re-legalize any cells
     // inserted by the recovery.
@@ -6395,6 +6430,8 @@ void Sizer::FinalReport() {
         }
 
         legalizePlacement();
+        ecc::replay::capture(_ckt->_ord_design->getBlock(),
+                             "legalization_complete");
     });
 
     if(!noSPEF && spefFile != "") {
@@ -7588,6 +7625,7 @@ CellSol Sizer::GetCommonCell(unsigned cell_index) {
 }
 
 void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
+    ecc::replay::Decisions replay_decisions("FinalPowerOpt", thread_id);
     if(CORR_PT)
         CorrelatePT((unsigned)thread_id);
 
@@ -7650,6 +7688,8 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
         cout << "FINAL PWR OPT TARGET = UPTYPE (" << it->step
              << "): " << cells[cur].name << " " << cells[cur].type;
 
+        const auto replay_before =
+            replay_decisions.active() ? cells[cur].type : std::string{};
         bool change = cell_retype(cells[cur], it->step, true);
 
         cout << "( TRY " << cells[cur].type << ")";
@@ -7662,6 +7702,9 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
             }
         }
 
+        if(change)
+            replay_decisions.record(cells[cur].name, replay_before,
+                                    cells[cur].type, !restore);
         if(restore && change) {  // restore
 
             cell_retype(cells[cur], -it->step, true);
@@ -7678,6 +7721,7 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
 }
 
 unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
+    ecc::replay::Decisions replay_decisions("IncrTNS", 0);
     cout << endl << "Increase total slack ... " << endl;
     for(unsigned view = 0; view < numViews; ++view) {
         CountPathsLesserThanSlack(view, kick_slack);
@@ -7806,6 +7850,8 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
         }
 
         double delta_delay = 0.0;
+        const auto replay_before =
+            replay_decisions.active() ? cells[cur].type : std::string{};
         bool change = false;
 
         if(it->change == UPSIZE) {
@@ -7846,6 +7892,9 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
             }
         }
 
+        if(change)
+            replay_decisions.record(cells[cur].name, replay_before,
+                                    cells[cur].type, !restore);
         if(restore && change) {  // restore
             if(it->change == UPSIZE) {
                 cell_resize(cells[cur], -it->step);
@@ -7870,6 +7919,7 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
 }
 
 unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
+    ecc::replay::Decisions replay_decisions("IncrSlack", 0);
     cout << endl << "Increase slack .." << leak_exponent << endl;
     if(alpha == -1) {
         alpha = ALPHA;
@@ -8000,6 +8050,8 @@ unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
         prv_slk = GetCellSlack(cells[cur]);
 
         double delta_delay = 0.0;
+        const auto replay_before =
+            replay_decisions.active() ? cells[cur].type : std::string{};
         bool change = false;
 
         if(it->change == UPSIZE) {
@@ -8040,6 +8092,9 @@ unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
             }
         }
 
+        if(change)
+            replay_decisions.record(cells[cur].name, replay_before,
+                                    cells[cur].type, !restore);
         if(restore && change) {  // restore
             if(it->change == UPSIZE) {
                 cell_resize(cells[cur], -it->step);
@@ -8066,6 +8121,7 @@ unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
 }
 
 unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
+    ecc::replay::Decisions replay_decisions("IncrSlackMore", 0);
     if(alpha == -1) {
         alpha = ALPHA;
     }
@@ -8166,6 +8222,8 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
         prv_slk = GetCellSlack(cells[cur]);
 
         double delta_delay = 0.0;
+        const auto replay_before =
+            replay_decisions.active() ? cells[cur].type : std::string{};
         bool change = false;
 
         if(it->change == UPSIZE) {
@@ -8204,6 +8262,9 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
             }
         }
 
+        if(change)
+            replay_decisions.record(cells[cur].name, replay_before,
+                                    cells[cur].type, !restore);
         if(restore && change) {  // restore
             if(it->change == UPSIZE) {
                 cell_resize(cells[cur], -it->step);
@@ -10743,6 +10804,7 @@ void Sizer::Profile() {
 }
 
 int main(int argc, char **argv) {
+    ecc::replay::initialize();
     int agc = 0;
     char **arv = nullptr;
     // omp_set_num_threads(8);
