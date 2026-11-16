@@ -42,6 +42,7 @@
 #include "est/EstimateParasitics.h"
 
 #include "sizer.h"
+#include <iomanip>
 
 #include <omp.h>
 #include <stdlib.h>
@@ -79,6 +80,7 @@
 #include "repair_design.h"
 #include "repair_design_ord.h"
 #include "repair_vg.h"
+#include "repair_pbbi.h"
 #include "repair_vg_cuda.h"
 #include "repair_gbi.h"
 #include "repair_gbi_cuda.h"
@@ -5764,6 +5766,7 @@ void Sizer::runSizerDesignRepair() {
     };
     ecc::DesignRepairResult result;
     ecc::SetupRepairResult setup_result;
+    ecc::PbbiRepairResult pbbi_result;
     ecc::PowerRepairResult power_result;
     double design_ms = 0, setup_ms = 0;
     try {
@@ -5786,7 +5789,115 @@ void Sizer::runSizerDesignRepair() {
             auto setup_options = nativeRepairConfig.setupOptions();
             setup_options.common = options;
             const auto setup_start = std::chrono::steady_clock::now();
-            setup_result = ecc::OpenDbSetupRepairer::repair(block, sta, refresh, setup_options);
+            const auto write_path_checkpoint = [&]() {
+                if(!sizerRepairStagePrefix.empty()) {
+                    const auto checkpoint = sizerRepairStagePrefix + ".path-last.def";
+                    const auto temporary = checkpoint + ".tmp";
+                    design->writeDef(temporary);
+                    if(std::rename(temporary.c_str(), checkpoint.c_str()) != 0)
+                        throw std::runtime_error("cannot publish path checkpoint");
+                }
+            };
+            if(!nativeRepairConfig.pbbi.enabled &&
+               (setup_options.path_buffer_enabled || setup_options.path_buffer_only))
+                write_path_checkpoint();
+            setup_options.path_fanout_observer = [&](const ecc::PathFanoutCheck& check) {
+                cout << "Sizer path fanout: phase=" << check.phase
+                     << " net=" << std::quoted(check.net)
+                     << " pin=" << std::quoted(check.pin)
+                     << " mode=" << std::quoted(check.mode)
+                     << " load=" << check.load << " limit=" << check.limit
+                     << " slack=" << check.slack << endl;
+            };
+            unsigned path_committed_buffers = 0;
+            setup_options.path_trial_observer = [&](unsigned trial_index, const ecc::PathBufferTrial& trial) {
+                cout << "Sizer path trial: index=" << trial_index
+                     << " accepted=" << trial.rejection_reasons.empty()
+                     << " buffers=" << trial.buffers
+                     << " reasons=";
+                if(trial.rejection_reasons.empty())
+                    cout << "none";
+                for(size_t i = 0; i < trial.rejection_reasons.size(); ++i)
+                    cout << (i ? "," : "") << trial.rejection_reasons[i];
+                const auto metrics = [&](const char* suffix,
+                                         const ecc::DesignRepairMetrics& m) {
+                    cout << " setup_wns_" << suffix << "_ns=" << m.setup_wns * 1e9
+                         << " setup_tns_" << suffix << "_ns=" << m.setup_tns * 1e9
+                         << " hold_wns_" << suffix << "_ns=" << m.hold_wns * 1e9
+                         << " hold_tns_" << suffix << "_ns=" << m.hold_tns * 1e9
+                         << " slew_" << suffix << "=" << m.total_slew_violations
+                         << " cap_" << suffix << "=" << m.total_cap_violations
+                         << " fanout_" << suffix << "=" << m.total_fanout_violations
+                         << " severity_" << suffix << "=" << m.severity
+                         << " area_" << suffix << "_dbu2=" << m.area;
+                };
+                metrics("before", trial.before);
+                metrics("after", trial.after);
+                cout << " objective_endpoints=" << trial.objective_endpoints
+                     << " objective_wns_before_ns=" << trial.objective_wns_before * 1e9
+                     << " objective_wns_after_ns=" << trial.objective_wns_after * 1e9
+                     << " objective_tns_before_ns=" << trial.objective_tns_before * 1e9
+                     << " objective_tns_after_ns=" << trial.objective_tns_after * 1e9
+                     << " prepare_ms=" << trial.prepare_ms
+                     << " refresh_ms=" << trial.refresh_ms
+                     << " measure_ms=" << trial.measure_ms << endl;
+                for(const auto& candidate : trial.candidates)
+                    cout << "Sizer path candidate: trial=" << trial_index
+                         << " net=" << std::quoted(candidate.net)
+                         << " master=" << std::quoted(candidate.master)
+                         << " recovery=" << candidate.recovery
+                              << " planned_buffers=" << candidate.planned_buffers
+                         << " loads=" << candidate.loads
+                         << " predicted_driver_gain_ns="
+                         << candidate.predicted_driver_gain * 1e9
+                         << " predicted_wns_gain_ns=" << candidate.predicted_wns_gain * 1e9
+                         << " predicted_tns_gain_ns=" << candidate.predicted_tns_gain * 1e9
+                         << " affected_endpoints=" << candidate.affected_endpoints
+                         << " x=" << candidate.x << " y=" << candidate.y << endl;
+                if(trial.rejection_reasons.empty()) {
+                    path_committed_buffers += trial.buffers;
+                    write_path_checkpoint();
+                }
+                cout << "Sizer path progress: trial=" << trial_index
+                     << " committed_buffers=" << path_committed_buffers
+                     << " elapsed_ms=" << std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - setup_start).count() << endl;
+            };
+            if(nativeRepairConfig.pbbi.enabled) {
+                auto pbbi_options = nativeRepairConfig.pbbiOptions();
+                pbbi_options.common = options;
+                pbbi_options.common.prepare = [&]() {
+                    ecc::legalizeRepairPlacement(block,
+                        ord::OpenRoad::openRoad()->getOpendp(),
+                        options.excluded_instances,
+                        pbbi_options.incremental_placement);
+                };
+                pbbi_result = ecc::OpenDbPbbiRepairer::repair(block, sta, design->getResizer(), refresh, pbbi_options);
+                setup_result.ok = pbbi_result.ok;
+                setup_result.converged = pbbi_result.converged;
+                setup_result.message = pbbi_result.message;
+                setup_result.before.design = pbbi_result.before;
+                setup_result.before.setup_tns = pbbi_result.before.setup_tns;
+                setup_result.after.design = pbbi_result.after;
+                setup_result.after.setup_tns = pbbi_result.after.setup_tns;
+                setup_result.after.hold_tns = pbbi_result.after.hold_tns;
+                setup_result.after.slew_violations = pbbi_result.after.total_slew_violations;
+                setup_result.after.cap_violations = pbbi_result.after.total_cap_violations;
+                setup_result.after.fanout_violations = pbbi_result.after.total_fanout_violations;
+                setup_result.attempted_batches = pbbi_result.attempted;
+                setup_result.accepted_batches = pbbi_result.accepted;
+                setup_result.rejected_batches = pbbi_result.rejected;
+                setup_result.inserted_buffers = pbbi_result.inserted_buffers;
+                setup_result.resized_cells = pbbi_result.resized_cells;
+                setup_result.refreshes = pbbi_result.refreshes;
+                setup_result.rollback_refreshes = pbbi_result.rollback_refreshes;
+                setup_result.candidate_ms = pbbi_result.collect_ms;
+                setup_result.prepare_ms = pbbi_result.prepare_ms;
+                setup_result.refresh_ms = pbbi_result.refresh_ms;
+                setup_result.measure_ms = pbbi_result.measure_ms;
+            } else {
+                setup_result = ecc::OpenDbSetupRepairer::repair(block, sta, refresh, setup_options);
+            }
             setup_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - setup_start).count();
             if(!setup_result.ok) throw std::runtime_error(setup_result.message);
@@ -5825,11 +5936,138 @@ void Sizer::runSizerDesignRepair() {
          << " skipped_nets=" << result.after.skipped_nets
          << " converged=" << result.converged << endl;
     if(sizerSetupRepairMode && result.ok) {
+        if(nativeRepairConfig.pbbi.enabled) {
+            cout << "Sizer PBBI: paths=" << pbbi_result.paths
+                 << " solved_paths=" << pbbi_result.solved_paths
+                 << " collected_problems=" << pbbi_result.collected_problems
+                 << " duplicate_problems=" << pbbi_result.duplicate_problems
+                 << " max_problem_nets=" << pbbi_result.max_problem_nets
+                 << " electrical_evaluations=" << pbbi_result.electrical_evaluations
+                 << " electrical_unsupported=" << pbbi_result.electrical_unsupported
+                 << " electrical_ms=" << pbbi_result.electrical_ms
+                 << " feedback_reorders=" << pbbi_result.feedback_reorders
+                 << " scheduler_decisions=" << pbbi_result.scheduler_decisions
+                 << " scheduler_cross_path=" << pbbi_result.scheduler_cross_path
+                 << " scheduler_peak_candidates=" << pbbi_result.scheduler_peak_candidates
+                 << " scheduler_overlap_admissions=" << pbbi_result.scheduler_overlap_admissions
+                 << " path_cache_hits=" << pbbi_result.path_cache_hits
+                 << " path_cache_misses=" << pbbi_result.path_cache_misses
+                 << " path_cache_invalidations=" << pbbi_result.path_cache_invalidations
+                 << " forecast_cache_hits=" << pbbi_result.forecast_cache_hits
+                 << " forecast_cache_misses=" << pbbi_result.forecast_cache_misses
+                 << " forecast_cache_invalidations=" << pbbi_result.forecast_cache_invalidations
+                 << " skipped_paths=" << pbbi_result.skipped_paths
+                 << " exhausted_paths=" << pbbi_result.exhausted_paths
+                 << " cancelled_paths=" << pbbi_result.cancelled_paths
+                 << " admission_deferred=" << pbbi_result.admission_deferred
+                 << " expansions=" << pbbi_result.expansions
+                 << " peak_states=" << pbbi_result.peak_states
+                 << " truncated_states=" << pbbi_result.truncated_states
+                 << " duplicate_plans=" << pbbi_result.duplicate_plans
+                 << " attempted=" << pbbi_result.attempted
+                 << " accepted=" << pbbi_result.accepted
+                 << " area_reductions=" << pbbi_result.area_reductions
+                 << " target_met=" << pbbi_result.target_met
+                 << " target_wns_ns=" << pbbi_result.target_wns*1e9
+                 << " target_tns_ns=" << pbbi_result.target_tns*1e9
+                 << " rejected=" << pbbi_result.rejected
+                 << " buffers=" << pbbi_result.inserted_buffers
+                 << " resizes=" << pbbi_result.resized_cells
+                 << " baseline_model_violations=" << pbbi_result.baseline_model_violations
+                 << " slew_cache_hits=" << pbbi_result.slew_cache_hits
+                 << " slew_cache_misses=" << pbbi_result.slew_cache_misses
+                 << " slew_rejected=" << pbbi_result.slew_rejected
+                 << " response_evaluations=" << pbbi_result.response_evaluations
+                 << " timing_nets=" << pbbi_result.timing_nets
+                 << " timing_buffered_nets=" << pbbi_result.timing_buffered_nets
+                 << " timing_fallback_nets=" << pbbi_result.timing_fallback_nets
+                 << " timing_exhausted_nets=" << pbbi_result.timing_exhausted_nets
+                 << " timing_readonly_arcs=" << pbbi_result.timing_readonly_arcs
+                 << " timing_fallback_arcs=" << pbbi_result.timing_fallback_arcs
+                 << " timing_vertices=" << pbbi_result.timing_vertices
+                 << " timing_edges=" << pbbi_result.timing_edges
+                 << " timing_expansions=" << pbbi_result.timing_expansions
+                 << " timing_truncated=" << pbbi_result.timing_truncated
+                 << " forecast_paths=" << pbbi_result.forecast_paths
+                 << " timing_ms=" << pbbi_result.timing_ms
+                 << " solve_ms=" << pbbi_result.solve_ms
+                 << " elapsed_ms=" << setup_ms << endl;
+            for(const auto& [reason,count]:pbbi_result.skip_reasons)
+                cout << "Sizer PBBI skip: count=" << count << " reason=" << reason << endl;
+            for(size_t i=0;i<pbbi_result.trials.size();++i) {
+                const auto& t=pbbi_result.trials[i];
+                cout << "Sizer PBBI trial: index=" << i+1
+                     << " accepted=" << t.accepted << " buffers=" << t.buffers
+                     << " area_recovery=" << t.area_recovery
+                     << " target_before=" << t.target_before
+                     << " target_after=" << t.target_after
+                     << " area_before_dbu2=" << t.before.area
+                     << " area_after_dbu2=" << t.after.area
+                     << " resizes=" << t.resized_cells << " path_nets=" << t.path_nets
+                     << " path_rank=" << t.path_rank
+                     << " source_paths=" << t.source_paths
+                     << " pool_candidates=" << t.pool_candidates
+                     << " pool_nonregressing_setup=" << t.pool_nonregressing_setup
+                     << " bounded_offpath_loads=" << t.bounded_offpath_loads
+                     << " pool_paths=" << t.pool_paths
+                     << " affected_nets=" << t.affected_nets
+                     << " affected_gates=" << t.affected_gates
+                     << " affected_endpoints=" << t.affected_endpoints
+                     << " predicted_slew_violations=" << t.predicted_slew_violations
+                     << " predicted_cap_violations=" << t.predicted_cap_violations
+                     << " predicted_severity=" << t.predicted_severity
+                     << " predicted_wns_delta_ns=" << t.predicted_wns_delta*1e9
+                     << " predicted_tns_delta_ns=" << t.predicted_tns_delta*1e9
+                     << " prediction_baseline_wns_ns=" << t.prediction_baseline_wns*1e9
+                     << " prediction_baseline_tns_ns=" << t.prediction_baseline_tns*1e9
+                     << " graph_baseline_wns_ns=" << t.graph_baseline_wns*1e9
+                     << " graph_baseline_tns_ns=" << t.graph_baseline_tns*1e9
+                     << " prediction_endpoints=" << t.prediction_endpoints
+                     << " graph_endpoints=" << t.graph_endpoints
+                     << " predicted_gain_ns=" << t.predicted_gain*1e9
+                     << " predicted_cost_dbu2=" << t.predicted_cost
+                     << " wns_before_ns=" << t.before.setup_wns*1e9
+                     << " wns_after_ns=" << t.after.setup_wns*1e9
+                     << " tns_before_ns=" << t.before.setup_tns*1e9
+                     << " tns_after_ns=" << t.after.setup_tns*1e9
+                     << " prepare_ms=" << t.prepare_ms << " refresh_ms=" << t.refresh_ms
+                     << " moved_instances=" << t.moved_instances
+                     << " moved_unsized_instances=" << t.moved_unsized_instances
+                     << " max_displacement_dbu=" << t.max_displacement_dbu
+                     << " protected_instances=" << t.protected_instances
+                     << " placement_failed=" << t.placement_failed
+                     << " measure_ms=" << t.measure_ms << " reasons=";
+                for(const auto& reason:t.rejection_reasons)cout << reason << ',';
+                cout << " fingerprint=" << t.fingerprint << endl;
+                if(nativeRepairConfig.pbbi.pin_diagnostics)for(const auto& v:t.violations)
+                    cout << "Sizer PBBI pin: trial=" << i+1
+                         << " kind=" << v.kind << " pin=" << std::quoted(v.pin)
+                         << " net=" << std::quoted(v.net) << " master=" << std::quoted(v.master)
+                         << " relation=" << v.relation << " rf=" << v.transition
+                         << " had_before=" << v.had_before << " before=" << v.before
+                         << " after=" << v.after << " limit=" << v.limit
+                         << " has_prediction=" << v.has_prediction << " predicted=" << v.predicted
+                         << " moved_net_instances=" << v.moved_net_instances
+                         << " net_max_displacement_dbu=" << v.net_max_displacement_dbu << endl;
+            }
+        }
         cout << "Sizer setup repair: " << setup_result.message
              << " elapsed_ms=" << setup_ms
              << " accepted_batches=" << setup_result.accepted_batches
              << " rejected_batches=" << setup_result.rejected_batches
              << " attempted_batches=" << setup_result.attempted_batches
+             << " path_buffer_attempted=" << setup_result.path_buffer_attempted
+             << " path_buffer_accepted=" << setup_result.path_buffer_accepted
+             << " path_buffer_rejected=" << setup_result.path_buffer_rejected
+             << " path_buffer_inserted_buffers="
+             << setup_result.path_buffer_inserted_buffers
+             << " path_buffer_candidates="
+             << setup_result.path_buffer_candidates
+             << " path_buffer_duplicate_candidates="
+             << setup_result.path_buffer_duplicate_candidates
+             << " path_buffer_fanout_precheck_rejections=" << setup_result.path_buffer_fanout_precheck_rejections
+             << " path_buffer_fanout_tree_trials=" << setup_result.path_buffer_fanout_tree_trials
+             << " path_buffer_screened_candidates=" << setup_result.path_buffer_screened_candidates
              << " skipped_duplicate_batches=" << setup_result.skipped_duplicate_batches
              << " refreshes=" << setup_result.refreshes
              << " rollback_refreshes=" << setup_result.rollback_refreshes
@@ -6073,6 +6311,7 @@ void Sizer::runSizerVgRepair(bool write_output) {
         writeRepairStageSnapshot("input");
         ecc::VgRepairOptions vg_options;
         vg_options.common = options;
+        vg_options.scope = nativeRepairConfig.vg.scope;
         vg_options.backend = nativeRepairConfig.vg.backend;
         vg_options.cuda_max_memory_mb = nativeRepairConfig.vg.cuda_max_memory_mb;
         vg_options.max_buffers = nativeRepairConfig.vg.max_buffers;
@@ -10505,6 +10744,15 @@ void Sizer::readCmdFile(string cmdFileStr) {
                 exit(1);
             }
             sizerOrdDesignRepairMode = true;
+            sizerMaxFanout = static_cast<unsigned>(max_fanout);
+            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
+        }
+        if(line.find("-sizer_repair_pbbi ") != string::npos) {
+            const int max_fanout = getTokenI(line, "-sizer_repair_pbbi ");
+            if(max_fanout < 2) throw std::invalid_argument("-sizer_repair_pbbi requires fanout >= 2");
+            sizerDesignRepairMode = true;
+            sizerSetupRepairMode = true;
+            nativeRepairConfig.pbbi.enabled = true;
             sizerMaxFanout = static_cast<unsigned>(max_fanout);
             nativeRepairConfig.design.max_fanout = sizerMaxFanout;
         }

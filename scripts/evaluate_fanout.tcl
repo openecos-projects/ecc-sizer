@@ -64,7 +64,7 @@ proc evaluate {} {
         set height [$block dbuToMicrons [$master getHeight]]
         set area [expr {$area + $width * $height}]
         if {![$inst isPlaced]} { incr unplaced }
-        if {[string match sizer_fanout_buf* [$inst getName]] || [string match sizer_drv_buf* [$inst getName]] || [string match sizer_setup_buf* [$inst getName]] || [string match sizer_vg_buf* [$inst getName]] || [string match sizer_gbi_buf* [$inst getName]]} {
+        if {[string match sizer_fanout_buf* [$inst getName]] || [string match sizer_drv_buf* [$inst getName]] || [string match sizer_setup_buf* [$inst getName]] || [string match sizer_path_buf* [$inst getName]] || [string match sizer_pbbi_buf* [$inst getName]] || [string match sizer_vg_buf* [$inst getName]] || [string match sizer_gbi_buf* [$inst getName]]} {
             incr added
             dict incr buffer_masters [$master getName]
         }

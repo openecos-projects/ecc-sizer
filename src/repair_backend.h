@@ -145,6 +145,7 @@ class Repair {
     bool hasCells() const {
         return !cells_.empty();
     }
+    const std::vector< Buffer >& bufferChoices() const { return buffers_; }
 
     std::vector< NetState > analyze(DesignRepairMetrics& metrics,
                                     bool all_nets = false) {
@@ -397,7 +398,8 @@ class Repair {
 
     std::vector< const Buffer* > resizeCandidates(const NetState& state,
                                                   bool downsize = false,
-                                                  bool vt_only = false) {
+                                                  bool vt_only = false,
+                                                  bool check_load = true) {
         std::vector< const Buffer* > result;
         auto* driver = state.driver->getInst();
         auto* original = network_->libertyCell(driver);
@@ -434,7 +436,7 @@ class Repair {
                candidate.master->getSite() != master->getSite() ||
                candidate.master->getMTerms().size() !=
                    master->getMTerms().size() ||
-               state.capacitance > candidate.max_cap * (1 - opts_.margin))
+               (check_load && state.capacitance > candidate.max_cap * (1 - opts_.margin)))
                 continue;
             bool compatible = true;
             for(auto* term : master->getMTerms()) {
@@ -456,7 +458,7 @@ class Repair {
                 limit = std::min(limit, local_limit);
             const float slew =
                 predictedSlew(candidate, state.capacitance, state.input_slew);
-            if(std::isfinite(slew) && slew <= limit * (1 - opts_.margin))
+            if(!check_load || (std::isfinite(slew) && slew <= limit * (1 - opts_.margin)))
                 result.push_back(&candidate);
         }
         return result;

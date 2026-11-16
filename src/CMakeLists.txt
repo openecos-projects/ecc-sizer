@@ -200,6 +200,14 @@ if(BUILD_TESTING)
     add_test(NAME ecc_sizer_fanout_repair
              COMMAND ecc_sizer_fanout_repair_test)
 
+    add_executable(ecc_sizer_repair_pbbi_solver_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_pbbi_solver_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_solver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_timing.cpp)
+    target_include_directories(ecc_sizer_repair_pbbi_solver_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(ecc_sizer_repair_pbbi_solver_test PRIVATE GTest::gtest_main)
+    add_test(NAME ecc_sizer_repair_pbbi_solver COMMAND ecc_sizer_repair_pbbi_solver_test)
+
     add_executable(ecc_sizer_buffer_inserter_sta_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/buffer_inserter.cpp
@@ -212,6 +220,11 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_gbi_cuda.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_power.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_load.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_electrical.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_solver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_timing.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_path.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_timing.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_placement.cpp
     )

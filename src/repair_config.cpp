@@ -123,6 +123,26 @@ void SetupRepairSettings::validate() const {
             "setup.max_area_growth >= 0");
     require(std::isfinite(min_improvement) && min_improvement > 0,
             "setup.min_improvement_ns > 0");
+    require(path_buffer_max_paths > 0, "setup.path_buffer_max_paths > 0");
+    require(path_buffer_max_candidates > 0,
+            "setup.path_buffer_max_candidates > 0");
+    require(path_buffer_batch_size > 0,
+            "setup.path_buffer_batch_size > 0");
+    require(path_buffer_strategy == "sequential" || path_buffer_strategy == "path_gain" ||
+                path_buffer_strategy == "feedback",
+            "setup.path_buffer_strategy must be sequential, path_gain or feedback");
+    require(path_buffer_gain_scope == "global" || path_buffer_gain_scope == "endpoints",
+            "setup.path_buffer_gain_scope must be global or endpoints");
+    require(std::isfinite(path_buffer_min_relative_improvement) &&
+                path_buffer_min_relative_improvement >= 0 &&
+                path_buffer_min_relative_improvement <= 1,
+            "setup.path_buffer_min_relative_improvement in [0,1]");
+    require(std::isfinite(path_buffer_max_seconds) && path_buffer_max_seconds >= 0,
+            "setup.path_buffer_max_seconds >= 0");
+    require(std::isfinite(path_buffer_max_area_growth) &&
+                (path_buffer_max_area_growth >= 0 ||
+                 path_buffer_max_area_growth == -1),
+            "setup.path_buffer_max_area_growth >= 0 or -1 (unlimited)");
 }
 void SetupRepairOptions::validate() const {
     common.validate();
@@ -156,6 +176,7 @@ void PowerRepairOptions::validate() const {
     PowerRepairSettings::validate();
 }
 void VgRepairSettings::validate() const {
+    require(scope == "drv" || scope == "setup", "vg.scope: drv or setup");
     require(cuda_max_memory_mb > 0, "vg.cuda_max_memory_mb > 0");
     require(backend == "cpu" || backend == "cuda",
             "vg.backend: cpu or cuda");
@@ -173,12 +194,37 @@ PowerRepairOptions RepairConfig::powerOptions() const {
     result.common = design;
     return result;
 }
+void PbbiRepairSettings::validate() const {
+    require(objective == "timing" || objective == "area", "pbbi.objective must be timing or area");
+    require(std::isfinite(target_wns) && target_wns <= 0, "pbbi.target_wns_ns must be finite and <= 0");
+    require(!target_tns || (std::isfinite(*target_tns) && *target_tns <= 0), "pbbi.target_tns_ns must be finite and <= 0, or none");
+    require(objective != "area" || candidate_electrical_check, "pbbi.objective=area requires candidate_electrical_check");
+    require(scope == "path" || scope == "net", "pbbi.scope must be path or net");
+    require(scheduler == "sequential" || scheduler == "global" || scheduler == "adaptive", "pbbi.scheduler must be sequential, global or adaptive");
+    require(scheduler_window > 0, "pbbi.scheduler_window > 0");
+    require(slew_samples >= 2, "pbbi.slew_samples >= 2");
+    require(max_paths > 0, "pbbi.max_paths > 0");
+    require(paths_per_endpoint > 0, "pbbi.paths_per_endpoint > 0");
+    require(std::isfinite(max_seconds) && max_seconds >= 0, "pbbi.max_seconds >= 0");
+    require(std::isfinite(max_area_growth) && max_area_growth >= 0, "pbbi.max_area_growth >= 0");
+    require(std::isfinite(min_improvement) && min_improvement >= 0, "pbbi.min_improvement_ns >= 0");
+}
+void PbbiRepairOptions::validate() const { PbbiRepairSettings::validate(); common.validate(); }
+PbbiRepairOptions RepairConfig::pbbiOptions() const {
+    PbbiRepairOptions result;
+    static_cast<PbbiRepairSettings&>(result) = pbbi;
+    result.common = design;
+    return result;
+}
 void RepairConfig::validate() const {
     design.validate();
     setup.validate();
     power.validate();
     vg.validate();
     gbi.validate();
+    pbbi.validate();
+    require(!(pbbi.enabled && (setup.path_buffer_enabled || setup.path_buffer_only)),
+            "pbbi and path_buffer are separate setup algorithms");
     require(sta_threads > 0 &&
                 sta_threads <= unsigned(std::numeric_limits< int >::max()),
             "runtime.sta_threads > 0");
@@ -239,6 +285,8 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         p.min_absolute_improvement = real(value);
     else if(key == "vg.backend")
         next.vg.backend = value;
+    else if(key == "vg.scope")
+        next.vg.scope = value;
     else if(key == "vg.cuda_max_memory_mb")
         next.vg.cuda_max_memory_mb = count(value);
     else if(key == "vg.max_buffers")
@@ -297,6 +345,108 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         s.max_area_growth = real(value);
     else if(key == "setup.min_improvement_ns")
         s.min_improvement = real(value) * 1e-9;
+    else if(key == "pbbi.incremental_placement")
+        next.pbbi.incremental_placement = boolean(value);
+    else if(key == "pbbi.placement_feedback")
+        next.pbbi.placement_feedback = boolean(value);
+    else if(key == "pbbi.scope")
+        next.pbbi.scope = value;
+    else if(key == "pbbi.objective")
+        next.pbbi.objective = value;
+    else if(key == "pbbi.target_wns_ns")
+        next.pbbi.target_wns = real(value) * 1e-9;
+    else if(key == "pbbi.target_tns_ns") {
+        if(value == "none") next.pbbi.target_tns.reset();
+        else next.pbbi.target_tns = real(value) * 1e-9;
+    }
+    else if(key == "pbbi.scheduler")
+        next.pbbi.scheduler = value;
+    else if(key == "pbbi.scheduler_window")
+        next.pbbi.scheduler_window = count(value);
+    else if(key == "pbbi.path_cache")
+        next.pbbi.path_cache = boolean(value);
+    else if(key == "pbbi.forecast_cache")
+        next.pbbi.forecast_cache = boolean(value);
+    else if(key == "pbbi.candidate_electrical_check")
+        next.pbbi.candidate_electrical_check = boolean(value);
+    else if(key == "pbbi.operating_point_pruning")
+        next.pbbi.operating_point_pruning = boolean(value);
+    else if(key == "pbbi.failure_feedback")
+        next.pbbi.failure_feedback = boolean(value);
+    else if(key == "pbbi.pin_diagnostics")
+        next.pbbi.pin_diagnostics = boolean(value);
+    else if(key == "pbbi.buffer_aware_timing")
+        next.pbbi.buffer_aware_timing = boolean(value);
+    else if(key == "pbbi.slew_propagation")
+        next.pbbi.slew_propagation = boolean(value);
+    else if(key == "pbbi.slew_cache_entries")
+        next.pbbi.slew_cache_entries = count(value);
+    else if(key == "pbbi.slew_samples")
+        next.pbbi.slew_samples = count(value);
+    else if(key == "pbbi.timing_max_frontier_states")
+        next.pbbi.timing_max_frontier_states = count(value);
+    else if(key == "pbbi.timing_max_expansions")
+        next.pbbi.timing_max_expansions = count(value);
+    else if(key == "pbbi.enabled")
+        next.pbbi.enabled = boolean(value);
+    else if(key == "pbbi.gate_sizing")
+        next.pbbi.gate_sizing = boolean(value);
+    else if(key == "pbbi.sink_sizing")
+        next.pbbi.sink_sizing = boolean(value);
+    else if(key == "pbbi.max_paths")
+        next.pbbi.max_paths = count(value);
+    else if(key == "pbbi.paths_per_endpoint")
+        next.pbbi.paths_per_endpoint = count(value);
+    else if(key == "pbbi.max_trials")
+        next.pbbi.max_trials = count(value);
+    else if(key == "pbbi.max_frontier_states")
+        next.pbbi.max_frontier_states = count(value);
+    else if(key == "pbbi.max_expansions")
+        next.pbbi.max_expansions = count(value);
+    else if(key == "pbbi.max_inserted_buffers")
+        next.pbbi.max_inserted_buffers = count(value);
+    else if(key == "pbbi.max_refreshes")
+        next.pbbi.max_refreshes = count(value);
+    else if(key == "pbbi.max_seconds")
+        next.pbbi.max_seconds = real(value);
+    else if(key == "pbbi.max_area_growth")
+        next.pbbi.max_area_growth = real(value);
+    else if(key == "pbbi.min_improvement_ns")
+        next.pbbi.min_improvement = real(value) * 1e-9;
+    else if(key == "pbbi.defer_rollback_refresh")
+        next.pbbi.defer_rollback_refresh = boolean(value);
+    else if(key == "setup.path_buffer_enabled")
+        s.path_buffer_enabled = boolean(value);
+    else if(key == "setup.path_buffer_only")
+        s.path_buffer_only = boolean(value);
+    else if(key == "setup.path_buffer_recovery")
+        s.path_buffer_recovery = boolean(value);
+    else if(key == "setup.path_buffer_tree_candidates")
+        s.path_buffer_tree_candidates = boolean(value);
+    else if(key == "setup.path_buffer_gain_scope")
+        s.path_buffer_gain_scope = value;
+    else if(key == "setup.path_buffer_fanout_repair")
+        s.path_buffer_fanout_repair = boolean(value);
+    else if(key == "setup.path_buffer_strategy")
+        s.path_buffer_strategy = value;
+    else if(key == "setup.path_buffer_min_relative_improvement")
+        s.path_buffer_min_relative_improvement = real(value);
+    else if(key == "setup.path_buffer_max_seconds")
+        s.path_buffer_max_seconds = real(value);
+    else if(key == "setup.path_buffer_max_refreshes")
+        s.path_buffer_max_refreshes = count(value);
+    else if(key == "setup.path_buffer_max_paths")
+        s.path_buffer_max_paths = count(value);
+    else if(key == "setup.path_buffer_max_candidates")
+        s.path_buffer_max_candidates = count(value);
+    else if(key == "setup.path_buffer_max_trials")
+        s.path_buffer_max_trials = count(value);
+    else if(key == "setup.path_buffer_batch_size")
+        s.path_buffer_batch_size = count(value);
+    else if(key == "setup.path_buffer_max_inserted_buffers")
+        s.path_buffer_max_inserted_buffers = count(value);
+    else if(key == "setup.path_buffer_max_area_growth")
+        s.path_buffer_max_area_growth = real(value);
     else if(key == "tolerances.wns_absolute_ns")
         t.wns_absolute = real(value) * 1e-9;
     else if(key == "tolerances.tns_absolute_ns")
@@ -356,6 +506,44 @@ void RepairConfig::write(std::ostream& output) const {
     // trip.
     std::ostringstream text;
     text << std::setprecision(std::numeric_limits< double >::max_digits10);
+    text << "pbbi.candidate_electrical_check=" << (pbbi.candidate_electrical_check ? "true" : "false") << '\n';
+    text << "pbbi.operating_point_pruning=" << (pbbi.operating_point_pruning ? "true" : "false") << '\n';
+    text << "pbbi.failure_feedback=" << (pbbi.failure_feedback ? "true" : "false") << '\n';
+    text << "pbbi.scope=" << pbbi.scope << '\n';
+    text << "pbbi.objective=" << pbbi.objective << '\n';
+    text << "pbbi.target_wns_ns=" << pbbi.target_wns * 1e9 << '\n';
+    text << "pbbi.target_tns_ns=";
+    if(pbbi.target_tns) text << *pbbi.target_tns * 1e9;
+    else text << "none";
+    text << '\n';
+    text << "pbbi.scheduler=" << pbbi.scheduler << '\n';
+    text << "pbbi.incremental_placement=" << (pbbi.incremental_placement ? "true" : "false") << '\n';
+    text << "pbbi.placement_feedback=" << (pbbi.placement_feedback ? "true" : "false") << '\n';
+    text << "pbbi.scheduler_window=" << pbbi.scheduler_window << '\n';
+    text << "pbbi.path_cache=" << (pbbi.path_cache ? "true" : "false") << '\n';
+    text << "pbbi.forecast_cache=" << (pbbi.forecast_cache ? "true" : "false") << '\n';
+    text << "pbbi.pin_diagnostics=" << (pbbi.pin_diagnostics ? "true" : "false") << '\n';
+    text << "pbbi.buffer_aware_timing=" << (pbbi.buffer_aware_timing ? "true" : "false") << '\n';
+    text << "pbbi.slew_propagation=" << (pbbi.slew_propagation ? "true" : "false") << '\n';
+    text << "pbbi.slew_cache_entries=" << pbbi.slew_cache_entries << '\n';
+    text << "pbbi.slew_samples=" << pbbi.slew_samples << '\n';
+    text << "pbbi.timing_max_frontier_states=" << pbbi.timing_max_frontier_states << '\n';
+    text << "pbbi.timing_max_expansions=" << pbbi.timing_max_expansions << '\n';
+    text << "pbbi.enabled=" << (pbbi.enabled ? "true" : "false") << '\n';
+    text << "pbbi.gate_sizing=" << (pbbi.gate_sizing ? "true" : "false") << '\n';
+    text << "pbbi.sink_sizing=" << (pbbi.sink_sizing ? "true" : "false") << '\n';
+    text << "pbbi.max_paths=" << pbbi.max_paths << '\n';
+    text << "pbbi.paths_per_endpoint=" << pbbi.paths_per_endpoint << '\n';
+    text << "pbbi.max_trials=" << pbbi.max_trials << '\n';
+    text << "pbbi.max_frontier_states=" << pbbi.max_frontier_states << '\n';
+    text << "pbbi.max_expansions=" << pbbi.max_expansions << '\n';
+    text << "pbbi.max_inserted_buffers=" << pbbi.max_inserted_buffers << '\n';
+    text << "pbbi.max_refreshes=" << pbbi.max_refreshes << '\n';
+    text << "pbbi.max_seconds=" << pbbi.max_seconds << '\n';
+    text << "pbbi.max_area_growth=" << pbbi.max_area_growth << '\n';
+    text << "pbbi.min_improvement_ns=" << pbbi.min_improvement * 1e9 << '\n';
+    text << "pbbi.defer_rollback_refresh=" << (pbbi.defer_rollback_refresh ? "true" : "false") << '\n';
+
     const auto& d = design;
     const auto& s = setup;
     const auto& t = d.tolerances;
@@ -392,6 +580,30 @@ void RepairConfig::write(std::ostream& output) const {
          << "setup.max_area_growth=" << s.max_area_growth << '\n'
          << "setup.min_improvement_ns=" << double(s.min_improvement) * 1e9
          << '\n'
+         << "setup.path_buffer_enabled="
+         << (s.path_buffer_enabled ? "true" : "false") << '\n'
+         << "setup.path_buffer_only="
+         << (s.path_buffer_only ? "true" : "false") << '\n'
+         << "setup.path_buffer_recovery=" << (s.path_buffer_recovery ? "true" : "false") << '\n'
+         << "setup.path_buffer_tree_candidates=" << (s.path_buffer_tree_candidates ? "true" : "false") << '\n'
+         << "setup.path_buffer_gain_scope=" << s.path_buffer_gain_scope << '\n'
+         << "setup.path_buffer_fanout_repair="
+         << (s.path_buffer_fanout_repair ? "true" : "false") << '\n'
+         << "setup.path_buffer_strategy=" << s.path_buffer_strategy << '\n'
+         << "setup.path_buffer_min_relative_improvement="
+         << s.path_buffer_min_relative_improvement << '\n'
+         << "setup.path_buffer_max_seconds=" << s.path_buffer_max_seconds << '\n'
+         << "setup.path_buffer_max_refreshes=" << s.path_buffer_max_refreshes << '\n'
+         << "setup.path_buffer_max_paths=" << s.path_buffer_max_paths << '\n'
+         << "setup.path_buffer_max_candidates="
+         << s.path_buffer_max_candidates << '\n'
+         << "setup.path_buffer_max_trials=" << s.path_buffer_max_trials << '\n'
+         << "setup.path_buffer_batch_size=" << s.path_buffer_batch_size
+         << '\n'
+         << "setup.path_buffer_max_inserted_buffers="
+         << s.path_buffer_max_inserted_buffers << '\n'
+         << "setup.path_buffer_max_area_growth="
+         << s.path_buffer_max_area_growth << '\n'
          << "tolerances.wns_absolute_ns=" << double(t.wns_absolute) * 1e9
          << '\n'
          << "tolerances.tns_absolute_ns=" << double(t.tns_absolute) * 1e9
@@ -418,6 +630,7 @@ void RepairConfig::write(std::ostream& output) const {
          << "power.min_absolute_improvement_w="
          << power.min_absolute_improvement << '\n';
     text << "vg.backend=" << vg.backend << '\n'
+         << "vg.scope=" << vg.scope << '\n'
          << "vg.cuda_max_memory_mb=" << vg.cuda_max_memory_mb << '\n'
          << "vg.max_buffers=" << vg.max_buffers << '\n'
          << "vg.max_nets=" << vg.max_nets << '\n'

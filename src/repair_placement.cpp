@@ -12,7 +12,7 @@
 namespace ecc {
 void legalizeRepairPlacement(
     odb::dbBlock* block, dpl::Opendp* placer,
-    const std::vector< odb::dbInst* >& protected_instances) {
+    const std::vector< odb::dbInst* >& protected_instances, bool incremental) {
     if(!block || !placer || block->getRows().empty())
         throw std::runtime_error(
             "native repair legalization requires a placer and core rows");
@@ -33,7 +33,7 @@ void legalizeRepairPlacement(
     try {
         // Default DPL minimizes movement better than the negotiation/abacus
         // mode on the repair workloads. Never treat a placed flag as legality.
-        placer->detailedPlacement(0, 0);
+        placer->detailedPlacement(0, 0, "", incremental);
         placer->checkPlacement(false);
     }
     catch(...) {

@@ -16,5 +16,6 @@ namespace ecc {
 // their persistent placement status. Throws on failure. May run inside an ECO.
 void legalizeRepairPlacement(
     odb::dbBlock* block, dpl::Opendp* placer,
-    const std::vector< odb::dbInst* >& protected_instances = {});
+    const std::vector< odb::dbInst* >& protected_instances = {},
+    bool incremental = false);
 }  // namespace ecc

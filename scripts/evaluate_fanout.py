@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import time
 
@@ -43,12 +44,18 @@ def main():
                         help="evaluate OpenROAD-style levelized-driver repair")
     parser.add_argument("--repair-setup", action="store_true",
                         help="run native DRV followed by setup repair")
+    parser.add_argument("--repair-pbbi", action="store_true",
+                        help="run Native design then independent PBBI buffer/gate repair")
+    parser.add_argument("--path-from-input", action="store_true",
+                        help="ablation: run buffer-only path repair with zero design repair passes")
     parser.add_argument("--repair-vg", action="store_true",
                         help="run VG; combine with --repair-setup for VG -> design -> setup")
     parser.add_argument("--repair-gbi", action="store_true",
                         help="run migrated GPU GBI buffer insertion")
     parser.add_argument("--stage-metrics", action="store_true",
                         help="save and independently evaluate each native repair stage")
+    parser.add_argument("--stage-snapshots", action="store_true",
+                        help="save native stage DEFs without independently evaluating every stage")
     parser.add_argument("--setup-trials", type=int)
     parser.add_argument("--setup-passes", type=int)
     parser.add_argument("--repair-config", type=Path)
@@ -62,6 +69,20 @@ def main():
     parser.add_argument("--reference", action="store_true",
                         help="also run repair_design and VG buffer-only setup")
     args = parser.parse_args()
+    if args.repair_pbbi:
+        if args.path_from_input:
+            parser.error("--repair-pbbi and --path-from-input are distinct experiments")
+        args.repair_setup = True
+        args.repair_set.append("pbbi.enabled=true")
+    if args.path_from_input:
+        if args.repair_design or args.repair_ord_design or args.repair_vg or args.repair_gbi:
+            parser.error("--path-from-input cannot be combined with another repair stage")
+        args.repair_setup = True
+        # Deliberately appended after user overrides so this mode always means
+        # raw input -> path only. Legalization/RC initialization still runs.
+        args.repair_set += ["design.max_passes=0",
+                            "setup.path_buffer_enabled=true",
+                            "setup.path_buffer_only=true", "power.enabled=false"]
     if args.repair_gbi and (args.repair_vg or args.repair_design or
                             args.repair_ord_design or args.repair_setup):
         parser.error("--repair-gbi is standalone; do not combine it with VG/design/setup")
@@ -91,11 +112,24 @@ def main():
                                          args.repair_vg or args.repair_gbi)))
         libdir = platform / "ASAP7" / "lib"
         libs = sorted(libdir.glob("asap7sc7p5t_*_TT_*.lib"))
-        libs.append(libdir / "sram_asap7_64x256_1rw.lib")
+        design_lib_setup = design / "lib_setup.tcl"
+        if design_lib_setup.is_file():
+            configured_libs = re.findall(r"\$\{libdir\}/([^\s\\]+\.lib)",
+                                         design_lib_setup.read_text())
+            libs.extend(libdir / name for name in configured_libs)
+        else:
+            libs.append(libdir / "sram_asap7_64x256_1rw.lib")
+        libs = sorted(set(libs))
         lefdir = platform / "ASAP7" / "lef"
         lefs = [lefdir / "asap7_tech_1x_201209.lef"]
         lefs += sorted(lefdir.glob("asap7sc7p5t_28_*_1x_220121a.lef"))
-        lefs.append(lefdir / "sram_asap7_64x256_1rw.lef")
+        if design_lib_setup.is_file():
+            configured_lefs = re.findall(r"\$\{lefdir\}/([^\s\\]+\.lef)",
+                                         design_lib_setup.read_text())
+            lefs.extend(lefdir / name for name in configured_lefs)
+        else:
+            lefs.append(lefdir / "sram_asap7_64x256_1rw.lef")
+        lefs = sorted(set(lefs))
         fingerprint = input_fingerprint(design, libs + lefs + [platform / "ASAP7/util/setRC.tcl"])
         env_file = out / "sizer.env"
         env_file.write_text(f"-home /src\n-libpath {libdir}\n-num_vt 1\n"
@@ -117,6 +151,8 @@ def main():
             setup_topology = {}
             stage_metrics = {}
             effective_config = {}
+            path_trials = []
+            path_fanout_checks = []
             if mode == "sizer":
                 cmd_file = out / "sizer.cmd"
                 input_def = dest / "repaired.def"
@@ -143,7 +179,7 @@ def main():
                 if args.repair_vg and args.repair_design:
                     buffer_option += f"-sizer_repair_vg {args.max_fanout}\n"
                     repair_flag = "-sizer_repair_setup" if args.repair_setup else "-sizer_repair_design"
-                if args.stage_metrics:
+                if args.stage_metrics or args.stage_snapshots:
                     buffer_option += f"-sizer_repair_stage_prefix {dest}/stage\n"
                 if args.repair_config:
                     buffer_option += f"-sizer_repair_config {json.dumps(str(args.repair_config.resolve()), ensure_ascii=False)}\n"
@@ -201,6 +237,60 @@ def main():
                         raise RuntimeError(f"missing setup completion: {dest}")
                     setup_topology = {k: float(v) for k, v in
                                       re.findall(r"(\w+)=([0-9.eE+-]+)", setup_match.group(1))}
+                    for line in log_text.splitlines():
+                        if line.startswith("Sizer path trial: "):
+                            values = dict(token.split("=", 1) for token in
+                                          shlex.split(line.removeprefix("Sizer path trial: ")))
+                            reasons = values.pop("reasons")
+                            trial = {k: float(v) for k, v in values.items()}
+                            trial["rejection_reasons"] = [] if reasons == "none" else reasons.split(",")
+                            trial["candidates"] = []
+                            path_trials.append(trial)
+                        elif line.startswith("Sizer path fanout: "):
+                            values = dict(token.split("=", 1) for token in
+                                          shlex.split(line.removeprefix("Sizer path fanout: ")))
+                            for key in ("load", "limit", "slack"):
+                                values[key] = float(values[key])
+                            path_fanout_checks.append(values)
+                        elif line.startswith("Sizer path candidate: "):
+                            values = dict(token.split("=", 1) for token in
+                                          shlex.split(line.removeprefix("Sizer path candidate: ")))
+                            index = int(values.pop("trial"))
+                            values["loads"] = int(values["loads"])
+                            values["predicted_driver_gain_ns"] = float(values["predicted_driver_gain_ns"])
+                            for key in ("predicted_wns_gain_ns", "predicted_tns_gain_ns"):
+                                if key in values:
+                                    values[key] = float(values[key])
+                            for key in ("affected_endpoints", "x", "y", "recovery", "planned_buffers"):
+                                if key in values:
+                                    values[key] = int(values[key])
+                            path_trials[index - 1]["candidates"].append(values)
+                    if args.path_from_input:
+                        for key in ("accepted_passes", "inserted_buffers", "resized_buffers",
+                                    "resized_gates", "vt_swaps", "downsized_loads"):
+                            if design_topology.get(key) != 0:
+                                raise RuntimeError(f"raw path ablation unexpectedly ran design repair: {key}")
+                        for key in ("resized_cells", "vt_swaps", "downsized_loads"):
+                            if setup_topology.get(key) != 0:
+                                raise RuntimeError(f"raw path ablation performed non-buffer edit: {key}")
+            pbbi_topology, pbbi_trials = {}, []
+            if mode == "sizer":
+                pbbi_match = re.search(r"Sizer PBBI: (.*)", log_text)
+                if pbbi_match:
+                    pbbi_topology = {k: float(v) for k,v in re.findall(r"(\w+)=([0-9.eE+-]+)", pbbi_match.group(1))}
+                for line in log_text.splitlines():
+                    if line.startswith("Sizer PBBI trial: "):
+                        values = dict(token.split("=", 1) for token in shlex.split(line.removeprefix("Sizer PBBI trial: ")))
+                        candidate_fingerprint = values.pop("fingerprint")
+                        reasons = [x for x in values.pop("reasons").split(",") if x]
+                        pbbi_trials.append(dict({k: float(v) for k,v in values.items()}, fingerprint=candidate_fingerprint, rejection_reasons=reasons))
+                    elif line.startswith("Sizer PBBI pin: "):
+                        values = dict(token.split("=", 1) for token in shlex.split(line.removeprefix("Sizer PBBI pin: ")))
+                        index = int(values.pop("trial")) - 1
+                        strings = {k: values.pop(k) for k in ("kind", "pin", "net", "master", "relation")}
+                        pbbi_trials[index].setdefault("pin_violations", []).append(dict(strings, **{k: float(v) for k,v in values.items()}))
+                if args.repair_pbbi and not pbbi_match:
+                    raise RuntimeError("PBBI requested but no PBBI completion record")
             power_topology = {}
             if mode == "sizer":
                 power_match = re.search(r"Sizer power repair: (.*)", log_text)
@@ -244,23 +334,27 @@ def main():
                         stage_dest / "equivalence.log", env)
                     stage_metrics[stage] = dict(metrics=values, evaluation_seconds=stage_elapsed,
                                                contest_structural_check="passed")
-            row = dict(design=name, mode=mode, power_topology=power_topology, input_fingerprint=fingerprint, max_fanout=args.max_fanout,
+            row = dict(design=name, mode=mode, pbbi_topology=pbbi_topology, pbbi_trials=pbbi_trials, power_topology=power_topology, input_fingerprint=fingerprint, max_fanout=args.max_fanout,
                        buffer_cell=args.buffer_cell or "auto",
                        excluded_masters=args.dont_use_list.read_text().splitlines() if args.dont_use_list else [],
-                       repair_design=args.repair_design or args.repair_ord_design,
+                       repair_design=(args.repair_design and not args.path_from_input) or args.repair_ord_design,
+                       path_startpoint=("raw_input" if args.path_from_input else
+                                        "after_native_design" if args.repair_setup else None),
                        repair_ord_design=args.repair_ord_design,
                        repair_vg=args.repair_vg,
                        repair_gbi=args.repair_gbi,
                        repair_overrides=args.repair_set,
-                       gate_resize=((not args.repair_vg and not args.repair_gbi or args.repair_design or args.repair_ord_design) and effective_config.get("common.allow_gate_resize",
+                       gate_resize=(not args.path_from_input and (not args.repair_vg and not args.repair_gbi or args.repair_design or args.repair_ord_design) and effective_config.get("common.allow_gate_resize",
                                     str(not args.no_gate_resize).lower()) == "true"),
                        effective_repair_config=effective_config,
                        placement_checked=args.legalize or args.repair_design or args.repair_ord_design or args.repair_vg or args.repair_gbi,
                        evaluation_seconds=elapsed, sizer_seconds=runtime,
                        topology=topology, setup_topology=setup_topology,
+                       path_trials=path_trials,
+                       path_fanout_checks=path_fanout_checks,
                        vg_topology=vg_topology, gbi_topology=gbi_topology, design_topology=design_topology,
                        stage_metrics=stage_metrics,
-                       repair_setup=args.repair_setup, metrics=metrics)
+                       repair_setup=args.repair_setup, repair_pbbi=args.repair_pbbi, metrics=metrics)
             if mode != "baseline":
                 run(["python3", str(args.equiv_dir / "netlist_equiv_check.py"),
                      "--pre_opt", str(out / "baseline"), "--post_opt", str(dest),

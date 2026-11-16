@@ -3,6 +3,7 @@
 #pragma once
 
 #include "repair_design.h"
+#include "repair_path.h"
 
 namespace ecc {
 struct SetupRepairMetrics {
@@ -29,6 +30,16 @@ struct SetupRepairResult {
     double refresh_ms = 0;
     double measure_ms = 0;
     unsigned inserted_buffers = 0;
+    unsigned path_buffer_attempted = 0;
+    unsigned path_buffer_accepted = 0;
+    unsigned path_buffer_rejected = 0;
+    unsigned path_buffer_inserted_buffers = 0;
+    unsigned path_buffer_candidates = 0;
+    unsigned path_buffer_duplicate_candidates = 0;
+    unsigned path_buffer_screened_candidates = 0;
+    unsigned path_buffer_fanout_precheck_rejections = 0;
+    unsigned path_buffer_fanout_tree_trials = 0;
+    std::vector< PathBufferTrial > path_buffer_trials;
     unsigned resized_cells = 0;
     unsigned downsized_loads = 0;
     unsigned vt_swaps = 0;
@@ -41,7 +52,9 @@ struct SetupRepairResult {
 // Failed trials restore topology and placement immediately. With deferred
 // refresh, STA is refreshed after the next edit or before returning; baseline
 // metrics/plans are reused only while the committed design stays unchanged.
-// No Resizer repair calls.
+// No Resizer repair calls.  When path_buffer_enabled is set, a verified
+// path-level side-load buffer phase runs before the native candidate phase;
+// path_buffer_only selects that phase as the complete setup repair.
 class OpenDbSetupRepairer {
    public:
     static SetupRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,

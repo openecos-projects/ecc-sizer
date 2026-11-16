@@ -4,9 +4,13 @@
 #include "repair_backend.h"
 #include "repair_load.h"
 #include "repair_acceptance.h"
+#include "repair_path.h"
 
 #include <chrono>
+#include <algorithm>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "sta/Path.hh"
 #include "sta/PathEnd.hh"
@@ -231,6 +235,7 @@ bool acceptable(const SetupRepairMetrics& before,
            after.design.severity <=
                before.design.severity + tolerance.drv_severity;
 }
+
 }  // namespace
 
 SetupRepairResult OpenDbSetupRepairer::repair(
@@ -265,6 +270,60 @@ SetupRepairResult OpenDbSetupRepairer::repair(
     };
     auto states = inspect(result.before);
     result.after = result.before;
+    try {
+        if(options.path_buffer_enabled || options.path_buffer_only) {
+            auto path_result =
+                OpenDbPathRepairer::repair(block, sta, refresh, options);
+            result.path_buffer_attempted = path_result.attempted_trials;
+            result.path_buffer_accepted = path_result.accepted_trials;
+            result.path_buffer_rejected = path_result.rejected_trials;
+            result.path_buffer_inserted_buffers = path_result.inserted_buffers;
+            result.path_buffer_candidates = path_result.candidate_count;
+            result.path_buffer_duplicate_candidates =
+                path_result.duplicate_candidates;
+            result.path_buffer_screened_candidates = path_result.screened_candidates;
+            result.path_buffer_fanout_precheck_rejections = path_result.fanout_precheck_rejections;
+            result.path_buffer_fanout_tree_trials = path_result.fanout_tree_trials;
+            result.path_buffer_trials = std::move(path_result.trials);
+            if(options.path_buffer_only) result.message = path_result.message;
+            result.refreshes += path_result.refreshes;
+            result.rollback_refreshes += path_result.rollback_refreshes;
+            result.candidate_ms += path_result.candidate_ms;
+            result.prepare_ms += path_result.prepare_ms;
+            result.refresh_ms += path_result.refresh_ms;
+            result.measure_ms += path_result.measure_ms;
+            result.inserted_buffers += path_result.inserted_buffers;
+            result.after.design = path_result.after;
+            result.after.setup_tns = path_result.after.setup_tns;
+            result.after.hold_tns = path_result.after.hold_tns;
+            result.after.slew_violations =
+                path_result.after.total_slew_violations;
+            result.after.cap_violations =
+                path_result.after.total_cap_violations;
+            result.after.fanout_violations =
+                path_result.after.total_fanout_violations;
+            if(!path_result.ok) {
+                result.message = path_result.message;
+                return result;
+            }
+            // Path edits change the OpenDB topology. Rebuild the normal
+            // candidate state from the committed design before continuing.
+            states = inspect(result.after);
+        }
+    }
+    catch(const std::exception& error) {
+        result.message = error.what();
+        return result;
+    }
+    if(options.path_buffer_only) {
+        result.ok = true;
+        result.converged = result.after.design.setup_wns >= 0;
+        if(result.message.empty())
+            result.message = result.converged
+                                 ? "path buffer setup timing met"
+                                 : "path buffer trial budget exhausted; violations remain";
+        return result;
+    }
     const double area_limit =
         result.before.design.area * (1 + options.max_area_growth);
     for(unsigned pass = 0;

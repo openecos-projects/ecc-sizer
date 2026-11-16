@@ -1,3 +1,4 @@
+#include "repair_pbbi_electrical.h"
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 
@@ -7,11 +8,16 @@
 #include <string>
 #include <vector>
 #include <tuple>
+#include <regex>
+#include <set>
+#include <sstream>
 
 #include "buffer_inserter.h"
 #include "repair_fanout.h"
 #include "repair_design.h"
 #include "repair_vg.h"
+#include "repair_path.h"
+#include "repair_pbbi.h"
 #include "repair_timing.h"
 #include "repair_load.h"
 #include "repair_power.h"
@@ -850,6 +856,665 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairBuffersNoncriticalBranches)
   db_network_->checkAxioms();
 }
 
+TEST_F(BufferInserterStaTest, PathBufferOnlyRepairUsesVerifiedPathEdit)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_enabled = true;
+  options.path_buffer_only = true;
+  options.path_buffer_max_paths = 1;
+  options.path_buffer_max_candidates = 4;
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_area_growth = 0.5;
+  options.common.allow_gate_resize = false;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto result = ecc::OpenDbSetupRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.path_buffer_attempted, 0u);
+  EXPECT_GT(result.path_buffer_accepted, 0u);
+  EXPECT_EQ(result.path_buffer_inserted_buffers, result.path_buffer_accepted);
+  EXPECT_EQ(result.path_buffer_trials.size(), result.path_buffer_attempted);
+  EXPECT_LE(result.refreshes, result.path_buffer_attempted + 1);
+  EXPECT_LE(result.rollback_refreshes, 1u);
+  EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_GT(result.inserted_buffers, 0u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, StandalonePathRepairWithoutBudgetsUsesVerifiedPathEdit)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_max_paths = 1;
+  options.path_buffer_max_candidates = 4;
+  options.path_buffer_max_trials = 0;
+  options.path_buffer_max_area_growth = 0;
+  options.common.allow_gate_resize = false;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto no_growth = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(no_growth.ok) << no_growth.message;
+  EXPECT_EQ(no_growth.attempted_trials, 0u);
+  EXPECT_EQ(no_growth.inserted_buffers, 0u);
+  options.path_buffer_max_area_growth = -1;
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.accepted_trials, 0u);
+  EXPECT_EQ(result.inserted_buffers, result.accepted_trials);
+  EXPECT_GT(result.after.setup_wns, result.before.setup_wns);
+  EXPECT_NE(result.message, "path buffer trial budget exhausted; violations remain");
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_area_growth = 0.5;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto initial_instances = block_->getInsts().size();
+  unsigned reports = 0;
+  unsigned accepted = 0;
+  options.path_trial_observer = [&](unsigned index, const ecc::PathBufferTrial& trial) {
+    EXPECT_EQ(index, ++reports);
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+    if(trial.rejection_reasons.empty()) accepted += trial.buffers;
+    EXPECT_EQ(block_->getInsts().size(), initial_instances + accepted);
+  };
+  // A 100% initial-slack threshold cannot be exceeded by negative slack
+  // clamped at zero. All edits must be restored, despite optimistic forecasts.
+  options.path_buffer_min_relative_improvement = 1;
+  // Exercise actual STA rejection independently of prediction screening.
+  options.path_buffer_strategy = "path_gain";
+  const auto rejected = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(rejected.ok) << rejected.message;
+  EXPECT_GT(reports, 0u);
+  EXPECT_EQ(reports, rejected.attempted_trials);
+  EXPECT_EQ(accepted, 0u);
+  EXPECT_FLOAT_EQ(rejected.before.setup_wns, rejected.after.setup_wns);
+  reports = 0;
+  options.path_buffer_strategy = "feedback";
+  const auto screened = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(screened.ok) << screened.message;
+  EXPECT_GT(screened.screened_candidates, 0u);
+  EXPECT_EQ(accepted, 0u);
+  EXPECT_EQ(reports, screened.attempted_trials);
+  EXPECT_EQ(block_->getInsts().size(), initial_instances);
+  reports = 0;
+  options.path_buffer_min_relative_improvement = 0;
+  const auto repaired = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(repaired.ok) << repaired.message;
+  EXPECT_EQ(reports, repaired.attempted_trials);
+  EXPECT_GT(accepted, 0u);
+  EXPECT_GT(repaired.after.setup_wns, repaired.before.setup_wns);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathFanoutTreeUsesWeightedLoadsAndRollsBackWholeEco)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  // A fractional limit deliberately differs from raw sink count. Keep the
+  // original driver violating even after buffering, so an extra violating
+  // branch cannot hide behind removal of the original violation.
+  for(auto* master : lib_->getMasters()) {
+    auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
+    if(cell && cell->isBuffer()) {
+      sta::LibertyPort *input, *output;
+      cell->bufferPorts(input, output);
+      input->setFanoutLoad(0.5f);
+      output->setFanoutLimit(1.5f, sta::MinMax::max());
+    }
+  }
+  db_network_->libertyCell(block_->findInst("driver"))->findLibertyPort("ZN")
+      ->setFanoutLimit(0.25f, sta::MinMax::max());
+  refreshRepairTiming();
+  const auto initial_instances = block_->getInsts().size();
+  const auto initial_nets = block_->getNets().size();
+  std::vector<std::pair<odb::dbITerm*, odb::dbNet*>> connections;
+  for(auto* inst : block_->getInsts())
+    for(auto* pin : inst->getITerms()) connections.emplace_back(pin, pin->getNet());
+  ecc::SetupRepairOptions options;
+  options.path_buffer_tree_candidates = false; // Isolate post-insertion fanout completion.
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_area_growth = -1;
+  options.path_buffer_min_relative_improvement = 1; // Force post-STA rollback.
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  unsigned tree_trials = 0, diagnostics = 0;
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& trial) {
+    if(trial.buffers > trial.candidates.size()) {
+      ++tree_trials;
+      EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
+    }
+    EXPECT_FALSE(trial.rejection_reasons.empty());
+    EXPECT_EQ(block_->getInsts().size(), initial_instances);
+    EXPECT_EQ(block_->getNets().size(), initial_nets);
+    for(const auto& [pin, net] : connections) EXPECT_EQ(pin->getNet(), net);
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  };
+  options.path_fanout_observer = [&](const ecc::PathFanoutCheck& check) {
+    ++diagnostics;
+    EXPECT_LT(check.slack, 0);
+    EXPECT_FALSE(check.pin.empty());
+  };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(tree_trials, 0u);
+  EXPECT_EQ(tree_trials, result.fanout_tree_trials);
+  EXPECT_GT(diagnostics, 0u);
+  EXPECT_EQ(result.inserted_buffers, 0u);
+  EXPECT_FLOAT_EQ(result.before.setup_wns, result.after.setup_wns);
+  EXPECT_EQ(result.before.total_fanout_violations, result.after.total_fanout_violations);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathFanoutTreeHonorsSdcAndCompoundBufferBudget)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  for(auto* master : lib_->getMasters()) {
+    auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
+    if(cell && cell->isBuffer()) {
+      sta::LibertyPort *input, *output;
+      cell->bufferPorts(input, output);
+      input->setFanoutLoad(0.5f);
+      output->setFanoutLimit(100, sta::MinMax::max());
+    }
+  }
+  sta_->setFanoutLimit(db_network_->cell(db_network_->topInstance()),
+      sta::MinMax::max(), 1.5f, sta_->cmdMode()->sdc());
+  db_network_->libertyCell(block_->findInst("driver"))->findLibertyPort("ZN")
+      ->setFanoutLimit(0.25f, sta::MinMax::max());
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_tree_candidates = false; // Isolate post-insertion fanout completion.
+  options.path_buffer_max_trials = 0;
+  options.path_buffer_max_area_growth = -1;
+  options.path_buffer_max_inserted_buffers = 2;
+  options.path_buffer_min_relative_improvement = 1;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  unsigned largest_trial = 0;
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& trial) {
+    largest_trial = std::max(largest_trial, trial.buffers);
+    EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
+  };
+  bool saw_sdc_limit = false;
+  options.path_fanout_observer = [&](const ecc::PathFanoutCheck& check) {
+    if(check.phase == "candidate_buffer") {
+      saw_sdc_limit = true;
+      EXPECT_FLOAT_EQ(check.limit, 1.5f); // SDC tighter than Liberty's 100.
+    }
+  };
+  const auto bounded = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(bounded.ok) << bounded.message;
+  EXPECT_TRUE(saw_sdc_limit);
+  EXPECT_GT(bounded.fanout_precheck_rejections, 0u);
+  EXPECT_LE(largest_trial, 2u);
+  EXPECT_EQ(bounded.inserted_buffers, 0u);
+  options.path_buffer_max_inserted_buffers = 0;
+  const auto unbounded = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(unbounded.ok) << unbounded.message;
+  EXPECT_GT(unbounded.fanout_tree_trials, 0u);
+  EXPECT_GT(largest_trial, 2u);
+  EXPECT_EQ(unbounded.inserted_buffers, 0u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathFanoutTreeAllowsSingletonGroupsWithHeavyLoads)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  for(auto* master : lib_->getMasters()) {
+    auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
+    if(cell && cell->isBuffer()) {
+      sta::LibertyPort *input, *output;
+      cell->bufferPorts(input, output);
+      input->setFanoutLoad(master->getName() == "BUF_X1" ? 2.0f : 0.5f);
+      output->setFanoutLimit(3, sta::MinMax::max());
+    }
+  }
+  db_network_->libertyCell(block_->findInst("driver"))->findLibertyPort("ZN")
+      ->setFanoutLimit(0.25f, sta::MinMax::max());
+  refreshRepairTiming();
+  const auto initial_instances = block_->getInsts().size();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_tree_candidates = false; // Isolate post-insertion fanout completion.
+  options.common.excluded_masters.push_back(lib_->findMaster("BUF_X1"));
+  options.path_buffer_max_area_growth = -1;
+  options.path_buffer_min_relative_improvement = 1;
+  options.path_buffer_max_trials = 4;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  unsigned singleton_trees = 0;
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& trial) {
+    if(trial.buffers > trial.candidates.front().loads) {
+      ++singleton_trees;
+      EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
+    }
+  };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(singleton_trees, 0u);
+  EXPECT_GT(result.fanout_tree_trials, 0u);
+  // Exercise the same heavy-sink/lighter-buffer boundary in the planner,
+  // before ECO fanout completion. Singleton leaf groups must remain feasible.
+  singleton_trees = 0;
+  options.path_buffer_tree_candidates = true;
+  const auto planned = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(planned.ok) << planned.message;
+  EXPECT_GT(singleton_trees, 0u);
+  EXPECT_EQ(planned.inserted_buffers, 0u);
+  EXPECT_EQ(block_->getInsts().size(), initial_instances);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathImpossibleFanoutSkipsPlacementAndStaTrials)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  for(auto* master : lib_->getMasters()) {
+    auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
+    if(cell && cell->isBuffer()) {
+      sta::LibertyPort *input, *output;
+      cell->bufferPorts(input, output);
+      input->setFanoutLoad(0.5f);
+      output->setFanoutLimit(0.25f, sta::MinMax::max());
+    }
+  }
+  db_network_->libertyCell(block_->findInst("driver"))->findLibertyPort("ZN")
+      ->setFanoutLimit(0.25f, sta::MinMax::max());
+  refreshRepairTiming();
+  const auto initial_instances = block_->getInsts().size();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_tree_candidates = false; // Isolate post-insertion fanout completion.
+  options.path_buffer_max_area_growth = -1;
+  options.path_buffer_max_trials = 0;
+  unsigned prepares = 0;
+  options.common.prepare = [&]() { ++prepares; };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.fanout_precheck_rejections, 0u);
+  EXPECT_EQ(result.attempted_trials, 0u);
+  EXPECT_EQ(prepares, 0u);
+  EXPECT_EQ(result.refreshes, 1u); // Restore final STA once, not per rejection.
+  EXPECT_EQ(result.inserted_buffers, 0u);
+  EXPECT_EQ(block_->getInsts().size(), initial_instances);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathPlansCapLimitedTreeAndRollsBackAtomically)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows(); constrainSetup(false);
+  // A load cap tighter than a complete net, but feasible for buffered groups.
+  // No fanout overload is needed to create this topology.
+  for(auto* master : lib_->getMasters()) {
+    auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
+    if(cell && cell->isBuffer()) {
+      sta::LibertyPort *input, *output;
+      cell->bufferPorts(input, output);
+      output->setCapacitanceLimit(10e-15f, sta::MinMax::max());
+      output->setFanoutLimit(100, sta::MinMax::max());
+    }
+  }
+  refreshRepairTiming();
+  const auto instances = block_->getInsts().size(), nets = block_->getNets().size();
+  std::vector<std::pair<odb::dbITerm*, odb::dbNet*>> connections;
+  for(auto* inst : block_->getInsts())
+    for(auto* pin : inst->getITerms()) connections.emplace_back(pin, pin->getNet());
+  ecc::SetupRepairOptions options;
+  options.path_buffer_tree_candidates = true;
+  options.path_buffer_strategy = "path_gain";
+  options.path_buffer_max_trials = 0;
+  options.path_buffer_max_candidates = 64;
+  for(auto* master : lib_->getMasters()) {
+    auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
+    if(cell && cell->isBuffer() && master->getName() != "BUF_X1")
+      options.common.excluded_masters.push_back(master);
+  }
+  options.path_buffer_min_relative_improvement = 1;
+  options.path_buffer_max_area_growth = -1;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  unsigned planned_trees = 0;
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& t) {
+    for(const auto& c : t.candidates) if(c.planned_buffers > 1) {
+      ++planned_trees;
+      EXPECT_EQ(c.loads, 10u);
+      EXPECT_EQ(t.buffers, c.planned_buffers);
+      EXPECT_LE(t.after.total_fanout_violations, t.before.total_fanout_violations);
+    }
+    EXPECT_FALSE(t.rejection_reasons.empty());
+    EXPECT_EQ(block_->getInsts().size(), instances);
+    EXPECT_EQ(block_->getNets().size(), nets);
+    for(const auto& [pin, net] : connections) EXPECT_EQ(pin->getNet(), net);
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  };
+  auto run = [&]() { return ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options); };
+  const auto result = run();
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(planned_trees, 0u);
+  EXPECT_EQ(result.inserted_buffers, 0u);
+  // The allowance applies to the entire planned tree, before mutating DB.
+  planned_trees = 0;
+  options.path_buffer_max_inserted_buffers = 1;
+  const auto bounded = run();
+  ASSERT_TRUE(bounded.ok) << bounded.message;
+  EXPECT_EQ(planned_trees, 0u);
+  EXPECT_EQ(block_->getInsts().size(), instances);
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathRecoveryCandidatesUseActualEndpointObjective)
+{
+  readTestDesign("path_recovery_sta.v");
+  addLegalRows();
+  auto* sdc = sta_->cmdMode()->sdc();
+  sta_->setInputDelay(db_network_->dbToSta(block_->findBTerm("in")),
+      sta::RiseFallBoth::riseFall(), sdc->findClock("clk"), sta::RiseFall::rise(),
+      nullptr, false, false, sta::MinMaxAll::max(), false, 0.9e-9, sdc);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_gain_scope = "endpoints";
+  options.path_buffer_strategy = "path_gain";
+  options.path_buffer_max_area_growth = -1;
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_min_relative_improvement = 1; // force rollback
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  auto run = [&]() { return ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options); };
+  options.path_buffer_recovery = false;
+  auto setup_only = run();
+  ASSERT_TRUE(setup_only.ok) << setup_only.message;
+  for(const auto& t : setup_only.trials)
+    for(const auto& c : t.candidates) EXPECT_FALSE(c.recovery);
+  options.path_buffer_recovery = true;
+  auto recovery = run();
+  ASSERT_TRUE(recovery.ok) << recovery.message;
+  bool saw_recovery = false;
+  for(const auto& t : recovery.trials) {
+    for(const auto& c : t.candidates) saw_recovery |= c.recovery;
+    EXPECT_GT(t.objective_endpoints, 0u);
+    EXPECT_LT(t.objective_wns_before, 0);
+    EXPECT_LE(t.objective_tns_before, t.objective_wns_before);
+    EXPECT_FALSE(t.rejection_reasons.empty());
+  }
+  EXPECT_TRUE(saw_recovery);
+  EXPECT_EQ(recovery.inserted_buffers, 0u);
+  EXPECT_FLOAT_EQ(recovery.before.setup_wns, recovery.after.setup_wns);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathLocalObjectiveRequiresBothEndpointAndGlobalProgress)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows(); constrainSetup(true); refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_gain_scope = "endpoints";
+  options.path_buffer_min_relative_improvement = 0.001;
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_area_growth = -1;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.inserted_buffers, 0u);
+  for(const auto& t : result.trials) {
+    EXPECT_GT(t.objective_endpoints, 0u);
+    if(t.rejection_reasons.empty()) {
+      EXPECT_TRUE(t.objective_wns_after > t.objective_wns_before ||
+                  t.objective_tns_after > t.objective_tns_before);
+      EXPECT_TRUE(t.after.setup_wns > t.before.setup_wns ||
+                  t.after.setup_tns > t.before.setup_tns);
+      EXPECT_LE(t.after.total_fanout_violations, t.before.total_fanout_violations);
+    }
+  }
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathEndpointScaleIsNotBlockedByUnrelatedRecoveryTns)
+{
+  readTestDesign("path_objective_sta.v");
+  addLegalRows(); constrainSetup(true);
+  auto* sdc = sta_->cmdMode()->sdc();
+  sta_->setInputDelay(db_network_->dbToSta(block_->findBTerm("rst_bad")),
+      sta::RiseFallBoth::riseFall(), sdc->findClock("clk"), sta::RiseFall::rise(),
+      nullptr, false, false, sta::MinMaxAll::max(), false, 5e-9, sdc);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_recovery = false; // Isolate the gain-scope change.
+  options.path_buffer_strategy = "path_gain";
+  options.path_buffer_min_relative_improvement = 0.1;
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_area_growth = -1;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  auto run = [&]() { return ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options); };
+  options.path_buffer_gain_scope = "global";
+  const auto global = run();
+  ASSERT_TRUE(global.ok) << global.message;
+  EXPECT_GT(global.attempted_trials, 0u);
+  EXPECT_EQ(global.inserted_buffers, 0u);
+  options.path_buffer_gain_scope = "endpoints";
+  const auto local = run();
+  ASSERT_TRUE(local.ok) << local.message;
+  EXPECT_GT(local.inserted_buffers, 0u);
+  EXPECT_GT(local.after.setup_tns, local.before.setup_tns);
+  EXPECT_GE(local.after.setup_wns + options.common.tolerances.wns_absolute,
+            local.before.setup_wns);
+  EXPECT_LE(local.after.total_slew_violations, local.before.total_slew_violations);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathBufferOnlyRepairRollsBackStaRegression)
+{
+  readTestDesign("gate_repair_sta.v");
+  constrainSetup(true);
+  refreshRepairTiming();
+  const auto instances_before = block_->getInsts().size();
+  const auto nets_before = block_->getNets().size();
+  const float wns_before = float(sta_->worstSlack(sta::MinMax::max()));
+  ecc::SetupRepairOptions options;
+  options.path_buffer_only = true;
+  options.path_buffer_max_paths = 1;
+  options.path_buffer_max_trials = 1;
+  options.path_buffer_max_area_growth = 0.5;
+  unsigned refreshes = 0;
+  const auto refresh = [&]() {
+    const bool edited = block_->getInsts().size() > instances_before;
+    ++refreshes;
+    for(auto* scene : sta_->scenes()) {
+      ep_.setHWireSignalRC(scene, edited ? 1e12 : 1e6,
+                            edited ? 1e-4 : 1e-10);
+      ep_.setVWireSignalRC(scene, edited ? 1e12 : 1e6,
+                            edited ? 1e-4 : 1e-10);
+    }
+    refreshRepairTiming();
+  };
+  const auto result =
+      ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_EQ(result.path_buffer_accepted, 0u);
+  EXPECT_EQ(result.path_buffer_rejected, 1u);
+  ASSERT_EQ(result.path_buffer_trials.size(), 1u);
+  EXPECT_FALSE(result.path_buffer_trials.front().rejection_reasons.empty());
+  EXPECT_LT(result.path_buffer_trials.front().after.setup_wns, wns_before);
+  EXPECT_EQ(result.refreshes, refreshes);
+  EXPECT_EQ(result.rollback_refreshes, 1u);
+  EXPECT_EQ(block_->getInsts().size(), instances_before);
+  EXPECT_EQ(block_->getNets().size(), nets_before);
+  EXPECT_NEAR(result.after.design.setup_wns, wns_before, 1e-15);
+  EXPECT_GT(refreshes, 0u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathDeferredRefreshPreservesRejectedDesignAndTrials)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup();
+  refreshRepairTiming();
+  const auto count = block_->getInsts().size();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_max_paths = 10;
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_candidates = 8;
+  options.path_buffer_max_area_growth = 0.5;
+  options.min_improvement = 1.0f; // Force every otherwise valid ECO to roll back.
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  auto run = [&]() { return ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options); };
+  options.defer_rollback_refresh = false;
+  const auto eager = run();
+  ASSERT_TRUE(eager.ok) << eager.message;
+  ASSERT_EQ(eager.attempted_trials, 4u);
+  options.defer_rollback_refresh = true;
+  const auto deferred = run();
+  ASSERT_TRUE(deferred.ok) << deferred.message;
+  EXPECT_EQ(deferred.attempted_trials, eager.attempted_trials);
+  EXPECT_EQ(eager.refreshes, 8u);
+  EXPECT_EQ(deferred.refreshes, 5u);
+  EXPECT_EQ(deferred.rollback_refreshes, 1u);
+  EXPECT_EQ(deferred.after.setup_wns, eager.after.setup_wns);
+  EXPECT_EQ(deferred.after.setup_tns, eager.after.setup_tns);
+  EXPECT_EQ(block_->getInsts().size(), count);
+  ASSERT_EQ(deferred.trials.size(), eager.trials.size());
+  bool saw_multiple_endpoints = false;
+  for(size_t i = 0; i < eager.trials.size(); ++i) {
+    EXPECT_EQ(deferred.trials[i].candidates.front().net,
+              eager.trials[i].candidates.front().net);
+    EXPECT_EQ(deferred.trials[i].candidates.front().master,
+              eager.trials[i].candidates.front().master);
+    EXPECT_EQ(deferred.trials[i].after.setup_wns, eager.trials[i].after.setup_wns);
+    saw_multiple_endpoints |= deferred.trials[i].candidates.front().affected_endpoints > 1;
+  }
+  EXPECT_TRUE(saw_multiple_endpoints);
+  options.path_buffer_max_refreshes = 3;
+  const auto limited = run();
+  ASSERT_TRUE(limited.ok) << limited.message;
+  EXPECT_EQ(limited.attempted_trials, 2u);
+  EXPECT_EQ(limited.refreshes, 3u);
+  EXPECT_EQ(limited.after.setup_wns, eager.after.setup_wns);
+  options.path_buffer_max_seconds = 1e-12;
+  const auto expired = run();
+  ASSERT_TRUE(expired.ok);
+  EXPECT_EQ(expired.attempted_trials, 0u);
+  EXPECT_EQ(expired.refreshes, 0u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathExceptionAfterDeferredRollbackRestoresSta)
+{
+  readTestDesign("gate_repair_sta.v");
+  constrainSetup(true);
+  refreshRepairTiming();
+  const auto count = block_->getInsts().size();
+  const auto nets = block_->getNets().size();
+  const float wns = float(sta_->worstSlack(sta::MinMax::max()));
+  ecc::SetupRepairOptions options;
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_area_growth = 0.5;
+  options.min_improvement = 1.0f;
+  unsigned prepares = 0;
+  options.common.prepare = [&]() {
+    if(++prepares == 2) throw std::runtime_error("injected prepare failure");
+  };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.message.find("injected prepare failure"), std::string::npos);
+  EXPECT_EQ(block_->getInsts().size(), count);
+  EXPECT_EQ(block_->getNets().size(), nets);
+  EXPECT_FLOAT_EQ(float(sta_->worstSlack(sta::MinMax::max())), wns);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathBatchSeparatesReconvergentCones)
+{
+  readTestDesign("path_reconvergent_sta.v");
+  addLegalRows();
+  constrainSetup();
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_batch_size = 8;
+  options.path_buffer_max_paths = 4;
+  options.paths_per_endpoint = 4;
+  options.path_buffer_max_trials = 1;
+  options.path_buffer_max_area_growth = 1;
+  options.min_improvement = 1.0f;
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  ASSERT_EQ(result.trials.size(), 1u);
+  EXPECT_GT(result.candidate_count, 1u);
+  // All candidate nets converge on the merge/sink cone, so distinct net
+  // names must not be mistaken for independent batch members.
+  EXPECT_EQ(result.trials.front().candidates.size(), 1u);
+  EXPECT_EQ(result.inserted_buffers, 0u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+}
+
+TEST_F(BufferInserterStaTest, PathBatchHonorsBufferCapAndSharedCone)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_batch_size = 8;
+  options.path_buffer_max_inserted_buffers = 1;
+  options.path_buffer_max_trials = 4;
+  options.path_buffer_max_area_growth = 0.5;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  ASSERT_GT(result.attempted_trials, 0u);
+  EXPECT_LE(result.inserted_buffers, 1u);
+  for(const auto& trial : result.trials) EXPECT_EQ(trial.candidates.size(), 1u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+}
+
 TEST_F(BufferInserterStaTest,
        NativeSetupRepairHonorsZeroBudgetAndProtectedDriver)
 {
@@ -1532,4 +2197,666 @@ TEST_F(BufferInserterStaTest, PowerRecoveryDownsizesSlackRichCells)
   EXPECT_LT(result.after.design.area, result.before.design.area);
 }
 
+
+
+void placePbbiPorts(odb::dbBlock* block) {
+  int y=1000;
+  for(auto* term:block->getBTerms()) {
+    auto* pin=odb::dbBPin::create(term);
+    odb::dbBox::create(pin,block->getTech()->findLayer("metal2"),20000,y,20100,y+100);
+    pin->setPlacementStatus(odb::dbPlacementStatus::PLACED);y+=1000;
+  }
+}
+
+TEST_F(BufferInserterStaTest, PbbiGateSizingIsGloballyVerified)
+{
+  readTestDesign("pbbi_sequential_sta.v");
+  addLegalRows(); placePbbiPorts(block_); constrainSetup(true); refreshRepairTiming();
+  ecc::PbbiRepairOptions o;
+  o.max_paths=2; o.max_trials=4; o.max_area_growth=0.5;
+  o.max_frontier_states=64;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_, &dp_);};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  SCOPED_TRACE(r.message);
+  ASSERT_TRUE(r.ok)<<r.message;
+  EXPECT_EQ(block_->findInst("sink")->getMaster()->getName(),"DFF_X1");
+  EXPECT_EQ(r.skipped_paths,0u);
+  EXPECT_GT(r.paths,0u);EXPECT_GT(r.expansions,0u);EXPECT_GT(r.attempted,0u);
+  EXPECT_GT(r.timing_nets,0u);EXPECT_GT(r.timing_vertices,0u);EXPECT_GT(r.timing_edges,0u);
+  EXPECT_GT(r.response_evaluations,0u);
+  EXPECT_GT(r.accepted,0u);
+  EXPECT_GT(r.inserted_buffers+r.resized_cells,0u);
+  EXPECT_GE(r.after.setup_wns+1e-15,r.before.setup_wns);
+  EXPECT_GE(r.after.setup_tns+1e-15,r.before.setup_tns);
+  EXPECT_LE(r.after.total_slew_violations,r.before.total_slew_violations);
+  EXPECT_NO_THROW(dp_.checkPlacement(false)); db_network_->checkAxioms();
+}
+TEST_F(BufferInserterStaTest, PbbiNoSizingKeepsGateMastersAndRollbackRestores)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows(); placePbbiPorts(block_); constrainSetup(true); refreshRepairTiming();
+  std::map<std::string,odb::dbMaster*> masters;
+  std::map<std::string,odb::dbNet*> nets;
+  for(auto* inst:block_->getInsts()){
+    masters[inst->getName()]=inst->getMaster();
+    for(auto* pin:inst->getITerms())nets[inst->getName()+"/"+pin->getMTerm()->getName()]=pin->getNet();
+  }
+  const auto count=block_->getInsts().size(), net_count=block_->getNets().size();
+  const float wns=sta_->worstSlack(sta::MinMax::max());
+  ecc::PbbiRepairOptions o;o.gate_sizing=false;o.sink_sizing=false;
+  o.max_paths=1;o.max_trials=3;o.max_area_growth=0.5;
+  o.min_improvement=1; // force every real plan to roll back
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_, &dp_);};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  SCOPED_TRACE(r.message);
+  ASSERT_TRUE(r.ok)<<r.message;EXPECT_GT(r.attempted,0u);EXPECT_EQ(r.accepted,0u);
+  EXPECT_EQ(r.resized_cells,0u);EXPECT_EQ(block_->getInsts().size(),count);
+  EXPECT_EQ(block_->getNets().size(),net_count);
+  for(auto* inst:block_->getInsts()){
+    EXPECT_EQ(inst->getMaster(),masters.at(inst->getName()));
+    for(auto* pin:inst->getITerms())EXPECT_EQ(pin->getNet(),nets.at(inst->getName()+"/"+pin->getMTerm()->getName()));
+  }
+  EXPECT_NEAR(sta_->worstSlack(sta::MinMax::max()),wns,1e-15);
+  EXPECT_LE(r.refreshes,r.attempted+1);
+  db_network_->checkAxioms();
+}
+TEST_F(BufferInserterStaTest, PbbiExceptionUndoesResizesAndInsertedBuffers)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows(); placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  const auto count=block_->getInsts().size();
+  auto* master=block_->findInst("driver")->getMaster();
+  const float wns=sta_->worstSlack(sta::MinMax::max());
+  ecc::PbbiRepairOptions o;o.max_paths=1;o.max_area_growth=0.5;
+  o.common.prepare=[](){throw std::runtime_error("injected PBBI placement failure");};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  EXPECT_FALSE(r.ok);EXPECT_NE(r.message.find("injected"),std::string::npos);
+  EXPECT_EQ(block_->getInsts().size(),count);EXPECT_EQ(block_->findInst("driver")->getMaster(),master);
+  EXPECT_NEAR(sta_->worstSlack(sta::MinMax::max()),wns,1e-15);
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiGateOnlyAndZeroTrialBudget)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows(); placePbbiPorts(block_); constrainSetup(true); refreshRepairTiming();
+  ecc::PbbiRepairOptions o;
+  o.max_paths=1; o.max_trials=0; o.max_area_growth=0.5;
+  for(auto* master:lib_->getMasters()) {
+    auto* cell=db_network_->libertyCell(db_network_->dbToSta(master));
+    if(cell && cell->isBuffer())o.common.excluded_masters.push_back(master);
+  }
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  auto zero=run();ASSERT_TRUE(zero.ok)<<zero.message;
+  EXPECT_EQ(zero.attempted,0u);EXPECT_EQ(zero.refreshes,0u);
+  o.max_trials=4;
+  auto r=run();ASSERT_TRUE(r.ok)<<r.message;
+  EXPECT_GT(r.resized_cells,0u);EXPECT_EQ(r.inserted_buffers,0u);
+  EXPECT_GT(r.after.setup_wns,r.before.setup_wns);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiDeferredAndEagerRollbackUseSamePlans)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup();refreshRepairTiming();
+  ecc::PbbiRepairOptions o;o.max_paths=2;o.max_trials=4;o.max_area_growth=0.5;
+  o.min_improvement=1;o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  o.defer_rollback_refresh=false;const auto eager=run();ASSERT_TRUE(eager.ok)<<eager.message;
+  o.defer_rollback_refresh=true;const auto deferred=run();ASSERT_TRUE(deferred.ok)<<deferred.message;
+  ASSERT_GT(eager.attempted,1u);ASSERT_EQ(eager.trials.size(),deferred.trials.size());
+  std::set<std::string> keys;
+  std::set<unsigned> path_ranks;
+  for(size_t i=0;i<eager.trials.size();++i){
+    path_ranks.insert(deferred.trials[i].path_rank);
+    EXPECT_EQ(eager.trials[i].fingerprint,deferred.trials[i].fingerprint);
+    EXPECT_TRUE(keys.insert(deferred.trials[i].fingerprint).second);
+    EXPECT_NEAR(eager.trials[i].after.setup_wns,deferred.trials[i].after.setup_wns,1e-15);
+  }
+  EXPECT_GT(path_ranks.size(),1u);
+  EXPECT_LT(deferred.refreshes,eager.refreshes);
+  EXPECT_EQ(deferred.after.setup_wns,eager.after.setup_wns);
+  o.max_refreshes=3;auto capped=run();ASSERT_TRUE(capped.ok)<<capped.message;
+  EXPECT_LE(capped.refreshes,3u);EXPECT_LE(capped.attempted,2u);
+}
+TEST_F(BufferInserterStaTest, PbbiSolvesOnlyPathsWithinTrialBudget)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup();refreshRepairTiming();
+  const auto count=block_->getInsts().size();
+  const float wns=sta_->worstSlack(sta::MinMax::max());
+  ecc::PbbiRepairOptions o;o.max_paths=4;o.max_trials=1;o.max_area_growth=0.5;
+  o.min_improvement=1;o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;EXPECT_GT(r.paths,1u);EXPECT_EQ(r.solved_paths,1u);
+  EXPECT_EQ(r.attempted,1u);EXPECT_EQ(r.accepted,0u);
+  EXPECT_EQ(block_->getInsts().size(),count);
+  EXPECT_NEAR(sta_->worstSlack(sta::MinMax::max()),wns,1e-15);
+  db_network_->checkAxioms();
+}
+TEST_F(BufferInserterStaTest, PbbiForecastRespectsHardBufferBlockage)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  const auto core=block_->getCoreArea();
+  auto* blockage=odb::dbBlockage::create(block_,core.xMin(),core.yMin(),core.xMax(),core.yMax());
+  const auto count=block_->getInsts().size();
+  const float wns=sta_->worstSlack(sta::MinMax::max());
+  ecc::PbbiRepairOptions o;o.gate_sizing=false;o.sink_sizing=false;o.max_paths=2;o.max_trials=2;
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;EXPECT_GT(r.timing_nets,0u);EXPECT_EQ(r.timing_buffered_nets,0u);
+  EXPECT_EQ(r.attempted,0u);EXPECT_EQ(r.inserted_buffers,0u);EXPECT_EQ(block_->getInsts().size(),count);
+  EXPECT_NEAR(sta_->worstSlack(sta::MinMax::max()),wns,1e-15);
+  odb::dbBlockage::destroy(blockage);db_network_->checkAxioms();
+}
+TEST_F(BufferInserterStaTest, PbbiModelsProtectedLogicWithoutEditingIt)
+{
+  readTestDesign("gate_repair_sta.v");addLegalRows();placePbbiPorts(block_);
+  constrainSetup(true);refreshRepairTiming();
+  auto* protected_gate=block_->findInst("driver");
+  auto* master=protected_gate->getMaster();protected_gate->setDoNotTouch(true);
+  ecc::PbbiRepairOptions o;o.max_paths=1;o.max_trials=1;o.gate_sizing=false;o.sink_sizing=false;
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;EXPECT_GT(r.timing_readonly_arcs,0u);EXPECT_EQ(r.timing_fallback_arcs,0u);
+  EXPECT_EQ(protected_gate->getMaster(),master);EXPECT_TRUE(protected_gate->isDoNotTouch());
+  db_network_->checkAxioms();
+}
+TEST_F(BufferInserterStaTest, PbbiElectricalSnapshotCoversOtherInputsAndDownstream)
+{
+  readTestDesign("pbbi_electrical_sta.v");addLegalRows();placePbbiPorts(block_);
+  constrainSetup();refreshRepairTiming();
+  auto* resized=block_->findInst("resized");auto* original=resized->getMaster();
+  auto* larger=lib_->findMaster("NAND2_X4");ASSERT_NE(larger,nullptr);
+  auto slew=[&](const char* inst,const char* port) {
+    return double(float(sta_->slew(sta_->graph()->pinDrvrVertex(db_network_->dbToSta(block_->findInst(inst)->findITerm(port))),
+        sta::RiseFallBoth::riseFall(),sta::SceneSeq{sta_->cmdScene()},sta::MinMax::max())));
+  };
+  const double side_before=slew("side_driver","Z"),out_before=slew("downstream","Z");
+  ecc::PbbiElectricalModel model(block_,sta_.get());
+  const auto identity=model.predict({}, {}, true);
+  EXPECT_DOUBLE_EQ(identity.wns_delta,0);EXPECT_DOUBLE_EQ(identity.tns_delta,0);
+  EXPECT_NEAR(identity.baseline_wns, std::min(0.0f, float(sta_->worstSlack(sta::MinMax::max()))), 1e-15);
+  EXPECT_NEAR(identity.baseline_tns, float(sta_->totalNegativeSlack(sta::MinMax::max())), 1e-15);
+  EXPECT_GT(identity.endpoints, 0u);
+  EXPECT_NEAR(identity.slew_by_pin.at("side_driver/Z"),side_before,1e-18);
+  auto prediction=model.predict({{resized,larger}}, {}, true);
+  EXPECT_GT(prediction.slew_by_pin.at("side_driver/Z"),side_before);
+  EXPECT_NE(prediction.slew_by_pin.at("downstream/Z"),out_before);
+  EXPECT_EQ(resized->getMaster(),original);EXPECT_TRUE(sta_->search()->arrivalsValid());
+  odb::dbDatabase::beginEco(block_);ASSERT_TRUE(resized->swapMaster(larger));refreshRepairTiming();
+  EXPECT_GT(slew("side_driver","Z"),side_before);
+  const double out_after=slew("downstream","Z");
+  EXPECT_GT((prediction.slew_by_pin.at("downstream/Z")-out_before)*(out_after-out_before),0);
+  odb::dbDatabase::undoEco(block_);
+  // No RC/STA refresh: the immutable model must be independent of dirty STA.
+  const auto reused=model.predict({{resized,larger}}, {}, true);
+  EXPECT_EQ(prediction.slew_by_pin,reused.slew_by_pin);
+  EXPECT_EQ(resized->getMaster(),original);refreshRepairTiming();db_network_->checkAxioms();
+}
+TEST_F(BufferInserterStaTest, PbbiElectricalIncludesConstrainedEndpointWithFanout)
+{
+  readTestDesign("pbbi_electrical_sta.v");addLegalRows();placePbbiPorts(block_);
+  constrainSetup();refreshRepairTiming();
+  const auto* pin = db_network_->dbToSta(block_->findInst("resized")->findITerm("ZN"));
+  auto* pins = new sta::PinSet(db_network_);
+  pins->insert(pin);
+  auto* sdc = sta_->cmdMode()->sdc();
+  auto* to = sta_->makeExceptionTo(pins, nullptr, nullptr,
+                                  sta::RiseFallBoth::riseFall(), sta::RiseFallBoth::riseFall(), sdc);
+  sta_->makePathDelay(nullptr, nullptr, to, sta::MinMax::max(), false, false,
+                      1e-12f, "PBBI internal endpoint regression", sdc);
+  refreshRepairTiming();
+  auto* vertex = sta_->graph()->pinDrvrVertex(pin);
+  ASSERT_TRUE(sta_->search()->isEndpoint(vertex, sta_->cmdMode()));
+  ecc::PbbiElectricalModel model(block_, sta_.get());
+  const auto identity = model.predict({}, {}, true);
+  ASSERT_TRUE(identity.endpoint_slack_by_pin.count("resized/ZN"));
+  ASSERT_TRUE(identity.endpoint_slack_by_pin.count("out0"));
+  // Vertex slack includes the tighter downstream constraint. It must not be
+  // charged again as the internal endpoint's own contribution to TNS.
+  EXPECT_GT(identity.endpoint_slack_by_pin.at("resized/ZN"),
+            float(sta_->slack(vertex, sta::MinMax::max())) + 1e-15);
+  EXPECT_NEAR(identity.baseline_wns, std::min(0.0f, float(sta_->worstSlack(sta::MinMax::max()))), 1e-15);
+  EXPECT_NEAR(identity.baseline_tns, float(sta_->totalNegativeSlack(sta::MinMax::max())), 1e-15);
+  EXPECT_DOUBLE_EQ(identity.wns_delta, 0);
+  EXPECT_DOUBLE_EQ(identity.tns_delta, 0);
+}
+TEST_F(BufferInserterStaTest, PbbiDiagnosticsRetainRejectedBufferPinsAfterUndo)
+{
+  readTestDesign("gate_repair_sta.v");addLegalRows();placePbbiPorts(block_);
+  constrainSetup(true);refreshRepairTiming();const auto count=block_->getInsts().size();
+  ecc::PbbiRepairOptions o;o.max_paths=1;o.max_trials=1;o.max_area_growth=0.5;
+  o.gate_sizing=false;o.sink_sizing=false;
+  o.common.prepare=[&](){
+    ecc::legalizeRepairPlacement(block_,&dp_);
+    for(auto* inst:block_->getInsts())if(inst->getName().find("sizer_pbbi_buf")==0) {
+      sta::LibertyPort *input=nullptr,*output=nullptr;db_network_->libertyCell(inst)->bufferPorts(input,output);
+      output->setSlewLimit(1e-15f,sta::MinMax::max());
+    }
+  };
+  const auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;ASSERT_EQ(r.trials.size(),1u);EXPECT_EQ(r.rejected,1u);
+  bool found=false;
+  for(const auto& v:r.trials[0].violations)if(v.relation=="inserted") {
+    found=true;EXPECT_FALSE(v.had_before);EXPECT_GT(v.after,v.limit);
+    EXPECT_EQ(block_->findInst(v.pin.substr(0,v.pin.rfind('/')).c_str()),nullptr);
+  }
+  EXPECT_TRUE(found);EXPECT_EQ(block_->getInsts().size(),count);db_network_->checkAxioms();
+}
 }  // namespace
+
+TEST_F(BufferInserterStaTest, PbbiGlobalPoolRollbackAndRefreshParity)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup();refreshRepairTiming();
+  ecc::PbbiRepairOptions o;o.scheduler="global";o.scheduler_window=2;
+  o.max_paths=4;o.max_trials=4;o.max_area_growth=0.5;o.min_improvement=1;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  const auto count=block_->getInsts().size();
+  auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  o.defer_rollback_refresh=false;auto eager=run();ASSERT_TRUE(eager.ok)<<eager.message;
+  o.defer_rollback_refresh=true;auto deferred=run();ASSERT_TRUE(deferred.ok)<<deferred.message;
+  EXPECT_EQ(deferred.accepted,0u);ASSERT_EQ(deferred.attempted,4u);
+  EXPECT_EQ(deferred.scheduler_decisions,deferred.attempted);
+  EXPECT_GT(deferred.scheduler_peak_candidates,1u);
+  EXPECT_GE(deferred.solved_paths,2u);
+  EXPECT_EQ(deferred.trials.size(),eager.trials.size());
+  for(size_t i=0;i<deferred.trials.size();++i) {
+    EXPECT_EQ(deferred.trials[i].fingerprint,eager.trials[i].fingerprint);
+    EXPECT_EQ(deferred.trials[i].after.setup_wns,eager.trials[i].after.setup_wns);
+    EXPECT_GT(deferred.trials[i].affected_nets,0u);
+  }
+  EXPECT_LT(deferred.refreshes,eager.refreshes);
+  EXPECT_EQ(block_->getInsts().size(),count);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}
+TEST_F(BufferInserterStaTest, PbbiForecastCacheMatchesUncachedAfterCommits)
+{
+  readTestDesign("pbbi_sequential_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  struct Original {odb::dbInst* inst;odb::dbMaster* master;int x,y;odb::dbOrientType orient;};
+  std::vector<Original> original;
+  std::unordered_set<odb::dbInst*> instances;
+  std::unordered_set<odb::dbNet*> nets;
+  std::vector<std::pair<odb::dbITerm*,odb::dbNet*>> connections;
+  for(auto* inst:block_->getInsts()) {
+    int x,y;inst->getLocation(x,y);
+    original.push_back({inst,inst->getMaster(),x,y,inst->getOrient()});instances.insert(inst);
+    for(auto* pin:inst->getITerms())connections.emplace_back(pin,pin->getNet());
+  }
+  for(auto* net:block_->getNets())nets.insert(net);
+  ecc::PbbiRepairOptions o;o.max_paths=2;o.max_trials=4;o.max_area_growth=0.5;o.max_frontier_states=64;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  o.forecast_cache=true;auto cached=run();ASSERT_TRUE(cached.ok)<<cached.message;
+  EXPECT_GT(cached.accepted,0u);EXPECT_GT(cached.forecast_cache_hits,0u);
+  EXPECT_GT(cached.forecast_cache_invalidations,0u);
+  std::vector<odb::dbInst*> added;
+  for(auto* inst:block_->getInsts())if(!instances.count(inst))added.push_back(inst);
+  for(auto* inst:added)odb::dbInst::destroy(inst);
+  for(auto& old:original){ASSERT_TRUE(old.inst->swapMaster(old.master));old.inst->setOrient(old.orient);old.inst->setLocation(old.x,old.y);}
+  for(auto [pin,net]:connections){if(net)pin->connect(net);else pin->disconnect();}
+  std::vector<odb::dbNet*> added_nets;
+  for(auto* net:block_->getNets())if(!nets.count(net))added_nets.push_back(net);
+  for(auto* net:added_nets)odb::dbNet::destroy(net);
+  refreshRepairTiming();
+  o.forecast_cache=false;o.path_cache=false;auto uncached=run();ASSERT_TRUE(uncached.ok)<<uncached.message;
+  EXPECT_EQ(cached.after.setup_wns,uncached.after.setup_wns);
+  EXPECT_EQ(cached.after.setup_tns,uncached.after.setup_tns);
+  ASSERT_EQ(cached.trials.size(),uncached.trials.size());
+  // OpenDB's name counter is intentionally monotonic across manual restore.
+  // Canonicalize only generated IDs, retaining a bijection across all trials.
+  auto keys=[](const auto& result) {
+    std::map<std::string,std::string> names;std::vector<std::string> keys;
+    const std::regex generated("sizer_pbbi_(buf|net)[0-9]+");
+    for(const auto& t:result.trials) {
+      std::string key;size_t offset=0;
+      for(std::sregex_iterator it(t.fingerprint.begin(),t.fingerprint.end(),generated),end;it!=end;++it) {
+        key+=t.fingerprint.substr(offset,it->position()-offset);
+        auto [name,inserted]=names.emplace(it->str(),"generated"+std::to_string(names.size()));
+        key+=name->second;offset=it->position()+it->length();
+      }
+      key+=t.fingerprint.substr(offset);keys.push_back(key);
+    }
+    return keys;
+  };
+  EXPECT_EQ(keys(cached),keys(uncached));
+  for(size_t i=0;i<cached.trials.size();++i) {
+    EXPECT_EQ(cached.trials[i].accepted,uncached.trials[i].accepted);
+  }
+  EXPECT_LT(cached.timing_expansions,uncached.timing_expansions);
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiAdaptiveDemandAdmissionAndRollbackParity)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup();refreshRepairTiming();
+  ecc::PbbiRepairOptions o;o.scheduler="adaptive";o.scheduler_window=4;
+  o.max_paths=4;o.max_trials=4;o.max_area_growth=0.5;o.min_improvement=1;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  const auto count=block_->getInsts().size(),nets=block_->getNets().size();
+  const auto wns=sta_->worstSlack(sta::MinMax::max());
+  auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  o.defer_rollback_refresh=false;auto eager=run();ASSERT_TRUE(eager.ok)<<eager.message;
+  o.defer_rollback_refresh=true;auto deferred=run();ASSERT_TRUE(deferred.ok)<<deferred.message;
+  ASSERT_EQ(deferred.attempted,4u);EXPECT_EQ(deferred.accepted,0u);
+  EXPECT_EQ(deferred.trials.front().pool_paths,1u); // No speculative warmup.
+  ASSERT_EQ(deferred.trials.size(),eager.trials.size());
+  for(size_t i=0;i<deferred.trials.size();++i) {
+    EXPECT_EQ(deferred.trials[i].fingerprint,eager.trials[i].fingerprint);
+    EXPECT_EQ(deferred.trials[i].after.setup_wns,eager.trials[i].after.setup_wns);
+  }
+  EXPECT_NE(deferred.trials[0].path_rank,deferred.trials[1].path_rank);
+  EXPECT_LT(deferred.refreshes,eager.refreshes);
+  EXPECT_EQ(block_->getInsts().size(),count);EXPECT_EQ(block_->getNets().size(),nets);
+  EXPECT_NEAR(sta_->worstSlack(sta::MinMax::max()),wns,1e-15);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, VgSetupScopeCollectsCleanNegativeSlackNets)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  ecc::VgRepairOptions o;o.max_buffers=64;o.common.max_fanout=64;
+  auto run=[&](){return ecc::OpenDbVgRepairer::repair(block_,sta_.get(),[&](){refreshRepairTiming();},&resizer_,o);};
+  auto drv=run();ASSERT_TRUE(drv.ok)<<drv.message;
+  ASSERT_LT(drv.before.setup_wns,0);
+  ASSERT_EQ(drv.before.severity,0);
+  ASSERT_EQ(drv.nets_collected,0u);
+  o.scope="setup";
+  auto setup=run();ASSERT_TRUE(setup.ok)<<setup.message;
+  EXPECT_GT(setup.nets_collected,0u);
+  EXPECT_GE(setup.after.setup_wns+o.common.tolerances.wns_absolute,setup.before.setup_wns);
+  EXPECT_GE(setup.after.setup_tns+o.common.tolerances.tns_absolute,setup.before.setup_tns);
+  EXPECT_EQ(setup.after.total_slew_violations,0u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+  auto missing=ecc::OpenDbVgRepairer::repair(block_,sta_.get(),[&](){refreshRepairTiming();},o);
+  EXPECT_FALSE(missing.ok);
+  EXPECT_NE(missing.message.find("Steiner"),std::string::npos);
+}
+
+TEST_F(BufferInserterStaTest, PbbiIncrementalPlacementRollbackRestoresGeometry)
+{
+  readTestDesign("gate_repair_sta.v");addLegalRows();placePbbiPorts(block_);
+  constrainSetup(true);refreshRepairTiming();
+  struct Original {odb::dbInst* inst;odb::dbMaster* master;int x,y;odb::dbOrientType orient;};
+  std::vector<Original> original;
+  for(auto* inst:block_->getInsts()) {
+    int x,y;inst->getLocation(x,y);
+    original.push_back({inst,inst->getMaster(),x,y,inst->getOrient()});
+  }
+  const auto nets=block_->getNets().size();
+  const double wns=sta_->worstSlack(sta::MinMax::max());
+  ecc::PbbiRepairOptions o;o.max_paths=2;o.max_trials=3;o.max_area_growth=0.5;
+  o.min_improvement=1;o.incremental_placement=true;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_,{},o.incremental_placement);};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;EXPECT_GT(r.attempted,0u);EXPECT_EQ(r.accepted,0u);
+  EXPECT_EQ(block_->getInsts().size(),original.size());EXPECT_EQ(block_->getNets().size(),nets);
+  for(const auto& before:original) {
+    int x,y;before.inst->getLocation(x,y);
+    EXPECT_EQ(x,before.x);EXPECT_EQ(y,before.y);
+    EXPECT_EQ(before.inst->getMaster(),before.master);EXPECT_EQ(before.inst->getOrient(),before.orient);
+  }
+  EXPECT_NEAR(sta_->worstSlack(sta::MinMax::max()),wns,1e-15);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, IncrementalPlacementRetainsLegalProtectedCells)
+{
+  readTestDesign("gate_repair_sta.v");addLegalRows();placePbbiPorts(block_);
+  auto* fixed=block_->findInst("load0");ASSERT_NE(fixed,nullptr);
+  int x,y;fixed->getLocation(x,y);auto status=fixed->getPlacementStatus();
+  auto* added=odb::dbInst::create(block_,lib_->findMaster("BUF_X8"),"incremental_test");
+  added->setLocation(x,y);added->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+  ecc::legalizeRepairPlacement(block_,&dp_,{fixed},true);
+  int nx,ny;fixed->getLocation(nx,ny);
+  EXPECT_EQ(nx,x);EXPECT_EQ(ny,y);EXPECT_EQ(fixed->getPlacementStatus(),status);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  odb::dbInst::destroy(added);
+}
+
+TEST_F(BufferInserterStaTest, PbbiPhysicalRetryIsBudgetedAndRestoresLocks)
+{
+  readTestDesign("gate_repair_sta.v");
+  auto* driver=odb::dbInst::create(block_,lib_->findMaster("BUF_X1"),"feedback_driver");
+  auto* load=odb::dbInst::create(block_,lib_->findMaster("BUF_X1"),"feedback_load");
+  auto* net=odb::dbNet::create(block_,"feedback_net");
+  ASSERT_NE(driver,nullptr);ASSERT_NE(load,nullptr);ASSERT_NE(net,nullptr);
+  auto* input=block_->findInst("driver")->findITerm("A1");ASSERT_NE(input,nullptr);
+  driver->findITerm("A")->connect(input->getNet());
+  driver->findITerm("Z")->connect(net);load->findITerm("A")->connect(net);
+  driver->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+  load->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+  addLegalRows();placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  int x,y;load->getLocation(x,y);const auto status=load->getPlacementStatus();
+  const auto instances=block_->getInsts().size();
+  ecc::PbbiRepairOptions o;o.max_paths=1;o.max_trials=2;o.max_area_growth=0.5;
+  o.placement_feedback=true;o.min_improvement=1;
+  o.gate_sizing=false;o.sink_sizing=false;
+  unsigned prepares=0;
+  bool fail_locked=false;
+  o.common.prepare=[&](){
+    ++prepares;
+    if(fail_locked && load->isFixed())
+      throw std::runtime_error("injected protected placement failure");
+    ecc::legalizeRepairPlacement(block_,&dp_);
+    // Inject off-path wire growth after placement, as a deterministic stand-in
+    // for an unrelated cell disturbed by legalization. Retry must protect it.
+    if(!load->isFixed())load->setLocation(x+20000000,y);
+  };
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;ASSERT_EQ(r.trials.size(),2u);
+  EXPECT_EQ(prepares,2u);EXPECT_EQ(r.accepted,0u);
+  EXPECT_EQ(r.trials[0].protected_instances,0u);
+  EXPECT_GT(r.trials[1].protected_instances,0u);
+  EXPECT_EQ(r.trials[0].fingerprint,r.trials[1].fingerprint);
+  EXPECT_EQ(load->getPlacementStatus(),status);
+  int nx,ny;load->getLocation(nx,ny);EXPECT_EQ(nx,x);EXPECT_EQ(ny,y);
+  EXPECT_EQ(block_->getInsts().size(),instances);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+  // Guard-induced placement failure must be rejected without leaking locks.
+  fail_locked=true;prepares=0;
+  auto failed=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(failed.ok)<<failed.message;ASSERT_EQ(failed.trials.size(),2u);
+  EXPECT_TRUE(failed.trials.back().placement_failed);
+  EXPECT_EQ(failed.trials.back().rejection_reasons,std::vector<std::string>{"placement"});
+  EXPECT_EQ(load->getPlacementStatus(),status);load->getLocation(nx,ny);
+  EXPECT_EQ(nx,x);EXPECT_EQ(ny,y);EXPECT_EQ(block_->getInsts().size(),instances);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  // A requested retry cannot bypass the trial cap.
+  o.max_trials=1;prepares=0;fail_locked=false;
+  auto capped=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(capped.ok)<<capped.message;EXPECT_EQ(capped.attempted,1u);
+  EXPECT_EQ(prepares,1u);EXPECT_EQ(load->getPlacementStatus(),status);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+  // Cross-path schedulers must also retry the measured plan before admission
+  // or path cooldown can spend the remaining STA budget on another candidate.
+  o.max_trials=2;o.max_paths=2;
+  for(const auto* scheduler : {"global", "adaptive"}) {
+    SCOPED_TRACE(scheduler);o.scheduler=scheduler;prepares=0;
+    auto scheduled=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+    ASSERT_TRUE(scheduled.ok)<<scheduled.message;ASSERT_EQ(scheduled.trials.size(),2u);
+    EXPECT_EQ(prepares,2u);EXPECT_GT(scheduled.trials[1].protected_instances,0u);
+    EXPECT_EQ(scheduled.trials[0].fingerprint,scheduled.trials[1].fingerprint);
+    EXPECT_EQ(load->getPlacementStatus(),status);load->getLocation(nx,ny);
+    EXPECT_EQ(nx,x);EXPECT_EQ(ny,y);EXPECT_EQ(block_->getInsts().size(),instances);
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+  }
+}
+
+TEST_F(BufferInserterStaTest, PbbiNetScopeDeduplicatesContextsAndRollsBack)
+{
+  readTestDesign("pbbi_net_scope_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup();refreshRepairTiming();
+  struct Original {odb::dbInst* inst;odb::dbMaster* master;int x,y;odb::dbOrientType orient;};
+  std::vector<Original> original;
+  for(auto* inst:block_->getInsts()) {
+    int x,y;inst->getLocation(x,y);
+    original.push_back({inst,inst->getMaster(),x,y,inst->getOrient()});
+  }
+  const auto nets=block_->getNets().size();
+  const auto wns=sta_->worstSlack(sta::MinMax::max());
+  ecc::PbbiRepairOptions o;o.max_paths=4;o.max_trials=4;
+  o.max_frontier_states=64;o.max_area_growth=0.5;o.min_improvement=1;
+  o.buffer_aware_timing=false;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  auto path=run();ASSERT_TRUE(path.ok)<<path.message;
+  ASSERT_GT(path.max_problem_nets,1u);EXPECT_EQ(path.accepted,0u);
+  o.scope="net";
+  auto net=run();ASSERT_TRUE(net.ok)<<net.message;
+  EXPECT_GT(net.attempted,0u);EXPECT_EQ(net.accepted,0u);
+  EXPECT_EQ(net.max_problem_nets,1u);
+  EXPECT_GT(net.duplicate_problems,0u);
+  EXPECT_GT(net.collected_problems,path.collected_problems);
+  for(const auto& trial:net.trials)EXPECT_EQ(trial.path_nets,1u);
+  EXPECT_EQ(block_->getInsts().size(),original.size());EXPECT_EQ(block_->getNets().size(),nets);
+  for(const auto& before:original) {
+    int x,y;before.inst->getLocation(x,y);
+    EXPECT_EQ(x,before.x);EXPECT_EQ(y,before.y);
+    EXPECT_EQ(before.inst->getMaster(),before.master);EXPECT_EQ(before.inst->getOrient(),before.orient);
+  }
+  EXPECT_NEAR(sta_->worstSlack(sta::MinMax::max()),wns,1e-15);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiNetScopeAcceptsStaValidatedSizing)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  ecc::PbbiRepairOptions o;o.scope="net";o.max_paths=2;o.max_trials=8;
+  o.max_frontier_states=64;o.max_area_growth=0.5;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;EXPECT_GT(r.accepted,0u);EXPECT_GT(r.resized_cells,0u);
+  for(const auto& trial:r.trials)EXPECT_EQ(trial.path_nets,1u);
+  EXPECT_GE(r.after.setup_wns+1e-15,r.before.setup_wns);
+  EXPECT_GE(r.after.setup_tns+1e-15,r.before.setup_tns);
+  EXPECT_LE(r.after.total_slew_violations,r.before.total_slew_violations);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiAreaRecoveryMaintainsInputTimingAndRejectsUnsafeEdits)
+{
+  readTestDesign("gate_repair_sta.v");oversizeLoads(true);
+  addLegalRows();placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  ecc::PbbiRepairOptions o;o.scope="net";o.objective="area";
+  o.target_wns=-1;o.target_tns=-1; // Clamped to the stronger input timing.
+  o.max_paths=2;o.max_trials=4;o.max_area_growth=0.5;o.max_frontier_states=64;
+  auto* load=block_->findInst("load0");int x,y;load->getLocation(x,y);
+  const auto count=block_->getInsts().size();
+  o.common.prepare=[&](){
+    ecc::legalizeRepairPlacement(block_,&dp_);
+    load->setLocation(x+20000000,y); // Force a real setup/DRV failure.
+  };
+  auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  auto rejected=run();ASSERT_TRUE(rejected.ok)<<rejected.message;
+  EXPECT_GT(rejected.attempted,0u);EXPECT_EQ(rejected.accepted,0u);
+  for(const auto& t:rejected.trials) {
+    EXPECT_TRUE(t.area_recovery);EXPECT_TRUE(t.target_before);
+    EXPECT_LT(t.after.area,t.before.area);
+    EXPECT_FALSE(t.target_after);
+    EXPECT_NE(std::find(t.rejection_reasons.begin(),t.rejection_reasons.end(),"setup_wns"),t.rejection_reasons.end());
+  }
+  int nx,ny;load->getLocation(nx,ny);EXPECT_EQ(nx,x);EXPECT_EQ(ny,y);
+  EXPECT_EQ(block_->getInsts().size(),count);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto accepted=run();ASSERT_TRUE(accepted.ok)<<accepted.message;
+  EXPECT_GT(accepted.area_reductions,0u);EXPECT_TRUE(accepted.target_met);
+  EXPECT_LT(accepted.after.area,accepted.before.area);
+  EXPECT_EQ(accepted.target_wns,accepted.before.setup_wns);
+  EXPECT_EQ(accepted.target_tns,accepted.before.setup_tns);
+  for(const auto& t:accepted.trials)if(t.accepted) {
+    EXPECT_TRUE(t.area_recovery);EXPECT_TRUE(t.target_after);
+    EXPECT_LT(t.after.area,t.before.area);
+  }
+  EXPECT_GE(accepted.after.setup_wns+o.common.tolerances.wns_absolute,accepted.before.setup_wns);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiAreaRecoverySearchesPathsWithPositiveSlack)
+{
+  readTestDesign("gate_repair_sta.v");oversizeLoads(true);
+  addLegalRows();placePbbiPorts(block_);
+  auto* sdc=sta_->cmdMode()->sdc();
+  sta_->setOutputDelay(db_network_->dbToSta(block_->findBTerm("out0")),
+                      sta::RiseFallBoth::riseFall(),sdc->findClock("clk"),
+                      sta::RiseFall::rise(),nullptr,false,false,sta::MinMaxAll::max(),
+                      false,-10e-9f,sdc);
+  refreshRepairTiming();
+  ecc::PbbiRepairOptions o;o.scope="net";o.objective="area";
+  o.max_paths=2;o.max_trials=4;o.max_frontier_states=64;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;EXPECT_GE(r.before.setup_wns,0);
+  EXPECT_GT(r.paths,0u);EXPECT_GT(r.area_reductions,0u);
+  EXPECT_LT(r.after.area,r.before.area);EXPECT_TRUE(r.target_met);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiAreaTargetRepairsBeforeCostRecovery)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup(true);refreshRepairTiming();
+  const double initial=sta_->worstSlack(sta::MinMax::max());ASSERT_LT(initial,0);
+  ecc::PbbiRepairOptions o;o.objective="area";o.scope="net";
+  o.target_wns=initial*0.75;o.max_paths=2;o.max_trials=8;o.max_frontier_states=64;
+  o.max_area_growth=0.5;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  auto r=ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);
+  ASSERT_TRUE(r.ok)<<r.message;ASSERT_FALSE(r.trials.empty());
+  EXPECT_FALSE(r.trials.front().target_before);EXPECT_FALSE(r.trials.front().area_recovery);
+  EXPECT_GT(r.accepted,0u);EXPECT_TRUE(r.target_met);EXPECT_TRUE(r.converged);
+  EXPECT_GE(r.after.setup_wns+o.common.tolerances.wns_absolute,o.target_wns);
+  bool reached=false;
+  for(const auto& t:r.trials) {
+    EXPECT_EQ(t.area_recovery,reached);
+    if(t.accepted && t.target_after)reached=true;
+    if(t.accepted && t.area_recovery) {
+      EXPECT_TRUE(t.target_after);EXPECT_LT(t.after.area,t.before.area);
+    }
+  }
+  EXPECT_TRUE(reached);EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PbbiTimingFailureFeedbackDiversifiesActions) {
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();placePbbiPorts(block_);constrainSetup();refreshRepairTiming();
+  ecc::PbbiRepairOptions o;o.max_paths=1;o.max_trials=2;
+  o.max_frontier_states=128;o.max_area_growth=0.5;o.min_improvement=1;
+  o.common.prepare=[&](){ecc::legalizeRepairPlacement(block_,&dp_);};
+  const auto instances=block_->getInsts().size(), nets=block_->getNets().size();
+  const float wns=sta_->worstSlack(sta::MinMax::max());
+  const auto run=[&](){return ecc::OpenDbPbbiRepairer::repair(block_,sta_.get(),&resizer_,[&](){refreshRepairTiming();},o);};
+  o.failure_feedback=false;auto plain=run();ASSERT_TRUE(plain.ok)<<plain.message;
+  o.failure_feedback=true;auto feedback=run();ASSERT_TRUE(feedback.ok)<<feedback.message;
+  ASSERT_EQ(plain.trials.size(),2u);ASSERT_EQ(feedback.trials.size(),2u);
+  EXPECT_EQ(plain.accepted,0u);EXPECT_EQ(feedback.accepted,0u);
+  EXPECT_EQ(plain.trials[0].fingerprint,feedback.trials[0].fingerprint);
+  EXPECT_EQ(plain.trials[0].rejection_reasons,
+            (std::vector<std::string>{"no_setup_gain"}));
+  const auto actions=[](const std::string& key) {
+    std::set<std::string> result;std::istringstream stream(key);std::string action;
+    while(std::getline(stream,action,';'))if(!action.empty())result.insert(action);
+    return result;
+  };
+  const auto first=actions(plain.trials[0].fingerprint);
+  const auto overlap=[&](const std::string& key) {
+    const auto current=actions(key);
+    return std::count_if(current.begin(),current.end(),[&](const auto& a){return first.count(a);});
+  };
+  EXPECT_LT(overlap(feedback.trials[1].fingerprint),overlap(plain.trials[1].fingerprint));
+  EXPECT_GT(feedback.feedback_reorders,0u);
+  EXPECT_EQ(block_->getInsts().size(),instances);EXPECT_EQ(block_->getNets().size(),nets);
+  EXPECT_NEAR(float(sta_->worstSlack(sta::MinMax::max())),wns,1e-15);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
+}

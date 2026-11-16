@@ -17,6 +17,27 @@ std::string serialized(const ecc::RepairConfig& config)
   config.write(out);
   return out.str();
 }
+TEST(RepairConfig, PathUnlimitedBudgetsPreserveZeroAreaConstraint)
+{
+  ecc::RepairConfig config;
+  config.set("setup.path_buffer_max_trials", "0");
+  config.set("setup.path_buffer_max_area_growth", "-1");
+  EXPECT_NE(serialized(config).find("setup.path_buffer_max_trials=0\n"),
+            std::string::npos);
+  EXPECT_NE(serialized(config).find("setup.path_buffer_max_area_growth=-1\n"),
+            std::string::npos);
+  EXPECT_THROW(config.set("setup.path_buffer_max_area_growth", "-0.5"),
+               std::invalid_argument);
+  EXPECT_NO_THROW(config.set("setup.path_buffer_max_area_growth", "0"));
+  EXPECT_NO_THROW(config.set("setup.path_buffer_strategy", "feedback"));
+  config.set("setup.path_buffer_min_relative_improvement", "0.001");
+  EXPECT_NE(serialized(config).find("setup.path_buffer_min_relative_improvement="),
+            std::string::npos);
+  for(const auto* value : {"-0.1", "1.1", "nan", "inf"})
+    EXPECT_THROW(config.set("setup.path_buffer_min_relative_improvement", value),
+                 std::invalid_argument);
+}
+
 TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
 {
   ecc::RepairConfig config;
@@ -25,6 +46,22 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.set("setup.max_trials", "3");
   config.set("setup.skip_duplicate_trials", "false");
   config.set("setup.defer_rollback_refresh", "false");
+  config.set("setup.path_buffer_enabled", "true");
+  config.set("setup.path_buffer_only", "true");
+  config.set("setup.path_buffer_max_paths", "5");
+  config.set("setup.path_buffer_max_candidates", "3");
+  config.set("setup.path_buffer_max_trials", "4");
+  config.set("setup.path_buffer_batch_size", "3");
+  config.set("setup.path_buffer_strategy", "sequential");
+  config.set("setup.path_buffer_fanout_repair", "false");
+  config.set("setup.path_buffer_recovery", "false");
+  config.set("setup.path_buffer_tree_candidates", "false");
+  config.set("setup.path_buffer_gain_scope", "global");
+  EXPECT_THROW(config.set("setup.path_buffer_gain_scope", "unknown"), std::invalid_argument);
+  config.set("setup.path_buffer_max_seconds", "1.5");
+  config.set("setup.path_buffer_max_refreshes", "16");
+  config.set("setup.path_buffer_max_inserted_buffers", "6");
+  config.set("setup.path_buffer_max_area_growth", "0.1");
   config.set("common.allow_load_downsize", "false");
   config.set("common.load_downsize_slack_margin_ns", "0.01");
   config.set("design.max_load_downsizes_per_pass", "3");
@@ -50,6 +87,10 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.design.prepare = [&]() { ++prepares; };
   auto setup = config.setupOptions();
   EXPECT_EQ(setup.common.max_fanout, 12);
+  EXPECT_FALSE(setup.path_buffer_fanout_repair);
+  EXPECT_FALSE(setup.path_buffer_recovery);
+  EXPECT_FALSE(setup.path_buffer_tree_candidates);
+  EXPECT_EQ(setup.path_buffer_gain_scope, "global");
   EXPECT_FALSE(setup.common.allow_gate_resize);
   EXPECT_FALSE(setup.common.allow_load_downsize);
   EXPECT_FLOAT_EQ(setup.common.load_downsize_slack_margin, 1e-11f);
@@ -57,6 +98,17 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_EQ(setup.max_trials, 3);
   EXPECT_FALSE(setup.skip_duplicate_trials);
   EXPECT_FALSE(setup.defer_rollback_refresh);
+  EXPECT_TRUE(setup.path_buffer_enabled);
+  EXPECT_TRUE(setup.path_buffer_only);
+  EXPECT_EQ(setup.path_buffer_max_paths, 5u);
+  EXPECT_EQ(setup.path_buffer_max_candidates, 3u);
+  EXPECT_EQ(setup.path_buffer_max_trials, 4u);
+  EXPECT_EQ(setup.path_buffer_batch_size, 3u);
+  EXPECT_EQ(setup.path_buffer_strategy, "sequential");
+  EXPECT_DOUBLE_EQ(setup.path_buffer_max_seconds, 1.5);
+  EXPECT_EQ(setup.path_buffer_max_refreshes, 16u);
+  EXPECT_EQ(setup.path_buffer_max_inserted_buffers, 6u);
+  EXPECT_DOUBLE_EQ(setup.path_buffer_max_area_growth, 0.1);
   EXPECT_EQ(setup.max_passes, ecc::SetupRepairSettings{}.max_passes);
   EXPECT_EQ(config.vg.max_buffers, 7u);
   EXPECT_EQ(config.vg.backend, "cuda");
@@ -132,6 +184,9 @@ TEST(RepairConfig, RejectsMalformedValuesAtomically)
          {"setup.min_improvement_ns", "-1"},
          {"runtime.sta_threads", "0"},
          {"tolerances.tns_relative", "1"},
+         {"setup.path_buffer_strategy", "invalid"},
+         {"setup.path_buffer_max_seconds", "nan"},
+         {"setup.path_buffer_max_seconds", "-1"},
          {"setup.typo", "3"}};
   for (const auto& [key, value] : invalid) {
     EXPECT_THROW(config.set(key, value), std::exception) << key;
@@ -204,3 +259,96 @@ TEST(RepairConfig, ExplicitOverridesWinOverFilesAndAliasesRemainSupported)
                std::exception);
 }
 }  // namespace
+
+TEST(PbbiConfig, RoundtripBudgetsAndIndependentSwitches)
+{
+  ecc::RepairConfig c;
+  c.set("pbbi.enabled","true");c.set("pbbi.max_frontier_states","0");
+  c.set("pbbi.scheduler","global");c.set("pbbi.scheduler_window","3");
+  c.set("pbbi.forecast_cache","false");c.set("pbbi.path_cache","false");
+  for(const auto* k:{"pbbi.pin_diagnostics","pbbi.candidate_electrical_check","pbbi.operating_point_pruning","pbbi.failure_feedback"})c.set(k,"false");
+  c.set("pbbi.buffer_aware_timing","false");c.set("pbbi.slew_propagation","false");
+  c.set("pbbi.slew_cache_entries","7");
+  c.set("pbbi.slew_samples","24");c.set("pbbi.timing_max_frontier_states","32");
+  c.set("pbbi.timing_max_expansions","12345");
+  c.set("pbbi.max_expansions","0");c.set("pbbi.max_seconds","1.12345678912345");
+  c.set("pbbi.gate_sizing","false");c.set("pbbi.sink_sizing","false");
+  c.set("pbbi.min_improvement_ns","0.000123456789");
+  std::ostringstream out;c.write(out);std::istringstream in(out.str());
+  ecc::RepairConfig restored;restored.read(in);
+  EXPECT_EQ(restored.pbbi.scheduler,"global");EXPECT_EQ(restored.pbbi.scheduler_window,3u);
+  EXPECT_FALSE(restored.pbbi.forecast_cache);EXPECT_FALSE(restored.pbbi.path_cache);
+  EXPECT_THROW(c.set("pbbi.scheduler","unknown"),std::invalid_argument);
+  c.set("pbbi.scheduler","adaptive");
+  EXPECT_EQ(c.pbbi.scheduler,"adaptive");
+  EXPECT_THROW(c.set("pbbi.scheduler_window","0"),std::invalid_argument);
+  EXPECT_FALSE(restored.pbbi.pin_diagnostics);EXPECT_FALSE(restored.pbbi.candidate_electrical_check);
+  EXPECT_FALSE(restored.pbbi.operating_point_pruning);EXPECT_FALSE(restored.pbbi.failure_feedback);
+  EXPECT_FALSE(restored.pbbi.buffer_aware_timing);EXPECT_FALSE(restored.pbbi.slew_propagation);
+  EXPECT_EQ(restored.pbbi.slew_cache_entries,7u);
+  EXPECT_EQ(restored.pbbi.slew_samples,24u);EXPECT_EQ(restored.pbbi.timing_max_frontier_states,32u);
+  EXPECT_EQ(restored.pbbi.timing_max_expansions,12345u);
+  EXPECT_THROW(c.set("pbbi.slew_samples","1"),std::invalid_argument);
+  EXPECT_EQ(restored.pbbi.max_seconds,c.pbbi.max_seconds);
+  EXPECT_EQ(restored.pbbi.min_improvement,c.pbbi.min_improvement);
+  EXPECT_TRUE(restored.pbbi.enabled);EXPECT_FALSE(restored.pbbiOptions().gate_sizing);
+  EXPECT_THROW(c.set("pbbi.max_paths","0"),std::invalid_argument);
+  EXPECT_THROW(c.set("pbbi.max_seconds","-1"),std::invalid_argument);
+  EXPECT_THROW(c.set("pbbi.max_area_growth","nan"),std::invalid_argument);
+}
+
+TEST(RepairConfig, VgSetupScopeRoundTripsAndRejectsUnknownScope) {
+  ecc::RepairConfig c;
+  EXPECT_EQ(c.vg.scope,"drv");
+  c.set("vg.scope","setup");
+  std::ostringstream out;c.write(out);std::istringstream in(out.str());
+  ecc::RepairConfig restored;restored.read(in);
+  EXPECT_EQ(restored.vg.scope,"setup");
+  EXPECT_THROW(c.set("vg.scope","invalid"),std::invalid_argument);
+}
+
+TEST(RepairConfig, PbbiPlacementModeRoundTrip) {
+  ecc::RepairConfig c;
+  EXPECT_FALSE(c.pbbi.incremental_placement);
+  c.set("pbbi.incremental_placement","true");
+  std::ostringstream out;c.write(out);std::istringstream in(out.str());
+  ecc::RepairConfig restored;restored.read(in);
+  EXPECT_TRUE(restored.pbbi.incremental_placement);
+}
+
+TEST(RepairConfig, PbbiPlacementFeedbackRoundTrip) {
+  ecc::RepairConfig c;c.set("pbbi.placement_feedback","true");
+  std::ostringstream out;c.write(out);std::istringstream in(out.str());
+  ecc::RepairConfig restored;restored.read(in);
+  EXPECT_TRUE(restored.pbbi.placement_feedback);
+}
+
+TEST(RepairConfig, PbbiNetScopeRoundTrip) {
+  ecc::RepairConfig c;
+  EXPECT_EQ(c.pbbi.scope,"path");
+  c.set("pbbi.scope","net");
+  std::ostringstream out;c.write(out);std::istringstream stream(out.str());
+  ecc::RepairConfig restored;restored.read(stream);
+  EXPECT_EQ(restored.pbbiOptions().scope,"net");
+  EXPECT_THROW(c.set("pbbi.scope","vg"),std::invalid_argument);
+  EXPECT_EQ(c.pbbi.scope,"net");
+}
+
+TEST(RepairConfig, PbbiAreaTargetsRoundTripAndValidate) {
+  ecc::RepairConfig c;
+  EXPECT_EQ(c.pbbi.objective,"timing");EXPECT_FALSE(c.pbbi.target_tns);
+  c.set("pbbi.objective","area");c.set("pbbi.target_wns_ns","-0.123456789123");
+  c.set("pbbi.target_tns_ns","-654.5023055447093");
+  std::ostringstream out;c.write(out);std::istringstream in(out.str());
+  ecc::RepairConfig restored;restored.read(in);
+  EXPECT_EQ(restored.pbbi.objective,"area");
+  EXPECT_DOUBLE_EQ(restored.pbbi.target_wns,c.pbbi.target_wns);
+  EXPECT_EQ(restored.pbbi.target_tns,c.pbbi.target_tns);
+  EXPECT_THROW(c.set("pbbi.objective","power"),std::invalid_argument);
+  EXPECT_THROW(c.set("pbbi.target_wns_ns","nan"),std::invalid_argument);
+  EXPECT_THROW(c.set("pbbi.target_tns_ns","inf"),std::invalid_argument);
+  EXPECT_THROW(c.set("pbbi.target_wns_ns","0.1"),std::invalid_argument);
+  EXPECT_THROW(c.set("pbbi.target_tns_ns","0.1"),std::invalid_argument);
+  EXPECT_THROW(c.set("pbbi.candidate_electrical_check","false"),std::invalid_argument);
+  c.set("pbbi.target_tns_ns","none");EXPECT_FALSE(c.pbbiOptions().target_tns);
+}

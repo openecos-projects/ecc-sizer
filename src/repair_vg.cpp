@@ -28,6 +28,19 @@ namespace {
 
 using detail::NetState;
 
+bool eligible(const NetState& state, sta::dbSta* sta,
+              const VgRepairOptions& options) {
+    if(!state.driver)
+        return false;
+    if(state.violating())
+        return true;
+    if(options.scope != "setup")
+        return false;
+    auto* pin = sta->getDbNetwork()->dbToSta(state.driver);
+    return sta->slack(pin, sta::RiseFallBoth::riseFall(),
+                     sta::SceneSeq{sta->cmdScene()}, sta::MinMax::max()) < 0;
+}
+
 struct Plan {
     odb::dbNet* net = nullptr;
     odb::dbMaster* master = nullptr;
@@ -47,6 +60,27 @@ struct VgSolution {
     rsz::BufferedNetPtr tree;
     double score = -std::numeric_limits<double>::infinity();
 };
+
+// Score the unchanged RC tree with the same linear model as VG. Keep this
+// baseline separately: cap/RAT pruning need not retain its traceback.
+std::pair<double, double> unchangedVg(const rsz::BufferedNetPtr& node,
+                                    rsz::Resizer* resizer,
+                                    const sta::Scene* scene) {
+    if(node->type() == rsz::BufferedNetType::load)
+        return {node->cap(), 0};
+    auto left = unchangedVg(node->ref(), resizer, scene);
+    if(node->type() == rsz::BufferedNetType::junction) {
+        auto right = unchangedVg(node->ref2(), resizer, scene);
+        return {left.first + right.first, std::min(left.second, right.second)};
+    }
+    if(node->type() != rsz::BufferedNetType::wire)
+        throw std::invalid_argument("VG unchanged score requires a placement RC tree");
+    double resistance = 0, capacitance = 0;
+    node->wireRC(scene, resizer, resizer->getEstimateParasitics(), resistance, capacitance);
+    const double length = resizer->dbuToMeters(node->length());
+    return {left.first + length * capacitance,
+            left.second - length * resistance * (left.first + length * capacitance / 2)};
+}
 
 struct Timer {
     double* elapsed;
@@ -416,17 +450,23 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
         odb::dbNet* net;
         rsz::BufferedNetPtr tree;
         double resistance;
+        double unchanged_score;
     };
     std::vector<Input> inputs;
     for(const auto& state : states) {
-        if(!state.violating() || !state.driver) continue;
+        if(!eligible(state, sta, options)) continue;
         if(options.max_nets != 0 && report.nets_collected >= options.max_nets) break;
         auto* driver_pin = sta->getDbNetwork()->dbToSta(state.driver);
         auto tree = resizer->makeBufferedNetSteiner(driver_pin, scene);
         if(!tree) continue;
         ++report.nets_collected;
         auto* port = sta->getDbNetwork()->libertyPort(driver_pin);
-        if(port) inputs.push_back({state.net, tree, port->driveResistance()});
+        if(port) {
+            const auto original = unchangedVg(tree, resizer, scene);
+            const double resistance = port->driveResistance();
+            inputs.push_back({state.net, tree, resistance,
+                              original.second - resistance * original.first});
+        }
     }
     std::vector<VgSolution> best(inputs.size());
     bool used_cuda = false;
@@ -442,10 +482,24 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
                 forest.roots, forest.resistance,
                 size_t(options.cuda_max_memory_mb) * 1024 * 1024);
             for(size_t i = 0; i < inputs.size(); ++i) {
-                if(result.selected[i] < 0) continue;
-                const auto& candidate = result.frontiers[forest.roots[i]][result.selected[i]];
+                int selected = result.selected[i];
+                if(options.scope == "setup") {
+                    selected = -1;
+                    double best_score = inputs[i].unchanged_score;
+                    const auto& frontier = result.frontiers[forest.roots[i]];
+                    for(size_t j = 0; j < frontier.size(); ++j) {
+                        const auto& c = frontier[j];
+                        const double score = c.slack - inputs[i].resistance * c.cap;
+                        if(c.buffers && score > best_score) {
+                            best_score = score;
+                            selected = int(j);
+                        }
+                    }
+                }
+                if(selected < 0) continue;
+                const auto& candidate = result.frontiers[forest.roots[i]][selected];
                 best[i] = {inputs[i].net,
-                    tracebackVg(forest.roots[i], result.selected[i], forest, result, resizer, scene),
+                    tracebackVg(forest.roots[i], selected, forest, result, resizer, scene),
                     candidate.slack - inputs[i].resistance * candidate.cap};
             }
             used_cuda = true;
@@ -460,6 +514,8 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
         for(size_t i = 0; i < inputs.size(); ++i) {
             auto candidates = runVg(inputs[i].tree, resizer, scene, sta::MinMax::max(), options);
             best[i].net = inputs[i].net;
+            if(options.scope == "setup")
+                best[i].score = inputs[i].unchanged_score;
             for(auto& candidate : candidates) {
                 if(candidate.tree->bufferCount() == 0) continue;
                 const double score = candidate.slack - inputs[i].resistance * candidate.cap;
@@ -523,6 +579,8 @@ std::vector<odb::dbObject*> applyVgNode(const rsz::BufferedNetPtr& node,
 }  // namespace
 
 void VgRepairOptions::validate() const {
+    if(scope != "drv" && scope != "setup")
+        throw std::invalid_argument("vg.scope must be drv or setup");
     common.validate();
     if(cuda_max_memory_mb == 0)
         throw std::invalid_argument("vg.cuda_max_memory_mb must be positive");
@@ -560,6 +618,10 @@ VgRepairResult OpenDbVgRepairer::repair(
     }
     if(sta->getDbNetwork()->block() != block) {
         result.message = "VG STA network does not reference the target block";
+        return result;
+    }
+    if(options.scope == "setup" && !resizer) {
+        result.message = "VG setup scope requires the Steiner-tree solver";
         return result;
     }
     detail::Repair backend(block, sta, options.common);

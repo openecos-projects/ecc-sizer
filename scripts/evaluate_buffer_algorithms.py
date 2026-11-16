@@ -73,7 +73,8 @@ def main():
     parser.add_argument('--algorithms', nargs='+', choices=['vg-cpu', 'vg-cuda', 'gbi-cuda'],
                         default=['vg-cpu', 'vg-cuda', 'gbi-cuda'])
     parser.add_argument('--repeats', type=int, default=3)
-    parser.add_argument('--gpu', default='0')
+    parser.add_argument('--gpu', default='0',
+                        help="CUDA_VISIBLE_DEVICES value, or 'all' to inherit all devices")
     parser.add_argument('--sta-threads', type=int, default=32)
     parser.add_argument('--vg-memory-mb', type=int, default=4096)
     parser.add_argument('--resume', action='store_true',
@@ -131,7 +132,11 @@ def main():
     orchestrators = args.output / 'orchestrators'
     orchestrators.mkdir(exist_ok=True)
     (orchestrators / f'{sha(__file__)}.py').write_bytes(Path(__file__).read_bytes())
-    env = dict(os.environ, CUDA_VISIBLE_DEVICES=args.gpu)
+    env = dict(os.environ)
+    if args.gpu.lower() in {'all', 'none'}:
+        env.pop('CUDA_VISIBLE_DEVICES', None)
+    else:
+        env['CUDA_VISIBLE_DEVICES'] = args.gpu
     cases = [(a, b) for b in args.budgets for a in args.algorithms]
     for repeat in range(args.repeats):
         order = cases[repeat % len(cases):] + cases[:repeat % len(cases)]
