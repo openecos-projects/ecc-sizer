@@ -10768,6 +10768,12 @@ void Sizer::Profile() {
 }
 
 int main(int argc, char **argv) {
+    // Machine-readable contract probe must not initialize OpenROAD or a design.
+    if(argc == 2 && std::string(argv[1]) == "--ecc-capabilities") {
+        std::cout << "{\"schema_version\":1,\"tool\":\"ecc-sizer\","
+                     "\"contracts\":{\"explicit_vt_groups\":1}}\n";
+        return 0;
+    }
     int agc = 0;
     char **arv = nullptr;
     // omp_set_num_threads(8);

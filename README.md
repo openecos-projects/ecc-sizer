@@ -228,6 +228,11 @@ names. Use suffixes from the selected package; no ICS55 v1/v2 naming fallback
 is applied. Single-VT is the default when no group configuration is provided.
 
 ECC translates the package's `tools.sizer.vt_groups` into these options.
+`Sizer --ecc-capabilities` returns a JSON document before OpenROAD initialization:
+`{"schema_version":1,"tool":"ecc-sizer","contracts":{"explicit_vt_groups":1}}`.
+ECC uses this side-effect-free probe to reject incompatible Sizer executables
+before stages that depend on explicit VT configuration. The contract identifies
+the interface; it does not certify timing or physical signoff for a process.
 Library/RC files and hold corner selection remain explicit inputs. This change
 does not certify arbitrary Liberty units, four or more VT groups, or additional
 foundry processes. The integration qualification for this revision uses ICS55 v2.
