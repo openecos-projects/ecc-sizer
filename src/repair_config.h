@@ -15,6 +15,7 @@ class dbInst;
 namespace ecc {
 struct PathBufferTrial;
 struct PathFanoutCheck;
+struct RepairAnalysisChanges;
 // All time values in the C++ API are seconds; text configuration uses *_ns.
 struct RepairTolerances {
     float wns_absolute = 1e-15f;
@@ -73,6 +74,31 @@ struct SetupRepairSettings {
     bool path_buffer_only = false;
     // Sequential is the measured reference; path_gain ranks multi-path ECOs.
     std::string path_buffer_strategy = "path_gain";
+    // Feedback ablations; none changes the global STA acceptance tolerances.
+    bool path_buffer_failure_cache = true;
+    bool path_buffer_calibrate = true;
+    bool path_buffer_diversify = true;
+    // Opt-in scheduling ablations; acceptance still uses global STA.
+    bool path_buffer_endpoint_coverage = false;
+    bool path_buffer_group_schedule = false;
+    // Opt-in empirical family exhaustion, audited on each committed design.
+    bool path_buffer_adaptive_search = false;
+    // Reject with global timing first; collect full electrical states only
+    // for survivors. Does not change acceptance thresholds or allow commits.
+    bool path_buffer_timing_precheck = true;
+    // Placement RC only; global STA acceptance is unchanged.
+    bool path_buffer_incremental_parasitics = false;
+    // Reuse electrical checks outside edited timing cones in final verification mode.
+    bool path_buffer_incremental_analysis = false;
+    // Single-scene failure reuse: TNS cone or a WNS endpoint fanin witness.
+    bool path_buffer_reuse_rejections = false;
+    // "trial": legalize every trial; "final": search at proposed locations,
+    // then legalize and verify the whole phase, restoring its input on failure.
+    std::string path_buffer_placement = "trial";
+    // "trial": full RC before each acceptance. "final": incremental RC/STA
+    // and full electrical checks during search, with authoritative full RC
+    // after final placement. Requires the phase-wide rollback journal.
+    std::string path_buffer_verification = "trial";
     // Complete high-fanout candidates inside one ECO before RC/STA.
     bool path_buffer_fanout_repair = true;
     // Search setup and recovery separately so one check type cannot starve
@@ -85,8 +111,9 @@ struct SetupRepairSettings {
     std::string path_buffer_gain_scope = "endpoints";
     // Relative to the selected gain scope.
     // Zero preserves the existing absolute improvement requirement.
-    // In feedback mode a positive value also screens predicted improvements;
-    // this is approximate and can exclude gains underestimated by the model.
+    // Default search only screens with the zero-negative-slack upper bound.
+    // Optional adaptive search additionally uses audited empirical evidence;
+    // its stopping condition is heuristic, not a proof of global optimality.
     double path_buffer_min_relative_improvement = 0;
     // Optional wall time / actual refresh limits. Zero means unlimited.
     // An in-flight STA/rollback always completes before returning.
@@ -97,6 +124,11 @@ struct SetupRepairSettings {
     // Counts STA-verified ECO batches, including a batch that is rolled back.
     // Zero means unlimited; stop at timing closure or no acceptable candidate.
     unsigned path_buffer_max_trials = 8;
+    // Optional early exit after this many rejected single-candidate STA
+    // trials (including reused rejection verdicts) without an acceptance.
+    // Zero disables it. Batch failures and
+    // cheap prechecks do not count; final legalization/STA still runs.
+    unsigned path_buffer_max_consecutive_rejections = 0;
     // Default one preserves sequential greedy behavior; larger values enable
     // buffer-only ECO batching for throughput experiments.
     unsigned path_buffer_batch_size = 1;
@@ -111,6 +143,13 @@ struct SetupRepairOptions : SetupRepairSettings {
     // Called after commit/rollback; rejected trials can have deferred STA.
     std::function< void(unsigned, const PathBufferTrial&) > path_trial_observer;
     std::function< void(const PathFanoutCheck&) > path_fanout_observer;
+    // Authoritative refresh for trial verification or final phase validation.
+    // Final mode uses it after legalization, before committing the parent ECO.
+    std::function< void() > path_verification_refresh;
+    // Refresh accumulated edited timing cones for a promising incremental
+    // trial. Final-phase mode still requires authoritative final RC/STA.
+    std::function< void() > path_incremental_verification;
+    std::function< RepairAnalysisChanges() > path_analysis_changes;
     void validate() const;
 };
 

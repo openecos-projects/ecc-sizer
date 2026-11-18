@@ -38,6 +38,81 @@ TEST(RepairConfig, PathUnlimitedBudgetsPreserveZeroAreaConstraint)
                  std::invalid_argument);
 }
 
+TEST(RepairConfig, PathPlacementModeRoundTripsAndRejectsUnknownModes)
+{
+  ecc::RepairConfig config;
+  EXPECT_EQ(config.setupOptions().path_buffer_placement, "trial");
+  config.set("setup.path_buffer_placement", "final");
+  EXPECT_EQ(config.setupOptions().path_buffer_placement, "final");
+  EXPECT_NE(serialized(config).find("setup.path_buffer_placement=final\n"), std::string::npos);
+  EXPECT_THROW(config.set("setup.path_buffer_placement", "off"), std::invalid_argument);
+}
+
+TEST(RepairConfig, PathRejectionStopIsOptionalAndRoundTrips)
+{
+  ecc::RepairConfig config;
+  EXPECT_EQ(config.setupOptions().path_buffer_max_consecutive_rejections, 0u);
+  config.set("setup.path_buffer_max_consecutive_rejections", "32");
+  EXPECT_EQ(config.setupOptions().path_buffer_max_consecutive_rejections, 32u);
+  EXPECT_NE(serialized(config).find("setup.path_buffer_max_consecutive_rejections=32\n"), std::string::npos);
+  for(const auto* value : {"-1", "1.5", "nan", "2147483648"})
+    EXPECT_THROW(config.set("setup.path_buffer_max_consecutive_rejections", value), std::invalid_argument);
+  config.set("setup.path_buffer_max_consecutive_rejections", "0");
+  EXPECT_EQ(config.setupOptions().path_buffer_max_consecutive_rejections, 0u);
+}
+
+TEST(RepairConfig, PathVerificationModeRoundTrips)
+{
+  ecc::RepairConfig config;
+  EXPECT_EQ(config.setupOptions().path_buffer_verification, "trial");
+  config.set("setup.path_buffer_verification", "final");
+  EXPECT_EQ(config.setupOptions().path_buffer_verification, "final");
+  EXPECT_NE(serialized(config).find("setup.path_buffer_verification=final\n"), std::string::npos);
+  EXPECT_THROW(config.set("setup.path_buffer_verification", "off"), std::invalid_argument);
+}
+
+TEST(RepairConfig, PathFeedbackControlsRoundTripWithoutChangingAcceptance)
+{
+  ecc::RepairConfig config;
+  const auto before = config.setupOptions();
+  for(const auto* key : {"setup.path_buffer_failure_cache", "setup.path_buffer_calibrate",
+                         "setup.path_buffer_diversify"}) {
+    config.set(key, "false");
+    EXPECT_NE(serialized(config).find(std::string(key) + "=false\n"), std::string::npos);
+    EXPECT_THROW(config.set(key, "invalid"), std::invalid_argument);
+  }
+  const auto options = config.setupOptions();
+  EXPECT_FALSE(options.path_buffer_failure_cache);
+  EXPECT_FALSE(options.path_buffer_calibrate);
+  EXPECT_FALSE(options.path_buffer_diversify);
+  EXPECT_FALSE(options.path_buffer_adaptive_search);
+  EXPECT_FALSE(options.path_buffer_endpoint_coverage);
+  EXPECT_FALSE(options.path_buffer_group_schedule);
+  EXPECT_TRUE(options.path_buffer_timing_precheck);
+  for(const auto* key : {"setup.path_buffer_adaptive_search", "setup.path_buffer_timing_precheck",
+                         "setup.path_buffer_endpoint_coverage", "setup.path_buffer_group_schedule"}) {
+    config.set(key, "true");
+    EXPECT_NE(serialized(config).find(std::string(key) + "=true\n"), std::string::npos);
+    config.set(key, "false");
+    EXPECT_NE(serialized(config).find(std::string(key) + "=false\n"), std::string::npos);
+    EXPECT_THROW(config.set(key, "invalid"), std::invalid_argument);
+  }
+  EXPECT_EQ(options.min_improvement, before.min_improvement);
+  EXPECT_EQ(options.path_buffer_min_relative_improvement, before.path_buffer_min_relative_improvement);
+  config.set("setup.path_buffer_incremental_analysis", "true");
+  EXPECT_TRUE(config.setupOptions().path_buffer_incremental_analysis);
+  EXPECT_NE(serialized(config).find("setup.path_buffer_incremental_analysis=true\n"), std::string::npos);
+  EXPECT_THROW(config.set("setup.path_buffer_incremental_analysis", "invalid"), std::invalid_argument);
+  config.set("setup.path_buffer_reuse_rejections", "true");
+  EXPECT_TRUE(config.setupOptions().path_buffer_reuse_rejections);
+  EXPECT_NE(serialized(config).find("setup.path_buffer_reuse_rejections=true\n"), std::string::npos);
+  EXPECT_THROW(config.set("setup.path_buffer_reuse_rejections", "invalid"), std::invalid_argument);
+  config.set("setup.path_buffer_incremental_parasitics", "true");
+  EXPECT_TRUE(config.setupOptions().path_buffer_incremental_parasitics);
+  EXPECT_NE(serialized(config).find("setup.path_buffer_incremental_parasitics=true\n"), std::string::npos);
+  EXPECT_THROW(config.set("setup.path_buffer_incremental_parasitics", "invalid"), std::invalid_argument);
+}
+
 TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
 {
   ecc::RepairConfig config;

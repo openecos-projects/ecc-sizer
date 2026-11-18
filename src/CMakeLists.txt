@@ -111,6 +111,9 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME ecc_sizer_repair_regression
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/repair_regression_test.py)
+    add_test(NAME ecc_sizer_ispd26_evaluation
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/evaluate_ispd26_test.py)
+    set_tests_properties(ecc_sizer_ispd26_evaluation PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
     add_executable(ecc_sizer_repair_buffer_budget_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_buffer_budget_test.cpp)
@@ -124,6 +127,11 @@ if(BUILD_TESTING)
     target_include_directories(ecc_sizer_repair_config_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(ecc_sizer_repair_config_test PRIVATE GTest::gtest_main)
     add_test(NAME ecc_sizer_repair_config COMMAND ecc_sizer_repair_config_test)
+
+    add_executable(ecc_sizer_repair_path_feedback_test ../tests/repair_path_feedback_test.cpp)
+    target_include_directories(ecc_sizer_repair_path_feedback_test PRIVATE .)
+    target_link_libraries(ecc_sizer_repair_path_feedback_test PRIVATE GTest::gtest_main)
+    add_test(NAME ecc_sizer_repair_path_feedback COMMAND ecc_sizer_repair_path_feedback_test)
 
     set(VG_CUDA_TEST_BACKEND
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp)

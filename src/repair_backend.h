@@ -2,8 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "repair_design.h"
+#include "repair_analysis.h"
+#include "sta/Fuzzy.hh"
+#include <map>
+#include <optional>
+#include <memory>
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -149,6 +156,9 @@ class Repair {
 
     std::vector< NetState > analyze(DesignRepairMetrics& metrics,
                                     bool all_nets = false) {
+        analysis_initialized_ = false;
+        analysis_nets_.clear();
+        analysis_instances_.clear();
         sta_->findRequireds();
         sta_->checkSlewsPreamble();
         sta_->checkCapacitancesPreamble(sta_->scenes());
@@ -168,122 +178,74 @@ class Repair {
             metrics.area += area(inst->getMaster());
         std::vector< NetState > states;
         for(auto* net : block_->getNets()) {
-            if(net->isSpecial() || net->isDoNotTouch() ||
-               net->getSigType() != odb::dbSigType::SIGNAL ||
-               sta_->isClock(network_->dbToSta(net), sta_->cmdMode())) {
-                ++metrics.skipped_nets;
-                continue;
-            }
-            NetState state;
-            state.net = net;
-            unsigned drivers = 0;
-            bool protected_net = false;
-            for(auto* pin : net->getITerms()) {
-                auto* inst = pin->getInst();
-                if(inst->isDoNotTouch() || excluded_.count(inst))
-                    protected_net = true;
-                if(pin->getIoType() == odb::dbIoType::INOUT)
-                    protected_net = true;
-                if(pin->getIoType() == odb::dbIoType::OUTPUT) {
-                    ++drivers;
-                    state.driver = pin;
-                }
-                else if(pin->getIoType() == odb::dbIoType::INPUT) {
-                    int x, y;
-                    inst->getLocation(x, y);
-                    auto* port = network_->libertyPort(network_->dbToSta(pin));
-                    state.loads.push_back(
-                        {pin,
-                         port ? port->capacitance(sta::MinMax::max()) : 0.0f, x,
-                         y});
-                }
-            }
-            for(auto* pin : net->getBTerms()) {
-                if(pin->getIoType() == odb::dbIoType::INPUT)
-                    ++drivers;
-                else if(pin->getIoType() == odb::dbIoType::INOUT)
-                    protected_net = true;
-                else if(pin->getIoType() == odb::dbIoType::OUTPUT) {
-                    auto box = pin->getBBox();
-                    state.loads.push_back(
-                        {pin, 0, box.xCenter(), box.yCenter()});
-                }
-            }
-            // Input-port drive modelling is left to a later stage. Never split
-            // multi-driver/inout nets or move a protected load across nets.
-            if(protected_net || drivers != 1 || !state.driver ||
-               state.loads.empty()) {
-                ++metrics.skipped_nets;
-                continue;
-            }
-            auto* driver_pin = network_->dbToSta(state.driver);
-            const sta::RiseFall* rf = nullptr;
-            const sta::Scene* scene = nullptr;
-            float cap, limit, slack;
-            sta_->checkCapacitance(driver_pin, sta_->scenes(),
-                                   sta::MinMax::max(), cap, limit, slack, rf,
-                                   scene);
-            state.capacitance = sta_->graphDelayCalc()->loadCap(
-                driver_pin, sta_->cmdScene(), sta::MinMax::max());
-            if(scene && limit > 0)
-                state.cap_ratio = cap / limit;
-            auto check_slew = [&](sta::Pin* pin) {
-                sta::Slew slew;
-                const sta::Scene* slew_scene = nullptr;
-                float slew_limit, slew_slack;
-                sta_->checkSlew(pin, sta_->scenes(), sta::MinMax::max(), false,
-                                slew, slew_limit, slew_slack, rf, slew_scene);
-                if(slew_scene && slew_limit > 0 && std::isfinite(slew_limit)) {
-                    state.slew_ratio =
-                        std::max(state.slew_ratio, slew / slew_limit);
-                    state.slew_limit = std::min(state.slew_limit, slew_limit);
-                    state.slew = std::max(state.slew, float(slew));
-                }
-            };
-            check_slew(driver_pin);
-            for(auto& load : state.loads)
-                check_slew(network_->dbToSta(load.term));
-            float fanout, fanout_limit, fanout_slack;
-            sta_->checkFanout(driver_pin, sta_->cmdMode(), sta::MinMax::max(),
-                              fanout, fanout_limit, fanout_slack);
-            state.fanout_ratio = float(state.loads.size()) / opts_.max_fanout;
-            if(fanout_limit > 0)
-                state.fanout_ratio =
-                    std::max(state.fanout_ratio, fanout / fanout_limit);
-            metrics.fanout_nets += state.fanout_ratio > 1;
-            metrics.capacitance_nets += state.cap_ratio > 1;
-            metrics.slew_nets += state.slew_ratio > 1;
-            metrics.severity += std::max(0.0f, state.fanout_ratio - 1) +
-                                std::max(0.0f, state.cap_ratio - 1) +
-                                std::max(0.0f, state.slew_ratio - 1);
-            {
-                for(auto* input : state.driver->getInst()->getITerms()) {
-                    if(input->getIoType() != odb::dbIoType::INPUT)
-                        continue;
-                    auto* vertex =
-                        sta_->graph()->pinLoadVertex(network_->dbToSta(input));
-                    if(vertex)
-                        state.input_slew =
-                            std::max(state.input_slew,
-                                     float(sta_->slew(
-                                         vertex, sta::RiseFallBoth::riseFall(),
-                                         sta_->scenes(), sta::MinMax::max())));
-                    sta::Slew input_slew;
-                    const sta::Scene* input_scene = nullptr;
-                    float input_limit, input_slack;
-                    sta_->checkSlew(network_->dbToSta(input), sta_->scenes(),
-                                    sta::MinMax::max(), false, input_slew,
-                                    input_limit, input_slack, rf, input_scene);
-                    if(input_scene && input_limit > 0 &&
-                       input_slew > input_limit)
-                        state.propagated_slew = true;
-                }
-            }
-            if(all_nets || state.violating())
-                states.push_back(std::move(state));
+            auto state = analyzeNet(net, metrics);
+            if(state && (all_nets || state->violating())) states.push_back(std::move(*state));
         }
         return states;
     }
+
+    // Only for a phase with immutable SDC/libraries and complete edit-cone
+    // invalidation. Global timing is always queried from the live STA engine.
+    std::vector<NetState> analyzeIncremental(DesignRepairMetrics& metrics,
+                                           RepairAnalysisChanges changes) {
+        sta_->findRequireds();
+        sta_->checkSlewsPreamble();
+        sta_->checkCapacitancesPreamble(sta_->scenes());
+        sta_->checkFanoutPreamble();
+        ++analysis_statistics_.inspections;
+        if(!analysis_initialized_) {
+            ++analysis_statistics_.full_scans;
+            for(auto* net : block_->getNets()) changes.nets.insert(net);
+            for(auto* inst : block_->getInsts()) changes.instances.insert(inst);
+            changes.ports = true;
+            analysis_initialized_ = true;
+        }
+        for(auto id : changes.removed_nets) analysis_nets_.erase(id);
+        for(auto id : changes.removed_instances) analysis_instances_.erase(id);
+        for(auto* net : changes.nets) {
+            DesignRepairMetrics contribution;
+            auto state = analyzeNet(net, contribution);
+            analysis_nets_[net->getId()] = {std::move(state), contribution};
+            ++analysis_statistics_.net_checks;
+        }
+        for(auto* inst : changes.instances) {
+            analysis_instances_[inst->getId()] = pinCounts(network_->dbToSta(inst));
+            analysis_instances_[inst->getId()].area = area(inst->getMaster());
+            ++analysis_statistics_.instance_checks;
+        }
+        if(changes.ports) analysis_ports_ = pinCounts(network_->topInstance());
+        metrics = {};
+        metrics.setup_wns = std::min(0.0f, float(sta_->worstSlack(sta::MinMax::max())));
+        metrics.hold_wns = std::min(0.0f, float(sta_->worstSlack(sta::MinMax::min())));
+        metrics.setup_tns = float(sta_->totalNegativeSlack(sta::MinMax::max()));
+        metrics.hold_tns = float(sta_->totalNegativeSlack(sta::MinMax::min()));
+        const auto add_pins = [&](const DesignRepairMetrics& value) {
+            metrics.total_slew_violations += value.total_slew_violations;
+            metrics.total_cap_violations += value.total_cap_violations;
+            metrics.total_fanout_violations += value.total_fanout_violations;
+            metrics.area += value.area;
+        };
+        add_pins(analysis_ports_);
+        for(const auto& [id, value] : analysis_instances_) add_pins(value);
+        std::vector<NetState> states;
+        states.reserve(analysis_nets_.size());
+        // Reduce in DB-ID order, like the full scan, to preserve floating point
+        // severity accumulation at strict electrical acceptance boundaries.
+        for(const auto& [id, value] : analysis_nets_) {
+            const auto& m = value.second;
+            metrics.skipped_nets += m.skipped_nets;
+            metrics.fanout_nets += m.fanout_nets;
+            metrics.capacitance_nets += m.capacitance_nets;
+            metrics.slew_nets += m.slew_nets;
+            metrics.severity += m.severity;
+            if(value.first) states.push_back(*value.first);
+        }
+        return states;
+    }
+    struct AnalysisStatistics {
+        size_t inspections = 0, full_scans = 0, net_checks = 0, instance_checks = 0;
+    };
+    const AnalysisStatistics& analysisStatistics() const { return analysis_statistics_; }
 
     float predictedSlew(const Buffer& buffer, float cap, float in_slew) const {
         return predict(buffer, cap, in_slew, true);
@@ -300,12 +262,38 @@ class Repair {
     }
     float predict(const Buffer& buffer, float cap, float in_slew,
                   bool want_slew) const {
+        const auto [delay, slew] = predictedTiming(buffer, cap, in_slew);
+        return want_slew ? slew : delay;
+    }
+    void beginTimingPredictionEpoch() { ++prediction_epoch_; prediction_cache_active_ = true; }
+    void endTimingPredictionEpoch() {
+        prediction_cache_active_ = false;
+        // Keep only this candidate snapshot's working set. Reuse exact table
+        // queries across successive ECOs without retaining the entire search.
+        std::erase_if(predictions_, [&](const auto& entry) {
+            return entry.second.epoch != prediction_epoch_;
+        });
+    }
+    // Liberty interpolation returns both values. Path forecasts need both;
+    // sharing this evaluation avoids traversing/interpolating each arc twice.
+    std::pair<float, float> predictedTiming(const Buffer& buffer, float cap,
+                                          float in_slew) const {
         if(!buffer.cell || !buffer.output)
-            return kInf;
-        float worst = 0;
-        bool found = false;
+            return {kInf, kInf};
+        float worst_delay = 0, worst_slew = 0;
+        bool found = false, invalid_delay = false, invalid_slew = false;
         const auto* pvt =
             sta_->cmdMode()->sdc()->operatingConditions(sta::MinMax::max());
+        const PredictionKey key{buffer.cell, buffer.input, buffer.output,
+                                sta_->cmdScene(), pvt,
+                                std::bit_cast<uint32_t>(cap), std::bit_cast<uint32_t>(in_slew)};
+        if(prediction_cache_active_) {
+            const auto found = predictions_.find(key);
+            if(found != predictions_.end()) {
+                found->second.epoch = prediction_epoch_;
+                return found->second.value;
+            }
+        }
         for(auto* set : buffer.cell->timingArcSets()) {
             if((buffer.input && set->from() != buffer.input) || !set->from() ||
                set->to() != buffer.output)
@@ -317,14 +305,18 @@ class Repair {
                     continue;
                 float delay, slew;
                 model->gateDelay(pvt, in_slew, cap, delay, slew);
-                const float value = want_slew ? slew : delay;
-                if(!std::isfinite(value))
-                    return kInf;
-                worst = std::max(worst, value);
+                invalid_delay |= !std::isfinite(delay);
+                invalid_slew |= !std::isfinite(slew);
+                worst_delay = std::max(worst_delay, delay);
+                worst_slew = std::max(worst_slew, slew);
                 found = true;
             }
         }
-        return found ? worst : kInf;
+        const std::pair<float, float> value{
+            found && !invalid_delay ? worst_delay : kInf,
+            found && !invalid_slew ? worst_slew : kInf};
+        if(prediction_cache_active_) predictions_.emplace(key, Prediction{value, prediction_epoch_});
+        return value;
     }
 
     const Buffer* select(float cap, float slew_limit, float in_slew) const {
@@ -613,6 +605,175 @@ class Repair {
     }
 
    private:
+    std::optional<NetState> analyzeNet(odb::dbNet* net, DesignRepairMetrics& metrics) {
+        if(net->isSpecial() || net->isDoNotTouch() ||
+           net->getSigType() != odb::dbSigType::SIGNAL ||
+           sta_->isClock(network_->dbToSta(net), sta_->cmdMode())) {
+            ++metrics.skipped_nets;
+            return std::nullopt;
+        }
+        NetState state;
+        state.net = net;
+        unsigned drivers = 0;
+        bool protected_net = false;
+        for(auto* pin : net->getITerms()) {
+            auto* inst = pin->getInst();
+            if(inst->isDoNotTouch() || excluded_.count(inst))
+                protected_net = true;
+            if(pin->getIoType() == odb::dbIoType::INOUT)
+                protected_net = true;
+            if(pin->getIoType() == odb::dbIoType::OUTPUT) {
+                ++drivers;
+                state.driver = pin;
+            }
+            else if(pin->getIoType() == odb::dbIoType::INPUT) {
+                int x, y;
+                inst->getLocation(x, y);
+                auto* port = network_->libertyPort(network_->dbToSta(pin));
+                state.loads.push_back(
+                    {pin,
+                     port ? port->capacitance(sta::MinMax::max()) : 0.0f, x,
+                     y});
+            }
+        }
+        for(auto* pin : net->getBTerms()) {
+            if(pin->getIoType() == odb::dbIoType::INPUT)
+                ++drivers;
+            else if(pin->getIoType() == odb::dbIoType::INOUT)
+                protected_net = true;
+            else if(pin->getIoType() == odb::dbIoType::OUTPUT) {
+                auto box = pin->getBBox();
+                state.loads.push_back(
+                    {pin, 0, box.xCenter(), box.yCenter()});
+            }
+        }
+        // Input-port drive modelling is left to a later stage. Never split
+        // multi-driver/inout nets or move a protected load across nets.
+        if(protected_net || drivers != 1 || !state.driver ||
+           state.loads.empty()) {
+            ++metrics.skipped_nets;
+            return std::nullopt;
+        }
+        auto* driver_pin = network_->dbToSta(state.driver);
+        const sta::RiseFall* rf = nullptr;
+        const sta::Scene* scene = nullptr;
+        float cap, limit, slack;
+        sta_->checkCapacitance(driver_pin, sta_->scenes(),
+                               sta::MinMax::max(), cap, limit, slack, rf,
+                               scene);
+        state.capacitance = sta_->graphDelayCalc()->loadCap(
+            driver_pin, sta_->cmdScene(), sta::MinMax::max());
+        if(scene && limit > 0)
+            state.cap_ratio = cap / limit;
+        auto check_slew = [&](sta::Pin* pin) {
+            sta::Slew slew;
+            const sta::Scene* slew_scene = nullptr;
+            float slew_limit, slew_slack;
+            sta_->checkSlew(pin, sta_->scenes(), sta::MinMax::max(), false,
+                            slew, slew_limit, slew_slack, rf, slew_scene);
+            if(slew_scene && slew_limit > 0 && std::isfinite(slew_limit)) {
+                state.slew_ratio =
+                    std::max(state.slew_ratio, slew / slew_limit);
+                state.slew_limit = std::min(state.slew_limit, slew_limit);
+                state.slew = std::max(state.slew, float(slew));
+            }
+        };
+        check_slew(driver_pin);
+        for(auto& load : state.loads)
+            check_slew(network_->dbToSta(load.term));
+        float fanout, fanout_limit, fanout_slack;
+        sta_->checkFanout(driver_pin, sta_->cmdMode(), sta::MinMax::max(),
+                          fanout, fanout_limit, fanout_slack);
+        state.fanout_ratio = float(state.loads.size()) / opts_.max_fanout;
+        if(fanout_limit > 0)
+            state.fanout_ratio =
+                std::max(state.fanout_ratio, fanout / fanout_limit);
+        metrics.fanout_nets += state.fanout_ratio > 1;
+        metrics.capacitance_nets += state.cap_ratio > 1;
+        metrics.slew_nets += state.slew_ratio > 1;
+        metrics.severity += std::max(0.0f, state.fanout_ratio - 1) +
+                            std::max(0.0f, state.cap_ratio - 1) +
+                            std::max(0.0f, state.slew_ratio - 1);
+        {
+            for(auto* input : state.driver->getInst()->getITerms()) {
+                if(input->getIoType() != odb::dbIoType::INPUT)
+                    continue;
+                auto* vertex =
+                    sta_->graph()->pinLoadVertex(network_->dbToSta(input));
+                if(vertex)
+                    state.input_slew =
+                        std::max(state.input_slew,
+                                 float(sta_->slew(
+                                     vertex, sta::RiseFallBoth::riseFall(),
+                                     sta_->scenes(), sta::MinMax::max())));
+                sta::Slew input_slew;
+                const sta::Scene* input_scene = nullptr;
+                float input_limit, input_slack;
+                sta_->checkSlew(network_->dbToSta(input), sta_->scenes(),
+                                sta::MinMax::max(), false, input_slew,
+                                input_limit, input_slack, rf, input_scene);
+                if(input_scene && input_limit > 0 &&
+                   input_slew > input_limit)
+                    state.propagated_slew = true;
+            }
+        }
+        return state;
+    }
+    DesignRepairMetrics pinCounts(const sta::Instance* inst) {
+        DesignRepairMetrics result;
+        std::unique_ptr<sta::InstancePinIterator> pins(network_->pinIterator(inst));
+        while(pins->hasNext()) {
+            const auto* pin = pins->next();
+            const sta::RiseFall* rf = nullptr;
+            const sta::Scene* scene = nullptr;
+            sta::Slew slew;
+            float value, limit, slack;
+            // Global slew counts include clocks, unlike candidate NetState.
+            sta_->checkSlew(pin, sta_->scenes(), sta::MinMax::max(), true,
+                            slew, limit, slack, rf, scene);
+            result.total_slew_violations += scene && slack < 0;
+            if(!network_->isDriver(pin)) continue;
+            // Check each scene before selecting a violation, matching STA's
+            // fuzzy comparison even if another scene is just above zero.
+            bool cap_violation = false;
+            for(const auto* check_scene : sta_->scenes()) {
+                sta_->checkCapacitance(pin, {const_cast<sta::Scene*>(check_scene)},
+                    sta::MinMax::max(), value, limit, slack, rf, scene);
+                cap_violation |= scene && sta::fuzzyLess(slack, 0.0f);
+            }
+            result.total_cap_violations += cap_violation;
+            for(const auto* mode : sta_->modes()) {
+                sta_->checkFanout(pin, mode, sta::MinMax::max(), value, limit, slack);
+                result.total_fanout_violations += slack < 0;
+            }
+        }
+        return result;
+    }
+    bool analysis_initialized_ = false;
+    AnalysisStatistics analysis_statistics_;
+    std::map<unsigned, std::pair<std::optional<NetState>, DesignRepairMetrics>> analysis_nets_;
+    std::map<unsigned, DesignRepairMetrics> analysis_instances_;
+    DesignRepairMetrics analysis_ports_;
+    // Library models are immutable during a repair phase. Exact input bits,
+    // model ports, scene and operating condition identify a pure table query;
+    // no quantization or estimated timing state is reused.
+    struct PredictionKey {
+        const void *cell, *input, *output, *scene, *pvt;
+        uint32_t cap, slew;
+        bool operator==(const PredictionKey&) const = default;
+    };
+    struct PredictionHash {
+        size_t operator()(const PredictionKey& key) const {
+            size_t value = 0;
+            for(const auto* pointer : {key.cell, key.input, key.output, key.scene, key.pvt})
+                value = std::rotl(value, 1) ^ std::hash<const void*>{}(pointer);
+            return std::rotl(value, 1) ^ std::hash<uint64_t>{}((uint64_t(key.cap) << 32) | key.slew);
+        }
+    };
+    struct Prediction { std::pair<float, float> value; size_t epoch; };
+    mutable std::unordered_map<PredictionKey, Prediction, PredictionHash> predictions_;
+    size_t prediction_epoch_ = 0;
+    bool prediction_cache_active_ = false;
     odb::dbBlock* block_;
     sta::dbSta* sta_;
     sta::dbNetwork* network_;

@@ -40,6 +40,7 @@
 #include "rsz/Resizer.hh"
 #include "dpl/Opendp.h"
 #include "est/EstimateParasitics.h"
+#include "repair_parasitics.h"
 
 #include "sizer.h"
 #include <iomanip>
@@ -5813,6 +5814,10 @@ void Sizer::runSizerDesignRepair() {
             setup_options.path_trial_observer = [&](unsigned trial_index, const ecc::PathBufferTrial& trial) {
                 cout << "Sizer path trial: index=" << trial_index
                      << " accepted=" << trial.rejection_reasons.empty()
+                     << " placement_provisional=" << trial.placement_provisional
+                     << " full_verified=" << trial.full_verified
+                     << " metrics_complete=" << trial.metrics_complete
+                     << " frontier_audit=" << trial.frontier_audit
                      << " buffers=" << trial.buffers
                      << " reasons=";
                 if(trial.rejection_reasons.empty())
@@ -5820,19 +5825,19 @@ void Sizer::runSizerDesignRepair() {
                 for(size_t i = 0; i < trial.rejection_reasons.size(); ++i)
                     cout << (i ? "," : "") << trial.rejection_reasons[i];
                 const auto metrics = [&](const char* suffix,
-                                         const ecc::DesignRepairMetrics& m) {
+                                         const ecc::DesignRepairMetrics& m, bool complete) {
                     cout << " setup_wns_" << suffix << "_ns=" << m.setup_wns * 1e9
                          << " setup_tns_" << suffix << "_ns=" << m.setup_tns * 1e9
                          << " hold_wns_" << suffix << "_ns=" << m.hold_wns * 1e9
-                         << " hold_tns_" << suffix << "_ns=" << m.hold_tns * 1e9
-                         << " slew_" << suffix << "=" << m.total_slew_violations
+                         << " hold_tns_" << suffix << "_ns=" << m.hold_tns * 1e9;
+                    if(complete) cout << " slew_" << suffix << "=" << m.total_slew_violations
                          << " cap_" << suffix << "=" << m.total_cap_violations
                          << " fanout_" << suffix << "=" << m.total_fanout_violations
                          << " severity_" << suffix << "=" << m.severity
                          << " area_" << suffix << "_dbu2=" << m.area;
                 };
-                metrics("before", trial.before);
-                metrics("after", trial.after);
+                metrics("before", trial.before, true);
+                metrics("after", trial.after, trial.metrics_complete);
                 cout << " objective_endpoints=" << trial.objective_endpoints
                      << " objective_wns_before_ns=" << trial.objective_wns_before * 1e9
                      << " objective_wns_after_ns=" << trial.objective_wns_after * 1e9
@@ -5852,14 +5857,27 @@ void Sizer::runSizerDesignRepair() {
                          << candidate.predicted_driver_gain * 1e9
                          << " predicted_wns_gain_ns=" << candidate.predicted_wns_gain * 1e9
                          << " predicted_tns_gain_ns=" << candidate.predicted_tns_gain * 1e9
+                         << " ranked_wns_gain_ns=" << candidate.ranked_wns_gain * 1e9
+                         << " ranked_tns_gain_ns=" << candidate.ranked_tns_gain * 1e9
+                         << " predicted_path_gain_ns=" << candidate.predicted_path_gain * 1e9
+                         << " predicted_electrical_excess=" << candidate.predicted_electrical_excess
+                         << " electrical_retry=" << candidate.electrical_retry
+                         << " deferred_retry=" << candidate.deferred_retry
+                         << " fingerprint=" << std::quoted(candidate.fingerprint)
                          << " affected_endpoints=" << candidate.affected_endpoints
+                         << " covered_endpoints=" << candidate.covered_endpoints
+                         << " covered_tns_gain_ns=" << candidate.covered_tns_gain * 1e9
+                         << " family_attempts=" << candidate.family_attempts
+                         << " generation=" << candidate.generation
+                         << " load_group=" << std::quoted(candidate.load_group)
                          << " x=" << candidate.x << " y=" << candidate.y << endl;
                 if(trial.rejection_reasons.empty()) {
                     path_committed_buffers += trial.buffers;
-                    write_path_checkpoint();
+                    if(!trial.placement_provisional) write_path_checkpoint();
                 }
                 cout << "Sizer path progress: trial=" << trial_index
-                     << " committed_buffers=" << path_committed_buffers
+                     << (trial.placement_provisional ? " provisional_buffers=" : " committed_buffers=")
+                     << path_committed_buffers
                      << " elapsed_ms=" << std::chrono::duration<double, std::milli>(
                             std::chrono::steady_clock::now() - setup_start).count() << endl;
             };
@@ -5895,12 +5913,46 @@ void Sizer::runSizerDesignRepair() {
                 setup_result.prepare_ms = pbbi_result.prepare_ms;
                 setup_result.refresh_ms = pbbi_result.refresh_ms;
                 setup_result.measure_ms = pbbi_result.measure_ms;
+            } else if(setup_options.path_buffer_incremental_parasitics &&
+                      (setup_options.path_buffer_enabled || setup_options.path_buffer_only)) {
+                ecc::PlacementParasiticUpdater incremental(
+                    block, sta, design->getResizer()->getEstimateParasitics());
+                setup_options.path_verification_refresh = refresh;
+                setup_options.path_incremental_verification = [&]() { incremental.verifyTiming(); };
+                setup_options.path_analysis_changes = [&]() { return incremental.takeAnalysisChanges(); };
+                double supply_ms = 0;
+                const auto incremental_refresh = [&]() {
+                    const auto supply_start = std::chrono::steady_clock::now();
+                    ecc::connectMissingWildcardSpecialNetPins(block);
+                    if(missing_supplies() > baseline_missing)
+                        throw std::runtime_error("repair introduced disconnected or mismatched supply pins");
+                    supply_ms += std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - supply_start).count();
+                    incremental.update();
+                };
+                setup_result = ecc::OpenDbSetupRepairer::repair(
+                    block, sta, incremental_refresh, setup_options);
+                const auto& stats = incremental.statistics();
+                cout << "Sizer path incremental: updates=" << stats.updates
+                     << " verifications=" << stats.verifications
+                     << " watched_instances=" << stats.watched_instances
+                     << " updated_nets=" << stats.updated_nets
+                     << " refreshed_vertices=" << stats.refreshed_vertices
+                     << " analysis_vertices=" << stats.analysis_vertices
+                     << " analysis_slew_changes=" << stats.analysis_slew_changes
+                     << " supply_ms=" << supply_ms
+                     << " geometry_ms=" << stats.geometry_ms
+                     << " rc_ms=" << stats.rc_ms
+                     << " sta_ms=" << stats.sta_ms << endl;
             } else {
                 setup_result = ecc::OpenDbSetupRepairer::repair(block, sta, refresh, setup_options);
             }
             setup_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - setup_start).count();
             if(!setup_result.ok) throw std::runtime_error(setup_result.message);
+            if(setup_options.path_buffer_placement == "final" &&
+               (setup_options.path_buffer_enabled || setup_options.path_buffer_only))
+                write_path_checkpoint();
             writeRepairStageSnapshot("setup");
         }
         if(result.ok && nativeRepairConfig.power.enabled) {
@@ -6059,6 +6111,8 @@ void Sizer::runSizerDesignRepair() {
              << " path_buffer_attempted=" << setup_result.path_buffer_attempted
              << " path_buffer_accepted=" << setup_result.path_buffer_accepted
              << " path_buffer_rejected=" << setup_result.path_buffer_rejected
+             << " path_buffer_consecutive_rejections=" << setup_result.path_buffer_consecutive_rejections
+             << " path_buffer_stopped_on_rejections=" << setup_result.path_buffer_stopped_on_rejections
              << " path_buffer_inserted_buffers="
              << setup_result.path_buffer_inserted_buffers
              << " path_buffer_candidates="
@@ -6068,6 +6122,31 @@ void Sizer::runSizerDesignRepair() {
              << " path_buffer_fanout_precheck_rejections=" << setup_result.path_buffer_fanout_precheck_rejections
              << " path_buffer_fanout_tree_trials=" << setup_result.path_buffer_fanout_tree_trials
              << " path_buffer_screened_candidates=" << setup_result.path_buffer_screened_candidates
+             << " path_buffer_failure_cache_hits=" << setup_result.path_buffer_failure_cache_hits
+             << " path_buffer_reused_rejections=" << setup_result.path_buffer_reused_rejections
+             << " path_buffer_electrical_full_scans=" << setup_result.path_buffer_electrical_full_scans
+             << " path_buffer_electrical_net_checks=" << setup_result.path_buffer_electrical_net_checks
+             << " path_buffer_electrical_instance_checks=" << setup_result.path_buffer_electrical_instance_checks
+
+             << " path_buffer_deferred_candidates=" << setup_result.path_buffer_deferred_candidates
+             << " path_buffer_invalidated_failures=" << setup_result.path_buffer_invalidated_failures
+             << " path_buffer_deferred_trials=" << setup_result.path_buffer_deferred_trials
+             << " path_buffer_repeated_trials=" << setup_result.path_buffer_repeated_trials
+             << " path_buffer_calibrated_candidates=" << setup_result.path_buffer_calibrated_candidates
+             << " path_buffer_feedback_updates=" << setup_result.path_buffer_feedback_updates
+             << " path_buffer_frontier_suspended=" << setup_result.path_buffer_frontier_suspended
+             << " path_buffer_frontier_audits=" << setup_result.path_buffer_frontier_audits
+             << " path_buffer_frontier_reopened=" << setup_result.path_buffer_frontier_reopened
+             << " path_buffer_timing_precheck_rejections=" << setup_result.path_buffer_timing_precheck_rejections
+             << " path_buffer_final_placement_attempted=" << setup_result.path_final_placement.attempted
+             << " path_buffer_final_placement_accepted=" << setup_result.path_final_placement.accepted
+             << " path_buffer_final_placement_rolled_back=" << setup_result.path_final_placement.rolled_back
+             << " path_buffer_provisional_buffers=" << setup_result.path_final_placement.provisional_buffers
+             << " path_buffer_final_placement_ms=" << setup_result.path_final_placement.elapsed_ms
+             << " path_buffer_pre_dp_wns_ns=" << setup_result.path_final_placement.before.setup_wns * 1e9
+             << " path_buffer_pre_dp_tns_ns=" << setup_result.path_final_placement.before.setup_tns * 1e9
+             << " path_buffer_post_dp_wns_ns=" << setup_result.path_final_placement.after.setup_wns * 1e9
+             << " path_buffer_post_dp_tns_ns=" << setup_result.path_final_placement.after.setup_tns * 1e9
              << " skipped_duplicate_batches=" << setup_result.skipped_duplicate_batches
              << " refreshes=" << setup_result.refreshes
              << " rollback_refreshes=" << setup_result.rollback_refreshes

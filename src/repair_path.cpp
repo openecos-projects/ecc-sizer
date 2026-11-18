@@ -5,6 +5,7 @@
 #include "buffer_inserter.h"
 #include "repair_acceptance.h"
 #include "repair_backend.h"
+#include "repair_path_feedback.h"
 
 #include <algorithm>
 #include <chrono>
@@ -65,10 +66,20 @@ struct PathBufferCandidate {
     size_t path_index = 0;
     float predicted_wns_gain = 0;
     float predicted_tns_gain = 0;
+    path_detail::CandidateQuality quality;
+    bool electrical_retry = false;
     unsigned affected_endpoints = 0;
     unsigned variant_rank = 0;
     std::string feedback_key;
+    std::string group_key;
+    std::string load_group_key;
+    std::shared_ptr<const std::string> feedback_context;
+    double ranked_wns_gain = 0, ranked_tns_gain = 0, rank_score = 0;
+    bool deferred_retry = false;
     unsigned feedback_priority = 0;
+    unsigned family_attempts = 0;
+    double covered_tns_gain = 0;
+    unsigned covered_endpoints = 0;
     std::vector< odb::dbInst* > cone;
     bool recovery = false;
     std::shared_ptr<const PathTree> tree;
@@ -102,17 +113,26 @@ struct CandidateCollection {
     unsigned duplicate_candidates = 0;
 };
 
-// History changes priority only: a globally coupled STA failure is never
-// treated as proof that the candidate is still invalid after another edit.
-std::string actionKey(const PathBufferCandidate& candidate) {
-    std::ostringstream key;
-    key << candidate.net->getId() << ':' << candidate.master->getId()
-        << ':' << candidate.master->getLib()->getId() << ':'
-        << candidate.location.x << ':' << candidate.location.y;
-    for(auto* load : candidate.loads)
-        key << ':' << int(load->getObjectType()) << '/' << load->getId();
-    if(candidate.tree) key << ":tree";
-    return key.str();
+std::string terminalKey(odb::dbObject* term) {
+    return std::to_string(int(term->getObjectType())) + '/' + std::to_string(term->getId());
+}
+
+std::string actionKey(const PathBufferCandidate& candidate, bool physical = true) {
+    const auto master = std::to_string(candidate.master->getLib()->getId()) + '/' +
+                        std::to_string(candidate.master->getId());
+    std::vector<path_detail::ActionNode> nodes;
+    if(candidate.tree) {
+        for(const auto& node : candidate.tree->nodes) {
+            path_detail::ActionNode out{master, node.location.x, node.location.y, {}, node.children};
+            for(auto index : node.loads) out.terminals.push_back(terminalKey(candidate.tree->terminals.at(index)));
+            nodes.push_back(std::move(out));
+        }
+    } else {
+        path_detail::ActionNode out{master, candidate.location.x, candidate.location.y, {}, {}};
+        for(auto* load : candidate.loads) out.terminals.push_back(terminalKey(load));
+        nodes.push_back(std::move(out));
+    }
+    return path_detail::actionFingerprint(std::to_string(candidate.net->getId()), nodes, physical);
 }
 
 // Match OpenSTA's fanout-load semantics: output ports do not contribute;
@@ -177,6 +197,24 @@ float bufferCapLimit(sta::dbSta* sta, const detail::Buffer& buffer) {
         if(exists) limit = std::min(limit, value);
         mode->sdc()->capacitanceLimit(network->dbToSta(buffer.master),
                                      sta::MinMax::max(), value, exists);
+        if(exists) limit = std::min(limit, value);
+    }
+    return limit;
+}
+
+float bufferSlewLimit(sta::dbSta* sta, const detail::Buffer& buffer) {
+    float limit = detail::kInf, value;
+    bool exists = false;
+    buffer.output->slewLimit(sta::MinMax::max(), value, exists);
+    if(!exists) buffer.cell->libertyLibrary()->defaultMaxSlew(value, exists);
+    if(exists) limit = std::min(limit, value);
+    auto* network = sta->getDbNetwork();
+    for(auto* mode : sta->modes()) {
+        mode->sdc()->slewLimit(network->cell(network->topInstance()),
+                              sta::MinMax::max(), value, exists);
+        if(exists) limit = std::min(limit, value);
+        mode->sdc()->slewLimit(network->dbToSta(buffer.master),
+                              sta::MinMax::max(), value, exists);
         if(exists) limit = std::min(limit, value);
     }
     return limit;
@@ -266,7 +304,10 @@ PathTree planPathTree(const NetState& state, const detail::Buffer& buffer,
     return {};
 }
 
-struct PathTreeTiming { std::vector<float> delay, slew; };
+struct PathTreeTiming {
+    std::vector<float> delay, slew;
+    double max_slew = 0, max_cap = 0;
+};
 PathTreeTiming predictPathTree(detail::Repair& backend, const NetState& state,
     const detail::Buffer& buffer, const PathTree& tree, float driver_slew,
     double upstream_delay, double resistance_per_length) {
@@ -281,8 +322,10 @@ PathTreeTiming predictPathTree(detail::Repair& backend, const NetState& state,
     slews.back() = wire_slew(driver_slew, upstream_delay);
     for(size_t i = tree.nodes.size(); i-- > 0;) {
         const auto& node = tree.nodes[i];
-        const double arrival = arrivals[i] + backend.predictedDelay(buffer, node.cap, slews[i]);
-        const double slew = backend.predictedSlew(buffer, node.cap, slews[i]);
+        const auto [delay, slew] = backend.predictedTiming(buffer, node.cap, slews[i]);
+        result.max_slew = std::max({result.max_slew, slews[i], double(slew)});
+        result.max_cap = std::max(result.max_cap, double(node.cap));
+        const double arrival = arrivals[i] + delay;
         const auto wire = [&](int x, int y) {
             return resistance_per_length * node.cap *
                 (std::abs(double(node.location.x) - x) + std::abs(double(node.location.y) - y));
@@ -297,6 +340,7 @@ PathTreeTiming predictPathTree(detail::Repair& backend, const NetState& state,
             const double elmore = wire(state.loads[load].x, state.loads[load].y);
             result.delay[load] = arrival + elmore;
             result.slew[load] = wire_slew(slew, elmore);
+            result.max_slew = std::max(result.max_slew, double(result.slew[load]));
         }
     }
     return result;
@@ -711,6 +755,8 @@ struct PathUse {
     size_t endpoint;
     odb::dbObject* load;
     float slack;
+    size_t path = 0;
+    bool recovery = false;
 };
 
 std::vector< odb::dbInst* > downstreamCone(odb::dbNet* net,
@@ -748,6 +794,13 @@ bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
         return a.predicted_wns_gain > b.predicted_wns_gain;
     if(a.predicted_tns_gain != b.predicted_tns_gain)
         return a.predicted_tns_gain > b.predicted_tns_gain;
+    // The RC/slew proxy may be optimistic for long, weakly driven trees.
+    // Preserve path-margin information before using that proxy to break a
+    // global-objective tie; neither estimate is an electrical proof.
+    if(a.quality.path_gain != b.quality.path_gain)
+        return a.quality.path_gain > b.quality.path_gain;
+    if(a.quality.electrical_excess != b.quality.electrical_excess)
+        return a.quality.electrical_excess < b.quality.electrical_excess;
     const double area_a = detail::area(a.master) * (a.tree ? a.tree->nodes.size() : 1);
     const double area_b = detail::area(b.master) * (b.tree ? b.tree->nodes.size() : 1);
     if(area_a != area_b) return area_a < area_b;
@@ -757,11 +810,201 @@ bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
                            b.location.y, b.loads);
 }
 
+struct PathFeedback {
+    struct Model {
+        std::string context;
+        path_detail::GainCalibration wns, tns;
+    };
+    path_detail::FailureHistory failures;
+    std::unordered_map<std::string, Model> models;
+    path_detail::FamilyCoverage coverage;
+    unsigned generation = 0;
+    const SetupRepairOptions& options;
+    PathBufferRepairResult& result;
+    std::unordered_map<std::string, path_detail::ExplorationFrontier> frontiers;
+    path_detail::ContextCoverage group_coverage;
+    // One unselected representative per load set/master, not every position
+    // and topology. These are activated only by a measured electrical failure
+    // with sufficient actual timing gain, on this committed STA snapshot.
+    std::vector<PathBufferCandidate> electrical_reserve;
+
+    double tnsEstimate(const PathBufferCandidate& c) const {
+        return options.path_buffer_endpoint_coverage && options.path_buffer_gain_scope == "global"
+                   ? c.covered_tns_gain : c.predicted_tns_gain;
+    }
+
+    path_detail::ExplorationFrontier::Decision explore(const PathBufferCandidate& c) {
+        using Decision = path_detail::ExplorationFrontier::Decision;
+        if(!options.path_buffer_adaptive_search || options.path_buffer_batch_size != 1)
+            return Decision::Explore;
+        const bool local = options.path_buffer_gain_scope == "endpoints";
+        const double wns_floor = std::max(double(options.min_improvement),
+            std::abs(local ? c.objective_wns : double(result.before.setup_wns)) * options.path_buffer_min_relative_improvement);
+        const double tns_floor = std::max({double(options.min_improvement),
+            std::abs(local ? c.objective_tns : double(result.before.setup_tns)) * options.path_buffer_min_relative_improvement,
+            double(detail::tnsTolerance(local ? c.objective_tns : result.after.setup_tns, options.common.tolerances))});
+        return frontiers[c.group_key].decide(
+            {c.predicted_wns_gain, c.predicted_tns_gain}, {wns_floor, tns_floor});
+    }
+
+    void committed() {
+        ++generation;
+        // Even a distant commit can change an alternative path or placement.
+        // Reopen every frontier rather than treating a structural hint as an
+        // exact cross-generation dependency certificate.
+        frontiers.clear();
+    }
+
+    void rank(PathBufferCandidate& candidate, bool count = false) {
+        candidate.family_attempts = options.path_buffer_diversify
+            ? (options.path_buffer_group_schedule
+                   ? group_coverage.attempts(candidate.load_group_key, *candidate.feedback_context)
+                   : coverage.attempts(candidate.group_key, generation)) : 0;
+        candidate.ranked_wns_gain = candidate.predicted_wns_gain;
+        candidate.ranked_tns_gain = tnsEstimate(candidate);
+        if(options.path_buffer_calibrate) {
+            const auto found = models.find(candidate.group_key);
+            if(found != models.end() && found->second.context == *candidate.feedback_context) {
+                candidate.ranked_wns_gain = found->second.wns.predict(candidate.predicted_wns_gain);
+                candidate.ranked_tns_gain = found->second.tns.predict(tnsEstimate(candidate));
+                if(count) ++result.calibrated_candidates;
+            }
+        }
+        const bool local = options.path_buffer_gain_scope == "endpoints";
+        const double wns_floor = std::max(double(options.min_improvement),
+            std::abs(local ? candidate.objective_wns : double(result.before.setup_wns)) * options.path_buffer_min_relative_improvement);
+        const double tns_floor = std::max(double(options.min_improvement),
+            std::abs(local ? candidate.objective_tns : double(result.before.setup_tns)) * options.path_buffer_min_relative_improvement);
+        candidate.rank_score = std::max(
+            wns_floor > 0 ? candidate.ranked_wns_gain / wns_floor : candidate.ranked_wns_gain,
+            tns_floor > 0 ? candidate.ranked_tns_gain / tns_floor : candidate.ranked_tns_gain);
+        candidate.deferred_retry = options.path_buffer_failure_cache &&
+            failures.status(candidate.feedback_key, *candidate.feedback_context, generation) == path_detail::Retry::Deferred &&
+            !failures.opportunityChanged(candidate.feedback_key,
+                candidate.predicted_wns_gain, candidate.predicted_tns_gain, wns_floor, tns_floor);
+        const bool regression =
+            candidate.ranked_wns_gain < -options.common.tolerances.wns_absolute ||
+            candidate.ranked_tns_gain < -detail::tnsTolerance(result.after.setup_tns, options.common.tolerances);
+        candidate.feedback_priority = (candidate.deferred_retry ? 2 : 0) + unsigned(regression);
+    }
+    static bool order(const PathBufferCandidate& a, const PathBufferCandidate& b) {
+        if(a.feedback_priority != b.feedback_priority) return a.feedback_priority < b.feedback_priority;
+        if(a.electrical_retry != b.electrical_retry) return a.electrical_retry;
+        if(a.family_attempts != b.family_attempts) return a.family_attempts < b.family_attempts;
+        if(a.rank_score != b.rank_score) return a.rank_score > b.rank_score;
+        if(a.ranked_wns_gain != b.ranked_wns_gain) return a.ranked_wns_gain > b.ranked_wns_gain;
+        if(a.ranked_tns_gain != b.ranked_tns_gain) return a.ranked_tns_gain > b.ranked_tns_gain;
+        return gainOrder(a, b);
+    }
+    void select(std::vector<PathBufferCandidate>& variants) {
+        std::unordered_set<std::string> actions;
+        const auto end = std::remove_if(variants.begin(), variants.end(), [&](auto& c) {
+            if(!actions.insert(c.feedback_key).second) { ++result.duplicate_candidates; return true; }
+            if(options.path_buffer_failure_cache) {
+                const auto retry = failures.status(c.feedback_key, *c.feedback_context, generation);
+                if(retry == path_detail::Retry::Duplicate) { ++result.failure_cache_hits; return true; }
+                if(retry == path_detail::Retry::Invalidated) ++result.invalidated_failures;
+            }
+            rank(c, true);
+            if(c.deferred_retry) ++result.deferred_candidates;
+            return false;
+        });
+        variants.erase(end, variants.end());
+        std::stable_sort(variants.begin(), variants.end(), order);
+        if(options.path_buffer_diversify) {
+            std::unordered_map<std::string, unsigned> wave;
+            for(auto& c : variants)
+                c.variant_rank = wave[options.path_buffer_group_schedule ? c.load_group_key : c.group_key]++;
+            std::stable_sort(variants.begin(), variants.end(), [](const auto& a, const auto& b) {
+                if(a.feedback_priority != b.feedback_priority) return a.feedback_priority < b.feedback_priority;
+                if(a.variant_rank != b.variant_rank) return a.variant_rank < b.variant_rank;
+                return order(a, b);
+            });
+        }
+        // Beam selection happens after feedback and family diversification.
+        // Retain deferred, previously tested actions as a final validation
+        // queue even if the active beam is full. They are never blacklisted.
+        unsigned active = 0;
+        std::unordered_set<std::string> strengths;
+        std::vector<PathBufferCandidate> selected;
+        for(auto& c : variants) {
+            const auto strength = c.load_group_key + '/' +
+                std::to_string(c.master->getLib()->getId()) + '/' + std::to_string(c.master->getId());
+            const bool new_strength = strengths.insert(strength).second;
+            if(c.deferred_retry || active++ < options.path_buffer_max_candidates)
+                selected.push_back(std::move(c));
+            else if(new_strength)
+                electrical_reserve.push_back(std::move(c));
+        }
+        variants = std::move(selected);
+        std::stable_sort(variants.begin(), variants.end(), order);
+    }
+    void recoverElectrical(const PathBufferCandidate& failed, const PathBufferTrial& trial,
+                           std::vector<PathBufferCandidate>& pending, size_t next) {
+        if(trial.rejection_reasons.empty() || !trial.metrics_complete ||
+           !path_detail::needsFullVerification(trial.rejection_reasons)) return;
+        PathBufferCandidate* best = nullptr;
+        size_t reserve_index = electrical_reserve.size();
+        const auto consider = [&](PathBufferCandidate& c) {
+            if(c.load_group_key != failed.load_group_key || c.deferred_retry ||
+               failures.status(c.feedback_key, *c.feedback_context, generation) == path_detail::Retry::Duplicate ||
+               !path_detail::betterElectricalAlternative(c.quality, failed.quality)) return false;
+            if(!best || path_detail::betterElectricalAlternative(c.quality, best->quality) ||
+               (!path_detail::betterElectricalAlternative(best->quality, c.quality) && order(c, *best))) {
+                best = &c;
+                return true;
+            }
+            return false;
+        };
+        for(size_t i = next; i < pending.size(); ++i) consider(pending[i]);
+        for(size_t i = 0; i < electrical_reserve.size(); ++i)
+            if(consider(electrical_reserve[i])) reserve_index = i;
+        if(!best) return;
+        best->electrical_retry = true;
+        if(reserve_index != electrical_reserve.size()) {
+            pending.push_back(std::move(electrical_reserve[reserve_index]));
+            electrical_reserve.erase(electrical_reserve.begin() + reserve_index);
+        }
+    }
+    void covered(const PathBufferCandidate& plan) {
+        coverage.observe(plan.group_key, generation);
+        group_coverage.observe(plan.load_group_key, *plan.feedback_context);
+    }
+    void observe(const PathBufferCandidate& plan, const PathBufferTrial& trial) {
+        covered(plan);
+        const bool local = options.path_buffer_gain_scope == "endpoints";
+        const double wns = local ? trial.objective_wns_after - trial.objective_wns_before
+                                 : double(trial.after.setup_wns) - trial.before.setup_wns;
+        const double tns = local ? trial.objective_tns_after - trial.objective_tns_before
+                                 : double(trial.after.setup_tns) - trial.before.setup_tns;
+        if(options.path_buffer_adaptive_search)
+            frontiers[plan.group_key].observe(
+                {plan.predicted_wns_gain, plan.predicted_tns_gain}, {wns, tns},
+                !trial.rejection_reasons.empty(), trial.frontier_audit);
+        if(options.path_buffer_calibrate) {
+            auto& model = models[plan.group_key];
+            if(model.context != *plan.feedback_context) model = {*plan.feedback_context, {}, {}};
+            model.wns.observe(plan.predicted_wns_gain, wns);
+            model.tns.observe(tnsEstimate(plan), tns);
+            ++result.feedback_updates;
+        }
+        if(!trial.rejection_reasons.empty() && options.path_buffer_failure_cache)
+            failures.record(plan.feedback_key, {*plan.feedback_context, trial.rejection_reasons, generation, wns, tns,
+                plan.predicted_wns_gain, plan.predicted_tns_gain});
+    }
+};
+
 CandidateCollection collectPathGainCandidates(
     detail::Repair& backend, sta::dbSta* sta,
     const std::vector< NetState >& states, const SetupRepairOptions& options,
-    bool recovery = false) {
+    const DesignRepairMetrics& metrics, PathFeedback* feedback) {
+    backend.beginTimingPredictionEpoch();
+    struct PredictionEpoch {
+        detail::Repair& backend;
+        ~PredictionEpoch() { backend.endTimingPredictionEpoch(); }
+    } prediction_epoch{backend};
     CandidateCollection collection;
+    if(feedback) feedback->electrical_reserve.clear();
     auto* network = sta->getDbNetwork();
     std::unordered_map< odb::dbNet*, std::vector< PathUse > > uses;
     std::unordered_map< odb::dbInst*, const NetState* > driven;
@@ -771,7 +1014,13 @@ CandidateCollection collectPathGainCandidates(
     std::vector< float > endpoint_slacks;
     std::vector<const sta::Pin*> endpoint_pins;
     std::unordered_map< const sta::Pin*, size_t > endpoints;
+    std::vector<path_detail::PathForecast> sampled_paths;
+    std::map<size_t, double> actual_endpoint_slacks;
     sta::StringSeq groups;
+    // Preserve each sampled path, including competing checks/paths at the
+    // same endpoint. Generate physical actions once for their union.
+    for(bool recovery : {false, true}) {
+    if(recovery && !options.path_buffer_recovery) continue;
     const auto ends = sta->findPathEnds(
         nullptr, nullptr, nullptr, false, sta->scenes(), sta::MinMaxAll::max(),
         options.path_buffer_max_paths, options.paths_per_endpoint, true, false,
@@ -793,6 +1042,8 @@ CandidateCollection collectPathGainCandidates(
         else
             endpoint_slacks[it->second] =
                 std::min(endpoint_slacks[it->second], slack);
+        const auto path_index = sampled_paths.size();
+        sampled_paths.push_back({it->second, slack, slack, false});
         sta::PathExpanded path(end->path(), sta);
         for(size_t i = path.startIndex(); i + 1 < path.size(); ++i) {
             auto* output = network->staToDb(path.path(i)->pin(sta));
@@ -809,13 +1060,61 @@ CandidateCollection collectPathGainCandidates(
                                  ? static_cast< odb::dbBTerm* >(load)->getNet()
                                  : nullptr;
             if(load_net == driver->getNet())
-                uses[load_net].push_back({it->second, load, slack});
+                uses[load_net].push_back({it->second, load, slack, path_index, recovery});
         }
+    }
     }
     if(endpoint_slacks.empty())
         return collection;
-    const float baseline_wns =
-        *std::min_element(endpoint_slacks.begin(), endpoint_slacks.end());
+    // Cell limits are invariant throughout this STA snapshot.
+    std::vector<std::tuple<float, float, float>> buffer_limits;
+    for(const auto& buffer : backend.bufferChoices())
+        buffer_limits.emplace_back(bufferCapLimit(sta, buffer) * (1 - options.common.margin),
+                                   bufferFanoutLimit(sta, buffer), bufferSlewLimit(sta, buffer));
+    // Slack queries may rebuild OpenSTA path groups. Do not issue them while
+    // iterating the PathEnd objects returned by findPathEnds().
+    for(size_t i = 0; i < endpoint_pins.size(); ++i)
+        actual_endpoint_slacks.emplace(i, std::min(0.0, double(sta->slack(
+            endpoint_pins[i], sta::RiseFallBoth::riseFall(), sta->scenes(), sta::MinMax::max()))));
+    // Index the CURRENT worst max path of every endpoint once per committed
+    // design, retaining only nets already chosen by the critical-path search.
+    // This does not expand the candidate-net search or the acceptance scope.
+    // Each endpoint contributes at most once per net, including reconvergence.
+    // It is a scheduling forecast: competing paths after the ECO still require
+    // global STA, and these profiles are never used to skip a trial.
+    std::unordered_map<odb::dbNet*,
+        std::unordered_map<odb::dbObject*, path_detail::EndpointSlackProfile>> endpoint_profiles;
+    if(options.path_buffer_endpoint_coverage && options.path_buffer_gain_scope == "global") {
+        sta->findRequireds();
+        std::unordered_map<const sta::Pin*, sta::Path*> worst_paths;
+        for(auto* vertex : sta->endpoints()) {
+            auto* path = sta->vertexWorstSlackPath(vertex, sta::MinMax::max());
+            if(!path || !std::isfinite(double(path->slack(sta))) ||
+               std::abs(double(path->slack(sta))) >= detail::kInf) continue;
+            auto [it, added] = worst_paths.emplace(vertex->pin(), path);
+            if(!added && path->slack(sta) < it->second->slack(sta)) it->second = path;
+        }
+        for(const auto& [endpoint, worst] : worst_paths) {
+            sta::PathExpanded path(worst, sta);
+            std::unordered_set<odb::dbNet*> seen;
+            for(size_t i = path.startIndex(); i + 1 < path.size(); ++i) {
+                auto* output = network->staToDb(path.path(i)->pin(sta));
+                auto* load = network->staToDb(path.path(i + 1)->pin(sta));
+                if(!output || output->getObjectType() != odb::dbITermObj || !load) continue;
+                auto* driver = static_cast<odb::dbITerm*>(output);
+                auto* net = driver->getNet();
+                if(driver->getIoType() != odb::dbIoType::OUTPUT || !uses.count(net)) continue;
+                auto* load_net = load->getObjectType() == odb::dbITermObj
+                    ? static_cast<odb::dbITerm*>(load)->getNet()
+                    : load->getObjectType() == odb::dbBTermObj
+                        ? static_cast<odb::dbBTerm*>(load)->getNet() : nullptr;
+                if(load_net == net && seen.insert(net).second)
+                    endpoint_profiles[net][load].add(double(worst->slack(sta)));
+            }
+        }
+        for(auto& [net, profiles] : endpoint_profiles)
+            for(auto& [load, profile] : profiles) profile.finish();
+    }
     for(const auto& state : states) {
         const auto use_it = uses.find(state.net);
         if(!state.driver || use_it == uses.end())
@@ -827,12 +1126,10 @@ CandidateCollection collectPathGainCandidates(
             return std::abs(double(ax) - bx) + std::abs(double(ay) - by);
         };
         const auto model = backend.driverModel(state);
-        const float before_delay =
-            backend.predictedDelay(model, state.capacitance, state.input_slew);
+        const auto [before_delay, before_slew] =
+            backend.predictedTiming(model, state.capacitance, state.input_slew);
         if(!std::isfinite(before_delay))
             continue;
-        const float before_slew =
-            backend.predictedSlew(model, state.capacitance, state.input_slew);
         std::unordered_map< odb::dbObject*, size_t > index;
         std::vector< float > slacks, elmore;
         double total_length = 0, pin_cap = 0;
@@ -938,29 +1235,37 @@ CandidateCollection collectPathGainCandidates(
         std::unordered_map< float, std::pair< float, float > > driver_cache;
         std::ostringstream boundary;
         if(options.path_buffer_strategy == "feedback") {
-            // Retain failures only for the same local electrical/placement
-            // state. Global interactions still require fresh STA verification.
-            boundary << std::hexfloat << state.capacitance << ':' << state.input_slew
-                     << ':' << state.slew << ':' << dx << ':' << dy << ':'
+            // SOFT transfer between structurally identical families. Global
+            // legalization and RC extraction can perturb numerical boundaries
+            // after any ECO; treating those as entirely new families repeatedly
+            // forgets measured failures. Fresh forecasts include the new RC/
+            // slew/placement state and can reopen an improved opportunity.
+            // Cross-generation evidence NEVER skips the final STA trial.
+            boundary << terminalKey(state.driver) << ':'
                      << state.driver->getInst()->getMaster()->getName();
+            std::vector<std::string> topology_loads;
             for(size_t i = 0; i < state.loads.size(); ++i) {
                 const auto& load = state.loads[i];
-                boundary << ':' << int(load.term->getObjectType()) << '/' << load.term->getId()
-                         << '/' << load.capacitance << '/' << load.x << '/' << load.y
-                         << '/' << slacks[i] << '/' << elmore[i];
+                std::string entry = terminalKey(load.term);
+                if(load.term->getObjectType() == odb::dbITermObj)
+                    entry += '/' + std::string(static_cast<odb::dbITerm*>(load.term)->getInst()->getMaster()->getName());
+                topology_loads.push_back(std::move(entry));
             }
+            std::sort(topology_loads.begin(), topology_loads.end());
+            for(const auto& entry : topology_loads) boundary << ':' << entry.size() << ':' << entry;
         }
-        // Hash collisions can only change ordering, never suppress a trial or
-        // reuse STA results. Avoid copying a large load boundary per variant.
-        const auto boundary_key = std::to_string(std::hash< std::string >{}(boundary.str()));
+        // This is a dependency hint for deferring retries, not proof that all
+        // global timing/placement dependencies are unchanged across commits.
+        const auto boundary_key = std::make_shared<const std::string>(boundary.str());
         std::vector< PathBufferCandidate > variants;
         for(const auto& group : load_groups) {
             std::vector< bool > selected(state.loads.size(), false);
-            double selected_cap = 0, removed_length = 0;
+            double selected_cap = 0, removed_length = 0, weight = 0;
             long long x = 0, y = 0;
             for(auto i : group) {
                 selected[i] = true;
                 selected_cap += state.loads[i].capacitance;
+                weight += fanoutWeight(network, state.loads[i].term);
                 removed_length +=
                     distance(dx, dy, state.loads[i].x, state.loads[i].y);
                 x += state.loads[i].x;
@@ -980,12 +1285,10 @@ CandidateCollection collectPathGainCandidates(
                         distance(bx, by, state.loads[i].x, state.loads[i].y);
                 const float buffer_cap =
                     selected_cap + cap_per_length * downstream_length;
+                size_t buffer_index = 0;
                 for(const auto& buffer : backend.bufferChoices()) {
-                    const float cap_limit = bufferCapLimit(sta, buffer) * (1 - options.common.margin);
+                    const auto [cap_limit, fanout_limit, cell_slew_limit] = buffer_limits[buffer_index++];
                     std::shared_ptr<const PathTree> tree;
-                    const float fanout_limit = bufferFanoutLimit(sta, buffer);
-                    double weight = 0;
-                    for(auto i : group) weight += fanoutWeight(network, state.loads[i].term);
                     // Whole-net trees are a separate physical candidate. Other
                     // load groups retain the existing single-buffer search.
                     if(options.path_buffer_tree_candidates && group.size() == state.loads.size() &&
@@ -1003,16 +1306,10 @@ CandidateCollection collectPathGainCandidates(
                     auto [driver_it, uncached] = driver_cache.emplace(
                         new_cap, std::pair< float, float >{});
                     if(uncached)
-                        driver_it->second = {
-                            backend.predictedDelay(model, new_cap,
-                                                   state.input_slew),
-                            backend.predictedSlew(model, new_cap,
-                                                  state.input_slew)};
+                        driver_it->second = backend.predictedTiming(model, new_cap, state.input_slew);
                     const auto [driver_delay, driver_slew] = driver_it->second;
-                    const float buffer_delay =
-                        backend.predictedDelay(buffer, tree ? tree->nodes.back().cap : buffer_cap, driver_slew);
-                    const float buffer_slew =
-                        backend.predictedSlew(buffer, tree ? tree->nodes.back().cap : buffer_cap, driver_slew);
+                    const auto [buffer_delay, buffer_slew] =
+                        backend.predictedTiming(buffer, tree ? tree->nodes.back().cap : buffer_cap, driver_slew);
                     if(!std::isfinite(driver_delay) ||
                        !std::isfinite(buffer_delay) ||
                        !std::isfinite(buffer_slew) ||
@@ -1020,14 +1317,15 @@ CandidateCollection collectPathGainCandidates(
                         continue;
                     PathBufferCandidate candidate;
                     candidate.net = state.net;
-                    candidate.recovery = recovery;
+                    candidate.recovery = std::any_of(net_uses.begin(), net_uses.end(),
+                        [](const auto& use) { return use.recovery; });
                     candidate.tree = tree;
                     candidate.master = buffer.master;
                     candidate.location = {bx, by};
-                    candidate.slack = baseline_wns;
+                    candidate.slack = metrics.setup_wns;
                     candidate.predicted_gain = before_delay - driver_delay;
                     std::vector< float > gains(state.loads.size());
-                    float predicted_wns = baseline_wns;
+                    double side_wns_after = 0;
                     PathTreeTiming tree_timing;
                     if(tree) {
                         double r = 0;
@@ -1078,49 +1376,61 @@ CandidateCollection collectPathGainCandidates(
                                 gains[i] += gate.before - gate_it->second;
                         }
                         if(std::isfinite(slacks[i]))
-                            predicted_wns =
-                                std::min(predicted_wns, slacks[i] + gains[i]);
+                            side_wns_after = std::min(side_wns_after, double(slacks[i]) + gains[i]);
                     }
-                    if(recovery) {
-                        std::unordered_set<size_t> checked;
-                        for(const auto& use : net_uses) {
-                            const auto found = index.find(use.load);
-                            if(found == index.end() || !checked.insert(found->second).second) continue;
-                            const size_t i = found->second;
-                            gains[i] += recoveryConstraintGain(sta, state.loads[i].term,
-                                tree ? tree_timing.slew[i] : selected[i] ? buffer_slew : driver_slew);
-                        }
-                    }
-                    auto after_slacks = endpoint_slacks;
+                    auto forecasts = sampled_paths;
                     std::unordered_set< size_t > affected;
                     for(const auto& use : net_uses) {
                         if(!index.count(use.load))
                             continue;
-                        const float slack =
-                            use.slack + gains[index.at(use.load)];
-                        if(affected.insert(use.endpoint).second)
-                            after_slacks[use.endpoint] = slack;
-                        else
-                            after_slacks[use.endpoint] =
-                                std::min(after_slacks[use.endpoint], slack);
+                        const auto i = index.at(use.load);
+                        const float constraint_gain = use.recovery
+                            ? recoveryConstraintGain(sta, state.loads[i].term,
+                                tree ? tree_timing.slew[i] : selected[i] ? buffer_slew : driver_slew) : 0;
+                        const double slack = use.slack + gains[i] + constraint_gain;
+                        auto& path = forecasts.at(use.path);
+                        path.after = path.affected ? std::min(path.after, slack) : slack;
+                        path.affected = true;
+                        affected.insert(use.endpoint);
                     }
-                    const float sampled_wns = *std::min_element(
-                        after_slacks.begin(), after_slacks.end());
-                    // Positive improvement comes from sampled endpoints; other
-                    // affected loads can veto optimistic WNS predictions.
-                    candidate.predicted_wns_gain =
-                        predicted_wns < baseline_wns
-                            ? predicted_wns - baseline_wns
-                            : sampled_wns - baseline_wns;
-                    for(size_t i = 0; i < after_slacks.size(); ++i)
-                        candidate.predicted_tns_gain +=
-                            std::min(0.0f, after_slacks[i]) -
-                            endpoint_slacks[i];
-                    candidate.affected_endpoints = affected.size();
+                    const auto forecast = path_detail::forecastObjective(forecasts,
+                        actual_endpoint_slacks, metrics.setup_wns,
+                        options.path_buffer_gain_scope == "endpoints");
+                    candidate.predicted_wns_gain = forecast.wns_gain;
+                    candidate.quality.path_gain = forecast.path_gain;
+                    const double slew_limit = std::min(cell_slew_limit, state.slew_limit);
+                    const double peak_slew = tree ? tree_timing.max_slew : std::max(driver_slew, buffer_slew);
+                    const double peak_cap = tree ? tree_timing.max_cap : buffer_cap;
+                    candidate.quality.electrical_excess = std::max({0.0,
+                        slew_limit > 0 ? peak_slew / slew_limit - 1 : 0,
+                        cap_limit > 0 ? peak_cap / cap_limit - 1 : 0});
+                    // A side branch outside the sampled endpoints can still
+                    // predict a global regression. Preserve this risk signal
+                    // for ordering only; it is not a pruning proof.
+                    if(options.path_buffer_gain_scope == "global" && side_wns_after < metrics.setup_wns)
+                        candidate.predicted_wns_gain = std::min(double(candidate.predicted_wns_gain),
+                                                               side_wns_after - metrics.setup_wns);
+                    candidate.predicted_tns_gain = forecast.tns_gain;
+                    candidate.covered_tns_gain = forecast.tns_gain;
+                    const auto profiles = endpoint_profiles.find(state.net);
+                    if(profiles != endpoint_profiles.end()) {
+                        candidate.covered_tns_gain = 0;
+                        for(size_t i = 0; i < state.loads.size(); ++i) {
+                            const auto profile = profiles->second.find(state.loads[i].term);
+                            if(profile == profiles->second.end()) continue;
+                            const float constraint_gain = candidate.recovery
+                                ? recoveryConstraintGain(sta, state.loads[i].term,
+                                    tree ? tree_timing.slew[i] : selected[i] ? buffer_slew : driver_slew) : 0;
+                            candidate.covered_tns_gain += profile->second.gain(gains[i] + constraint_gain);
+                            candidate.covered_endpoints += profile->second.size();
+                        }
+                    }
+                    candidate.affected_endpoints = forecast.affected_endpoints;
                     for(size_t i = 0; i < endpoint_pins.size(); ++i) {
                         if(!affected.count(i)) continue;
-                        const float pin_slack = std::min(0.0f, float(sta->slack(endpoint_pins[i],
-                            sta::RiseFallBoth::riseFall(), sta->scenes(), sta::MinMax::max())));
+                        // This collection uses one committed STA snapshot.
+                        // Reuse its endpoint query across all tree variants.
+                        const float pin_slack = actual_endpoint_slacks.at(i);
                         candidate.endpoints.emplace_back(endpoint_pins[i], pin_slack);
                         candidate.objective_wns = std::min(candidate.objective_wns, double(pin_slack));
                         candidate.objective_tns += pin_slack;
@@ -1130,14 +1440,26 @@ CandidateCollection collectPathGainCandidates(
                                   return std::less< const void* >{}(a, b);
                               });
                     if(options.path_buffer_strategy == "feedback")
-                        candidate.feedback_key = actionKey(candidate) + ':' + boundary_key;
+                        candidate.feedback_key = actionKey(candidate);
+                    candidate.feedback_context = boundary_key;
+                    candidate.group_key = actionKey(candidate, false);
+                    // All tree shapes/strengths/positions for one load set
+                    // share a scheduling family, while calibration continues
+                    // to distinguish the actual tree topology.
+                    path_detail::ActionNode load_group;
+                    for(auto* load : candidate.loads) load_group.terminals.push_back(terminalKey(load));
+                    candidate.load_group_key = path_detail::actionFingerprint(
+                        std::to_string(state.net->getId()), {load_group}, false);
                     variants.push_back(std::move(candidate));
                 }
             }
         }
-        std::sort(variants.begin(), variants.end(), gainOrder);
-        if(variants.size() > options.path_buffer_max_candidates)
-            variants.resize(options.path_buffer_max_candidates);
+        if(feedback) feedback->select(variants);
+        else {
+            std::sort(variants.begin(), variants.end(), gainOrder);
+            if(variants.size() > options.path_buffer_max_candidates)
+                variants.resize(options.path_buffer_max_candidates);
+        }
         const auto cone = options.path_buffer_batch_size > 1
                               ? downstreamCone(state.net, network)
                               : std::vector< odb::dbInst* >{};
@@ -1149,7 +1471,7 @@ CandidateCollection collectPathGainCandidates(
     }
     // Diversify nets before retrying another cell/location on the same net.
     if(options.path_buffer_strategy == "feedback")
-        std::sort(collection.candidates.begin(), collection.candidates.end(), gainOrder);
+        std::stable_sort(collection.candidates.begin(), collection.candidates.end(), PathFeedback::order);
     else std::sort(collection.candidates.begin(), collection.candidates.end(),
               [](const auto& a, const auto& b) {
                   if(a.variant_rank != b.variant_rank)
@@ -1161,19 +1483,18 @@ CandidateCollection collectPathGainCandidates(
 
 CandidateCollection collectCandidates(detail::Repair& backend, sta::dbSta* sta,
                                       const std::vector< NetState >& states,
-                                      const SetupRepairOptions& options) {
+                                      const SetupRepairOptions& options,
+                                      const DesignRepairMetrics& metrics, PathFeedback* feedback) {
     const bool gain = options.path_buffer_strategy != "sequential";
-    auto result = gain ? collectPathGainCandidates(backend, sta, states, options)
+    auto result = gain ? collectPathGainCandidates(backend, sta, states, options, metrics, feedback)
                        : collectSequentialCandidates(backend, sta, states, options);
-    if(options.path_buffer_recovery) {
-        auto async = gain ? collectPathGainCandidates(backend, sta, states, options, true)
-                          : collectSequentialCandidates(backend, sta, states, options, true);
+    if(!gain && options.path_buffer_recovery) {
+        auto async = collectSequentialCandidates(backend, sta, states, options, true);
         result.duplicate_candidates += async.duplicate_candidates;
         result.candidates.insert(result.candidates.end(),
             std::make_move_iterator(async.candidates.begin()),
             std::make_move_iterator(async.candidates.end()));
-        if(gain) std::stable_sort(result.candidates.begin(), result.candidates.end(), gainOrder);
-        else std::stable_sort(result.candidates.begin(), result.candidates.end(),
+        std::stable_sort(result.candidates.begin(), result.candidates.end(),
             [](const auto& a, const auto& b) { return a.slack < b.slack; });
     }
     // Keep the best-ranked objective for an identical physical action. Pins
@@ -1189,6 +1510,134 @@ CandidateCollection collectCandidates(detail::Repair& backend, sta::dbSta* sta,
     if(!gain && options.path_buffer_batch_size > 1)
         for(auto& candidate : result.candidates)
             candidate.cone = downstreamCone(candidate.net, sta->getDbNetwork());
+    return result;
+}
+
+// Keep all provisional ECOs in one parent journal. Child commits merge into
+// it, so final legalization (including moves of existing cells) can be undone
+// together with every inserted buffer and reconnected load.
+PathBufferRepairResult repairWithFinalPlacement(
+    odb::dbBlock* block, sta::dbSta* sta,
+    const std::function<void()>& refresh, const SetupRepairOptions& options) {
+    PathBufferRepairResult result;
+    if(!options.common.prepare) {
+        result.message = "final path placement requires a legalization callback";
+        return result;
+    }
+    detail::Repair backend(block, sta, options.common);
+    analyze(backend, result.before);
+    result.after = result.before;
+    const auto authoritative_refresh = [&]() {
+        PhaseTimer timer{result.refresh_ms};
+        ++result.refreshes;
+        if(options.path_verification_refresh) options.path_verification_refresh();
+        else refresh();
+    };
+    bool parent_active = false, final_active = false;
+    const auto restore = [&]() {
+        if(final_active) {
+            odb::dbDatabase::undoEco(block);
+            final_active = false;
+        }
+        if(parent_active) {
+            odb::dbDatabase::undoEco(block);
+            parent_active = false;
+        }
+        result.final_placement.rolled_back = true;
+        result.inserted_buffers = result.accepted_trials = 0;
+        ++result.rollback_refreshes;
+        authoritative_refresh();
+        PhaseTimer timer{result.measure_ms};
+        analyze(backend, result.after);
+        result.converged = result.after.setup_wns >= 0;
+    };
+    try {
+        odb::dbDatabase::beginEco(block);
+        odb::dbDatabase::endEco(block);
+        parent_active = true;
+        auto search_options = options;
+        search_options.path_buffer_placement = "trial";
+        search_options.common.prepare = {};
+        if(options.path_buffer_verification == "final") {
+            // Provisional ECOs still undergo global timing and electrical
+            // acceptance. The parent journal makes the final full extraction
+            // authoritative for the entire phase, including all child commits.
+            search_options.path_buffer_verification = "trial";
+            search_options.path_verification_refresh = {};
+        }
+        search_options.path_trial_observer = [&](unsigned index, const PathBufferTrial& trial) {
+            if(options.path_trial_observer) {
+                auto provisional = trial;
+                provisional.placement_provisional = true;
+                options.path_trial_observer(index, provisional);
+            }
+        };
+        result = OpenDbPathRepairer::repair(block, sta, refresh, search_options);
+        for(auto& trial : result.trials) trial.placement_provisional = true;
+        result.final_placement.provisional_buffers = result.inserted_buffers;
+        result.final_placement.before = result.after;
+        if(!result.ok) {
+            restore();
+            return result;
+        }
+        if(!result.inserted_buffers) {
+            if(options.path_buffer_verification == "final") {
+                authoritative_refresh();
+                PhaseTimer timer{result.measure_ms};
+                analyze(backend, result.after);
+            }
+            odb::dbDatabase::commitEco(block);
+            parent_active = false;
+            return result;
+        }
+        result.final_placement.attempted = true;
+        PhaseTimer finalize_timer{result.final_placement.elapsed_ms};
+        odb::dbDatabase::beginEco(block);
+        final_active = true;
+        {
+            PhaseTimer timer{result.prepare_ms};
+            options.common.prepare();
+        }
+        authoritative_refresh();
+        {
+            PhaseTimer timer{result.measure_ms};
+            analyze(backend, result.final_placement.after);
+        }
+        auto acceptance = options;
+        // Final acceptance compares the legal result with the legal phase
+        // input, even if trial ranking used sampled endpoint objectives.
+        acceptance.path_buffer_gain_scope = "global";
+        const double area_limit = options.path_buffer_max_area_growth == -1
+            ? std::numeric_limits<double>::infinity()
+            : result.before.area * (1 + options.path_buffer_max_area_growth);
+        result.final_placement.rejection_reasons = rejectionReasons(
+            result.before, result.final_placement.after, area_limit,
+            result.before, acceptance, {});
+        if(result.final_placement.rejection_reasons.empty()) {
+            odb::dbDatabase::commitEco(block);
+            final_active = false;
+            odb::dbDatabase::commitEco(block);
+            parent_active = false;
+            result.after = result.final_placement.after;
+            result.final_placement.accepted = true;
+            result.converged = result.after.setup_wns >= 0;
+            result.message += "; final placement and global STA accepted";
+        } else {
+            restore();
+            result.message = "final path placement rejected; restored phase input";
+            for(const auto& reason : result.final_placement.rejection_reasons)
+                result.message += " " + reason;
+        }
+    } catch(const std::exception& error) {
+        result.ok = false;
+        result.message = std::string("final path placement failed: ") + error.what();
+        if(parent_active || final_active) {
+            try { restore(); }
+            catch(const std::exception& failure) {
+                result.message += std::string("; restore failed: ") + failure.what();
+            }
+        }
+    }
     return result;
 }
 
@@ -1210,8 +1659,17 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
         result.message = "invalid path repair backend (one STA scene required)";
         return result;
     }
+    if(options.path_buffer_verification == "final" &&
+       (options.path_buffer_placement != "final" || !options.path_verification_refresh)) {
+        result.message = "final path verification requires final placement and a full RC callback";
+        return result;
+    }
+    if(options.path_buffer_placement == "final")
+        return repairWithFinalPlacement(block, sta, refresh, options);
 
     const auto start = std::chrono::steady_clock::now();
+    const auto& verify = options.path_verification_refresh
+        ? options.path_verification_refresh : options.path_incremental_verification;
     bool needs_refresh = false;
     detail::Repair backend(block, sta, options.common);
     const auto update = [&](bool restoring) {
@@ -1219,11 +1677,24 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
         ++result.refreshes;
         if(restoring)
             ++result.rollback_refreshes;
-        refresh();
+        if(restoring && options.path_verification_refresh)
+            options.path_verification_refresh();
+        else
+            refresh();
         needs_refresh = false;
     };
     const auto inspect = [&](DesignRepairMetrics& metrics) {
         PhaseTimer timer{result.measure_ms};
+        if(options.path_buffer_incremental_analysis && options.path_analysis_changes &&
+           !options.path_verification_refresh && options.path_incremental_verification && !options.common.prepare) {
+            auto states = backend.analyzeIncremental(metrics, options.path_analysis_changes());
+            const auto& stats = backend.analysisStatistics();
+            result.electrical_full_scans = stats.full_scans;
+            result.electrical_net_checks = stats.net_checks;
+            result.electrical_instance_checks = stats.instance_checks;
+            return states;
+        }
+        ++result.electrical_full_scans;
         return analyze(backend, metrics);
     };
     auto states = inspect(result.before);
@@ -1236,12 +1707,66 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
         return options.path_buffer_max_trials == 0 ||
                result.attempted_trials < options.path_buffer_max_trials;
     };
-    std::unordered_set< std::string > failed_actions;
+    PathFeedback feedback{{}, {}, {}, 0, options, result};
+    path_detail::DependencyFailures dependency_failures;
+    path_detail::EndpointFailures endpoint_failures;
+    const auto endpoint_fanin = [&](sta::Vertex* endpoint) {
+        path_detail::DependencyFailures::Cone nets;
+        std::unordered_set<sta::Vertex*> visited{endpoint};
+        std::vector<sta::Vertex*> queue{endpoint};
+        auto* graph = sta->graph();
+        auto* network = sta->getDbNetwork();
+        for(size_t i = 0; i < queue.size(); ++i) {
+            if(auto* net = network->net(queue[i]->pin()))
+                if(auto* db_net = network->staToDb(net)) nets.insert(db_net->getId());
+            // The input-pin slew also depends on its cell's output loads
+            // through the delay model, even for side outputs outside fanin.
+            auto* object = network->staToDb(queue[i]->pin());
+            if(object && object->getObjectType() == odb::dbITermObj) {
+                auto* inst = static_cast<odb::dbITerm*>(object)->getInst();
+                for(auto* pin : inst->getITerms())
+                    if(pin->getNet()) nets.insert(pin->getNet()->getId());
+            }
+            // Include timing checks: capture-clock/constraint changes must
+            // invalidate a slack witness, not only its data arrival cone.
+            sta::VertexInEdgeIterator edges(queue[i], graph);
+            while(edges.hasNext()) {
+                auto* vertex = edges.next()->from(graph);
+                if(visited.insert(vertex).second) queue.push_back(vertex);
+            }
+        }
+        auto result = std::make_shared<const path_detail::DependencyFailures::Cone>(std::move(nets));
+        return result;
+    };
+
+    // No intermediate DP or full RC: only the inserted tree changes physical
+    // dependencies. Final placement still receives authoritative global STA.
+    const bool reuse_rejections = options.path_buffer_reuse_rejections && options.path_buffer_failure_cache &&
+        options.path_buffer_strategy == "feedback" && sta->scenes().size() == 1 &&
+        !options.common.prepare && !options.path_verification_refresh && options.path_incremental_verification &&
+        options.path_buffer_batch_size == 1;
+    std::unordered_map<odb::dbNet*, std::shared_ptr<const path_detail::DependencyFailures::Cone>> dependency_cones;
+    const auto dependency_cone = [&](odb::dbNet* net) {
+        if(const auto it = dependency_cones.find(net); it != dependency_cones.end()) return it->second;
+        path_detail::DependencyFailures::Cone cone{net->getId()};
+        for(auto* vertex : repairTimingCone(sta, {net})) {
+            auto* sta_net = sta->getDbNetwork()->net(vertex->pin());
+            if(sta_net) {
+                auto* db_net = sta->getDbNetwork()->staToDb(sta_net);
+                if(db_net) cone.insert(db_net->getId());
+            }
+        }
+        auto shared = std::make_shared<const path_detail::DependencyFailures::Cone>(std::move(cone));
+        dependency_cones.emplace(net, shared);
+        return shared;
+    };
+
 
     const auto budget_available = [&]() {
         // Reserve a final refresh for a rejected ECO. Never return stale STA.
         if(options.path_buffer_max_refreshes &&
-           result.refreshes + 2 > options.path_buffer_max_refreshes)
+           result.refreshes + (verify ? 3 : 2) >
+               options.path_buffer_max_refreshes)
             return false;
         if(options.path_buffer_max_seconds > 0) {
             const double elapsed = std::chrono::duration< double >(
@@ -1262,7 +1787,8 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
             CandidateCollection collection;
             {
                 PhaseTimer timer{result.candidate_ms};
-                collection = collectCandidates(backend, sta, states, options);
+                collection = collectCandidates(backend, sta, states, options, result.after,
+                    options.path_buffer_strategy == "feedback" ? &feedback : nullptr);
                 if(options.path_buffer_strategy == "feedback") {
                     if(options.path_buffer_min_relative_improvement > 0) {
                         const double wns_floor = std::max(double(options.min_improvement),
@@ -1276,33 +1802,22 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                                     std::abs(candidate.objective_wns) * options.path_buffer_min_relative_improvement) : wns_floor;
                                 const double candidate_tns_floor = local ? std::max(double(options.min_improvement),
                                     std::abs(candidate.objective_tns) * options.path_buffer_min_relative_improvement) : tns_floor;
-                                return !(candidate.predicted_wns_gain > candidate_wns_floor ||
-                                         candidate.predicted_tns_gain > candidate_tns_floor);
+                                // The largest possible improvement is reaching
+                                // zero negative slack. Sampled forecasts are
+                                // NOT upper bounds and must not prune actions.
+                                const double wns_bound = std::abs(local ? candidate.objective_wns : double(result.after.setup_wns));
+                                const double tns_bound = std::abs(local ? candidate.objective_tns : double(result.after.setup_tns));
+                                return !(wns_bound > candidate_wns_floor ||
+                                         tns_bound > candidate_tns_floor);
                             });
                         result.screened_candidates += std::distance(end, collection.candidates.end());
                         collection.candidates.erase(end, collection.candidates.end());
                     }
-                    // Prefer untried promising actions, then failed promising
-                    // actions, before speculative predicted regressions. All
-                    // tiers remain eligible for a fresh global STA trial.
-                    for(auto& candidate : collection.candidates) {
-                        const bool promising =
-                            candidate.predicted_wns_gain >= -options.common.tolerances.wns_absolute &&
-                            candidate.predicted_tns_gain >= -detail::tnsTolerance(result.after.setup_tns, options.common.tolerances) &&
-                            (candidate.predicted_wns_gain > options.min_improvement ||
-                             candidate.predicted_tns_gain > options.min_improvement);
-                        candidate.feedback_priority = (promising ? 0 : 2) +
-                            unsigned(failed_actions.count(candidate.feedback_key));
-                    }
-                    std::stable_sort(collection.candidates.begin(), collection.candidates.end(),
-                        [&](const auto& a, const auto& b) {
-                            return a.feedback_priority < b.feedback_priority;
-                        });
                 }
             }
             result.candidate_count += collection.candidates.size();
             result.duplicate_candidates += collection.duplicate_candidates;
-            const auto& plans = collection.candidates;
+            auto plans = std::move(collection.candidates);
             if(plans.empty())
                 break;
             bool accepted = false;
@@ -1318,6 +1833,22 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
             size_t width =
                 std::min(size_t(options.path_buffer_batch_size), plans.size());
             bool single_candidate_mode = false;
+            std::vector<PathBufferCandidate> suspended;
+            const auto reopen_suspended = [&]() {
+                const auto end = std::remove_if(suspended.begin(), suspended.end(), [&](auto& plan) {
+                    if(feedback.explore(plan) == path_detail::ExplorationFrontier::Decision::Suspend)
+                        return false;
+                    plans.push_back(std::move(plan));
+                    ++result.frontier_reopened;
+                    return true;
+                });
+                suspended.erase(end, suspended.end());
+            };
+            const auto rerank_remaining = [&]() {
+                if(options.path_buffer_strategy != "feedback" || cursor >= plans.size()) return;
+                for(size_t i = cursor; i < plans.size(); ++i) feedback.rank(plans[i]);
+                std::stable_sort(plans.begin() + cursor, plans.end(), PathFeedback::order);
+            };
             const auto backoff = [&]() {
                 if(width > 1) {
                     // A failed aggregate does not imply that each member is
@@ -1340,6 +1871,17 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
             };
             while(cursor < plans.size() && budget_available() &&
                   trials_available()) {
+                bool frontier_audit = false;
+                if(options.path_buffer_strategy == "feedback" && width == 1) {
+                    const auto decision = feedback.explore(plans[cursor]);
+                    if(decision == path_detail::ExplorationFrontier::Decision::Suspend) {
+                        ++result.frontier_suspended;
+                        suspended.push_back(std::move(plans[cursor]));
+                        backoff();
+                        continue;
+                    }
+                    frontier_audit = decision == path_detail::ExplorationFrontier::Decision::Audit;
+                }
                 std::vector< size_t > selected;
                 std::unordered_set< odb::dbNet* > touched_nets;
                 std::unordered_set< odb::dbInst* > touched_cone;
@@ -1378,17 +1920,52 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                                          plans.size() - cursor);
                     continue;
                 }
+                if(reuse_rejections && selected.size() == 1 &&
+                   (dependency_failures.rejects(plans[selected.front()].feedback_key,
+                       result.after.setup_tns, detail::tnsTolerance(result.after.setup_tns, options.common.tolerances)) ||
+                    endpoint_failures.rejects(plans[selected.front()].feedback_key,
+                       result.after.setup_wns, options.common.tolerances.wns_absolute))) {
+                    ++result.failure_cache_hits;
+                    ++result.reused_rejections;
+                    ++result.consecutive_rejections;
+                    // A dependency-certified rejection completes this family's
+                    // turn just like a measured rejection. Advance coverage,
+                    // but do not train calibration/frontiers using an old
+                    // global delta: other commits may have changed that delta.
+                    feedback.covered(plans[selected.front()]);
+                    if(options.path_buffer_max_consecutive_rejections &&
+                       result.consecutive_rejections >= options.path_buffer_max_consecutive_rejections) {
+                        result.stopped_on_rejections = true;
+                        break;
+                    }
+                    backoff();
+                    rerank_remaining();
+                    continue;
+                }
+                std::shared_ptr<const path_detail::DependencyFailures::Cone> dependencies;
+                if(reuse_rejections && selected.size() == 1)
+                    dependencies = dependency_cone(plans[selected.front()].net);
                 PathBufferTrial trial;
+                trial.frontier_audit = frontier_audit;
                 trial.before = result.after;
+                bool repeated = false, deferred = false;
                 for(const auto index : selected) {
                     const auto& plan = plans[index];
+                    repeated |= feedback.failures.find(plan.feedback_key) != nullptr;
+                    deferred |= plan.deferred_retry;
                     trial.candidates.push_back(
                         {plan.net->getName(), plan.master->getName(),
                          unsigned(plan.loads.size()), plan.predicted_gain,
                          plan.predicted_wns_gain, plan.predicted_tns_gain,
                          plan.affected_endpoints, plan.location.x,
                          plan.location.y, plan.recovery,
-                         unsigned(plan.tree ? plan.tree->nodes.size() : 1)});
+                         unsigned(plan.tree ? plan.tree->nodes.size() : 1),
+                         actionKey(plan),
+                         options.path_buffer_strategy == "feedback" ? plan.ranked_wns_gain : plan.predicted_wns_gain,
+                         options.path_buffer_strategy == "feedback" ? plan.ranked_tns_gain : plan.predicted_tns_gain,
+                         plan.deferred_retry, plan.covered_tns_gain, plan.covered_endpoints,
+                         plan.family_attempts, feedback.generation, plan.load_group_key,
+                         plan.quality.path_gain, plan.quality.electrical_excess, plan.electrical_retry});
                 }
                 std::unordered_map<const sta::Pin*, float> objective_pins;
                 for(const auto index : selected)
@@ -1467,46 +2044,129 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                     if(trial.buffers > roots.size())
                         ++result.fanout_tree_trials;
                     ++result.attempted_trials;
+                    result.frontier_audits += frontier_audit;
+                    result.repeated_trials += repeated;
+                    result.deferred_trials += deferred;
                     if(options.common.prepare) {
                         PhaseTimer timer{result.prepare_ms};
                         options.common.prepare();
                     }
                     update(false);
                     DesignRepairMetrics after;
-                    auto next_states = inspect(after);
-                    trial.after = after;
-                    for(const auto& [pin, old_slack] : objective_pins) {
-                        const double slack = std::min(0.0, double(sta->slack(pin,
-                            sta::RiseFallBoth::riseFall(), sta->scenes(), sta::MinMax::max())));
-                        trial.objective_wns_after = std::min(trial.objective_wns_after, slack);
-                        trial.objective_tns_after += slack;
+                    std::vector<NetState> next_states;
+                    const auto objective = [&]() {
+                        trial.objective_wns_after = trial.objective_tns_after = 0;
+                        for(const auto& [pin, old_slack] : objective_pins) {
+                            const double slack = std::min(0.0, double(sta->slack(pin,
+                                sta::RiseFallBoth::riseFall(), sta->scenes(), sta::MinMax::max())));
+                            trial.objective_wns_after = std::min(trial.objective_wns_after, slack);
+                            trial.objective_tns_after += slack;
+                        }
+                    };
+                    if(options.path_buffer_timing_precheck) {
+                        PhaseTimer timer{result.measure_ms};
+                        sta->findRequireds();
+                        // Placeholder electrical fields are used only by the
+                        // timing rejection predicate and never exported as
+                        // measured values or used to accept an ECO.
+                        after = result.after;
+                        after.setup_wns = std::min(0.0f, float(sta->worstSlack(sta::MinMax::max())));
+                        after.setup_tns = float(sta->totalNegativeSlack(sta::MinMax::max()));
+                        after.hold_wns = std::min(0.0f, float(sta->worstSlack(sta::MinMax::min())));
+                        after.hold_tns = float(sta->totalNegativeSlack(sta::MinMax::min()));
+                        objective();
+                        trial.rejection_reasons = rejectionReasons(
+                            result.after, after, area_limit, result.before, options, trial);
                     }
-                    trial.rejection_reasons = rejectionReasons(
-                        result.after, after, area_limit, result.before, options, trial);
+                    // Survivors are refreshed and inspected below (full RC or
+                    // the accumulated timing cone). Do not scan electrical
+                    // states twice before the same acceptance decision.
+                    const bool verify_next = options.path_buffer_timing_precheck &&
+                        verify && trial.rejection_reasons.empty();
+                    if(trial.rejection_reasons.empty() && !verify_next) {
+                        next_states = inspect(after);
+                        objective();
+                        trial.rejection_reasons = rejectionReasons(
+                            result.after, after, area_limit, result.before, options, trial);
+                    } else if(!trial.rejection_reasons.empty()) {
+                        trial.metrics_complete = false;
+                        ++result.timing_precheck_rejections;
+                    } else {
+                        trial.metrics_complete = false;
+                    }
+                    trial.after = after;
+                    if(verify &&
+                       path_detail::needsFullVerification(trial.rejection_reasons)) {
+                        {
+                            PhaseTimer timer{result.refresh_ms};
+                            ++result.refreshes;
+                            verify();
+                        }
+                        next_states = inspect(after);
+                        trial.metrics_complete = true;
+                        trial.after = after;
+                        objective();
+                        trial.rejection_reasons = rejectionReasons(
+                            result.after, after, area_limit, result.before, options, trial);
+                        trial.full_verified = bool(options.path_verification_refresh);
+                    }
+                    // A failed batch cannot be attributed to its members.
+                    if(options.path_buffer_strategy == "feedback" && selected.size() == 1)
+                        feedback.observe(plans[selected.front()], trial);
                     if(trial.rejection_reasons.empty()) {
                         odb::dbDatabase::commitEco(block);
                         active = false;
                         result.accepted_trials += trial.buffers;
                         result.inserted_buffers += trial.buffers;
+                        result.consecutive_rejections = 0;
                         result.after = after;
                         states = std::move(next_states);
+                        if(reuse_rejections) {
+                            dependency_failures.committed(*dependencies);
+                            endpoint_failures.committed(plans[selected.front()].net->getId());
+                            dependency_cones.clear();
+                        }
+                        feedback.committed();
                         accepted = true;
                         record_trial();
                         break;
                     }
+                    if(reuse_rejections && selected.size() == 1 &&
+                       std::find(trial.rejection_reasons.begin(), trial.rejection_reasons.end(), "setup_tns") != trial.rejection_reasons.end())
+                        dependency_failures.record(plans[selected.front()].feedback_key,
+                            std::move(dependencies), trial.before.setup_tns, trial.after.setup_tns);
+                    if(reuse_rejections && selected.size() == 1 &&
+                       std::find(trial.rejection_reasons.begin(), trial.rejection_reasons.end(), "setup_wns") != trial.rejection_reasons.end()) {
+                        sta::Slack slack; sta::Vertex* endpoint = nullptr;
+                        sta->worstSlack(sta::MinMax::max(), slack, endpoint);
+                        if(endpoint) endpoint_failures.record(plans[selected.front()].feedback_key,
+                            endpoint_fanin(endpoint), float(slack));
+                    }
                     odb::dbDatabase::undoEco(block);
                     active = false;
                     ++result.rejected_trials;
-                    if(options.path_buffer_strategy == "feedback")
-                        for(const auto index : selected)
-                            failed_actions.insert(plans[index].feedback_key);
+                    // Do not stop after a failed aggregate: its members must
+                    // remain eligible for individual trials during backoff.
+                    if(selected.size() == 1) ++result.consecutive_rejections;
                     needs_refresh = true;
                     if(!options.defer_rollback_refresh) {
                         update(true);
                         states = inspect(result.after);
                     }
+                    if(options.path_buffer_strategy == "feedback" && selected.size() == 1)
+                        feedback.recoverElectrical(plans[selected.front()], trial, plans, cursor + 1);
                     record_trial();
+                    if(options.path_buffer_max_consecutive_rejections &&
+                       result.consecutive_rejections >= options.path_buffer_max_consecutive_rejections) {
+                        result.stopped_on_rejections = true;
+                        break; // The common exit path restores RC/STA first.
+                    }
                     backoff();
+                    // An underestimated later probe can invalidate the error
+                    // envelope. Restore earlier suspended siblings as well,
+                    // including when the active queue has just become empty.
+                    reopen_suspended();
+                    rerank_remaining();
                 }
                 catch(...) {
                     if(active) {
@@ -1549,11 +2209,15 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
     result.converged = result.after.setup_wns >= 0;
     result.message =
         result.converged ? "path buffer setup timing met"
+        : result.stopped_on_rejections
+            ? "path buffer stopped after consecutive rejections; search not exhausted"
         : !budget_available()
             ? "path buffer time/refresh budget exhausted; violations remain"
         : !trials_available()
             ? "path buffer trial budget exhausted; violations remain"
-            : "no acceptable path buffer candidate; violations remain";
+            : result.frontier_suspended
+                ? "audited empirical path frontier exhausted; violations remain"
+                : "no acceptable path buffer candidate; violations remain";
     return result;
 }
 }  // namespace ecc

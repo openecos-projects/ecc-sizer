@@ -133,6 +133,10 @@ void SetupRepairSettings::validate() const {
             "setup.path_buffer_strategy must be sequential, path_gain or feedback");
     require(path_buffer_gain_scope == "global" || path_buffer_gain_scope == "endpoints",
             "setup.path_buffer_gain_scope must be global or endpoints");
+    require(path_buffer_placement == "trial" || path_buffer_placement == "final",
+            "setup.path_buffer_placement must be trial or final");
+    require(path_buffer_verification == "trial" || path_buffer_verification == "final",
+            "setup.path_buffer_verification must be trial or final");
     require(std::isfinite(path_buffer_min_relative_improvement) &&
                 path_buffer_min_relative_improvement >= 0 &&
                 path_buffer_min_relative_improvement <= 1,
@@ -429,6 +433,30 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         s.path_buffer_fanout_repair = boolean(value);
     else if(key == "setup.path_buffer_strategy")
         s.path_buffer_strategy = value;
+    else if(key == "setup.path_buffer_failure_cache")
+        s.path_buffer_failure_cache = boolean(value);
+    else if(key == "setup.path_buffer_adaptive_search")
+        s.path_buffer_adaptive_search = boolean(value);
+    else if(key == "setup.path_buffer_timing_precheck")
+        s.path_buffer_timing_precheck = boolean(value);
+    else if(key == "setup.path_buffer_calibrate")
+        s.path_buffer_calibrate = boolean(value);
+    else if(key == "setup.path_buffer_diversify")
+        s.path_buffer_diversify = boolean(value);
+    else if(key == "setup.path_buffer_endpoint_coverage")
+        s.path_buffer_endpoint_coverage = boolean(value);
+    else if(key == "setup.path_buffer_group_schedule")
+        s.path_buffer_group_schedule = boolean(value);
+    else if(key == "setup.path_buffer_incremental_parasitics")
+        s.path_buffer_incremental_parasitics = boolean(value);
+    else if(key == "setup.path_buffer_incremental_analysis")
+        s.path_buffer_incremental_analysis = boolean(value);
+    else if(key == "setup.path_buffer_reuse_rejections")
+        s.path_buffer_reuse_rejections = boolean(value);
+    else if(key == "setup.path_buffer_placement")
+        s.path_buffer_placement = value;
+    else if(key == "setup.path_buffer_verification")
+        s.path_buffer_verification = value;
     else if(key == "setup.path_buffer_min_relative_improvement")
         s.path_buffer_min_relative_improvement = real(value);
     else if(key == "setup.path_buffer_max_seconds")
@@ -441,6 +469,8 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         s.path_buffer_max_candidates = count(value);
     else if(key == "setup.path_buffer_max_trials")
         s.path_buffer_max_trials = count(value);
+    else if(key == "setup.path_buffer_max_consecutive_rejections")
+        s.path_buffer_max_consecutive_rejections = count(value);
     else if(key == "setup.path_buffer_batch_size")
         s.path_buffer_batch_size = count(value);
     else if(key == "setup.path_buffer_max_inserted_buffers")
@@ -590,6 +620,18 @@ void RepairConfig::write(std::ostream& output) const {
          << "setup.path_buffer_fanout_repair="
          << (s.path_buffer_fanout_repair ? "true" : "false") << '\n'
          << "setup.path_buffer_strategy=" << s.path_buffer_strategy << '\n'
+         << "setup.path_buffer_failure_cache=" << (s.path_buffer_failure_cache ? "true" : "false") << '\n'
+         << "setup.path_buffer_adaptive_search=" << (s.path_buffer_adaptive_search ? "true" : "false") << '\n'
+         << "setup.path_buffer_timing_precheck=" << (s.path_buffer_timing_precheck ? "true" : "false") << '\n'
+         << "setup.path_buffer_calibrate=" << (s.path_buffer_calibrate ? "true" : "false") << '\n'
+         << "setup.path_buffer_diversify=" << (s.path_buffer_diversify ? "true" : "false") << '\n'
+         << "setup.path_buffer_endpoint_coverage=" << (s.path_buffer_endpoint_coverage ? "true" : "false") << '\n'
+         << "setup.path_buffer_group_schedule=" << (s.path_buffer_group_schedule ? "true" : "false") << '\n'
+         << "setup.path_buffer_incremental_parasitics=" << (s.path_buffer_incremental_parasitics ? "true" : "false") << '\n'
+         << "setup.path_buffer_incremental_analysis=" << (s.path_buffer_incremental_analysis ? "true" : "false") << '\n'
+         << "setup.path_buffer_reuse_rejections=" << (s.path_buffer_reuse_rejections ? "true" : "false") << '\n'
+         << "setup.path_buffer_placement=" << s.path_buffer_placement << '\n'
+         << "setup.path_buffer_verification=" << s.path_buffer_verification << '\n'
          << "setup.path_buffer_min_relative_improvement="
          << s.path_buffer_min_relative_improvement << '\n'
          << "setup.path_buffer_max_seconds=" << s.path_buffer_max_seconds << '\n'
@@ -598,6 +640,8 @@ void RepairConfig::write(std::ostream& output) const {
          << "setup.path_buffer_max_candidates="
          << s.path_buffer_max_candidates << '\n'
          << "setup.path_buffer_max_trials=" << s.path_buffer_max_trials << '\n'
+         << "setup.path_buffer_max_consecutive_rejections="
+         << s.path_buffer_max_consecutive_rejections << '\n'
          << "setup.path_buffer_batch_size=" << s.path_buffer_batch_size
          << '\n'
          << "setup.path_buffer_max_inserted_buffers="

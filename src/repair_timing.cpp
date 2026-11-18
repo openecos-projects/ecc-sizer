@@ -277,14 +277,33 @@ SetupRepairResult OpenDbSetupRepairer::repair(
             result.path_buffer_attempted = path_result.attempted_trials;
             result.path_buffer_accepted = path_result.accepted_trials;
             result.path_buffer_rejected = path_result.rejected_trials;
+            result.path_buffer_consecutive_rejections = path_result.consecutive_rejections;
+            result.path_buffer_stopped_on_rejections = path_result.stopped_on_rejections;
             result.path_buffer_inserted_buffers = path_result.inserted_buffers;
             result.path_buffer_candidates = path_result.candidate_count;
             result.path_buffer_duplicate_candidates =
                 path_result.duplicate_candidates;
             result.path_buffer_screened_candidates = path_result.screened_candidates;
+            result.path_buffer_failure_cache_hits = path_result.failure_cache_hits;
+            result.path_buffer_reused_rejections = path_result.reused_rejections;
+            result.path_buffer_electrical_full_scans = path_result.electrical_full_scans;
+            result.path_buffer_electrical_net_checks = path_result.electrical_net_checks;
+            result.path_buffer_electrical_instance_checks = path_result.electrical_instance_checks;
+
+            result.path_buffer_deferred_candidates = path_result.deferred_candidates;
+            result.path_buffer_invalidated_failures = path_result.invalidated_failures;
+            result.path_buffer_deferred_trials = path_result.deferred_trials;
+            result.path_buffer_repeated_trials = path_result.repeated_trials;
+            result.path_buffer_calibrated_candidates = path_result.calibrated_candidates;
+            result.path_buffer_feedback_updates = path_result.feedback_updates;
+            result.path_buffer_frontier_suspended = path_result.frontier_suspended;
+            result.path_buffer_frontier_audits = path_result.frontier_audits;
+            result.path_buffer_frontier_reopened = path_result.frontier_reopened;
+            result.path_buffer_timing_precheck_rejections = path_result.timing_precheck_rejections;
             result.path_buffer_fanout_precheck_rejections = path_result.fanout_precheck_rejections;
             result.path_buffer_fanout_tree_trials = path_result.fanout_tree_trials;
             result.path_buffer_trials = std::move(path_result.trials);
+            result.path_final_placement = std::move(path_result.final_placement);
             if(options.path_buffer_only) result.message = path_result.message;
             result.refreshes += path_result.refreshes;
             result.rollback_refreshes += path_result.rollback_refreshes;

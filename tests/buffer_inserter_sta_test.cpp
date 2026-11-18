@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <fstream>
+#include <array>
 #include <iostream>
 #include <iterator>
 #include <string>
@@ -17,18 +18,22 @@
 #include "repair_design.h"
 #include "repair_vg.h"
 #include "repair_path.h"
+#include "repair_backend.h"
 #include "repair_pbbi.h"
 #include "repair_timing.h"
 #include "repair_load.h"
 #include "repair_power.h"
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
+#include "sta/Parasitics.hh"
+#include "sta/Scene.hh"
 #include "repair_placement.h"
 #include "sta/EquivCells.hh"
 #include <stdexcept>
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbReadVerilog.hh"
 #include "est/EstimateParasitics.h"
+#include "repair_parasitics.h"
 #include "gtest/gtest.h"
 #include "odb/db.h"
 #include "odb/geom.h"
@@ -215,6 +220,610 @@ class BufferInserterStaTest : public tst::IntegratedFixture
     db_network_->checkAxioms();
   }
 };
+
+TEST_F(BufferInserterStaTest, IncrementalPlacementMatchesFullRcAfterMoveOrientationAndRollback)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup();
+  refreshRepairTiming();
+  const auto metrics = [&]() {
+    return std::array<double, 4>{sta_->worstSlack(sta::MinMax::max()),
+                                sta_->totalNegativeSlack(sta::MinMax::max()),
+                                sta_->worstSlack(sta::MinMax::min()),
+                                sta_->totalNegativeSlack(sta::MinMax::min())};
+  };
+  const auto initial = metrics();
+  auto* moved = block_->findInst("load9");
+  const auto original_orientation = moved->getOrient();
+  {
+    ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+    const auto check = [&]() {
+      incremental.update();
+      const auto observed = metrics();
+      std::vector<float> endpoints;
+      for(auto* port : block_->getBTerms())
+        if(port->getIoType() == odb::dbIoType::OUTPUT)
+          endpoints.push_back(sta_->slack(db_network_->dbToSta(port),
+              sta::RiseFallBoth::riseFall(), sta_->scenes(), sta::MinMax::max()));
+      refreshRepairTiming();
+      const auto full = metrics();
+      for(size_t i = 0; i < full.size(); ++i) EXPECT_DOUBLE_EQ(observed[i], full[i]);
+      size_t i = 0;
+      for(auto* port : block_->getBTerms())
+        if(port->getIoType() == odb::dbIoType::OUTPUT)
+          EXPECT_FLOAT_EQ(endpoints[i++], sta_->slack(db_network_->dbToSta(port),
+              sta::RiseFallBoth::riseFall(), sta_->scenes(), sta::MinMax::max()));
+    };
+    odb::dbDatabase::beginEco(block_);
+    auto inserted = ecc::OpenDbBufferInserter::insertBufferBeforeLoads(
+        block_->findNet("high_fanout"), {block_->findInst("load0")->findITerm("A")},
+        lib_->findMaster("BUF_X2"));
+    ASSERT_TRUE(inserted.ok()) << inserted.message;
+    moved->setLocation(35000, 5000);
+    moved->setOrient(odb::dbOrientType::MY);
+    check();
+    odb::dbDatabase::endEco(block_);
+    odb::dbDatabase::undoEco(block_);
+    EXPECT_EQ(moved->getOrient(), original_orientation);
+    check();
+    EXPECT_EQ(metrics(), initial);
+
+    // Cover a deferred rollback refresh followed by another ECO, including
+    // orientation rollback, which OpenDB restores without a move callback.
+    odb::dbDatabase::beginEco(block_);
+    moved->setLocation(38000, 7000);
+    check();
+    odb::dbDatabase::endEco(block_);
+    odb::dbDatabase::undoEco(block_);
+    odb::dbDatabase::beginEco(block_);
+    moved->setOrient(odb::dbOrientType::MX);
+    check();
+    odb::dbDatabase::endEco(block_);
+    odb::dbDatabase::undoEco(block_);
+    check();
+    EXPECT_EQ(metrics(), initial);
+
+    // Deleted provisional cells must not remain as dangling watched pointers.
+    // OpenDB may reuse the instance slot for this next insertion.
+    odb::dbDatabase::beginEco(block_);
+    auto replacement = ecc::OpenDbBufferInserter::insertBufferBeforeLoads(
+        block_->findNet("high_fanout"), {block_->findInst("load1")->findITerm("A")},
+        lib_->findMaster("BUF_X8"));
+    ASSERT_TRUE(replacement.ok()) << replacement.message;
+    replacement.buffer->setLocation(31000, 3000);
+    replacement.buffer->setOrient(odb::dbOrientType::MY);
+    check();
+    odb::dbDatabase::endEco(block_);
+    odb::dbDatabase::undoEco(block_);
+    check();
+    EXPECT_EQ(metrics(), initial);
+  }
+  EXPECT_FALSE(ep_.isIncrementalParasiticsEnabled());
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, IncrementalElectricalAnalysisMatchesFullScanAcrossEcoAndUndo)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::RepairCommonOptions options;
+  ecc::detail::Repair cached(block_, sta_.get(), options);
+  ecc::detail::Repair reference(block_, sta_.get(), options);
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  const auto check = [&]() {
+    incremental.update();
+    incremental.verifyTiming();
+    ecc::DesignRepairMetrics actual, expected;
+    auto states = cached.analyzeIncremental(actual, incremental.takeAnalysisChanges());
+    auto full = reference.analyze(expected, true);
+    ASSERT_GT(full.size(), 0u);
+    EXPECT_FLOAT_EQ(actual.setup_wns, expected.setup_wns);
+    EXPECT_FLOAT_EQ(actual.setup_tns, expected.setup_tns);
+    EXPECT_FLOAT_EQ(actual.hold_wns, expected.hold_wns);
+    EXPECT_FLOAT_EQ(actual.hold_tns, expected.hold_tns);
+    EXPECT_EQ(actual.total_slew_violations, expected.total_slew_violations);
+    EXPECT_EQ(actual.total_cap_violations, expected.total_cap_violations);
+    EXPECT_EQ(actual.total_fanout_violations, expected.total_fanout_violations);
+    EXPECT_EQ(actual.skipped_nets, expected.skipped_nets);
+    EXPECT_EQ(actual.slew_nets, expected.slew_nets);
+    EXPECT_EQ(actual.capacitance_nets, expected.capacitance_nets);
+    EXPECT_EQ(actual.fanout_nets, expected.fanout_nets);
+    EXPECT_DOUBLE_EQ(actual.area, expected.area);
+    EXPECT_DOUBLE_EQ(actual.severity, expected.severity);
+    ASSERT_EQ(states.size(), full.size());
+    for(size_t i = 0; i < states.size(); ++i) {
+      const auto& a = states[i]; const auto& b = full[i];
+      ASSERT_EQ(a.net, b.net);
+      EXPECT_EQ(a.driver, b.driver);
+      EXPECT_FLOAT_EQ(a.capacitance, b.capacitance);
+      EXPECT_FLOAT_EQ(a.cap_ratio, b.cap_ratio);
+      EXPECT_FLOAT_EQ(a.slew_ratio, b.slew_ratio);
+      EXPECT_FLOAT_EQ(a.fanout_ratio, b.fanout_ratio);
+      EXPECT_FLOAT_EQ(a.slew, b.slew);
+      EXPECT_FLOAT_EQ(a.slew_limit, b.slew_limit);
+      EXPECT_FLOAT_EQ(a.input_slew, b.input_slew);
+      EXPECT_EQ(a.propagated_slew, b.propagated_slew);
+      ASSERT_EQ(a.loads.size(), b.loads.size());
+      for(size_t j = 0; j < a.loads.size(); ++j) {
+        EXPECT_EQ(a.loads[j].term, b.loads[j].term);
+        EXPECT_FLOAT_EQ(a.loads[j].capacitance, b.loads[j].capacitance);
+        EXPECT_EQ(a.loads[j].x, b.loads[j].x);
+        EXPECT_EQ(a.loads[j].y, b.loads[j].y);
+      }
+    }
+  };
+  check();
+  const auto net_checks = cached.analysisStatistics().net_checks;
+  const auto instance_checks = cached.analysisStatistics().instance_checks;
+  check(); // Unchanged inspection does no electrical re-evaluation.
+  EXPECT_EQ(cached.analysisStatistics().net_checks, net_checks);
+  EXPECT_EQ(cached.analysisStatistics().instance_checks, instance_checks);
+  for(int pass = 0; pass < 3; ++pass) {
+    odb::dbDatabase::beginEco(block_);
+    auto edit = ecc::OpenDbBufferInserter::insertBufferBeforeLoads(
+        block_->findNet("high_fanout"), {block_->findInst("load0")->findITerm("A")},
+        lib_->findMaster(pass == 1 ? "BUF_X8" : "BUF_X2"));
+    ASSERT_TRUE(edit.ok()) << edit.message;
+    auto* moved = block_->findInst("load9");
+    moved->setLocation(35000 + 1000 * pass, 5000);
+    moved->setOrient(odb::dbOrientType::MY);
+    check();
+    odb::dbDatabase::endEco(block_);
+    odb::dbDatabase::undoEco(block_);
+    if(pass != 1) check(); // Also cover deferred rollback and reused DB slots.
+  }
+  check();
+  EXPECT_EQ(cached.analysisStatistics().full_scans, 1u);
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, IncrementalElectricalInspectionSkipsUnchangedDownstreamSlew)
+{
+  readTestDesign("repair_slew_cache_sta.v");
+  addLegalRows();
+  constrainSetup();
+  refreshRepairTiming();
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  incremental.takeAnalysisChanges(); // Seed exact slews, including all scenes.
+  auto* moved = block_->findInst("driver");
+  int x, y;
+  moved->getLocation(x, y);
+  moved->setLocation(x + 1000, y);
+  moved->setLocation(x, y); // Geometry is unchanged at the inspection boundary.
+  incremental.update();
+  incremental.verifyTiming();
+  const auto visited = incremental.statistics().analysis_vertices;
+  auto changed = incremental.takeAnalysisChanges();
+  EXPECT_GT(incremental.statistics().analysis_vertices, visited);
+  EXPECT_TRUE(changed.instances.count(moved));
+  EXPECT_TRUE(changed.instances.count(block_->findInst("load0")));
+  EXPECT_FALSE(changed.instances.count(block_->findInst("tail")));
+  EXPECT_FALSE(changed.instances.count(block_->findInst("sink")));
+  EXPECT_TRUE(changed.nets.count(block_->findNet("n1")));
+  EXPECT_FALSE(changed.nets.count(block_->findNet("n3")));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, IncrementalPathEveryTrialMatchesFullSta)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_max_trials = 8;
+  options.path_buffer_max_area_growth = 0.5;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  unsigned verified = 0;
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  const auto refresh = [&]() {
+    SCOPED_TRACE(verified);
+    incremental.update();
+    incremental.verifyTiming();
+    const auto wns = sta_->worstSlack(sta::MinMax::max());
+    const auto tns = sta_->totalNegativeSlack(sta::MinMax::max());
+    const auto wire_caps = [&]() {
+      std::map<std::string, float> caps;
+      auto* parasitics = sta_->scenes().front()->parasitics(sta::MinMax::max());
+      for(auto* net : block_->getNets()) {
+        auto* network = parasitics->findParasiticNetwork(db_network_->dbToSta(net));
+        caps[net->getName()] = network ? parasitics->capacitance(network) : -1;
+      }
+      return caps;
+    };
+    const auto incremental_caps = wire_caps();
+    ecc::detail::Repair backend(block_, sta_.get(), options.common);
+    ecc::DesignRepairMetrics incremental_metrics, full_metrics;
+    const auto incremental_states = backend.analyze(incremental_metrics, true);
+    // updateTiming(true) only invalidates arrivals; explicitly invalidate
+    // delays/slews to compare against a full delay calculation on fixed RC.
+    sta_->delaysInvalid();
+    sta_->findRequireds();
+    const auto full_sta_wns = sta_->worstSlack(sta::MinMax::max());
+    const auto full_states = backend.analyze(full_metrics, true);
+    EXPECT_DOUBLE_EQ(incremental_metrics.severity, full_metrics.severity);
+    EXPECT_EQ(incremental_metrics.total_slew_violations, full_metrics.total_slew_violations);
+    EXPECT_EQ(incremental_metrics.total_cap_violations, full_metrics.total_cap_violations);
+    ASSERT_EQ(incremental_states.size(), full_states.size());
+    for(size_t i = 0; i < full_states.size(); ++i) {
+      EXPECT_EQ(incremental_states[i].net, full_states[i].net);
+      EXPECT_EQ(incremental_states[i].slew_ratio, full_states[i].slew_ratio);
+      EXPECT_EQ(incremental_states[i].cap_ratio, full_states[i].cap_ratio);
+    }
+    EXPECT_FLOAT_EQ(wns, full_sta_wns) << "RC unchanged, STA recomputed";
+    refreshRepairTiming();
+    for(const auto& [name, cap] : wire_caps())
+      EXPECT_FLOAT_EQ(incremental_caps.at(name), cap) << name;
+    EXPECT_FLOAT_EQ(full_sta_wns, sta_->worstSlack(sta::MinMax::max())) << "RC then recomputed";
+    EXPECT_FLOAT_EQ(wns, sta_->worstSlack(sta::MinMax::max()));
+    EXPECT_FLOAT_EQ(tns, sta_->totalNegativeSlack(sta::MinMax::max()));
+    ++verified;
+  };
+  const auto result = ecc::OpenDbPathRepairer::repair(block_, sta_.get(), refresh, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.inserted_buffers, 0u);
+  EXPECT_GE(verified, result.attempted_trials);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, IncrementalPathSequenceMatchesFinalFullSta)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_max_trials = 16;
+  options.path_buffer_max_area_growth = -1;
+  options.defer_rollback_refresh = true;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { incremental.update(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.accepted_trials, 0u);
+  EXPECT_GT(result.rejected_trials, 0u);
+  refreshRepairTiming();
+  EXPECT_FLOAT_EQ(result.after.setup_wns, sta_->worstSlack(sta::MinMax::max()));
+  EXPECT_FLOAT_EQ(result.after.setup_tns, sta_->totalNegativeSlack(sta::MinMax::max()));
+  EXPECT_FLOAT_EQ(result.after.hold_wns, std::min(0.0f, float(sta_->worstSlack(sta::MinMax::min()))));
+  EXPECT_FLOAT_EQ(result.after.hold_tns, sta_->totalNegativeSlack(sta::MinMax::min()));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, IncrementalPathFullyVerifiesBeforeEveryCommit)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_max_trials = 16;
+  options.path_buffer_max_area_growth = -1;
+  options.defer_rollback_refresh = true;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  unsigned full_refreshes = 0, verified_trials = 0;
+  options.path_verification_refresh = [&]() { ++full_refreshes; refreshRepairTiming(); };
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& trial) {
+    if(trial.full_verified) ++verified_trials;
+    if(trial.rejection_reasons.empty()) EXPECT_TRUE(trial.full_verified);
+  };
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { incremental.update(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.accepted_trials, 0u);
+  EXPECT_GT(result.rejected_trials, 0u);
+  EXPECT_EQ(full_refreshes, verified_trials + result.rollback_refreshes);
+  EXPECT_EQ(result.refreshes, result.attempted_trials + verified_trials + result.rollback_refreshes);
+  refreshRepairTiming();
+  EXPECT_FLOAT_EQ(result.after.setup_wns, sta_->worstSlack(sta::MinMax::max()));
+  EXPECT_FLOAT_EQ(result.after.setup_tns, sta_->totalNegativeSlack(sta::MinMax::max()));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathFinalPlacementRunsOnceAndReportsLegalFullSta)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_placement = "final";
+  options.path_buffer_max_trials = 16;
+  options.path_buffer_max_area_growth = -1;
+  unsigned prepared = 0, observed = 0;
+  options.common.prepare = [&]() {
+    ++prepared;
+    EXPECT_GT(observed, 0u);
+    ecc::legalizeRepairPlacement(block_, &dp_);
+  };
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& trial) {
+    EXPECT_TRUE(trial.placement_provisional);
+    EXPECT_EQ(prepared, 0u);
+    ++observed;
+  };
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  options.path_verification_refresh = [&]() { refreshRepairTiming(); };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { incremental.update(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.final_placement.provisional_buffers, 0u);
+  EXPECT_GT(result.attempted_trials, 1u);
+  EXPECT_EQ(prepared, 1u);
+  EXPECT_TRUE(result.final_placement.attempted);
+  EXPECT_TRUE(result.final_placement.accepted) << result.message;
+  EXPECT_NE(result.final_placement.accepted, result.final_placement.rolled_back);
+  for(const auto& trial : result.trials) EXPECT_TRUE(trial.placement_provisional);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  refreshRepairTiming();
+  EXPECT_FLOAT_EQ(result.after.setup_wns, sta_->worstSlack(sta::MinMax::max()));
+  EXPECT_FLOAT_EQ(result.after.setup_tns, sta_->totalNegativeSlack(sta::MinMax::max()));
+  EXPECT_GE(result.after.setup_wns + options.common.tolerances.wns_absolute, result.before.setup_wns);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathFinalPlacementRestoresAllProvisionalEditsAndMoves)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  std::map<std::string, std::tuple<odb::Point, odb::dbOrientType, odb::dbPlacementStatus>> placements;
+  std::map<std::string, std::string> connections;
+  for(auto* inst : block_->getInsts()) {
+    placements.emplace(inst->getName(), std::make_tuple(inst->getLocation(), inst->getOrient(), inst->getPlacementStatus()));
+    for(auto* pin : inst->getITerms())
+      connections[std::string(inst->getName()) + "/" + pin->getMTerm()->getName()] = pin->getNet() ? pin->getNet()->getName() : "";
+  }
+  const auto nets = block_->getNets().size();
+  const auto original_wns = sta_->worstSlack(sta::MinMax::max());
+  const auto original_tns = sta_->totalNegativeSlack(sta::MinMax::max());
+  // Both final STA rejection and an exception after DP must restore the
+  // entire parent transaction, including accepted child ECOs and old cells.
+  for(const auto* verification : {"trial", "final"})
+  for(bool throw_after_move : {false, true}) {
+    ecc::SetupRepairOptions options;
+    options.path_buffer_strategy = "feedback";
+    options.path_buffer_placement = "final";
+    options.path_buffer_verification = verification;
+    options.path_verification_refresh = [&]() { refreshRepairTiming(); };
+    options.path_buffer_max_trials = 16;
+    options.path_buffer_max_area_growth = -1;
+    options.common.prepare = [&]() {
+      ecc::legalizeRepairPlacement(block_, &dp_);
+      block_->findInst("load9")->setLocation(100000000, 0);
+      if(throw_after_move) throw std::runtime_error("injected final placement failure");
+    };
+    ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+    const auto result = ecc::OpenDbPathRepairer::repair(
+        block_, sta_.get(), [&]() { incremental.update(); }, options);
+    EXPECT_EQ(result.ok, !throw_after_move) << result.message;
+    ASSERT_TRUE(result.final_placement.attempted);
+    EXPECT_GT(result.final_placement.provisional_buffers, 0u);
+    EXPECT_TRUE(result.final_placement.rolled_back);
+    EXPECT_FALSE(result.final_placement.accepted);
+    EXPECT_EQ(result.inserted_buffers, 0u);
+    EXPECT_EQ(result.accepted_trials, 0u);
+    EXPECT_EQ(block_->getInsts().size(), placements.size());
+    EXPECT_EQ(block_->getNets().size(), nets);
+    for(auto* inst : block_->getInsts()) {
+      EXPECT_EQ(std::make_tuple(inst->getLocation(), inst->getOrient(), inst->getPlacementStatus()), placements.at(inst->getName()));
+      for(auto* pin : inst->getITerms())
+        EXPECT_EQ(pin->getNet() ? pin->getNet()->getName() : "", connections.at(std::string(inst->getName()) + "/" + pin->getMTerm()->getName()));
+    }
+    refreshRepairTiming();
+    EXPECT_FLOAT_EQ(original_wns, sta_->worstSlack(sta::MinMax::max()));
+    EXPECT_FLOAT_EQ(original_tns, sta_->totalNegativeSlack(sta::MinMax::max()));
+    EXPECT_FLOAT_EQ(result.after.setup_wns, original_wns);
+    EXPECT_FLOAT_EQ(result.after.setup_tns, original_tns);
+    EXPECT_NO_THROW(dp_.checkPlacement(false));
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+    db_network_->checkAxioms();
+  }
+}
+
+TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJournal)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_verification = "final";
+  options.path_buffer_max_trials = 16;
+  options.path_buffer_max_area_growth = -1;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto instances = block_->getInsts().size();
+  unsigned full_refreshes = 0;
+  const auto full = [&]() { ++full_refreshes; refreshRepairTiming(); };
+  auto rejected = ecc::OpenDbPathRepairer::repair(block_, sta_.get(), full, options);
+  EXPECT_FALSE(rejected.ok);
+  options.path_buffer_placement = "final";
+  rejected = ecc::OpenDbPathRepairer::repair(block_, sta_.get(), full, options);
+  EXPECT_FALSE(rejected.ok); // Missing authoritative callback.
+  EXPECT_EQ(full_refreshes, 0u);
+  EXPECT_EQ(block_->getInsts().size(), instances);
+  options.path_verification_refresh = full;
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& trial) {
+    EXPECT_TRUE(trial.placement_provisional);
+    EXPECT_FALSE(trial.full_verified);
+    EXPECT_EQ(full_refreshes, 0u);
+    if(trial.rejection_reasons.empty()) EXPECT_TRUE(trial.metrics_complete);
+  };
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  options.path_incremental_verification = [&]() { incremental.verifyTiming(); };
+  options.path_buffer_incremental_analysis = true;
+  options.path_buffer_reuse_rejections = true;
+  options.path_analysis_changes = [&]() { return incremental.takeAnalysisChanges(); };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { incremental.update(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.accepted_trials, 0u);
+  EXPECT_GT(result.rejected_trials, 0u);
+  EXPECT_TRUE(result.final_placement.accepted) << result.message;
+  EXPECT_EQ(full_refreshes, 1u);
+  EXPECT_GT(incremental.statistics().verifications, 0u);
+  EXPECT_LT(incremental.statistics().verifications, result.attempted_trials);
+  ecc::detail::Repair backend(block_, sta_.get(), options.common);
+  ecc::DesignRepairMetrics measured;
+  refreshRepairTiming();
+  backend.analyze(measured, true);
+  EXPECT_FLOAT_EQ(result.after.setup_wns, measured.setup_wns);
+  EXPECT_FLOAT_EQ(result.after.setup_tns, measured.setup_tns);
+  EXPECT_FLOAT_EQ(result.after.hold_wns, measured.hold_wns);
+  EXPECT_FLOAT_EQ(result.after.hold_tns, measured.hold_tns);
+  EXPECT_EQ(result.after.total_slew_violations, measured.total_slew_violations);
+  EXPECT_EQ(result.after.total_cap_violations, measured.total_cap_violations);
+  EXPECT_EQ(result.after.total_fanout_violations, measured.total_fanout_violations);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathRejectionStopStillFinalizesAndKeepsAcceptedEdits)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  const auto instances = block_->getInsts().size();
+  const auto nets = block_->getNets().size();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_placement = "final";
+  options.path_buffer_max_trials = 0;
+  options.path_buffer_max_consecutive_rejections = 2;
+  options.path_buffer_max_area_growth = -1;
+  unsigned prepared = 0;
+  options.common.prepare = [&]() {
+    ++prepared;
+    ecc::legalizeRepairPlacement(block_, &dp_);
+  };
+  options.path_verification_refresh = [&]() { refreshRepairTiming(); };
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { incremental.update(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  ASSERT_TRUE(result.stopped_on_rejections) << result.message;
+  EXPECT_FALSE(result.converged);
+  EXPECT_EQ(result.consecutive_rejections, 2u);
+  ASSERT_GT(result.inserted_buffers, 0u);
+  EXPECT_EQ(prepared, 1u);
+  EXPECT_TRUE(result.final_placement.accepted) << result.message;
+  EXPECT_EQ(block_->getInsts().size(), instances + result.inserted_buffers);
+  EXPECT_EQ(block_->getNets().size(), nets + result.inserted_buffers);
+  EXPECT_NE(result.message.find("search not exhausted"), std::string::npos);
+  ASSERT_GE(result.trials.size(), 3u);
+  EXPECT_FALSE(result.trials.back().rejection_reasons.empty());
+  EXPECT_FALSE(result.trials[result.trials.size() - 2].rejection_reasons.empty());
+  EXPECT_TRUE(result.trials[result.trials.size() - 3].rejection_reasons.empty());
+  refreshRepairTiming();
+  EXPECT_FLOAT_EQ(result.after.setup_wns, sta_->worstSlack(sta::MinMax::max()));
+  EXPECT_FLOAT_EQ(result.after.setup_tns, sta_->totalNegativeSlack(sta::MinMax::max()));
+  EXPECT_GE(result.after.setup_wns + options.common.tolerances.wns_absolute, result.before.setup_wns);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathTimingPrecheckMatchesFullMetricsAndNeverAcceptsAlone)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_adaptive_search = true;
+  options.path_buffer_timing_precheck = true;
+  options.path_buffer_max_trials = 32;
+  options.path_buffer_max_area_growth = -1;
+  options.defer_rollback_refresh = true;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  ecc::DesignRepairMetrics independently_measured;
+  const auto refresh = [&]() {
+    refreshRepairTiming();
+    ecc::detail::Repair backend(block_, sta_.get(), options.common);
+    backend.analyze(independently_measured, true);
+  };
+  unsigned partial = 0;
+  options.path_verification_refresh = refresh;
+  options.path_trial_observer = [&](unsigned, const ecc::PathBufferTrial& trial) {
+    EXPECT_FLOAT_EQ(trial.after.setup_wns, independently_measured.setup_wns);
+    EXPECT_FLOAT_EQ(trial.after.setup_tns, independently_measured.setup_tns);
+    EXPECT_FLOAT_EQ(trial.after.hold_wns, independently_measured.hold_wns);
+    EXPECT_FLOAT_EQ(trial.after.hold_tns, independently_measured.hold_tns);
+    if(!trial.metrics_complete) {
+      ++partial;
+      EXPECT_FALSE(trial.rejection_reasons.empty());
+      EXPECT_FALSE(trial.full_verified);
+    }
+    if(trial.rejection_reasons.empty()) {
+      EXPECT_TRUE(trial.metrics_complete);
+      EXPECT_TRUE(trial.full_verified);
+      EXPECT_EQ(trial.after.total_slew_violations, independently_measured.total_slew_violations);
+      EXPECT_DOUBLE_EQ(trial.after.severity, independently_measured.severity);
+    }
+  };
+  const auto result = ecc::OpenDbPathRepairer::repair(block_, sta_.get(), refresh, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.accepted_trials, 0u);
+  EXPECT_GT(partial, 0u);
+  EXPECT_EQ(partial, result.timing_precheck_rejections);
+  refreshRepairTiming();
+  EXPECT_FLOAT_EQ(result.after.setup_wns, sta_->worstSlack(sta::MinMax::max()));
+  EXPECT_FLOAT_EQ(result.after.setup_tns, sta_->totalNegativeSlack(sta::MinMax::max()));
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, IncrementalPathRollsBackIfFullVerificationFails)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  const auto count = block_->getInsts().size();
+  const auto wns = sta_->worstSlack(sta::MinMax::max());
+  const auto tns = sta_->totalNegativeSlack(sta::MinMax::max());
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_max_trials = 16;
+  options.path_buffer_max_area_growth = -1;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  unsigned full_refreshes = 0;
+  options.path_verification_refresh = [&]() {
+    if(++full_refreshes == 1) throw std::runtime_error("full verification failed");
+    refreshRepairTiming();
+  };
+  ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { incremental.update(); }, options);
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.message.find("full verification failed"), std::string::npos);
+  EXPECT_EQ(result.inserted_buffers, 0u);
+  EXPECT_EQ(full_refreshes, 2u);
+  EXPECT_EQ(block_->getInsts().size(), count);
+  EXPECT_FLOAT_EQ(sta_->worstSlack(sta::MinMax::max()), wns);
+  EXPECT_FLOAT_EQ(sta_->totalNegativeSlack(sta::MinMax::max()), tns);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
 
 TEST_F(BufferInserterStaTest, InsertAfterDriverUpdatesStaAndParasitics)
 {
@@ -966,7 +1575,53 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   ASSERT_TRUE(repaired.ok) << repaired.message;
   EXPECT_EQ(reports, repaired.attempted_trials);
   EXPECT_GT(accepted, 0u);
+  EXPECT_EQ(repaired.feedback_updates, repaired.attempted_trials);
+  for(const auto& trial : repaired.trials) {
+    for(const auto& c : trial.candidates) {
+      EXPECT_FALSE(c.fingerprint.empty());
+      EXPECT_TRUE(std::isfinite(c.ranked_wns_gain));
+      EXPECT_TRUE(std::isfinite(c.ranked_tns_gain));
+    }
+  }
   EXPECT_GT(repaired.after.setup_wns, repaired.before.setup_wns);
+  EXPECT_NO_THROW(dp_.checkPlacement(false));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathCoverageFindsUnsampledEndpointsAndKeepsGlobalStaAcceptance)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup();
+  refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_endpoint_coverage = true;
+  options.path_buffer_group_schedule = true;
+  options.path_buffer_gain_scope = "global";
+  options.path_buffer_max_paths = 1;
+  options.path_buffer_max_trials = 8;
+  options.path_buffer_max_area_growth = 0.5;
+  options.path_buffer_min_relative_improvement = 0;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  ASSERT_GT(result.attempted_trials, 0u);
+  bool expanded = false;
+  for(const auto& trial : result.trials) {
+    for(const auto& c : trial.candidates) {
+      expanded |= c.covered_endpoints > c.affected_endpoints;
+      EXPECT_TRUE(std::isfinite(c.covered_tns_gain));
+      EXPECT_FALSE(c.load_group.empty());
+    }
+    if(trial.rejection_reasons.empty()) {
+      EXPECT_GE(trial.after.setup_wns, trial.before.setup_wns - options.common.tolerances.wns_absolute);
+      EXPECT_GE(trial.after.setup_tns, trial.before.setup_tns - 1e-12f);
+    }
+  }
+  EXPECT_TRUE(expanded);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   EXPECT_NO_THROW(dp_.checkPlacement(false));
   db_network_->checkAxioms();
 }
@@ -1331,6 +1986,11 @@ TEST_F(BufferInserterStaTest, PathEndpointScaleIsNotBlockedByUnrelatedRecoveryTn
   ASSERT_TRUE(global.ok) << global.message;
   EXPECT_GT(global.attempted_trials, 0u);
   EXPECT_EQ(global.inserted_buffers, 0u);
+  // The independent reset path remains globally critical. Improving sampled
+  // setup endpoints cannot be reported as a positive global WNS forecast.
+  for(const auto& trial : global.trials)
+    for(const auto& c : trial.candidates)
+      EXPECT_LE(c.predicted_wns_gain, options.common.tolerances.wns_absolute);
   options.path_buffer_gain_scope = "endpoints";
   const auto local = run();
   ASSERT_TRUE(local.ok) << local.message;
@@ -1438,6 +2098,20 @@ TEST_F(BufferInserterStaTest, PathDeferredRefreshPreservesRejectedDesignAndTrial
   ASSERT_TRUE(expired.ok);
   EXPECT_EQ(expired.attempted_trials, 0u);
   EXPECT_EQ(expired.refreshes, 0u);
+  options.path_buffer_max_seconds = 0;
+  options.path_buffer_max_refreshes = 0;
+  options.path_buffer_max_trials = 0;
+  options.path_buffer_max_consecutive_rejections = 2;
+  const auto stopped = run();
+  ASSERT_TRUE(stopped.ok) << stopped.message;
+  EXPECT_TRUE(stopped.stopped_on_rejections);
+  EXPECT_FALSE(stopped.converged);
+  EXPECT_EQ(stopped.attempted_trials, 2u);
+  EXPECT_EQ(stopped.rollback_refreshes, 1u);
+  EXPECT_EQ(stopped.inserted_buffers, 0u);
+  EXPECT_EQ(stopped.after.setup_wns, eager.after.setup_wns);
+  EXPECT_EQ(stopped.after.setup_tns, eager.after.setup_tns);
+  EXPECT_EQ(block_->getInsts().size(), count);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   db_network_->checkAxioms();
 }

@@ -258,10 +258,13 @@ def main():
                             index = int(values.pop("trial"))
                             values["loads"] = int(values["loads"])
                             values["predicted_driver_gain_ns"] = float(values["predicted_driver_gain_ns"])
-                            for key in ("predicted_wns_gain_ns", "predicted_tns_gain_ns"):
+                            for key in ("predicted_wns_gain_ns", "predicted_tns_gain_ns",
+                                        "ranked_wns_gain_ns", "ranked_tns_gain_ns", "covered_tns_gain_ns",
+                                        "predicted_path_gain_ns", "predicted_electrical_excess"):
                                 if key in values:
                                     values[key] = float(values[key])
-                            for key in ("affected_endpoints", "x", "y", "recovery", "planned_buffers"):
+                            for key in ("affected_endpoints", "covered_endpoints", "family_attempts", "generation",
+                                        "x", "y", "recovery", "planned_buffers", "deferred_retry", "electrical_retry"):
                                 if key in values:
                                     values[key] = int(values[key])
                             path_trials[index - 1]["candidates"].append(values)
