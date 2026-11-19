@@ -3,7 +3,7 @@
 #include "repair_buffer_budget.h"
 
 #include "BufferedNet.hh"
-#include "buffer_inserter.h"
+#include "design_edit.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "est/EstimateParasitics.h"
@@ -249,11 +249,9 @@ std::vector<odb::dbObject*> applyNode(
 
 }  // namespace
 
-void GobiRepairOptions::validate() const
-{
+void GobiRepairOptions::validate() const {
     common.validate();
-    if(backend != "cuda")
-        throw std::invalid_argument("gobi.backend must be cuda");
+    GobiRepairSettings::validate();
 }
 
 GobiRepairResult OpenDbGobiRepairer::repair(

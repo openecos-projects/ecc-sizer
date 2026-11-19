@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "buffer_inserter.h"
+#include "design_edit.h"
 
 namespace odb {
 class dbBlock;

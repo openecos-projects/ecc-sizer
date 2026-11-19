@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 
-#include "buffer_inserter.h"
+#include "design_edit.h"
 
 #include <algorithm>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 
@@ -244,6 +245,26 @@ BufferInsertionResult OpenDbBufferInserter::insertBufferBeforeLoads(
         options.buffer_name_prefix.c_str(), options.net_name_prefix.c_str(),
         odb::dbNameUniquifyType::ALWAYS, options.loads_on_different_nets);
     return makeResult(buffer, original_nets);
+}
+
+NetRepairEdits applyRepairPlan(const NetRepairPlan& plan) {
+    NetRepairEdits result;
+    if(plan.replacement) {
+        const auto& replacement = *plan.replacement;
+        if(!replacement.instance || !replacement.master)
+            throw std::invalid_argument("cell replacement requires an instance and master");
+        if(replacement.instance->swapMaster(replacement.master)) {
+            result.replaced = true;
+            return result;
+        }
+    }
+    for(const auto& insertion : plan.buffers) {
+        const auto inserted = OpenDbBufferInserter::insertBufferBeforeLoads(
+            insertion.net, insertion.loads, insertion.master, insertion.options);
+        if(!inserted) throw std::runtime_error(inserted.message);
+        ++result.inserted_buffers;
+    }
+    return result;
 }
 
 }  // namespace ecc

@@ -76,7 +76,7 @@
 #endif
 #include "ord/OpenRoad.hh"
 #include "grt/GlobalRouter.h"
-#include "buffer_inserter.h"
+#include "design_edit.h"
 #include "repair_fanout.h"
 #include "repair_design.h"
 #include "repair_design_ord.h"
@@ -1487,111 +1487,6 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
         printf("Error: OpenSTA is not enabled\n");
         exit(0);
     }
-#if 0
-    else if(!useETS) {
-        exePTServer(serverName, port, view);
-    }
-    else {
-        exeETSServer(serverName, port, view);
-    }
-
-    designTiming *PT;
-    if(useOpenSTA) {
-        PT = new designTiming(OS, this);
-    }
-    else if(!useETS) {
-        PT = new designTiming;
-    }
-    else {
-        PT = new designTiming(ETS, this);
-    }
-
-    if(serverName == "") {
-        gethostname(serverNameChar, 100);
-        serverName = string(serverNameChar);
-    }
-
-    if(useOpenSTA) {
-        cout << "OpenSTA server contact ... server: " << serverName
-             << " port: " << port << endl;
-    }
-    else if(!useETS) {
-        cout << "PrimeTime server contact ... server: " << serverName
-             << " port: " << port << endl;
-    }
-    else {
-        cout << "ETS server contact ... server: " << serverName
-             << " port: " << port << endl;
-    }
-
-    ostr.str("");
-    ostr << port;
-    string clientTcl = "ptclient." + ostr.str() + ".tcl";
-    // make ptclient tcl
-    ofstream fout(clientTcl.c_str());
-    if(!fout) {
-        printf("Error: Open file failed");
-        exit(0);
-    }
-    fout << "proc GetData {} {" << endl;
-    fout << "  global chan" << endl;
-    fout << "  if {![eof $chan]} {" << endl;
-    fout << "    set data [gets $chan]" << endl;
-    fout << "    flush stdout" << endl;
-    fout << "    return $data" << endl;
-    fout << "  }" << endl;
-    fout << "}" << endl;
-    fout << "proc SendData {data} {" << endl;
-    fout << "  global chan" << endl;
-    fout << "  puts $chan $data" << endl;
-    fout << "  flush $chan" << endl;
-    fout << "}" << endl;
-    fout << "proc DoOneCommand {cmd} {" << endl;
-    fout << "  SendData $cmd" << endl;
-    fout << "  return [GetData]" << endl;
-    fout << "}" << endl;
-    fout << "proc InitClient {} {" << endl;
-    fout << "  global chan" << endl;
-    fout << "  set server " << serverName << endl;
-    fout << "  set chan [socket $server " << port << "]" << endl;
-    fout << "  GetData" << endl;
-    fout << "  GetData" << endl;
-    fout << "}" << endl;
-    fout << "proc CloseClient {} {" << endl;
-    fout << "  global chan" << endl;
-    fout << "  close $chan" << endl;
-    fout << "}" << endl;
-    fout.close();
-
-    int pt_trial_cnt = 0;
-    PT->initializeServerContact(clientTcl);
-    cout << "trying check Timer ";
-    while(true) {
-        wait(1);
-        if(PT->checkServer())
-            break;
-        cout << ".";
-        if(pt_trial_cnt++ > max(100, (int)numcells)) {
-            cout << "Error: cannot access to Timer!" << endl;
-            break;
-        }
-    }
-    cout << endl;
-    cout << "Timer server contact ... done " << endl;
-    char curr_path[1024];
-    getcwd(curr_path, 1024);
-    printf("Current working directory: %s\n", curr_path);
-    if(NO_LOG) {
-        sprintf(Commands, "\\rm -f launch_pt.%d.cmd", port);
-        system(Commands);
-        sprintf(Commands, "\\rm -f ptclient.%d.tcl", port);
-        system(Commands);
-        sprintf(Commands, "\\rm -f ptserver.%d.tcl", port);
-        system(Commands);
-    }
-
-    return PT;
-#endif
 }
 
 void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
@@ -4008,19 +3903,6 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
                             -min(pins[view][cells[curfo].outpins[k]].rslk,
                                  pins[view][cells[curfo].outpins[k]].fslk);
 
-#if 0
-                        // test slack
-                        double min_slack = DBL_MAX;
-                        for(int l = 0; l < cells[curfo].outpins.size(); l++) {
-                            min_slack =
-                                min(min_slack,
-                                    pins[view][cells[curfo].outpins[l]].rslk);
-                            min_slack =
-                                min(min_slack,
-                                    pins[view][cells[curfo].outpins[l]].fslk);
-                        }
-                        tmpEntry.delta_impact = -min_slack;
-#endif
                         if(tmpEntry.delta_impact < 0)
                             targets.insert(tmpEntry);
                     }
@@ -6141,45 +6023,45 @@ void Sizer::runSizerDesignRepair() {
              << " accepted_batches=" << setup_result.accepted_batches
              << " rejected_batches=" << setup_result.rejected_batches
              << " attempted_batches=" << setup_result.attempted_batches
-             << " path_buffer_attempted=" << setup_result.path_buffer_attempted
-             << " path_buffer_accepted=" << setup_result.path_buffer_accepted
-             << " path_buffer_rejected=" << setup_result.path_buffer_rejected
-             << " path_buffer_consecutive_rejections=" << setup_result.path_buffer_consecutive_rejections
-             << " path_buffer_stopped_on_rejections=" << setup_result.path_buffer_stopped_on_rejections
+             << " path_buffer_attempted=" << setup_result.path.attempted_trials
+             << " path_buffer_accepted=" << setup_result.path.accepted_trials
+             << " path_buffer_rejected=" << setup_result.path.rejected_trials
+             << " path_buffer_consecutive_rejections=" << setup_result.path.consecutive_rejections
+             << " path_buffer_stopped_on_rejections=" << setup_result.path.stopped_on_rejections
              << " path_buffer_inserted_buffers="
-             << setup_result.path_buffer_inserted_buffers
+             << setup_result.path.inserted_buffers
              << " path_buffer_candidates="
-             << setup_result.path_buffer_candidates
+             << setup_result.path.candidate_count
              << " path_buffer_duplicate_candidates="
-             << setup_result.path_buffer_duplicate_candidates
-             << " path_buffer_fanout_precheck_rejections=" << setup_result.path_buffer_fanout_precheck_rejections
-             << " path_buffer_fanout_tree_trials=" << setup_result.path_buffer_fanout_tree_trials
-             << " path_buffer_screened_candidates=" << setup_result.path_buffer_screened_candidates
-             << " path_buffer_failure_cache_hits=" << setup_result.path_buffer_failure_cache_hits
-             << " path_buffer_reused_rejections=" << setup_result.path_buffer_reused_rejections
-             << " path_buffer_electrical_full_scans=" << setup_result.path_buffer_electrical_full_scans
-             << " path_buffer_electrical_net_checks=" << setup_result.path_buffer_electrical_net_checks
-             << " path_buffer_electrical_instance_checks=" << setup_result.path_buffer_electrical_instance_checks
+             << setup_result.path.duplicate_candidates
+             << " path_buffer_fanout_precheck_rejections=" << setup_result.path.fanout_precheck_rejections
+             << " path_buffer_fanout_tree_trials=" << setup_result.path.fanout_tree_trials
+             << " path_buffer_screened_candidates=" << setup_result.path.screened_candidates
+             << " path_buffer_failure_cache_hits=" << setup_result.path.failure_cache_hits
+             << " path_buffer_reused_rejections=" << setup_result.path.reused_rejections
+             << " path_buffer_electrical_full_scans=" << setup_result.path.electrical_full_scans
+             << " path_buffer_electrical_net_checks=" << setup_result.path.electrical_net_checks
+             << " path_buffer_electrical_instance_checks=" << setup_result.path.electrical_instance_checks
 
-             << " path_buffer_deferred_candidates=" << setup_result.path_buffer_deferred_candidates
-             << " path_buffer_invalidated_failures=" << setup_result.path_buffer_invalidated_failures
-             << " path_buffer_deferred_trials=" << setup_result.path_buffer_deferred_trials
-             << " path_buffer_repeated_trials=" << setup_result.path_buffer_repeated_trials
-             << " path_buffer_calibrated_candidates=" << setup_result.path_buffer_calibrated_candidates
-             << " path_buffer_feedback_updates=" << setup_result.path_buffer_feedback_updates
-             << " path_buffer_frontier_suspended=" << setup_result.path_buffer_frontier_suspended
-             << " path_buffer_frontier_audits=" << setup_result.path_buffer_frontier_audits
-             << " path_buffer_frontier_reopened=" << setup_result.path_buffer_frontier_reopened
-             << " path_buffer_timing_precheck_rejections=" << setup_result.path_buffer_timing_precheck_rejections
-             << " path_buffer_final_placement_attempted=" << setup_result.path_final_placement.attempted
-             << " path_buffer_final_placement_accepted=" << setup_result.path_final_placement.accepted
-             << " path_buffer_final_placement_rolled_back=" << setup_result.path_final_placement.rolled_back
-             << " path_buffer_provisional_buffers=" << setup_result.path_final_placement.provisional_buffers
-             << " path_buffer_final_placement_ms=" << setup_result.path_final_placement.elapsed_ms
-             << " path_buffer_pre_dp_wns_ns=" << setup_result.path_final_placement.before.setup_wns * 1e9
-             << " path_buffer_pre_dp_tns_ns=" << setup_result.path_final_placement.before.setup_tns * 1e9
-             << " path_buffer_post_dp_wns_ns=" << setup_result.path_final_placement.after.setup_wns * 1e9
-             << " path_buffer_post_dp_tns_ns=" << setup_result.path_final_placement.after.setup_tns * 1e9
+             << " path_buffer_deferred_candidates=" << setup_result.path.deferred_candidates
+             << " path_buffer_invalidated_failures=" << setup_result.path.invalidated_failures
+             << " path_buffer_deferred_trials=" << setup_result.path.deferred_trials
+             << " path_buffer_repeated_trials=" << setup_result.path.repeated_trials
+             << " path_buffer_calibrated_candidates=" << setup_result.path.calibrated_candidates
+             << " path_buffer_feedback_updates=" << setup_result.path.feedback_updates
+             << " path_buffer_frontier_suspended=" << setup_result.path.frontier_suspended
+             << " path_buffer_frontier_audits=" << setup_result.path.frontier_audits
+             << " path_buffer_frontier_reopened=" << setup_result.path.frontier_reopened
+             << " path_buffer_timing_precheck_rejections=" << setup_result.path.timing_precheck_rejections
+             << " path_buffer_final_placement_attempted=" << setup_result.path.final_placement.attempted
+             << " path_buffer_final_placement_accepted=" << setup_result.path.final_placement.accepted
+             << " path_buffer_final_placement_rolled_back=" << setup_result.path.final_placement.rolled_back
+             << " path_buffer_provisional_buffers=" << setup_result.path.final_placement.provisional_buffers
+             << " path_buffer_final_placement_ms=" << setup_result.path.final_placement.elapsed_ms
+             << " path_buffer_pre_dp_wns_ns=" << setup_result.path.final_placement.before.setup_wns * 1e9
+             << " path_buffer_pre_dp_tns_ns=" << setup_result.path.final_placement.before.setup_tns * 1e9
+             << " path_buffer_post_dp_wns_ns=" << setup_result.path.final_placement.after.setup_wns * 1e9
+             << " path_buffer_post_dp_tns_ns=" << setup_result.path.final_placement.after.setup_tns * 1e9
              << " skipped_duplicate_batches=" << setup_result.skipped_duplicate_batches
              << " refreshes=" << setup_result.refreshes
              << " rollback_refreshes=" << setup_result.rollback_refreshes
@@ -7223,38 +7105,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                 if(j != PRFT_PTNUM - 1) {
                     //
                     // use_margin = true;
-                    if(numcells == 27553 || numcells == 79919) {  // nvm , nvp
-                        use_slew_margin = false;
-                        slew_margin = 0.9;
-                    }
-                    else if(numcells == 145776) {  // ariane136
-                        use_slew_margin = true;
-                        slew_margin = 0.85;
-                        use_attack_new = true;
-                        ATTACK_NEW_RATIO = 80;
-                    }
-                    else if(numcells == 278465) {  // aes_256
-                        use_slew_margin = true;
-                        slew_margin = 0.9;
-                        input_slew_margin = 1.0;
-                        STA_MARGIN = 0.005;
-                        use_margin = true;
-                        cap_margin = 0.95;
-                        max_time_recovery_iter = 2;
-                    }
-                    else if(numcells == 184863) {  // hidden3
-                        use_slew_margin = true;
-                    }
-                    else if(numcells == 187851) {  // mempool_tile_wrap
-                        use_slew_margin = false;
-                        slew_margin = 0.8;
-                        use_margin = false;
-                        // cap_margin = 0.85;
-                        use_attack_new = false;
-                    }
-                    else {
-                        use_slew_margin = true;
-                    }
+                    use_slew_margin = true;
                     auto corner_ = this->_ckt->_ord_timing->getCorners()[0];
                     auto _ord_design = _ckt->_ord_design;
                     auto block = _ord_design->getBlock();
@@ -7375,44 +7226,6 @@ void Sizer::Parallel_Sizer_Launcher() {
                     cout << "COPY SOL FROM SECOND BEST DONE " << endl;
                 }
             }
-#if 0
-            if(GWTW_MAX > 1) {
-                if(VERBOSE >= 1) {
-                    cout << "GET NEXT START " << endl;
-                }
-                for(unsigned i = 0; i < numcells; i++) {
-                    if(g_cells[i].isDontTouch || g_cells[i].isClockCell) {
-                        multi_start_cells_poweropt_1[i] = g_cells[i];
-                        // multi_start_cells_poweropt_2[i] = g_cells[i];
-                        // multi_start_cells_poweropt_3[i] = g_cells[i];
-                        continue;
-                    }
-                    CellSol sol = GetCommonCell(i);
-                    if(sol.c_size != -1 && sol.c_vtype != -1) {
-                        cell_change(multi_start_cells_poweropt_1[i], sol,
-                                    false);
-                        // cell_change(multi_start_cells_poweropt_2[i], sol,
-                        //             false);
-                        // cell_change(multi_start_cells_poweropt_3[i], sol,
-                        //             false);
-                    }
-                    else {
-                        multi_start_cells_poweropt_1[i] = g_cells[i];
-                        // multi_start_cells_poweropt_2[i] =
-                        //     best_cells_poweropt[i];
-                        // multi_start_cells_poweropt_3[i] =
-                        //     best_cells_poweropt[i];
-
-                        // cell_resize(multi_start_cells_poweropt_3[i], 1,
-                        // false,
-                        //             false);
-                        // cell_retype(multi_start_cells_poweropt_3[i], 1,
-                        // false,
-                        //             false);
-                    }
-                }
-            }
-#endif
             if(VERBOSE >= 1) {
                 cout << "GET NEXT START END" << endl;
             }
@@ -7422,15 +7235,6 @@ void Sizer::Parallel_Sizer_Launcher() {
         // double vio1, power1 = 0.0;
         // double vio = 0.0;
         // FinalReport();
-#if 0
-        double init_power = 0.0;
-        init_power = init_tot[0];
-        if(skew_violation != 0 && -skew_violation <= -slack_margin) {
-            cout << "WNS = " << skew_violation
-                 << " SLACK MARGIN = " << slack_margin << endl;
-            PostWNSOpt("final");
-        }
-#endif
     }
 
     ExitPTimer();
@@ -8517,24 +8321,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
              << endl;
 
         cout << "done" << endl;
-#if 0
-        if(isEqual(best_score, ini_score)) {
-            cout << "power not updated" << endl;
-            // power has not been updated at all -- no feasible solution
-            // then store the best infeasible solution
-            if(cur_best_tns < best_tns) {
-                best_tns = cur_best_tns;
-                cout << "copy failed cell" << endl;
-                best_failed_cells.resize(numcells);
-                for(unsigned i = 0; i < numcells; i++) {
-                    best_failed_cells[i] = int_best_cells[i];
-                }
-                cout << "copy failed cell done" << endl;
-                double wns, power;
-                ReportWithPT(best_failed_cells, "best_infeasible", wns, power);
-            }
-        }
-#endif
         // pthread_mutex_unlock(&mutex1);
     }
     showAllSlew(0, "before_tran.csv");
@@ -11392,7 +11178,8 @@ void Sizer::readCmdFile(string cmdFileStr) {
         // cleanup, whose exhaustive slew loop is prohibitively slow on the
         // large JPEG benchmark.
         if(line.find("-no_fixdrv") != string::npos) {
-            FIX_CAP = false;
+            FIX_CAP_REPAIR = false;
+            FIX_SLEW_REPAIR = false;
             FIX_SLEW = false;
             FIX_GLOBAL = false;
             FIX_SLEW_POST = false;
@@ -11944,7 +11731,7 @@ void Sizer::Profile() {
          << timer_time / 60 << " min.)" << endl;
 }
 
-int main(int argc, char **argv) {
+int runLegacySizer(int argc, char **argv) {
     int agc = 0;
     char **arv = nullptr;
     // omp_set_num_threads(8);

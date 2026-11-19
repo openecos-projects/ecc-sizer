@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef ECC_SIZER_BUFFER_INSERTER_H_
-#define ECC_SIZER_BUFFER_INSERTER_H_
+#pragma once
 
 #include <optional>
 #include <string>
@@ -58,8 +57,38 @@ struct BufferInsertionResult {
     }
 };
 
-// Owns Sizer's buffer insertion policy while using OpenDB as the current
-// netlist storage backend. It deliberately has no dependency on rsz::Resizer.
+struct CellReplacement {
+    odb::dbInst* instance = nullptr;
+    odb::dbMaster* master = nullptr;
+};
+
+struct BufferInsertion {
+    odb::dbNet* net = nullptr;
+    std::vector<odb::dbObject*> loads;
+    odb::dbMaster* master = nullptr;
+    BufferInsertionOptions options;
+};
+
+// A net repair may prefer a cheaper cell replacement. If OpenDB refuses
+// that swap, use the planned buffers. The plan is tied to the current
+// design state and must be discarded after an intervening edit or rollback.
+struct NetRepairPlan {
+    std::optional<CellReplacement> replacement;
+    std::vector<BufferInsertion> buffers;
+};
+
+struct NetRepairEdits {
+    bool replaced = false;
+    unsigned inserted_buffers = 0;
+    explicit operator bool() const { return replaced || inserted_buffers != 0; }
+};
+
+// Mutation only: no candidate ranking, placement or timing policy. The caller
+// owns the OpenDB ECO transaction and must undo it on failure/rejection.
+NetRepairEdits applyRepairPlan(const NetRepairPlan& plan);
+
+// Validates and applies buffer edits to OpenDB. Candidate selection and
+// acceptance belong to algorithms; this layer has no Resizer dependency.
 class OpenDbBufferInserter {
    public:
     static BufferInsertionResult insertBufferAfterDriver(
@@ -77,5 +106,3 @@ class OpenDbBufferInserter {
 };
 
 }  // namespace ecc
-
-#endif  // ECC_SIZER_BUFFER_INSERTER_H_

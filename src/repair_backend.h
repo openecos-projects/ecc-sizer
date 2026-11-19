@@ -18,7 +18,7 @@
 #include <unordered_set>
 #include <unordered_map>
 
-#include "buffer_inserter.h"
+#include "design_edit.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "odb/db.h"
@@ -558,9 +558,12 @@ class Repair {
             });
     }
 
-    bool edit(NetState& state, unsigned& inserted, unsigned& resized_buffers,
-              unsigned& resized_gates, unsigned remaining, bool allow_resize,
-              unsigned& vt_swaps) {
+    // Candidate construction reads OpenDB/STA but never mutates them.
+    NetRepairPlan planNetRepair(const NetState& input, unsigned available,
+                                bool allow_resize) {
+        NetRepairPlan plan;
+        if(input.loads.empty()) return plan;
+        auto state = input;
         // Buffer trees use recovered input slew for sizing. Existing gate
         // replacements use the measured input slew on every incoming arc.
         float in_slew = std::isfinite(state.slew_limit)
@@ -640,26 +643,14 @@ class Repair {
         }
         // Compare feasible edit area before the shared STA acceptance step.
         // Count budgeting never forbids a gate replacement that adds no cell.
-        const unsigned available = remaining - inserted;
         if(replacement &&
            (groups.empty() || groups.size() > available ||
             replacement->area - area(state.driver->getInst()->getMaster()) <=
                 buffer_area)) {
-            auto* driver = state.driver->getInst();
-            const bool buffer = network_->libertyCell(driver)->isBuffer();
-            const bool vt = isVtSwap(driver->getMaster(), replacement->master);
-            if(driver->swapMaster(replacement->master)) {
-                vt_swaps += vt;
-                if(buffer)
-                    ++resized_buffers;
-                else
-                    ++resized_gates;
-                return true;
-            }
+            plan.replacement = CellReplacement{state.driver->getInst(), replacement->master};
         }
-        bool changed = false;
         for(const auto& group : groups) {
-            if(inserted >= remaining)
+            if(plan.buffers.size() >= available)
                 break;
             const auto begin = group.begin, end = group.end;
             const auto* selected = group.buffer;
@@ -675,14 +666,27 @@ class Repair {
                 BufferLocation{int(x / terms.size()), int(y / terms.size())};
             options.buffer_name_prefix = "sizer_drv_buf";
             options.net_name_prefix = "sizer_drv_net";
-            auto result = OpenDbBufferInserter::insertBufferBeforeLoads(
-                state.net, terms, selected->master, options);
-            if(!result)
-                throw std::runtime_error(result.message);
-            ++inserted;
-            changed = true;
+            plan.buffers.push_back({state.net, std::move(terms), selected->master, std::move(options)});
         }
-        return changed;
+        return plan;
+    }
+
+    bool edit(NetState& state, unsigned& inserted, unsigned& resized_buffers,
+              unsigned& resized_gates, unsigned remaining, bool allow_resize,
+              unsigned& vt_swaps) {
+        const auto plan = planNetRepair(state, remaining > inserted ? remaining - inserted : 0,
+                                        allow_resize);
+        const bool buffer = network_->libertyCell(state.driver->getInst())->isBuffer();
+        const bool vt = plan.replacement && isVtSwap(
+            state.driver->getInst()->getMaster(), plan.replacement->master);
+        const auto edits = applyRepairPlan(plan);
+        inserted += edits.inserted_buffers;
+        if(edits.replaced) {
+            vt_swaps += vt;
+            if(buffer) ++resized_buffers;
+            else ++resized_gates;
+        }
+        return bool(edits);
     }
 
    private:

@@ -3,6 +3,7 @@
 #include "Transition.hh"
 #include "sizer.h"
 #include "ckt.h"
+#include "special_net.h"
 #include <tcl8.6/tcl.h>
 #include <tcl8.6/tclDecls.h>
 #include <algorithm>
@@ -69,45 +70,6 @@ bool isPadDataPin(odb::dbITerm* iterm)
     }
     return iterm->getInst()->getMaster()->isPad() &&
            iterm->getMTerm()->getName() == "PAD";
-}
-
-bool isExternalPadOnlyNet(odb::dbNet* db_net)
-{
-    if(db_net == nullptr || db_net->getBTerms().empty() ||
-       db_net->getITerms().empty()) {
-        return false;
-    }
-
-    for(auto* iterm : db_net->getITerms()) {
-        if(iterm == nullptr || iterm->getMTerm() == nullptr ||
-           iterm->getMTerm()->getMaster() == nullptr) {
-            return false;
-        }
-        const odb::dbMasterType type
-            = iterm->getMTerm()->getMaster()->getType();
-        if(!(type.isPad() || type.isCover()) ||
-           iterm->getMTerm()->getName() != "PAD") {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block)
-{
-    if(block == nullptr) {
-        return 0;
-    }
-
-    int marked = 0;
-    for(auto* db_net : block->getNets()) {
-        if(isExternalPadOnlyNet(db_net) && !db_net->isDoNotTouch()) {
-            db_net->setDoNotTouch(true);
-            ++marked;
-        }
-    }
-    return marked;
 }
 
 bool isBoundaryBuffer(odb::dbInst* inst)
@@ -1863,38 +1825,6 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     bool use_gr_correlation = false;
     int cor_step = 0;
     int numcells = g_cells.size();
-#if 0
-    auto block = _ord_design->getBlock();
-    if(use_gr_correlation) {
-        for(auto db_inst : block->getInsts()) {
-            string old_type = db_inst->getMaster()->getName();
-            old_master_map.push_back(old_type);
-            if(!_sizer->cellName2EquaivaID.count(old_type)) {
-                printf("Error in gr: not found %s\n", old_type.c_str());
-            }
-            string footprint = to_string(_sizer->cellName2EquaivaID[old_type]);
-            auto libcell_table =
-                _sizer->main_lib_cell_tables[0][check_map[footprint]];
-            if(_sizer->libs[0].count(old_type) == 0) {
-                printf("Error in gr: not found %s\n", old_type.c_str());
-            }
-            auto lib_cell = &_sizer->libs[0][old_type];
-            int size_num = libcell_table->lib_vt_size_table.size();
-            int old_size = lib_cell->c_size;
-            int new_size = std::min(size_num - 1, old_size + cor_step);
-            string new_libcell_str =
-                libcell_table->lib_vt_size_table[new_size][0]->name;
-            auto new_master = _ord_design->getTech()->getDB()->findMaster(
-                new_libcell_str.c_str());
-            if(!db_inst->isBlock() &&
-               !_ord_design->isSequential(db_inst->getMaster())) {
-                db_inst->swapMaster(new_master);
-                printf("Swap %s to %s\n", old_type.c_str(),
-                       new_libcell_str.c_str());
-            }
-        }
-    }
-#endif
     // Global connect
     auto VDDNet = _ord_design->getBlock()->findNet("VDD");
     VDDNet->setSpecial();
@@ -1958,21 +1888,6 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
             to_string(gr_overflow_iterations) +
             " -allow_congestion -verbose");
         int iter = 0;
-#if 0
-        if(use_gr_correlation) {
-            for(auto db_inst : block->getInsts()) {
-                string old_type = old_master_map[iter];
-                string new_libcell_str = old_type;
-                auto new_master = _ord_design->getTech()->getDB()->findMaster(
-                    new_libcell_str.c_str());
-                if(!db_inst->isBlock() &&
-                   !_ord_design->isSequential(db_inst->getMaster())) {
-                    db_inst->swapMaster(new_master);
-                }
-                iter++;
-            }
-        }
-#endif
         printf("Run Global Routing Time %f\n", cpuTime() - begin);
         _ord_design->evalTclString("estimate_parasitics -global_routing");
     }
@@ -2001,76 +1916,6 @@ void Circuit::init_opensta() {
     string cornerName = "0";
 
     // Tcl Interpreter settings
-#if 0
-    sta_interp = Tcl_CreateInterp();
-    Tcl_Init(sta_interp);
-    //   // Define swig commands.
-    // sta_swig_init(sta_interp);
-
-    // define swig commands
-    Sta_Init(sta_interp);
-    initSta();
-    sta::Sta::setSta(_sta);
-    _sta->makeComponents();
-    _sta->setTclInterp(sta_interp);
-
-    // load encoded TCL functions
-    evalTclInitForLibrary(sta_interp, tcl_inits);
-
-    // initialize TCL commands
-    Tcl_Eval(sta_interp, "sta::show_splash");
-    Tcl_Eval(sta_interp, "sta::define_sta_cmds");
-    Tcl_Eval(sta_interp, "namespace import sta::*");
-    // string sta_init_str = "source -verbose [file join $env(HOME) .sta]";
-    // Tcl_Eval(sta_interp, sta_init_str.c_str());
-    // std::cout << Tcl_GetStringResult(sta_interp) << std::endl;
-    // initialize
-
-    cout << "STA CREATED" << endl;
-
-    // define_corners
-    _sta->makeScenes(corner_names);
-    Scene* corner = _sta->findScene(cornerName);
-    cout << "define_corner done" << endl;
-
-    for(int i = 0; i < libs.size(); i++) {
-        string lib_file_name = libPath + "/" + libs[i].c_str();
-        cout << "LIB FILE NAME : " << lib_file_name << endl;
-        LibertyLibrary* lib_tmp = _sta->readLiberty(
-            lib_file_name.c_str(), corner, MinMaxAll::max(), false);
-        // libLibs.push_back(lib_tmp);
-    }
-    cout << "read_liberty done" << endl;
-
-    // read_netlist
-    Network* network = _sta->networkReader();
-    bool readVerilog = false;
-    if(network) {
-        _sta->readNetlistBefore();
-        readVerilog = sta::readVerilogFile(netlistFileName.c_str(), _sta->networkReader());
-    }
-    cout << "read_verilog done : " << readVerilog << endl;
-
-    // link_design
-    bool link = _sta->linkDesign(top_cell_name.c_str());
-    cout << "link_design done : " << link << endl;
-    bool is_linked = network->isLinked();
-    if(is_linked)
-        cout << "linked: " << network->cellName(_sta->currentInstance())
-             << endl;
-
-    // read_parasitics
-    bool parasitics = _sta->readSpef(
-        spefFileName.c_str(), _sta->currentInstance(), MinMaxAll::max(),
-        true, false, 0.0, true);
-    cout << "read_parasitics done : " << parasitics << endl;
-
-    string sdc_cmd = "read_sdc " + sdcFileName;
-    std::cout << std::string(evalTclString(sdc_cmd)) << std::endl;
-    std::cout << "read_sdc done !!!" << std::endl;
-    // string setrc_cmd = "source " + libPath + "/../setRC.tcl";
-    // std::cout << std::string(evalTclString(setrc_cmd)) << std::endl;
-#else
     _ord_tech = new ord::Tech();
     for(auto lib_file : _sizer->libLibs) {
         string lib_file_name = libPath + "/" + lib_file;
@@ -2104,7 +1949,7 @@ void Circuit::init_opensta() {
     _ord_design->readDef(_sizer->defFile, true);
     assertNoIllegalExternalPadBoundaryChain();
     const int marked_external_pad_nets
-        = markExternalPadOnlyNetsDontTouch(_ord_design->getBlock());
+        = ecc::markExternalPadOnlyNetsDontTouch(_ord_design->getBlock());
     if(marked_external_pad_nets > 0) {
         cout << "Marked " << marked_external_pad_nets
              << " external PAD-only nets as dont-touch before timing repair."
@@ -2321,28 +2166,7 @@ void Circuit::init_opensta() {
     // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +
     //                                         _sizer->resultVerilogFile);
     // exit(0);
-    int slack_max_iter = 3;
-    if(numcells == 27553) {
-        slack_max_iter = 3;
-    }
-    else if(numcells == 79919) {  // nvm , nvp
-        slack_max_iter = 6;
-    }
-    else if(numcells == 145776) {  // ariane136
-        slack_max_iter = 6;
-    }
-    else if(numcells == 278465) {  // aes_256
-        slack_max_iter = 3;
-    }
-    else if(numcells == 184863) {  // hidden3
-        slack_max_iter = 6;
-    }
-    else if(numcells == 187851) {  // mempool_tile_wrap
-        slack_max_iter = 6;
-    }
-    else {
-        slack_max_iter = 3;
-    }
+    constexpr int slack_max_iter = 3;
     if(_sizer->use_gr_rc && _sizer->spefFile == "" && !_sizer->preplaceMode) {
         runGR(_sizer->gr_rc_congestion_iterations, false, slack_max_iter);
     }
@@ -2350,18 +2174,8 @@ void Circuit::init_opensta() {
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
 
     // _ord_design->evalTclString("sta::set_delay_calculator lumped_cap");
-#if 0
-  registerDelayCalc("unit", makeUnitDelayCalc);
-  registerDelayCalc("lumped_cap", makeLumpedCapDelayCalc);
-  registerDelayCalc("dmp_ceff_elmore", makeDmpCeffElmoreDelayCalc);
-  registerDelayCalc("dmp_ceff_two_pole", makeDmpCeffTwoPoleDelayCalc);
-  registerDelayCalc("arnoldi", makeArnoldiDelayCalc);
-  registerDelayCalc("ccs_ceff", makeCcsCeffDelayCalc);
-  registerDelayCalc("ccs_sim", makeCcsSimDelayCalc);
-#endif
     // _ord_timing->makeEquivCells();
     // _ord_design->evalTclString("report_wns");
-#endif
 }
 
 // Slowest path
@@ -2770,19 +2584,6 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         sta::dbSta* sta = _sizer->_ckt->_ord_timing->getSta();
         sta::Net* net = sta->getDbNetwork()->dbToSta(ord_net);
         Parasitic* net_parasitic = parasitics->findParasiticNetwork(net);
-#if 0
-        
-        auto drivers = sta->network()->drivers(net);
-
-        if(!drivers || drivers->empty()) {
-            printf("Error: net %s don't have drivers\n", netNameStr.c_str());
-            continue;
-        }
-        PinSet::Iterator drvr_iter(drivers);
-        const Pin* drvr_pin = drvr_iter.next();
-        Parasitic* net_parasitic =
-            parasitics->findPiElmore(drvr_pin, sta::RiseFall::rise(), ap);
-#endif
         float pin_cap;
         float wire_cap;
         _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);

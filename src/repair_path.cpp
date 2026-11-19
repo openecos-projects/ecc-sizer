@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_path.h"
 
-#include "buffer_inserter.h"
+#include "design_edit.h"
 #include "repair_acceptance.h"
 #include "repair_backend.h"
 #include "repair_path_feedback.h"

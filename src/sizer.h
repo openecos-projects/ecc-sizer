@@ -65,7 +65,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
-#include "buffer_inserter.h"
+#include "design_edit.h"
 #include "repair_fanout.h"
 #include "repair_vg.h"
 #include "repair_gobi.h"

@@ -1,218 +1,134 @@
-<!--
-SPDX-FileCopyrightText: 2024-2026 ICT, CAS
-SPDX-License-Identifier: Apache-2.0
--->
-
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 # ECC Sizer
 
-ECC Sizer is an OpenROAD-integrated fork of TritonSizer that adapts the
-original gate-sizing framework to OpenDB-backed design updates, OpenSTA/dbSta
-timing evaluation, and OpenROAD Resizer-based repair flows.
-
-The current codebase is intended for research and reproducibility work rather
-than as a polished standalone EDA product. It keeps close integration with a
-forked OpenROAD tree through Git submodules.
-
-## Repository Layout
-
-- `src/` - ECC Sizer source code and the `Sizer` executable target.
-- `submit/` - benchmark submission wrapper files and command templates.
-- `test/` - lightweight regression script scaffolding.
-- `etc/` - build, dependency, coverage, and helper scripts.
-- `cmake/` - project-specific CMake find modules.
-- `thirdparty/OpenROAD/` - OpenROAD submodule used by the build.
-
-OpenROAD also contains nested submodules, including OpenSTA and ABC:
-
-- `thirdparty/OpenROAD/src/sta`
-- `thirdparty/OpenROAD/third-party/abc`
-
-## Prerequisites
-
-The project uses CMake and a C++ compiler with C++17 support for the top-level
-project. OpenROAD may require newer C++ settings internally. The local build
-also expects the OpenROAD dependency stack to be available, including Tcl,
-Boost, Eigen, OR-Tools, gperftools profiler, and the libraries required by the
-OpenROAD modules enabled in the submodule.
-
-The existing build has been verified in this checkout with:
-
-- GCC 11.4
-- CMake
-- Tcl 8.6
-- gperftools profiler
-- OpenROAD, OpenSTA, and ABC initialized as submodules
-
-## Clone And Initialize Submodules
-
-Clone the repository and initialize submodules recursively:
-
-```bash
-git clone --recursive <repo-url> ecc-sizer
-cd ecc-sizer
-git submodule update --init --recursive
-```
-
-If the repository was cloned without `--recursive`, run:
-
-```bash
-git submodule sync --recursive
-git submodule update --init --recursive
-```
+ECC Sizer repairs a placed design using OpenDB and OpenSTA. The primary
+baselines are **Native**, **VG** and **Path**. **GOBI** is retained as an
+additional CUDA algorithm. PBBI is outside the new application flow.
 
 ## Build
 
-Configure and build with CMake:
+Initialize the OpenROAD submodule and its nested dependencies:
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target Sizer -j "$(nproc)"
+```sh
+git submodule update --init --recursive
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_PYTHON=OFF
+cmake --build build -j 8
+ctest --test-dir build --output-on-failure -R '^ecc_sizer_'
 ```
 
-The executable is generated at:
+Use CMake 3.24+ and a C++20 compiler, with the dependencies required by the
+vendored OpenROAD (Tcl, Boost, Eigen, OR-Tools, Qt, etc.). GTest and a Python
+interpreter are required when `BUILD_TESTING=ON`. The optional CUDA solvers
+use CUDA C++17:
 
-```text
-build/src/Sizer
+```sh
+cmake -S . -B build -DENABLE_GOBI_CUDA=ON -DENABLE_VG_CUDA=ON
 ```
 
-The helper script `etc/Build.sh` wraps the same CMake workflow and exposes a
-few build options:
+GOBI requires a usable CUDA device; requesting it without one is an error.
+VG defaults to CPU and can use CUDA with `--set vg.backend=cuda`; its existing
+CPU fallback policy remains available. Profiling is optional via
+`ENABLE_PROFILER`, which requires gperftools.
 
-```bash
-./etc/Build.sh -dir=build -threads="$(nproc)"
+## Run
+
+A single OpenROAD input script is sufficient. It loads the libraries, physical
+design and constraints using standard `read_*`/`link_design` commands:
+
+```sh
+build/src/Sizer design.tcl
+build/src/Sizer design.tcl --flow vg
+build/src/Sizer design.tcl --flow path
+build/src/Sizer design.tcl --flow gobi
+build/src/Sizer design.tcl --flow vg,native,path,power --output results/repaired
 ```
 
-## Usage
+Alternatively, pass the input files directly:
 
-The executable expects an environment file and a command file:
-
-```bash
-./build/src/Sizer -env <env_file> -f <cmd_file>
+```sh
+build/src/Sizer --def design.def --lef tech.lef --lef cells.lef \
+  --lib cells.lib --sdc design.sdc
+build/src/Sizer --odb design.odb --lib cells.lib --sdc design.sdc
 ```
 
-The repository includes submission-oriented template files:
+Repeat `--lef` and `--lib` as needed, with the technology LEF first. Input Tcl
+paths are relative to the working directory. Direct DEF/ODB input requires
+Liberty and SDC files; ODB does not contain the Liberty timing models.
 
-- `submit/env_base_file`
-- `submit/cmd_base_file`
+The default `native` flow runs electrical repair followed by native setup
+repair. `path` invokes Path directly, without implicitly running Native first.
+Use `--flow design,path` to measure Path after native electrical repair, or
+`--flow native,path` to run it after both native phases. Stages share the
+current design; inputs are never reloaded between stages.
 
-These files may contain benchmark-specific paths or contest-flow assumptions.
-Before running on a new design, update the Liberty, LEF, Verilog, SDC, DEF,
-SPEF, output, and top-module settings for your local benchmark environment.
+| Stage | Behavior |
+| --- | --- |
+| native | Native electrical repair, then native setup repair |
+| design / setup | Either native phase independently |
+| vg | CPU/CUDA Van Ginneken buffer search |
+| path | STA-verified path buffer search |
+| gobi | GOBI CUDA buffer search |
+| ord | OpenROAD-style driver traversal using Sizer edits/acceptance |
+| power | Native power recovery, including supported resizing/VT moves |
+| fanout | Standalone fanout buffer insertion |
+| legalize | Legalize the current placement and refresh timing |
 
-Equivalent-cell candidates are grouped through OpenROAD/OpenSTA equivalence
-classes. Candidate order can be selected in the command file or environment
-file:
+All new flows require placed-design data with core rows and one STA scene.
+They use placement parasitics. Existing wire RC is retained; if absent,
+physical RC is derived from the lowest usable routing layer in the LEF.
+Use `--rc rc.tcl` when the technology needs an explicit wire model. An SDC
+fanout constraint is never relaxed by the application's default limit.
+Use OpenROAD's `set_dont_use` and `set_dont_touch` in input Tcl for exclusions.
 
-```text
--equiv_cell_sort drive_resistance
--equiv_cell_sort leakage
-```
+Output defaults to `<input-stem>.sized.def`, `.v` and `.odb`; `--output PREFIX`
+sets their location. Input files must not be reused as the output prefix.
 
-The default is `drive_resistance`, which follows the OpenSTA equivalent-cell
-order. The `leakage` mode sorts candidates in each equivalence class by leakage
-power first.
+## Configuration and logging
 
-Parasitic estimation defaults to placement RC for setup repair. Set the
-following command-file option to run global routing and estimate RC from the
-routed topology after detailed placement:
+Ordinary runs need no env/cmd or tuning files. `--threads` defaults to the
+available hardware concurrency. Algorithm budgets, electrical margins,
+acceptance tolerances and experimental policies remain optional through
+`--config FILE` and `--set KEY=VALUE`. Configuration files are loaded first;
+explicit overrides then win regardless of their position on the command line.
+Unknown keys and malformed values fail before design loading.
 
-```text
--use_gr_rc 1
-```
+For example, `--set common.max_fanout=32` overrides the default fanout fallback;
+`--set setup.path_buffer_max_trials=0` removes the optional Path trial budget.
+The C++ API uses seconds; text options ending in `_ns` use nanoseconds.
+VT moves still require explicitly configured library suffixes; cell naming
+conventions are not guessed.
 
-The accepted values are `0` and `1`; the default is `0` for setup repair.
-When global-routing RC is enabled, the in-process congestion iteration budget
-can be selected with `-gr_rc_congestion_iterations 10` or
-`-gr_rc_congestion_iterations 50`; the default is `10`.
+New application diagnostics use spdlog. `--log-level debug|info|warn|error|off`
+controls them and `--log FILE` adds a file sink. OpenROAD/STA diagnostics use
+OpenROAD's logger and its own controls. Tcl failures are checked and stop the
+flow instead of allowing acceptance with stale timing.
 
-The setup flow runs `repair_design`, then `repair_timing -hold`, then
-`repair_timing -setup`. This hold pass uses the loaded setup-corner libraries
-and the configured `-hold_margin` (default `0.02` ns). A later hold-only pass
-with MIN/FF libraries is still needed for fast-corner hold repair.
+## Source organization
 
-Hold-only repair uses propagated clocks and global-routing RC by default. Set
-`-use_gr_rc 0` to select placement RC. The
-`-gr_rc_congestion_iterations` setting is shared with setup repair. Sizer
-legalizes the first hold-repair result, refreshes parasitics, runs one more
-hold-repair pass, and legalizes again before exporting. Parasitics are
-refreshed after the final legalization. Its target margin can be set in the
-command file with `-hold_margin <ns>`; the default is `0.02` ns.
+- `application.cpp`: CLI, stage ordering, shared repair services and output.
+- `design_io.*`: OpenROAD input/output, checked Tcl calls, RC defaults and
+  supply connectivity. There is no additional LEF/Liberty/DEF/SDC parser here.
+- `design_edit.*`: OpenDB buffer insertion and cell-replacement actions. This
+  layer has no Sizer, Resizer, timing, candidate-ranking or acceptance policy.
+- `repair_*.{h,cpp,cu}`: algorithms, derived analysis data, acceptance checks,
+  placement integration and optional CUDA solvers. Native planning produces
+  a `NetRepairPlan` before applying edits inside the caller's ECO transaction.
+- `sizer.cpp`, `ckt.cpp` and related files: retained sizing and other existing
+  flows. They build as `sizer_legacy`; algorithms build as `sizer_algorithms`
+  without a dependency on that library. The application links both.
 
-For hold repair before CTS, combine `-hold_only -ideal_clock -use_gr_rc 0`.
-`-ideal_clock` keeps clocks ideal during initial parasitic estimation and
-subsequent refreshes, so the unbuffered clock network is not propagated.
+OpenDB remains the authoritative topology/placement store, and OpenSTA owns
+constraints/timing. Algorithm graphs and caches are temporary views. Plans
+must be rebuilt after intervening topology changes or rollback.
 
-Post-route timing optimization can be enabled with `-postroute` (optionally
-paired with `-spef <file>`):
+The original sizing, preplace, hold, postroute/SPEF, global-routing RC and
+other non-PBBI functionality has **not** been removed. Those implementations
+remain accessible via `Sizer legacy -env FILE -f FILE`, including the main
+branch's legalization changes. Their old parser/output conventions remain
+isolated there; they are not yet migrated to the new entry point. Existing
+experiment scripts are not a compatibility contract for the new CLI.
 
-```text
--postroute
--spef /path/to/design.spef
-```
-
-When `-postroute` is set without an explicit `-spef`, Sizer looks for
-`<top>.spef` in the working directory or alongside the input DEF file, and
-exits with an error if no SPEF file is found. Untouched and resized/VT-swapped
-nets retain their SPEF parasitic networks (`reduceToPiElmore` is re-evaluated
-with updated pin capacitances), while nets whose topology is modified or newly
-created by buffer insertion, load splitting, or gate cloning automatically fall
-back to incremental parasitic estimation (`placement` by default, or
-`global_routing` when `-use_gr_rc 1` is enabled).
-
-Pre-place repair (`-preplace` and `-preplace_gain`) uses a design-level maximum
-fanout of `32`. If the input SDC sets a positive design-level `max_fanout`,
-the effective limit is `min(32, max_fanout)`.
-
-For single-VT libraries, `leakage` sorting is usually a good starting point
-because the timing spread within an equivalence class is relatively limited and
-lower-leakage candidates can improve the power/timing tradeoff. For multi-VT
-libraries, `drive_resistance` sorting is recommended because candidate ordering
-should preserve timing convergence before favoring lower-leakage, slower cells.
-
-## Submodule Notes
-
-The top-level repository tracks OpenROAD as a submodule. OpenROAD then tracks
-OpenSTA and ABC as nested submodules. For reproducible builds, keep the
-submodule commits committed in the parent repositories rather than relying only
-on local branch checkouts.
-
-Useful status checks:
-
-```bash
-git submodule status --recursive
-git -C thirdparty/OpenROAD status --short --branch
-git -C thirdparty/OpenROAD/src/sta status --short --branch
-git -C thirdparty/OpenROAD/third-party/abc status --short --branch
-```
-
-## Releasing
-
-Releases are published by pushing a version tag. The Release workflow
-verifies the tag, rebuilds the self-contained Linux x64 package, and
-publishes a GitHub Release with the tarball and its SHA256 checksums.
-
-1. Bump the version in `default.nix` and the `SIZER_VERSION` default in
-   `.github/scripts/build-sizer.sh`, then merge the change to `main`.
-2. Tag the release commit and push the tag:
-
-   ```bash
-   git tag -a v0.1.0-alpha -m "Sizer 0.1.0-alpha"
-   git push origin v0.1.0-alpha
-   ```
-
-The tag must match the `version` field in `default.nix` (without the
-leading `v`), otherwise the workflow fails before building. Tags carrying
-a prerelease suffix (for example `-alpha` or `-rc.1`) are published as
-prereleases.
-
-## References
-
-- [TritonSizer](https://github.com/The-OpenROAD-Project/TritonSizer)
-
-## License
-
-The repository-level default license is Apache License 2.0. Some source files
-retain BSD-3-Clause notices from prior academic gate-sizing code, and the
-OpenROAD, OpenSTA, ABC, Boost, Tcl, gperftools, and other third-party
-dependencies are governed by their own licenses. Review the license files in
-the corresponding submodules and dependency packages before redistribution.
+`tests/` contains algorithm, ECO/rollback, legalization and real application
+loading/composition tests. `benchmark/`, `results/` and build directories are
+local data/output. Do not remove them as source cleanup without inspecting
+their contents.

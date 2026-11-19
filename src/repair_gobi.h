@@ -21,12 +21,8 @@ namespace ecc {
 // One-shot OpenDB adapter for the migrated OpenROAD GOBI CUDA kernels.  The
 // graph is collected from the current placement Steiner trees, solved as one
 // CUDA forest, then applied and checked as one ECO.
-struct GobiRepairOptions {
+struct GobiRepairOptions : GobiRepairSettings {
     RepairCommonOptions common;
-    std::string backend = "cuda";
-    unsigned max_buffers = 64;
-    unsigned max_nets = 0;
-    bool require_drv_reduction = true;
 
     void validate() const;
 };

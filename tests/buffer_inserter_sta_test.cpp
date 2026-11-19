@@ -13,7 +13,7 @@
 #include <set>
 #include <sstream>
 
-#include "buffer_inserter.h"
+#include "design_edit.h"
 #include "repair_fanout.h"
 #include "repair_design.h"
 #include "repair_vg.h"
@@ -1064,6 +1064,39 @@ TEST_F(BufferInserterStaTest, RepairFanoutBuildsTreeAndKeepsStaValid)
             << output_path << '\n';
 }
 
+TEST_F(BufferInserterStaTest, NetRepairPlanningDoesNotMutateAndActionsCanBeUndone)
+{
+  readTestDesign("fanout_repair_sta.v");
+  ecc::DesignRepairOptions options;
+  options.max_fanout = 3;
+  ecc::detail::Repair backend(block_, sta_.get(), options);
+  ecc::DesignRepairMetrics metrics;
+  const auto states = backend.analyze(metrics);
+  const auto found = std::find_if(states.begin(), states.end(), [](const auto& state) {
+    return state.net->getName() == "high_fanout";
+  });
+  ASSERT_NE(found, states.end());
+  const auto instances = block_->getInsts().size();
+  const auto nets = block_->getNets().size();
+  const auto plan = backend.planNetRepair(*found, 2, false);
+  ASSERT_FALSE(plan.buffers.empty());
+  EXPECT_LE(plan.buffers.size(), 2u);
+  EXPECT_FALSE(plan.replacement.has_value());
+  EXPECT_EQ(block_->getInsts().size(), instances);
+  EXPECT_EQ(block_->getNets().size(), nets);
+  EXPECT_EQ(ecc::OpenDbFanoutRepairer::loadCount(found->net), 10u);
+  odb::dbDatabase::beginEco(block_);
+  const auto edits = ecc::applyRepairPlan(plan);
+  EXPECT_EQ(edits.inserted_buffers, plan.buffers.size());
+  EXPECT_EQ(block_->getInsts().size(), instances + edits.inserted_buffers);
+  odb::dbDatabase::endEco(block_);
+  odb::dbDatabase::undoEco(block_);
+  EXPECT_EQ(block_->getInsts().size(), instances);
+  EXPECT_EQ(block_->getNets().size(), nets);
+  EXPECT_EQ(ecc::OpenDbFanoutRepairer::loadCount(found->net), 10u);
+  db_network_->checkAxioms();
+}
+
 TEST_F(BufferInserterStaTest, NativeDesignRepairUsesStaAndHonorsBudget)
 {
   readTestDesign("fanout_repair_sta.v");
@@ -1510,11 +1543,11 @@ TEST_F(BufferInserterStaTest, PathBufferOnlyRepairUsesVerifiedPathEdit)
   const auto result = ecc::OpenDbSetupRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
-  EXPECT_GT(result.path_buffer_attempted, 0u);
-  EXPECT_GT(result.path_buffer_accepted, 0u);
-  EXPECT_EQ(result.path_buffer_inserted_buffers, result.path_buffer_accepted);
-  EXPECT_EQ(result.path_buffer_trials.size(), result.path_buffer_attempted);
-  EXPECT_LE(result.refreshes, result.path_buffer_attempted + 1);
+  EXPECT_GT(result.path.attempted_trials, 0u);
+  EXPECT_GT(result.path.accepted_trials, 0u);
+  EXPECT_EQ(result.path.inserted_buffers, result.path.accepted_trials);
+  EXPECT_EQ(result.path.trials.size(), result.path.attempted_trials);
+  EXPECT_LE(result.refreshes, result.path.attempted_trials + 1);
   EXPECT_LE(result.rollback_refreshes, 1u);
   EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
   EXPECT_GT(result.inserted_buffers, 0u);
@@ -2092,11 +2125,11 @@ TEST_F(BufferInserterStaTest, PathBufferOnlyRepairRollsBackStaRegression)
   const auto result =
       ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
-  EXPECT_EQ(result.path_buffer_accepted, 0u);
-  EXPECT_EQ(result.path_buffer_rejected, 1u);
-  ASSERT_EQ(result.path_buffer_trials.size(), 1u);
-  EXPECT_FALSE(result.path_buffer_trials.front().rejection_reasons.empty());
-  EXPECT_LT(result.path_buffer_trials.front().after.setup_wns, wns_before);
+  EXPECT_EQ(result.path.accepted_trials, 0u);
+  EXPECT_EQ(result.path.rejected_trials, 1u);
+  ASSERT_EQ(result.path.trials.size(), 1u);
+  EXPECT_FALSE(result.path.trials.front().rejection_reasons.empty());
+  EXPECT_LT(result.path.trials.front().after.setup_wns, wns_before);
   EXPECT_EQ(result.refreshes, refreshes);
   EXPECT_EQ(result.rollback_refreshes, 1u);
   EXPECT_EQ(block_->getInsts().size(), instances_before);

@@ -11,6 +11,49 @@
 #include "odb/db.h"
 
 namespace ecc {
+namespace {
+bool isExternalPadOnlyNet(odb::dbNet* db_net)
+{
+    if(db_net == nullptr || db_net->getBTerms().empty() ||
+       db_net->getITerms().empty()) {
+        return false;
+    }
+
+    for(auto* iterm : db_net->getITerms()) {
+        if(iterm == nullptr || iterm->getMTerm() == nullptr ||
+           iterm->getMTerm()->getMaster() == nullptr) {
+            return false;
+        }
+        const odb::dbMasterType type
+            = iterm->getMTerm()->getMaster()->getType();
+        if(!(type.isPad() || type.isCover()) ||
+           iterm->getMTerm()->getName() != "PAD") {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+}  // namespace
+
+int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block)
+{
+    if(block == nullptr) {
+        return 0;
+    }
+
+    int marked = 0;
+    for(auto* db_net : block->getNets()) {
+        if(isExternalPadOnlyNet(db_net) && !db_net->isDoNotTouch()) {
+            db_net->setDoNotTouch(true);
+            ++marked;
+        }
+    }
+    return marked;
+}
+
+
 
 int connectMissingWildcardSpecialNetPins(odb::dbBlock* block)
 {

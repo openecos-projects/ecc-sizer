@@ -4,7 +4,7 @@
 #include "repair_buffer_budget.h"
 #include "repair_vg_cuda.h"
 
-#include "buffer_inserter.h"
+#include "design_edit.h"
 #include "repair_backend.h"
 
 #include "BufferedNet.hh"
@@ -579,18 +579,8 @@ std::vector<odb::dbObject*> applyVgNode(const rsz::BufferedNetPtr& node,
 }  // namespace
 
 void VgRepairOptions::validate() const {
-    if(scope != "drv" && scope != "setup")
-        throw std::invalid_argument("vg.scope must be drv or setup");
     common.validate();
-    if(cuda_max_memory_mb == 0)
-        throw std::invalid_argument("vg.cuda_max_memory_mb must be positive");
-    if(backend != "cpu" && backend != "cuda")
-        throw std::invalid_argument("vg.backend must be cpu or cuda");
-    if(max_group_loads != 0 && max_group_loads < 2)
-        throw std::invalid_argument("vg.max_group_loads must be at least 2");
-    if(!std::isfinite(min_gain) || min_gain < 0)
-        throw std::invalid_argument(
-            "vg.min_gain must be finite and nonnegative");
+    VgRepairSettings::validate();
 }
 
 VgRepairResult OpenDbVgRepairer::repair(

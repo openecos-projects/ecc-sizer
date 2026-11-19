@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.24)
 
-# Project information
-project(gsizer LANGUAGES CXX)
-set(CMAKE_CXX_STANDARD 17)
+project(ecc_sizer LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ENABLE_VG_CUDA
        "Build the optional CUDA VG solver for Sizer VG" OFF)
@@ -11,44 +11,18 @@ option(ENABLE_GOBI_CUDA
 
 include(CTest)
 
-# Compiler options
-# set(CMAKE_CXX_COMPILER g++)
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp -static-libgcc -static-libstdc++ -static -lpthread -lm -lgomp -finline-functions -fomit-frame-pointer -fno-operator-names -march=x86-64 -msse4.2 -mfpmath=sse -ffast-math -fexcess-precision=fast -ffinite-math-only")
-
-# set(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3") # -DNDEBUG -DNDEBUG # -DNDEBUG
+set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O3")
-set(CMAKE_VERBOSE_MAKEFILEON ON)
 
-# -fstandalone-debug
-# set(CMAKE_BUILD_TYPE Debug) -O0 -Og -fstandalone-debug
-set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -Wall -Wextra") # -Wl --start-group
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -Wall -Wextra")
 set(CMAKE_C_FLAGS_DEBUG  "${CMAKE_C_FLAGS} -O0 -g -Wall -Wextra")
 add_compile_options("-D_GLIBCXX_USE_CXX11_ABI=1")
 set(OpenROAD_DIR ${CMAKE_SOURCE_DIR}/thirdparty/OpenROAD)
-set(iEDA_DIR ${CMAKE_SOURCE_DIR}/thirdparty/iEDA)
-set(taskflow_DIR ${CMAKE_SOURCE_DIR}/thirdparty/taskflow)
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build)
-# include_directories(${CMAKE_SOURCE_DIR}/src)
-# include_directories(${CMAKE_SOURCE_DIR}/thirdparty/OpenROAD/include)
 
-# add_subdirectory(src)
-# add_subdirectory(thirdparty/iEDA)
-
-# Road 1
-# add_subdirectory(thirdparty/usizer)
-# add_subdirectory(thirdparty/iEDA)
-
-# set(USE_SYSTEM_ABC ON)
 set(ENABLE_TESTS OFF)
 set(BUILD_SYN OFF CACHE BOOL "Disable OpenROAD synthesis support for ECC Sizer" FORCE)
 
-# Road 2
 add_subdirectory(src)
 add_subdirectory(thirdparty/OpenROAD)
-
-# Road 3
-# set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/TritonSizer/module/OpenSTA/install-sp)
-# add_subdirectory(thirdparty/TritonSizer)

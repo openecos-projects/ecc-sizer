@@ -25,16 +25,8 @@ namespace ecc {
 
 // One-shot CPU/CUDA Van Ginneken repair over placement Steiner trees.
 // Both solvers share the same OpenDB apply/rollback path.
-struct VgRepairOptions {
+struct VgRepairOptions : VgRepairSettings {
     RepairCommonOptions common;
-    std::string scope = "drv";
-    std::string backend = "cpu";
-    unsigned cuda_max_memory_mb = 512;
-    unsigned max_buffers = 64;
-    unsigned max_nets = 0;  // zero means all nets eligible in the selected scope.
-    unsigned max_group_loads = 0;  // zero means common.max_fanout.
-    float min_gain = 0;
-    bool require_drv_reduction = true;
 
     void validate() const;
 };
