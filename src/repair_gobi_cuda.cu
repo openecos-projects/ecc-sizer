@@ -1,5 +1,5 @@
 // The kernels in this file are intentionally kept aligned with
-// ISPD26-Contest/OpenROAD/src/rsz/src/GbiCuda.cu.  Only the public namespace
+// ISPD26-Contest/OpenROAD/src/rsz/src/GobiCuda.cu.  Only the public namespace
 // and entry-point name are adapted for Sizer.
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
@@ -38,9 +38,9 @@
 #include <utility>
 #include <vector>
 
-#include "repair_gbi_cuda.h"
+#include "repair_gobi_cuda.h"
 namespace ecc {
-using namespace gbi;
+using namespace gobi;
 
 // =========================================================
 // Debug Configuration
@@ -1745,7 +1745,7 @@ void verify(const Graph& g,
 #endif
 }
 
-namespace gbi {
+namespace gobi {
 
 // ==========================================================
 // Main VG Solve Function
@@ -1806,13 +1806,13 @@ SortedRoots sort_roots_by_level(const std::vector<int>& root,
   return result;
 }
 
-bool gbiCudaAvailable()
+bool gobiCudaAvailable()
 {
   int count = 0;
   return cudaGetDeviceCount(&count) == cudaSuccess && count > 0;
 }
 
-void gbiCudaSolve(const CudaContext& ctx)
+void gobiCudaSolve(const CudaContext& ctx)
 {
   print_gpu_memory("Start of Solve");
   if (ctx.results.empty()) {
@@ -2025,6 +2025,6 @@ void gbiCudaSolve(const CudaContext& ctx)
   // std::cout << "Total count: " << total_count << "\n";
 }
 
-}  // namespace gbi
+}  // namespace gobi
 
 }  // namespace ecc

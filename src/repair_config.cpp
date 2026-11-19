@@ -190,8 +190,8 @@ void VgRepairSettings::validate() const {
     require(max_group_loads == 0 || max_group_loads >= 2,
             "vg.max_group_loads is zero or >= 2");
 }
-void GbiRepairSettings::validate() const {
-    require(backend == "cuda", "gbi.backend: cuda only");
+void GobiRepairSettings::validate() const {
+    require(backend == "cuda", "gobi.backend: cuda only");
 }
 PowerRepairOptions RepairConfig::powerOptions() const {
     PowerRepairOptions result;
@@ -226,7 +226,7 @@ void RepairConfig::validate() const {
     setup.validate();
     power.validate();
     vg.validate();
-    gbi.validate();
+    gobi.validate();
     pbbi.validate();
     require(!(pbbi.enabled && (setup.path_buffer_enabled || setup.path_buffer_only)),
             "pbbi and path_buffer are separate setup algorithms");
@@ -240,7 +240,7 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
     auto& d = next.design;
     auto& s = next.setup;
     auto& p = next.power;
-    auto& g = next.gbi;
+    auto& g = next.gobi;
     auto& t = d.tolerances;
     if(key == "common.max_fanout")
         d.max_fanout = count(value);
@@ -304,13 +304,13 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         next.vg.min_gain = real(value);
     else if(key == "vg.require_drv_reduction")
         next.vg.require_drv_reduction = boolean(value);
-    else if(key == "gbi.backend")
+    else if(key == "gobi.backend")
         g.backend = value;
-    else if(key == "gbi.max_buffers")
+    else if(key == "gobi.max_buffers")
         g.max_buffers = count(value);
-    else if(key == "gbi.max_nets")
+    else if(key == "gobi.max_nets")
         g.max_nets = count(value);
-    else if(key == "gbi.require_drv_reduction")
+    else if(key == "gobi.require_drv_reduction")
         g.require_drv_reduction = boolean(value);
     else if(key == "common.allow_load_downsize")
         d.allow_load_downsize = boolean(value);
@@ -507,7 +507,7 @@ void RepairConfig::read(std::istream& input, const std::string& source) {
                 section = trim(line.substr(1, line.size() - 2));
                 require(section == "common" || section == "design" ||
                             section == "setup" || section == "power" ||
-                            section == "vg" || section == "gbi" || section == "tolerances" ||
+                            section == "vg" || section == "gobi" || section == "tolerances" ||
                             section == "runtime",
                         "unknown section " + section);
                 continue;
@@ -683,11 +683,11 @@ void RepairConfig::write(std::ostream& output) const {
          << "vg.min_gain=" << vg.min_gain << '\n'
          << "vg.require_drv_reduction="
          << (vg.require_drv_reduction ? "true" : "false") << '\n'
-         << "gbi.backend=" << gbi.backend << '\n'
-         << "gbi.max_buffers=" << gbi.max_buffers << '\n'
-         << "gbi.max_nets=" << gbi.max_nets << '\n'
-         << "gbi.require_drv_reduction="
-         << (gbi.require_drv_reduction ? "true" : "false") << '\n';
+         << "gobi.backend=" << gobi.backend << '\n'
+         << "gobi.max_buffers=" << gobi.max_buffers << '\n'
+         << "gobi.max_nets=" << gobi.max_nets << '\n'
+         << "gobi.require_drv_reduction="
+         << (gobi.require_drv_reduction ? "true" : "false") << '\n';
     output << text.str();
 }
 void loadRepairConfigFiles(RepairConfig& config,

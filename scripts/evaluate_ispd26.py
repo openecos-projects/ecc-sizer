@@ -4,7 +4,7 @@
 Run from any directory. Inputs are read-only; each flow starts from the
 original DEF. CPU/CUDA/Path are buffer-only; optional native and native-path
 flows enable Native design repair (including resizing) before Path. The
-profiles below reproduce the archived VG/GBI and explicit-tree Path settings,
+profiles below reproduce the archived VG/GOBI and explicit-tree Path settings,
 using the selected current binaries. Historical timings are not guaranteed.
 No time, trial, refresh, buffer-count or area budget is imposed on Path.
 Jobs run sequentially, so GPU tasks do not compete for memory.
@@ -13,7 +13,7 @@ Examples:
   python3 scripts/evaluate_ispd26.py --dry-run
   python3 scripts/evaluate_ispd26.py --output results/ispd26-repro
   python3 scripts/evaluate_ispd26.py --output results/ispd26-repro --resume
-  python3 scripts/evaluate_ispd26.py --designs aes_cipher_top --algorithms gbi path
+  python3 scripts/evaluate_ispd26.py --designs aes_cipher_top --algorithms gobi path
   python3 scripts/evaluate_ispd26.py --algorithms native native-path --output results/native-path
 
 Each case reuses evaluate_fanout.py for independent OpenROAD PPA evaluation,
@@ -22,7 +22,7 @@ the additional connectivity/fault-injection audit archived with the report.
 Outputs: manifest.json, status.json, report.md, summary.csv, and per-algorithm
 summary.json plus cases/<design>/ logs, effective configuration and netlists.
 Completed runs also print an aligned result table to the terminal.
-Requires the external ISPD26 ASAP7 inputs/checker and a CUDA-enabled Sizer for GBI.
+Requires the external ISPD26 ASAP7 inputs/checker and a CUDA-enabled Sizer for GOBI.
 """
 
 import argparse
@@ -49,9 +49,9 @@ DESIGNS = {
     "jpeg_encoder": "JPEG", "jpeg_encoder_v2": "JPEG v2",
     "ariane": "Ariane", "ariane_v2": "Ariane v2",
 }
-FLAGS = {"vg": "--repair-vg", "gbi": "--repair-gbi", "path": "--path-from-input",
+FLAGS = {"vg": "--repair-vg", "gobi": "--repair-gobi", "path": "--path-from-input",
          "native": "--repair-design", "native-path": "--repair-setup"}
-LABELS = {"vg": "CPU", "gbi": "CUDA", "path": "Path",
+LABELS = {"vg": "CPU", "gobi": "CUDA", "path": "Path",
           "native": "Native design", "native-path": "Native design → Path",
           "path-reference": "Path（同二进制存档）"}
 # Explicit experiment parameters, not new algorithm defaults.
@@ -70,9 +70,9 @@ PROFILES = {
         "vg.max_nets": "0", "vg.max_group_loads": "0", "vg.min_gain": "0",
         "vg.require_drv_reduction": "true",
     },
-    "gbi": {
-        "gbi.backend": "cuda", "gbi.max_buffers": "0", "gbi.max_nets": "0",
-        "gbi.require_drv_reduction": "true",
+    "gobi": {
+        "gobi.backend": "cuda", "gobi.max_buffers": "0", "gobi.max_nets": "0",
+        "gobi.require_drv_reduction": "true",
     },
     "path": {
         "design.max_passes": "0", "setup.path_buffer_enabled": "true",
@@ -100,7 +100,7 @@ METRICS = ("setup_wns_ns", "setup_tns_ns", "hold_wns_ns", "hold_tns_ns",
            "slew_violations", "cap_violations", "fanout_violations", "area_um2",
            "total_power_w", "inserted_sizer_buffers", "unplaced",
            "placement_checked", "supply_pin_errors")
-TABLE_LABELS = {"vg": "CPU", "gbi": "CUDA", "path": "Path",
+TABLE_LABELS = {"vg": "CPU", "gobi": "CUDA", "path": "Path",
                 "native": "Native design", "native-path": "Native design → Path",
                 "path-reference": "Path（存档）"}
 
@@ -151,7 +151,7 @@ def print_result_table(args, grouped):
             metrics = result["metrics"]
             topology_key = "design_topology" if algorithm == "native" else f"{algorithm}_topology"
             topology = result.get(topology_key, {})
-            if algorithm in ("vg", "gbi"):
+            if algorithm in ("vg", "gobi"):
                 solve = topology.get("solve_ms")
                 solve_text = f"{solve / 1000:.3f}" if solve is not None else "—"
             elif algorithm == "native":
@@ -160,7 +160,7 @@ def print_result_table(args, grouped):
             else:
                 solve_text = "—"
             runtime = f"{result['sizer_seconds']:.2f}"
-            if algorithm == "gbi" and "vg" in records and "sizer" in records["vg"]:
+            if algorithm == "gobi" and "vg" in records and "sizer" in records["vg"]:
                 cpu = records["vg"]["sizer"]
                 cpu_solve = cpu.get("vg_topology", {}).get("solve_ms", 0) / 1000
                 cuda_solve = (topology.get("solve_ms") or 0) / 1000
@@ -408,7 +408,7 @@ def validate(case, algorithm, design, threads, overrides=None):
         for key in ("resized_cells", "vt_swaps", "downsized_loads"):
             if final["setup_topology"].get(key) != 0:
                 raise ValueError("Path performed a non-buffer edit: " + key)
-    if algorithm in ("vg", "gbi") and not final[algorithm + "_topology"]:
+    if algorithm in ("vg", "gobi") and not final[algorithm + "_topology"]:
         raise ValueError("Missing algorithm completion counters")
     return rows
 
@@ -577,7 +577,7 @@ def main():
     parser.add_argument("--dont-use-list", type=Path, default=ROOT / "tests/data/asap7_buffer_r_only.dont_use")
     parser.add_argument("--output", type=Path, default=ROOT / "results/ispd26-work-summary-repro")
     parser.add_argument("--designs", nargs="+", choices=DESIGNS, default=list(DESIGNS))
-    parser.add_argument("--algorithms", nargs="+", choices=FLAGS, default=["vg", "gbi", "path"])
+    parser.add_argument("--algorithms", nargs="+", choices=FLAGS, default=["vg", "gobi", "path"])
     parser.add_argument("--path-reference", type=Path,
                         help="reuse archived Path cases; requires its exact Sizer binary and matching inputs/config")
     parser.add_argument("--threads", type=int, default=32, help="STA threads (report: 32)")

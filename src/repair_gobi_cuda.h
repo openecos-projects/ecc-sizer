@@ -1,6 +1,6 @@
 #pragma once
 
-// This interface is the standalone Sizer port of OpenROAD rsz's GbiCuda
+// This interface is the standalone Sizer port of OpenROAD rsz's GobiCuda
 // backend.  Host graph construction and OpenDB application stay outside the
 // CUDA module so the kernel pipeline can be tested independently.
 
@@ -12,7 +12,7 @@
 #include <vector>
 
 namespace ecc {
-namespace gbi {
+namespace gobi {
 
 // Whether to use predictive pruning
 constexpr bool USING_PREDICTIVE_PRUNING = false;
@@ -120,8 +120,8 @@ struct CudaContext
   std::shared_ptr<HostGraph> h_graph;
 };
 
-bool gbiCudaAvailable();
-void gbiCudaSolve(const CudaContext& context);
+bool gobiCudaAvailable();
+void gobiCudaSolve(const CudaContext& context);
 
-}  // namespace gbi
+}  // namespace gobi
 }  // namespace ecc

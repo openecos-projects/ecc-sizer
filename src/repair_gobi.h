@@ -18,10 +18,10 @@ class Resizer;
 
 namespace ecc {
 
-// One-shot OpenDB adapter for the migrated OpenROAD GBI CUDA kernels.  The
+// One-shot OpenDB adapter for the migrated OpenROAD GOBI CUDA kernels.  The
 // graph is collected from the current placement Steiner trees, solved as one
 // CUDA forest, then applied and checked as one ECO.
-struct GbiRepairOptions {
+struct GobiRepairOptions {
     RepairCommonOptions common;
     std::string backend = "cuda";
     unsigned max_buffers = 64;
@@ -31,7 +31,7 @@ struct GbiRepairOptions {
     void validate() const;
 };
 
-struct GbiRepairMetrics {
+struct GobiRepairMetrics {
     double severity = 0;
     float setup_wns = 0;
     float setup_tns = 0;
@@ -43,7 +43,7 @@ struct GbiRepairMetrics {
     unsigned total_fanout_violations = 0;
 };
 
-struct GbiRepairResult {
+struct GobiRepairResult {
     bool ok = false;
     bool committed = false;
     bool converged = false;
@@ -57,17 +57,17 @@ struct GbiRepairResult {
     double collect_ms = 0;
     double solve_ms = 0;
     double apply_ms = 0;
-    GbiRepairMetrics before;
-    GbiRepairMetrics after;
+    GobiRepairMetrics before;
+    GobiRepairMetrics after;
 };
 
 
-class OpenDbGbiRepairer {
+class OpenDbGobiRepairer {
    public:
-    static GbiRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
+    static GobiRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
                                   const std::function<void()>& refresh,
                                   rsz::Resizer* resizer,
-                                  const GbiRepairOptions& options = {});
+                                  const GobiRepairOptions& options = {});
 };
 
 }  // namespace ecc

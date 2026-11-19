@@ -2122,7 +2122,7 @@ void Circuit::init_opensta() {
     _sta = ord::OpenRoad::openRoad()->getSta();
     _ord_design->evalTclString("set_thread_count " + std::to_string(
         (_sizer->sizerDesignRepairMode || _sizer->sizerOrdDesignRepairMode ||
-         _sizer->sizerVgRepairMode || _sizer->sizerGbiRepairMode)
+         _sizer->sizerVgRepairMode || _sizer->sizerGobiRepairMode)
             ? _sizer->nativeRepairConfig.sta_threads : 32));
     if(_sizer->preplaceMode) {
         _ord_design->evalTclString("unset_propagated_clock [all_clocks]");
@@ -2270,7 +2270,7 @@ void Circuit::init_opensta() {
         const bool repair_mode = _sizer->sizerDesignRepairMode ||
                                  _sizer->sizerOrdDesignRepairMode ||
                                  _sizer->sizerVgRepairMode ||
-                                 _sizer->sizerGbiRepairMode;
+                                 _sizer->sizerGobiRepairMode;
         if(!repair_mode || _sizer->setRCFile.empty()) {
             _ord_design->evalTclString("set_wire_rc -signal -layer " +
                                        _sizer->min_route_layer);

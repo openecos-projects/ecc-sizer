@@ -163,8 +163,8 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.set("vg.max_group_loads", "4");
   config.set("vg.min_gain", "0.25");
   config.set("vg.require_drv_reduction", "false");
-  config.set("gbi.max_buffers", "9");
-  config.set("gbi.max_nets", "3");
+  config.set("gobi.max_buffers", "9");
+  config.set("gobi.max_nets", "3");
   auto power = config.powerOptions();
   EXPECT_TRUE(power.enabled);
   EXPECT_EQ(power.objective, "total");
@@ -204,8 +204,8 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_EQ(config.vg.max_group_loads, 4u);
   EXPECT_FLOAT_EQ(config.vg.min_gain, 0.25f);
   EXPECT_FALSE(config.vg.require_drv_reduction);
-  EXPECT_EQ(config.gbi.max_buffers, 9u);
-  EXPECT_EQ(config.gbi.max_nets, 3u);
+  EXPECT_EQ(config.gobi.max_buffers, 9u);
+  EXPECT_EQ(config.gobi.max_nets, 3u);
   setup.common.prepare();
   EXPECT_EQ(prepares, 1);
 }

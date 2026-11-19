@@ -249,7 +249,7 @@ def run_one(args, version: str, inputs: Path, name: str, spec: dict, output: Pat
     command_file = repair / "sizer.cmd"
     flag = {"native": "-sizer_repair_setup",
             "vg": "-sizer_repair_vg",
-            "gbi": "-sizer_repair_gbi"}[args.mode]
+            "gobi": "-sizer_repair_gobi"}[args.mode]
     command_text = (
         f"-top {top}\n-def {source_stage / 'design.def'}\n"
         f"-sdc {source_stage / 'constraints.sdc'}\n-noSPEF\n-thread 1\n"
@@ -286,10 +286,10 @@ def main() -> None:
     parser.add_argument("--sizer", default=str(ROOT / "build-gbi-cuda3/src/Sizer"))
     parser.add_argument("--openroad", default=str(ROOT / "build/bin/openroad"))
     parser.add_argument("--stage", default="post_pl", choices=["post_pl"])
-    parser.add_argument("--mode", choices=["baseline", "native", "vg", "gbi"], default="native")
+    parser.add_argument("--mode", choices=["baseline", "native", "vg", "gobi"], default="native")
     parser.add_argument("--max-fanout", type=int, default=32)
     parser.add_argument("--buffer-candidates", type=int, default=32,
-                        help="maximum VG/GBI buffer masters; ics55 defaults to 32")
+                        help="maximum VG/GOBI buffer masters; ics55 defaults to 32")
     parser.add_argument("--sta-threads", type=int, default=4)
     parser.add_argument("--designs", nargs="*", help="design names; default is the common input set")
     parser.add_argument("--copy-input", action="store_true", help="copy source input snapshots locally before running")
@@ -310,7 +310,7 @@ def main() -> None:
         raise SystemExit("no common local post_pl designs; use --copy-input first")
     args.buffer_filter = ""
     buffer_selection = None
-    if args.mode in {"vg", "gbi"}:
+    if args.mode in {"vg", "gobi"}:
         first_name = sorted(names)[0]
         first_metadata = inputs["ecc_pr329_1011"] / "workspaces" / first_name / "artifacts" / "ecc" / "post_rt" / "stage_metadata.json"
         cfg = metadata_config(first_metadata)

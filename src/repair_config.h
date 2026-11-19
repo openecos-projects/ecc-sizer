@@ -183,8 +183,8 @@ struct VgRepairSettings {
     bool require_drv_reduction = true;
     void validate() const;
 };
-struct GbiRepairSettings {
-    // The migrated GBI implementation is GPU-only.  Keeping the backend in
+struct GobiRepairSettings {
+    // The migrated GOBI implementation is GPU-only.  Keeping the backend in
     // the configuration makes the execution policy explicit and avoids a
     // silent fallback to the different CPU VG implementation.
     std::string backend = "cuda";
@@ -252,7 +252,7 @@ struct RepairConfig {
     SetupRepairSettings setup;
     PowerRepairSettings power;
     VgRepairSettings vg;
-    GbiRepairSettings gbi;
+    GobiRepairSettings gobi;
     PbbiRepairSettings pbbi;
     unsigned sta_threads = 32;
 

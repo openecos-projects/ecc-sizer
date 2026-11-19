@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_gbi.h"
+#include "repair_gobi.h"
 #include "repair_buffer_budget.h"
 
 #include "BufferedNet.hh"
@@ -8,7 +8,7 @@
 #include "db_sta/dbSta.hh"
 #include "est/EstimateParasitics.h"
 #include "repair_backend.h"
-#include "repair_gbi_cuda.h"
+#include "repair_gobi_cuda.h"
 #include "rsz/Resizer.hh"
 
 #include <algorithm>
@@ -28,7 +28,7 @@ namespace {
 using detail::NetState;
 using Clock = std::chrono::steady_clock;
 
-GbiRepairMetrics metrics(const DesignRepairMetrics& m)
+GobiRepairMetrics metrics(const DesignRepairMetrics& m)
 {
     return {m.severity,
             m.setup_wns,
@@ -41,9 +41,9 @@ GbiRepairMetrics metrics(const DesignRepairMetrics& m)
             m.total_fanout_violations};
 }
 
-bool better(const GbiRepairMetrics& before,
-            const GbiRepairMetrics& after,
-            const GbiRepairOptions& options)
+bool better(const GobiRepairMetrics& before,
+            const GobiRepairMetrics& after,
+            const GobiRepairOptions& options)
 {
     const auto& t = options.common.tolerances;
     if(after.setup_wns + t.wns_absolute < before.setup_wns ||
@@ -64,12 +64,12 @@ bool better(const GbiRepairMetrics& before,
 }
 
 struct RawNode {
-    gbi::HostNode host;
+    gobi::HostNode host;
     const rsz::BufferedNet* source = nullptr;
 };
 
 struct Forest {
-    std::shared_ptr<gbi::HostGraph> graph = std::make_shared<gbi::HostGraph>();
+    std::shared_ptr<gobi::HostGraph> graph = std::make_shared<gobi::HostGraph>();
     std::vector<const rsz::BufferedNet*> source;
     std::vector<odb::dbNet*> nets;
     std::vector<rsz::BufferedNetPtr> trees;
@@ -87,7 +87,7 @@ int appendNode(const rsz::BufferedNetPtr& node,
                int& next_id)
 {
     if(!node)
-        throw std::runtime_error("GBI encountered a null Steiner node");
+        throw std::runtime_error("GOBI encountered a null Steiner node");
     RawNode entry;
     entry.source = node.get();
     entry.host.old_id = next_id++;
@@ -105,7 +105,7 @@ int appendNode(const rsz::BufferedNetPtr& node,
                                                 sta::RiseFallBoth::riseFall(),
                                                 sta->scenes(),
                                                 sta::MinMax::max()) *
-                                          gbi::scale
+                                          gobi::scale
                                     : 0.0;
         if(!std::isfinite(entry.host.rat_or_res))
             entry.host.rat_or_res = 0.0;
@@ -135,7 +135,7 @@ int appendNode(const rsz::BufferedNetPtr& node,
     }
     case rsz::BufferedNetType::via:
     case rsz::BufferedNetType::buffer:
-        throw std::runtime_error("GBI input tree contains an unsupported node");
+        throw std::runtime_error("GOBI input tree contains an unsupported node");
     }
     const int index = static_cast<int>(raw.size());
     raw.push_back(entry);
@@ -204,7 +204,7 @@ void finalizeForest(std::vector<RawNode>& raw,
 
 std::vector<odb::dbObject*> applyNode(
     int id,
-    const gbi::HostGraph& graph,
+    const gobi::HostGraph& graph,
     const std::vector<const rsz::BufferedNet*>& source,
     const std::unordered_map<int, int>& selected,
     odb::dbNet* net,
@@ -233,13 +233,13 @@ std::vector<odb::dbObject*> applyNode(
     if(found == selected.end())
         return loads;
     if(found->second < 0 || found->second >= static_cast<int>(cells.size()))
-        throw std::runtime_error("GBI returned an invalid buffer index");
+        throw std::runtime_error("GOBI returned an invalid buffer index");
     if(loads.empty())
-        throw std::runtime_error("GBI selected a buffer without loads");
+        throw std::runtime_error("GOBI selected a buffer without loads");
     BufferInsertionOptions insertion;
     insertion.location = {node->location().x(), node->location().y()};
-    insertion.buffer_name_prefix = "sizer_gbi_buf";
-    insertion.net_name_prefix = "sizer_gbi_net";
+    insertion.buffer_name_prefix = "sizer_gobi_buf";
+    insertion.net_name_prefix = "sizer_gobi_net";
     auto edit = OpenDbBufferInserter::insertBufferBeforeLoads(
         net, loads, network->staToDb(cells[found->second]), insertion);
     if(!edit)
@@ -249,21 +249,21 @@ std::vector<odb::dbObject*> applyNode(
 
 }  // namespace
 
-void GbiRepairOptions::validate() const
+void GobiRepairOptions::validate() const
 {
     common.validate();
     if(backend != "cuda")
-        throw std::invalid_argument("gbi.backend must be cuda");
+        throw std::invalid_argument("gobi.backend must be cuda");
 }
 
-GbiRepairResult OpenDbGbiRepairer::repair(
+GobiRepairResult OpenDbGobiRepairer::repair(
     odb::dbBlock* block,
     sta::dbSta* sta,
     const std::function<void()>& refresh,
     rsz::Resizer* resizer,
-    const GbiRepairOptions& options)
+    const GobiRepairOptions& options)
 {
-    GbiRepairResult result;
+    GobiRepairResult result;
     try {
         options.validate();
     } catch(const std::exception& e) {
@@ -271,11 +271,11 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         return result;
     }
     if(!block || !sta || !resizer || !refresh) {
-        result.message = "GBI repair requires block, STA, resizer, and refresh";
+        result.message = "GOBI repair requires block, STA, resizer, and refresh";
         return result;
     }
     if(sta->getDbNetwork()->block() != block) {
-        result.message = "GBI STA network does not reference the target block";
+        result.message = "GOBI STA network does not reference the target block";
         return result;
     }
     detail::Repair backend(block, sta, options.common);
@@ -314,7 +314,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
     if(roots.empty()) {
         result.ok = true;
         result.after = result.before;
-        result.message = "GBI found no applicable violating net";
+        result.message = "GOBI found no applicable violating net";
         return result;
     }
     finalizeForest(raw, roots, forest);
@@ -330,7 +330,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
     }
     // The unchanged CUDA kernels have 32 constant-memory buffer slots.
     if(forest.cells.empty() || forest.cells.size() > 32) {
-        result.message = "GBI requires between 1 and 32 buffer types, got " +
+        result.message = "GOBI requires between 1 and 32 buffer types, got " +
                          std::to_string(forest.cells.size()) +
                          "; restrict the library with excluded_masters / -dont_use_list";
         return result;
@@ -342,24 +342,24 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         const double bc = resizer->portCapacitance(bi, scene);
         return ac != bc ? ac < bc : std::string(a->name()) < b->name();
     });
-    auto buffers = std::make_shared<std::vector<gbi::Buffer>>();
+    auto buffers = std::make_shared<std::vector<gobi::Buffer>>();
     for(auto* cell : forest.cells) {
         sta::LibertyPort *input = nullptr, *output = nullptr;
         cell->bufferPorts(input, output);
         buffers->push_back({output->driveResistance(),
                             resizer->portCapacitance(input, scene),
-                            static_cast<double>(output->intrinsicDelay(sta)) * gbi::scale});
+                            static_cast<double>(output->intrinsicDelay(sta)) * gobi::scale});
     }
-    gbi::CudaContext context;
+    gobi::CudaContext context;
     context.buffer_library = buffers;
     context.h_graph = forest.graph;
     context.h_driver_res = forest.driver_res;
     for(size_t i = 0; i < forest.nets.size(); ++i)
-        context.results.push_back(std::make_shared<gbi::Result>());
+        context.results.push_back(std::make_shared<gobi::Result>());
     try {
-        if(!gbi::gbiCudaAvailable())
-            throw std::runtime_error("GBI CUDA device is unavailable");
-        gbi::gbiCudaSolve(context);
+        if(!gobi::gobiCudaAvailable())
+            throw std::runtime_error("GOBI CUDA device is unavailable");
+        gobi::gobiCudaSolve(context);
     } catch(const std::exception& e) {
         result.message = e.what();
         return result;
@@ -377,7 +377,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
                selected.buffer_type < 0 ||
                selected.buffer_type >= static_cast<int>(forest.cells.size()) ||
                !selections[i].emplace(selected.node_id, selected.buffer_type).second)
-                throw std::runtime_error("GBI returned an invalid or duplicate buffer selection");
+                throw std::runtime_error("GOBI returned an invalid or duplicate buffer selection");
         }
         ++result.plans_collected;
         result.attempted_buffers += selections[i].size();
@@ -386,7 +386,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
     if(result.attempted_buffers == 0) {
         result.ok = true;
         result.after = result.before;
-        result.message = "GBI produced no buffer insertion";
+        result.message = "GOBI produced no buffer insertion";
         return result;
     }
     odb::dbDatabase::beginEco(block);
@@ -412,7 +412,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
             ++result.refreshes;
             result.after = result.before;
             result.ok = true;
-            result.message = "GBI plan rejected by timing/DRV acceptance";
+            result.message = "GOBI plan rejected by timing/DRV acceptance";
             return result;
         }
         odb::dbDatabase::commitEco(block);
@@ -421,7 +421,7 @@ GbiRepairResult OpenDbGbiRepairer::repair(
         result.committed = true;
         result.inserted_buffers = result.attempted_buffers;
         result.converged = result.after.severity <= options.common.tolerances.drv_severity;
-        result.message = "GBI CUDA plan applied";
+        result.message = "GOBI CUDA plan applied";
         return result;
     } catch(const std::exception& e) {
         if(active) {

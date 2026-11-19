@@ -50,8 +50,8 @@ def main():
                         help="ablation: run buffer-only path repair with zero design repair passes")
     parser.add_argument("--repair-vg", action="store_true",
                         help="run VG; combine with --repair-setup for VG -> design -> setup")
-    parser.add_argument("--repair-gbi", action="store_true",
-                        help="run migrated GPU GBI buffer insertion")
+    parser.add_argument("--repair-gobi", action="store_true",
+                        help="run migrated GPU GOBI buffer insertion")
     parser.add_argument("--stage-metrics", action="store_true",
                         help="save and independently evaluate each native repair stage")
     parser.add_argument("--stage-snapshots", action="store_true",
@@ -75,7 +75,7 @@ def main():
         args.repair_setup = True
         args.repair_set.append("pbbi.enabled=true")
     if args.path_from_input:
-        if args.repair_design or args.repair_ord_design or args.repair_vg or args.repair_gbi:
+        if args.repair_design or args.repair_ord_design or args.repair_vg or args.repair_gobi:
             parser.error("--path-from-input cannot be combined with another repair stage")
         args.repair_setup = True
         # Deliberately appended after user overrides so this mode always means
@@ -83,9 +83,9 @@ def main():
         args.repair_set += ["design.max_passes=0",
                             "setup.path_buffer_enabled=true",
                             "setup.path_buffer_only=true", "power.enabled=false"]
-    if args.repair_gbi and (args.repair_vg or args.repair_design or
+    if args.repair_gobi and (args.repair_vg or args.repair_design or
                             args.repair_ord_design or args.repair_setup):
-        parser.error("--repair-gbi is standalone; do not combine it with VG/design/setup")
+        parser.error("--repair-gobi is standalone; do not combine it with VG/design/setup")
     if args.repair_ord_design and (args.repair_vg or args.repair_design or
                                    args.repair_setup):
         parser.error("--repair-ord-design is standalone; do not combine it with VG/design/setup")
@@ -107,9 +107,9 @@ def main():
                    DESIGN_PATH=str(design), MAX_FANOUT=str(args.max_fanout),
                    EQUIV_DIR=str(args.equiv_dir.resolve()),
                    CHECK_PLACEMENT=str(int(args.legalize or args.repair_design or
-                                           args.repair_ord_design or args.repair_vg or args.repair_gbi)),
+                                           args.repair_ord_design or args.repair_vg or args.repair_gobi)),
                    NATIVE_REPAIR=str(int(args.repair_design or args.repair_ord_design or
-                                         args.repair_vg or args.repair_gbi)))
+                                         args.repair_vg or args.repair_gobi)))
         libdir = platform / "ASAP7" / "lib"
         libs = sorted(libdir.glob("asap7sc7p5t_*_TT_*.lib"))
         design_lib_setup = design / "lib_setup.tcl"
@@ -146,7 +146,7 @@ def main():
             runtime = None
             topology = {}
             vg_topology = {}
-            gbi_topology = {}
+            gobi_topology = {}
             design_topology = {}
             setup_topology = {}
             stage_metrics = {}
@@ -162,8 +162,8 @@ def main():
                     buffer_option += f"-dont_use_list {args.dont_use_list.resolve()}\n"
                 if args.no_gate_resize:
                     buffer_option += "-sizer_repair_no_gate_resize\n"
-                if args.repair_gbi:
-                    repair_flag = "-sizer_repair_gbi"
+                if args.repair_gobi:
+                    repair_flag = "-sizer_repair_gobi"
                 elif args.repair_ord_design:
                     repair_flag = "-sizer_repair_design_ord"
                 elif args.repair_vg:
@@ -204,8 +204,8 @@ def main():
                     configured_fanout = re.search(r"^common.max_fanout=(\d+)$", effective.group(1), re.M)
                     if int(configured_fanout.group(1)) != args.max_fanout:
                         raise RuntimeError("repair config fanout differs from --max-fanout evaluation constraint")
-                if args.repair_gbi:
-                    pattern = r"Sizer GBI repair: (.*)"
+                if args.repair_gobi:
+                    pattern = r"Sizer GOBI repair: (.*)"
                 elif args.repair_ord_design:
                     pattern = r"Sizer OpenROAD-style design repair: (.*)"
                 elif args.repair_vg:
@@ -218,7 +218,7 @@ def main():
                 topology = {k: float(v) for k, v in
                             re.findall(r"(\w+)=([0-9.eE+-]+)", match.group(1))}
                 for enabled, label, target in [
-                        (args.repair_gbi, "GBI", gbi_topology),
+                        (args.repair_gobi, "GOBI", gobi_topology),
                         (args.repair_vg, "VG", vg_topology),
                         (args.repair_design, "design", design_topology)]:
                     if enabled:
@@ -310,8 +310,8 @@ def main():
                 metrics[key] = float(value)
             if mode == "sizer" and args.stage_metrics:
                 stages = ["input"]
-                if args.repair_gbi:
-                    stages.append("gbi")
+                if args.repair_gobi:
+                    stages.append("gobi")
                 if args.repair_vg:
                     stages.append("vg")
                 if args.repair_design or args.repair_ord_design:
@@ -345,17 +345,17 @@ def main():
                                         "after_native_design" if args.repair_setup else None),
                        repair_ord_design=args.repair_ord_design,
                        repair_vg=args.repair_vg,
-                       repair_gbi=args.repair_gbi,
+                       repair_gobi=args.repair_gobi,
                        repair_overrides=args.repair_set,
-                       gate_resize=(not args.path_from_input and (not args.repair_vg and not args.repair_gbi or args.repair_design or args.repair_ord_design) and effective_config.get("common.allow_gate_resize",
+                       gate_resize=(not args.path_from_input and (not args.repair_vg and not args.repair_gobi or args.repair_design or args.repair_ord_design) and effective_config.get("common.allow_gate_resize",
                                     str(not args.no_gate_resize).lower()) == "true"),
                        effective_repair_config=effective_config,
-                       placement_checked=args.legalize or args.repair_design or args.repair_ord_design or args.repair_vg or args.repair_gbi,
+                       placement_checked=args.legalize or args.repair_design or args.repair_ord_design or args.repair_vg or args.repair_gobi,
                        evaluation_seconds=elapsed, sizer_seconds=runtime,
                        topology=topology, setup_topology=setup_topology,
                        path_trials=path_trials,
                        path_fanout_checks=path_fanout_checks,
-                       vg_topology=vg_topology, gbi_topology=gbi_topology, design_topology=design_topology,
+                       vg_topology=vg_topology, gobi_topology=gobi_topology, design_topology=design_topology,
                        stage_metrics=stage_metrics,
                        repair_setup=args.repair_setup, repair_pbbi=args.repair_pbbi, metrics=metrics)
             if mode != "baseline":

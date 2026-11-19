@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repeat equal whole-net-buffer-budget VG CPU/CUDA and GBI CUDA experiments.
+"""Repeat equal whole-net-buffer-budget VG CPU/CUDA and GOBI CUDA experiments.
 
 Each run reloads the original placed design. No design/setup/power repair is run.
 Raw logs, fingerprints, binaries, commands, output hashes and timing ranges are
@@ -70,8 +70,8 @@ def main():
                         help='same explicit master exclusion list for all algorithms')
     parser.add_argument('--designs', nargs='+', default=['aes_cipher_top', 'jpeg_encoder'])
     parser.add_argument('--budgets', nargs='+', type=int, default=[64, 0])
-    parser.add_argument('--algorithms', nargs='+', choices=['vg-cpu', 'vg-cuda', 'gbi-cuda'],
-                        default=['vg-cpu', 'vg-cuda', 'gbi-cuda'])
+    parser.add_argument('--algorithms', nargs='+', choices=['vg-cpu', 'vg-cuda', 'gobi-cuda'],
+                        default=['vg-cpu', 'vg-cuda', 'gobi-cuda'])
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--gpu', default='0',
                         help="CUDA_VISIBLE_DEVICES value, or 'all' to inherit all devices")
@@ -161,15 +161,15 @@ def main():
                        '--benchmark', str(args.benchmark.resolve()), '--equiv-dir', str(args.equiv_dir.resolve()),
                        '--sizer', str(args.sizer.resolve()), '--openroad', str(args.openroad.resolve()),
                        '--output', str(dest), '--designs', *args.designs,
-                       '--repair-gbi' if algorithm == 'gbi-cuda' else '--repair-vg']
+                       '--repair-gobi' if algorithm == 'gobi-cuda' else '--repair-vg']
             if args.dont_use_list:
                 command += ['--dont-use-list', str(args.dont_use_list.resolve())]
             settings = {'power.enabled': 'false', 'runtime.sta_threads': args.sta_threads,
-                        'vg.max_buffers': budget, 'gbi.max_buffers': budget,
+                        'vg.max_buffers': budget, 'gobi.max_buffers': budget,
                         'vg.backend': 'cpu' if algorithm == 'vg-cpu' else 'cuda',
                         'vg.cuda_max_memory_mb': args.vg_memory_mb,
-                        'vg.max_nets': 0, 'gbi.max_nets': 0,
-                        'vg.require_drv_reduction': 'true', 'gbi.require_drv_reduction': 'true'}
+                        'vg.max_nets': 0, 'gobi.max_nets': 0,
+                        'vg.require_drv_reduction': 'true', 'gobi.require_drv_reduction': 'true'}
             for key, value in settings.items():
                 command += ['--repair-set', f'{key}={value}']
             manifest['commands'].append(dict(repeat=repeat + 1, algorithm=algorithm, budget=budget,
@@ -201,7 +201,7 @@ def main():
                     raise RuntimeError(f'{dest}/{name}: insertion count mismatch')
                 with (dest / name / 'sizer/node.csv').open() as stream:
                     inserted_masters = Counter(node['Master'] for node in csv.DictReader(stream)
-                                               if node['Name'].startswith(('sizer_vg_buf', 'sizer_gbi_buf')))
+                                               if node['Name'].startswith(('sizer_vg_buf', 'sizer_gobi_buf')))
                 if sum(inserted_masters.values()) != topo['inserted_buffers']:
                     raise RuntimeError(f'{dest}/{name}: exported instances differ from insertion count')
                 if set(inserted_masters) & set(row['excluded_masters']):
