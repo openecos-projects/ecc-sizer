@@ -107,7 +107,9 @@ struct SetupRepairSettings {
     // Plan whole-net trees with cap/fanout limits before candidate screening.
     bool path_buffer_tree_candidates = true;
     // Relative gain is measured on fixed affected sampled endpoints for each
-    // ECO. "global" keeps initial full-design scaling for controlled ablation.
+    // ECO. "global" uses initial full-design scaling; "current_global"
+    // uses the committed remaining full-design violation, recomputed after
+    // each acceptance. Neither changes global hold/DRV/non-regression guards.
     std::string path_buffer_gain_scope = "endpoints";
     // Relative to the selected gain scope.
     // Zero preserves the existing absolute improvement requirement.

@@ -21,6 +21,7 @@ placement/supply checks and the contest structural check. This does not replace
 the additional connectivity/fault-injection audit archived with the report.
 Outputs: manifest.json, status.json, report.md, summary.csv, and per-algorithm
 summary.json plus cases/<design>/ logs, effective configuration and netlists.
+Completed runs also print an aligned result table to the terminal.
 Requires the external ISPD26 ASAP7 inputs/checker and a CUDA-enabled Sizer for GBI.
 """
 
@@ -39,6 +40,7 @@ import signal
 import subprocess
 import sys
 import time
+import unicodedata
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +100,118 @@ METRICS = ("setup_wns_ns", "setup_tns_ns", "hold_wns_ns", "hold_tns_ns",
            "slew_violations", "cap_violations", "fanout_violations", "area_um2",
            "total_power_w", "inserted_sizer_buffers", "unplaced",
            "placement_checked", "supply_pin_errors")
+TABLE_LABELS = {"vg": "CPU", "gbi": "CUDA", "path": "Path",
+                "native": "Native design", "native-path": "Native design → Path",
+                "path-reference": "Path（存档）"}
+
+
+def display_width(value):
+    return sum(0 if unicodedata.combining(char) else
+               2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+               for char in value)
+
+
+def print_result_table(args, grouped):
+    print("\nISPD26 评测结果")
+    print("S/C/F = Slew/Cap/Fanout；功耗单位为 mW；完整流程耗时为 Sizer 进程时间。")
+    print("CPU/CUDA 为不同算法，CUDA 括号内的耗时比是 CPU/CUDA，不代表同算法硬件加速。")
+    header = ["设计", "状态", "WNS (ns)", "TNS (ns)", "电气违例 S/C/F",
+              "面积 (µm²)", "功耗 (mW)", "新增 buffer", "求解耗时 (s)", "完整流程 (s)"]
+    groups = []
+
+    def metric_values(metrics):
+        drv = "/".join(str(int(metrics[key + "_violations"]))
+                       for key in ("slew", "cap", "fanout"))
+        return [f"{metrics['setup_wns_ns']:.4f}", f"{metrics['setup_tns_ns']:.2f}", drv,
+                f"{metrics['area_um2']:.2f}", f"{metrics['total_power_w'] * 1000:.3f}"]
+
+    def improvement(before, after, key, digits=2):
+        if before[key] == 0:
+            return "—"
+        percent = 100 * (abs(before[key]) - abs(after[key])) / abs(before[key])
+        if abs(percent) < 0.5 * 10 ** -digits:
+            percent = 0
+        return f"{percent:.{digits}f}%"
+
+    for design in args.designs:
+        records = {algorithm: {row["mode"]: row for row in rows if row["design"] == design}
+                   for algorithm, rows in grouped.items()}
+        baseline = next((value["baseline"] for value in records.values() if "baseline" in value), None)
+        if baseline is None:
+            continue
+        before = baseline["metrics"]
+        group = [[DESIGNS[design], "初始"] + metric_values(before) + ["0", "—", "—"]]
+        algorithms = list(args.algorithms)
+        if args.path_reference:
+            algorithms.append("path-reference")
+        for algorithm in algorithms:
+            result = records.get(algorithm, {}).get("sizer")
+            if result is None:
+                continue
+            metrics = result["metrics"]
+            topology_key = "design_topology" if algorithm == "native" else f"{algorithm}_topology"
+            topology = result.get(topology_key, {})
+            if algorithm in ("vg", "gbi"):
+                solve = topology.get("solve_ms")
+                solve_text = f"{solve / 1000:.3f}" if solve is not None else "—"
+            elif algorithm == "native":
+                elapsed = topology.get("elapsed_ms")
+                solve_text = f"{elapsed / 1000:.3f}" if elapsed is not None else "—"
+            else:
+                solve_text = "—"
+            runtime = f"{result['sizer_seconds']:.2f}"
+            if algorithm == "gbi" and "vg" in records and "sizer" in records["vg"]:
+                cpu = records["vg"]["sizer"]
+                cpu_solve = cpu.get("vg_topology", {}).get("solve_ms", 0) / 1000
+                cuda_solve = (topology.get("solve_ms") or 0) / 1000
+                if cuda_solve > 0 and solve_text != "—":
+                    solve_text += f" ({cpu_solve / cuda_solve:.2f}×)"
+                if result["sizer_seconds"] > 0:
+                    runtime += f" ({cpu['sizer_seconds'] / result['sizer_seconds']:.2f}×)"
+            group.append(["", TABLE_LABELS[algorithm]] + metric_values(metrics) +
+                         [str(int(metrics["inserted_sizer_buffers"])), solve_text, runtime])
+
+            if algorithm in ("path", "path-reference"):
+                path_before = before
+                gain_label = "Path 改善"
+            elif algorithm == "native-path":
+                path_before = result["stage_metrics"]["design"]["metrics"]
+                gain_label = "Path 阶段改善"
+            else:
+                continue
+            drv_gain = "/".join(improvement(path_before, metrics, key)
+                                for key in ("slew_violations", "cap_violations", "fanout_violations"))
+            group.append(["", gain_label, improvement(path_before, metrics, "setup_wns_ns"),
+                          improvement(path_before, metrics, "setup_tns_ns"), drv_gain,
+                          improvement(path_before, metrics, "area_um2", 4),
+                          improvement(path_before, metrics, "total_power_w", 4), "—", "—", "—"])
+        groups.append(group)
+
+    if not groups:
+        print("没有已完成的评测结果。")
+        return
+    rows = [header] + [row for group in groups for row in group]
+    widths = [max(display_width(row[index]) for row in rows) for index in range(len(header))]
+
+    def border(left, middle, right, fill):
+        return left + middle.join(fill * (width + 2) for width in widths) + right
+
+    def line(row):
+        cells = []
+        for index, (value, width) in enumerate(zip(row, widths)):
+            padding = " " * (width - display_width(value))
+            cells.append(" " + (value + padding if index < 2 else padding + value) + " ")
+        return "│" + "│".join(cells) + "│"
+
+    print(border("┌", "┬", "┐", "─"))
+    print(line(header))
+    print(border("╞", "╪", "╡", "═"))
+    for index, group in enumerate(groups):
+        if index:
+            print(border("├", "┼", "┤", "─"))
+        for row in group:
+            print(line(row))
+    print(border("└", "┴", "┘", "─"))
 
 
 def stamp():
@@ -322,6 +436,7 @@ def stage_comparison(args, grouped):
             absolute = float(effective["setup.min_improvement_ns"])
             comparisons.append(dict(
                 design=row["design"], flow=algorithm, archived=algorithm == "path-reference",
+                gain_scope=effective["setup.path_buffer_gain_scope"],
                 placement_mode=row["effective_repair_config"].get("setup.path_buffer_placement", "trial"),
                 provisional_accepted_trials=provisional_accepted,
                 max_consecutive_rejections=int(effective.get("setup.path_buffer_max_consecutive_rejections", 0)),
@@ -356,6 +471,7 @@ def stage_comparison(args, grouped):
              "Path 保持 buffer-only，关闭时间、试探、刷新、buffer 数和面积增长预算。",
              "上述为默认实验配置；repair-set 可覆盖。连续拒绝提前停止默认关闭，实际配置及是否触发见 stage-comparison.json。提前停止不表示候选耗尽。",
              "Native 前置后相对收益门槛随 Path 起点变化，门槛另列；不能把拒绝率变化全部归因于扇出。",
+             "表中门槛为初始全局参考值。current_global 每次接受后按剩余全局负裕量更新，endpoints 按本次受影响采样端点更新；两者的逐次门槛不能用初始全局值代替。",
              "Native 单独运行与串联中的 design 阶段均独立评估；两者完成时要求 PPA 完全一致。",
              "设计/Path 阶段耗时取进程日志，Sizer 为完整进程；不含外部独立评估。", "",
              "final placement 模式的逐次接受为临时接受；最终指标来自 DP 后独立重载。整轮回滚时保留数为零，逐次拒绝率仍仅描述搜索阶段。", "",
@@ -366,12 +482,12 @@ def stage_comparison(args, grouped):
     for r in comparisons:
         m = r["path_start_metrics"]
         lines.append(f"| {DESIGNS[r['design']]} | {LABELS[r['flow']]} | {m['setup_wns_ns']:.6f} / {m['setup_tns_ns']:.3f} | {r['path_wns_gain_ns']:.6f} / {r['path_tns_gain_ns']:.3f} | {int(r['path_inserted_buffers'])} | {int(r['native_resized_gates'])}/{int(r['native_resized_buffers'])}/{int(r['native_downsized_loads'])} | {r['native_seconds']:.2f} | {r['path_seconds']:.2f} | {r['sizer_seconds']:.2f} |")
-    lines += ["", "| 设计 | 流程 | 起点 S/C/F | 最终 S/C/F | 试探/接受/拒绝 | 拒绝率 | no_setup_gain | fanout 拒绝/预筛除 | WNS/TNS 收益门槛 (ns) |",
-              "|---|---|---|---|---|---:|---:|---|---|"]
+    lines += ["", "| 设计 | 流程 | 起点 S/C/F | 最终 S/C/F | 试探/接受/拒绝 | 拒绝率 | no_setup_gain | fanout 拒绝/预筛除 | 收益尺度 | 起始全局参考门槛 WNS/TNS (ns) |",
+              "|---|---|---|---|---|---:|---:|---|---|---|"]
     for r in comparisons:
         drv = lambda m: '/'.join(str(int(m[k+'_violations'])) for k in ('slew', 'cap', 'fanout'))
         rate = f"{r['rejection_rate']*100:.1f}%" if r['rejection_rate'] is not None else "—"
-        lines.append(f"| {DESIGNS[r['design']]} | {LABELS[r['flow']]} | {drv(r['path_start_metrics'])} | {drv(r['final_metrics'])} | {r['attempted_trials']}/{r['accepted_trials']}/{r['rejected_trials']} | {rate} | {r['rejection_reasons'].get('no_setup_gain',0)} | {r['rejection_reasons'].get('fanout',0)}/{int(r['fanout_precheck_rejections'])} | {r['approximate_wns_gain_floor_ns']:.6f}/{r['approximate_tns_gain_floor_ns']:.3f} |")
+        lines.append(f"| {DESIGNS[r['design']]} | {LABELS[r['flow']]} | {drv(r['path_start_metrics'])} | {drv(r['final_metrics'])} | {r['attempted_trials']}/{r['accepted_trials']}/{r['rejected_trials']} | {rate} | {r['rejection_reasons'].get('no_setup_gain',0)} | {r['rejection_reasons'].get('fanout',0)}/{int(r['fanout_precheck_rejections'])} | {r['gain_scope']} | {r['approximate_wns_gain_floor_ns']:.6f}/{r['approximate_tns_gain_floor_ns']:.3f} |")
     return lines
 
 
@@ -448,6 +564,7 @@ def collect(args, state):
                 lines.append(f"| {DESIGNS[d]} | {label} | {m['setup_wns_ns']:.6f} | {m['setup_tns_ns']:.3f} | {drv} | {m['area_um2']:.3f} | {m['total_power_w']*1000:.3f} | {int(m['inserted_sizer_buffers'])} | {solve_text} | {runtime} |")
     lines += stage_comparison(args, grouped)
     (args.output / "report.md").write_text("\n".join(lines) + "\n")
+    return grouped
 
 
 def main():
@@ -547,7 +664,9 @@ def main():
         record.pop("error", None)
         save(args.output / "status.json", state)
         print(f"completed {job['algorithm']}/{job['design']}", flush=True)
-    print(f"Results: {args.output / 'report.md'}", flush=True)
+    grouped = collect(args, state)
+    print_result_table(args, grouped)
+    print(f"\nResults: {args.output / 'report.md'}", flush=True)
     return 0
 
 

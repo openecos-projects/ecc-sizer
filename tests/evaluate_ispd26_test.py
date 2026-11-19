@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Check experiment attribution without requiring the external EDA inputs."""
 import copy
+from contextlib import redirect_stdout
 import importlib.util
+from io import StringIO
 import json
 from pathlib import Path
 import tempfile
@@ -57,8 +59,8 @@ class NativePathComparisonTest(unittest.TestCase):
         return case
 
     def collect(self):
-        evaluation.collect(self.args, [dict(algorithm=a, design=self.design, status="completed")
-                                       for a in self.args.algorithms])
+        return evaluation.collect(self.args, [dict(algorithm=a, design=self.design, status="completed")
+                                              for a in self.args.algorithms])
 
     def test_separates_native_gain_from_path_gain(self):
         for algorithm in self.args.algorithms:
@@ -72,7 +74,23 @@ class NativePathComparisonTest(unittest.TestCase):
         self.assertEqual(row["native_resized_gates"], 3)
         self.assertEqual(row["rejection_rate"], 0.5)
         self.assertEqual(row["path_seconds"], 4)
+        self.assertEqual(row["gain_scope"], "global")
         self.assertEqual(row["approximate_wns_gain_floor_ns"], 0.002)
+
+    def test_terminal_summary_prints_final_metrics_and_path_stage_gain(self):
+        for algorithm in self.args.algorithms:
+            self.write(algorithm)
+        grouped = self.collect()
+        output = StringIO()
+        with redirect_stdout(output):
+            evaluation.print_result_table(self.args, grouped)
+        rendered = output.getvalue()
+        self.assertIn("ISPD26 评测结果", rendered)
+        self.assertIn("Native design", rendered)
+        self.assertIn("Native design → Path", rendered)
+        self.assertIn("Path 阶段改善", rendered)
+        self.assertIn("50.00%", rendered)
+        self.assertIn("电气违例 S/C/F", rendered)
 
     def test_ablation_overrides_are_validated_without_changing_thresholds(self):
         overrides = evaluation.parse_overrides(["setup.path_buffer_calibrate=false"])

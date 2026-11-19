@@ -9,6 +9,7 @@
 #include <memory>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <cmath>
@@ -27,6 +28,8 @@
 #include "sta/Liberty.hh"
 #include "sta/Mode.hh"
 #include "sta/Sdc.hh"
+#include "sta/Scene.hh"
+#include "sta/TableModel.hh"
 #include "sta/TimingArc.hh"
 #include "sta/TimingModel.hh"
 
@@ -252,6 +255,84 @@ class Repair {
     }
     float predictedDelay(const Buffer& buffer, float cap, float in_slew) const {
         return predict(buffer, cap, in_slew, false);
+    }
+    // A snapshot-local evaluator for a downstream gate whose load is fixed.
+    // Preserve OpenSTA's interpolation and PVT scaling, but avoid arc lookup,
+    // hashing and the unused output-slew table on every candidate/load pair.
+    class DelayPrediction {
+      public:
+        float operator()(float in_slew) const {
+            if(arcs_.empty()) return kInf;
+            float worst = 0;
+            for(const auto& arc : arcs_) {
+                float delay = 0;
+                if(arc.table) {
+                    auto values = arc.values;
+                    for(size_t i = 0; i < values.size(); ++i)
+                        if(arc.slew_axis[i]) values[i] = in_slew;
+                    delay = arc.table->findValue(arc.cell, pvt_, values[0], values[1], values[2]);
+                } else if(arc.fallback) {
+                    float slew;
+                    arc.fallback->gateDelay(pvt_, in_slew, cap_, delay, slew);
+                }
+                if(!std::isfinite(delay)) return kInf;
+                worst = std::max(worst, delay);
+            }
+            return worst;
+        }
+      private:
+        friend class Repair;
+        struct Arc {
+            const sta::LibertyCell* cell = nullptr;
+            const sta::TableModel* table = nullptr;
+            const sta::GateTimingModel* fallback = nullptr;
+            std::array<float, 3> values{};
+            std::array<bool, 3> slew_axis{};
+        };
+        std::vector<Arc> arcs_;
+        const sta::Pvt* pvt_ = nullptr;
+        float cap_ = 0;
+    };
+    DelayPrediction prepareDelayPrediction(const Buffer& buffer, float cap) const {
+        DelayPrediction prediction;
+        prediction.cap_ = cap;
+        prediction.pvt_ = sta_->cmdMode()->sdc()->operatingConditions(sta::MinMax::max());
+        if(!buffer.cell || !buffer.output) return prediction;
+        auto* scene = sta_->cmdScene();
+        for(auto* set : buffer.cell->timingArcSets()) {
+            if((buffer.input && set->from() != buffer.input) || !set->from() ||
+               set->to() != buffer.output) continue;
+            for(auto* arc : set->arcs()) {
+                auto* model = arc->gateModel(scene, sta::MinMax::max());
+                if(!model) continue;
+                DelayPrediction::Arc entry;
+                entry.fallback = model;
+                const auto* scene_arc = arc->sceneArc(scene->libertyIndex(sta::MinMax::max()));
+                const auto* table = dynamic_cast<const sta::GateTableModel*>(model);
+                // A separate operating-condition model may belong to another
+                // cell. Leave that case to OpenSTA instead of guessing its PVT.
+                if(table && model == scene_arc->model()) {
+                    entry.cell = scene_arc->set()->libertyCell();
+                    entry.table = table->delayModel();
+                    if(!entry.table || sta::GateTableModel::checkAxes(entry.table)) {
+                        entry.fallback = nullptr;
+                        if(entry.table) {
+                            const std::array axes{entry.table->axis1(), entry.table->axis2(), entry.table->axis3()};
+                            for(size_t i = 0; i < axes.size(); ++i) {
+                                if(!axes[i]) continue;
+                                const auto variable = axes[i]->variable();
+                                entry.slew_axis[i] = variable == sta::TableAxisVariable::input_transition_time ||
+                                                     variable == sta::TableAxisVariable::input_net_transition;
+                                if(variable == sta::TableAxisVariable::total_output_net_capacitance)
+                                    entry.values[i] = cap;
+                            }
+                        }
+                    } else entry.table = nullptr;
+                }
+                prediction.arcs_.push_back(entry);
+            }
+        }
+        return prediction;
     }
     Buffer driverModel(const NetState& state) const {
         auto* inst = state.driver->getInst();

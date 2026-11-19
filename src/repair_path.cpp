@@ -506,6 +506,12 @@ std::vector< NetState > analyze(detail::Repair& backend,
     return backend.analyze(metrics, true);
 }
 
+const DesignRepairMetrics& globalGainReference(const SetupRepairOptions& options,
+                                               const DesignRepairMetrics& initial,
+                                               const DesignRepairMetrics& current) {
+    return options.path_buffer_gain_scope == "current_global" ? current : initial;
+}
+
 std::vector< std::string > rejectionReasons(const DesignRepairMetrics& before,
                                             const DesignRepairMetrics& after,
                                             double area_limit,
@@ -515,14 +521,15 @@ std::vector< std::string > rejectionReasons(const DesignRepairMetrics& before,
     const auto& tolerance = options.common.tolerances;
     const float improvement = options.min_improvement;
     const bool local = options.path_buffer_gain_scope == "endpoints";
+    const auto& reference = globalGainReference(options, initial, before);
     const double objective_wns_before = local ? trial.objective_wns_before : before.setup_wns;
     const double objective_tns_before = local ? trial.objective_tns_before : before.setup_tns;
     const double objective_wns_after = local ? trial.objective_wns_after : after.setup_wns;
     const double objective_tns_after = local ? trial.objective_tns_after : after.setup_tns;
     const double wns_improvement = std::max(double(improvement),
-        std::abs(local ? objective_wns_before : double(initial.setup_wns)) * options.path_buffer_min_relative_improvement);
+        std::abs(local ? objective_wns_before : double(reference.setup_wns)) * options.path_buffer_min_relative_improvement);
     const double tns_improvement = std::max(double(improvement),
-        std::abs(local ? objective_tns_before : double(initial.setup_tns)) * options.path_buffer_min_relative_improvement);
+        std::abs(local ? objective_tns_before : double(reference.setup_tns)) * options.path_buffer_min_relative_improvement);
     const float tns_tolerance =
         detail::tnsTolerance(before.setup_tns, tolerance);
     std::vector< std::string > reasons;
@@ -829,7 +836,7 @@ struct PathFeedback {
     std::vector<PathBufferCandidate> electrical_reserve;
 
     double tnsEstimate(const PathBufferCandidate& c) const {
-        return options.path_buffer_endpoint_coverage && options.path_buffer_gain_scope == "global"
+        return options.path_buffer_endpoint_coverage && options.path_buffer_gain_scope != "endpoints"
                    ? c.covered_tns_gain : c.predicted_tns_gain;
     }
 
@@ -838,10 +845,11 @@ struct PathFeedback {
         if(!options.path_buffer_adaptive_search || options.path_buffer_batch_size != 1)
             return Decision::Explore;
         const bool local = options.path_buffer_gain_scope == "endpoints";
+        const auto& reference = globalGainReference(options, result.before, result.after);
         const double wns_floor = std::max(double(options.min_improvement),
-            std::abs(local ? c.objective_wns : double(result.before.setup_wns)) * options.path_buffer_min_relative_improvement);
+            std::abs(local ? c.objective_wns : double(reference.setup_wns)) * options.path_buffer_min_relative_improvement);
         const double tns_floor = std::max({double(options.min_improvement),
-            std::abs(local ? c.objective_tns : double(result.before.setup_tns)) * options.path_buffer_min_relative_improvement,
+            std::abs(local ? c.objective_tns : double(reference.setup_tns)) * options.path_buffer_min_relative_improvement,
             double(detail::tnsTolerance(local ? c.objective_tns : result.after.setup_tns, options.common.tolerances))});
         return frontiers[c.group_key].decide(
             {c.predicted_wns_gain, c.predicted_tns_gain}, {wns_floor, tns_floor});
@@ -871,10 +879,11 @@ struct PathFeedback {
             }
         }
         const bool local = options.path_buffer_gain_scope == "endpoints";
+        const auto& reference = globalGainReference(options, result.before, result.after);
         const double wns_floor = std::max(double(options.min_improvement),
-            std::abs(local ? candidate.objective_wns : double(result.before.setup_wns)) * options.path_buffer_min_relative_improvement);
+            std::abs(local ? candidate.objective_wns : double(reference.setup_wns)) * options.path_buffer_min_relative_improvement);
         const double tns_floor = std::max(double(options.min_improvement),
-            std::abs(local ? candidate.objective_tns : double(result.before.setup_tns)) * options.path_buffer_min_relative_improvement);
+            std::abs(local ? candidate.objective_tns : double(reference.setup_tns)) * options.path_buffer_min_relative_improvement);
         candidate.rank_score = std::max(
             wns_floor > 0 ? candidate.ranked_wns_gain / wns_floor : candidate.ranked_wns_gain,
             tns_floor > 0 ? candidate.ranked_tns_gain / tns_floor : candidate.ranked_tns_gain);
@@ -1084,7 +1093,7 @@ CandidateCollection collectPathGainCandidates(
     // global STA, and these profiles are never used to skip a trial.
     std::unordered_map<odb::dbNet*,
         std::unordered_map<odb::dbObject*, path_detail::EndpointSlackProfile>> endpoint_profiles;
-    if(options.path_buffer_endpoint_coverage && options.path_buffer_gain_scope == "global") {
+    if(options.path_buffer_endpoint_coverage && options.path_buffer_gain_scope != "endpoints") {
         sta->findRequireds();
         std::unordered_map<const sta::Pin*, sta::Path*> worst_paths;
         for(auto* vertex : sta->endpoints()) {
@@ -1205,6 +1214,7 @@ CandidateCollection collectPathGainCandidates(
         }
         struct GateResponse {
             detail::Buffer model{};
+            detail::Repair::DelayPrediction delay;
             const NetState* state = nullptr;
             float before = 0;
             std::unordered_map< float, float > delay_cache;
@@ -1228,9 +1238,8 @@ CandidateCollection collectPathGainCandidates(
             auto& response = gate_responses[i];
             response.state = next->second;
             response.model = backend.driverModel(*response.state);
-            response.before = backend.predictedDelay(
-                response.model, response.state->capacitance,
-                response.state->input_slew);
+            response.delay = backend.prepareDelayPrediction(response.model, response.state->capacitance);
+            response.before = response.delay(response.state->input_slew);
         }
         std::unordered_map< float, std::pair< float, float > > driver_cache;
         std::ostringstream boundary;
@@ -1368,9 +1377,7 @@ CandidateCollection collectPathGainCandidates(
                             auto [gate_it, uncached_gate] =
                                 gate.delay_cache.emplace(new_input, 0);
                             if(uncached_gate)
-                                gate_it->second = backend.predictedDelay(
-                                    gate.model, gate.state->capacitance,
-                                    new_input);
+                                gate_it->second = gate.delay(new_input);
                             if(std::isfinite(gate.before) &&
                                std::isfinite(gate_it->second))
                                 gains[i] += gate.before - gate_it->second;
@@ -1407,7 +1414,7 @@ CandidateCollection collectPathGainCandidates(
                     // A side branch outside the sampled endpoints can still
                     // predict a global regression. Preserve this risk signal
                     // for ordering only; it is not a pruning proof.
-                    if(options.path_buffer_gain_scope == "global" && side_wns_after < metrics.setup_wns)
+                    if(options.path_buffer_gain_scope != "endpoints" && side_wns_after < metrics.setup_wns)
                         candidate.predicted_wns_gain = std::min(double(candidate.predicted_wns_gain),
                                                                side_wns_after - metrics.setup_wns);
                     candidate.predicted_tns_gain = forecast.tns_gain;
@@ -1791,10 +1798,11 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                     options.path_buffer_strategy == "feedback" ? &feedback : nullptr);
                 if(options.path_buffer_strategy == "feedback") {
                     if(options.path_buffer_min_relative_improvement > 0) {
+                        const auto& reference = globalGainReference(options, result.before, result.after);
                         const double wns_floor = std::max(double(options.min_improvement),
-                            std::abs(double(result.before.setup_wns)) * options.path_buffer_min_relative_improvement);
+                            std::abs(double(reference.setup_wns)) * options.path_buffer_min_relative_improvement);
                         const double tns_floor = std::max(double(options.min_improvement),
-                            std::abs(double(result.before.setup_tns)) * options.path_buffer_min_relative_improvement);
+                            std::abs(double(reference.setup_tns)) * options.path_buffer_min_relative_improvement);
                         const auto end = std::remove_if(collection.candidates.begin(), collection.candidates.end(),
                             [&](const auto& candidate) {
                                 const bool local = options.path_buffer_gain_scope == "endpoints";

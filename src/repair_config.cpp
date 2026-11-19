@@ -131,8 +131,9 @@ void SetupRepairSettings::validate() const {
     require(path_buffer_strategy == "sequential" || path_buffer_strategy == "path_gain" ||
                 path_buffer_strategy == "feedback",
             "setup.path_buffer_strategy must be sequential, path_gain or feedback");
-    require(path_buffer_gain_scope == "global" || path_buffer_gain_scope == "endpoints",
-            "setup.path_buffer_gain_scope must be global or endpoints");
+    require(path_buffer_gain_scope == "global" || path_buffer_gain_scope == "current_global" ||
+                path_buffer_gain_scope == "endpoints",
+            "setup.path_buffer_gain_scope must be global, current_global or endpoints");
     require(path_buffer_placement == "trial" || path_buffer_placement == "final",
             "setup.path_buffer_placement must be trial or final");
     require(path_buffer_verification == "trial" || path_buffer_verification == "final",

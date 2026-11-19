@@ -48,6 +48,19 @@ TEST(RepairConfig, PathPlacementModeRoundTripsAndRejectsUnknownModes)
   EXPECT_THROW(config.set("setup.path_buffer_placement", "off"), std::invalid_argument);
 }
 
+TEST(RepairConfig, PathGainScopesRoundTrip)
+{
+  for(const auto* scope : {"global", "current_global", "endpoints"}) {
+    ecc::RepairConfig config;
+    config.set("setup.path_buffer_gain_scope", scope);
+    EXPECT_EQ(config.setupOptions().path_buffer_gain_scope, scope);
+    EXPECT_NE(serialized(config).find(std::string("setup.path_buffer_gain_scope=") + scope + "\n"),
+              std::string::npos);
+  }
+  ecc::RepairConfig config;
+  EXPECT_THROW(config.set("setup.path_buffer_gain_scope", "unknown"), std::invalid_argument);
+}
+
 TEST(RepairConfig, PathRejectionStopIsOptionalAndRoundTrips)
 {
   ecc::RepairConfig config;

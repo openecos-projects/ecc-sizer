@@ -19,6 +19,7 @@
 #include "repair_vg.h"
 #include "repair_path.h"
 #include "repair_backend.h"
+#include "repair_acceptance.h"
 #include "repair_pbbi.h"
 #include "repair_timing.h"
 #include "repair_load.h"
@@ -302,6 +303,32 @@ TEST_F(BufferInserterStaTest, IncrementalPlacementMatchesFullRcAfterMoveOrientat
   EXPECT_FALSE(ep_.isIncrementalParasiticsEnabled());
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PreparedDelayMatchesOpenStaInterpolationAndExtrapolation)
+{
+  readTestDesign("gate_repair_sta.v");
+  constrainSetup(true);
+  refreshRepairTiming();
+  ecc::RepairCommonOptions options;
+  ecc::detail::Repair backend(block_, sta_.get(), options);
+  ecc::DesignRepairMetrics metrics;
+  const auto states = backend.analyze(metrics, true);
+  ASSERT_FALSE(states.empty());
+  std::vector<ecc::detail::Buffer> models = backend.bufferChoices();
+  for(const auto& state : states)
+    if(state.driver) models.push_back(backend.driverModel(state));
+  ASSERT_FALSE(models.empty());
+  // Include table knots, interpolation and far extrapolation. Multi-input
+  // gates retain the same worst-arc reduction as the original evaluator.
+  for(const auto& model : models)
+    for(const float cap : {0.0f, 1e-16f, 1e-15f, 1e-14f, 1e-12f}) {
+      const auto prepared = backend.prepareDelayPrediction(model, cap);
+      for(const float slew : {0.0f, 1e-12f, 1e-11f, 1e-10f, 1e-8f})
+        EXPECT_EQ(prepared(slew), backend.predictedDelay(model, cap, slew))
+            << model.cell->name() << " cap=" << cap << " slew=" << slew;
+    }
+  EXPECT_TRUE(std::isinf(backend.prepareDelayPrediction({}, 0)(0)));
 }
 
 TEST_F(BufferInserterStaTest, IncrementalElectricalAnalysisMatchesFullScanAcrossEcoAndUndo)
@@ -1958,6 +1985,40 @@ TEST_F(BufferInserterStaTest, PathLocalObjectiveRequiresBothEndpointAndGlobalPro
                   t.after.setup_tns > t.before.setup_tns);
       EXPECT_LE(t.after.total_fanout_violations, t.before.total_fanout_violations);
     }
+  }
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest, PathCurrentGlobalScaleKeepsMeasuredTimingAndElectricalGuards)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows(); constrainSetup(true); refreshRepairTiming();
+  ecc::SetupRepairOptions options;
+  options.path_buffer_gain_scope = "current_global";
+  options.path_buffer_strategy = "feedback";
+  options.path_buffer_min_relative_improvement = 0.01;
+  options.path_buffer_max_trials = 8;
+  options.path_buffer_max_area_growth = -1;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto result = ecc::OpenDbPathRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.inserted_buffers, 0u);
+  for(const auto& trial : result.trials) {
+    if(!trial.rejection_reasons.empty()) continue;
+    const double wns_floor = std::max(double(options.min_improvement),
+        std::abs(double(trial.before.setup_wns)) * options.path_buffer_min_relative_improvement);
+    const double tns_floor = std::max({double(options.min_improvement),
+        std::abs(double(trial.before.setup_tns)) * options.path_buffer_min_relative_improvement,
+        double(ecc::detail::tnsTolerance(trial.before.setup_tns, options.common.tolerances))});
+    EXPECT_TRUE(trial.after.setup_wns > trial.before.setup_wns + wns_floor ||
+                trial.after.setup_tns > trial.before.setup_tns + tns_floor);
+    EXPECT_GE(trial.after.setup_wns + options.common.tolerances.wns_absolute, trial.before.setup_wns);
+    EXPECT_GE(trial.after.hold_wns + options.common.tolerances.wns_absolute, trial.before.hold_wns);
+    EXPECT_LE(trial.after.total_slew_violations, trial.before.total_slew_violations);
+    EXPECT_LE(trial.after.total_cap_violations, trial.before.total_cap_violations);
+    EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
   }
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   db_network_->checkAxioms();
