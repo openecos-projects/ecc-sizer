@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-#include "repair_design.h"
+#include "repair_drv.h"
 #include "repair_analysis.h"
 #include "sta/Fuzzy.hh"
 #include <map>
@@ -869,4 +869,50 @@ class Repair {
     std::unordered_map< sta::LibertyCell*, std::vector< Buffer > >
         resize_candidates_;
 };
+struct LoadDownsizeCandidate {
+    odb::dbInst* inst;
+    odb::dbMaster* master;
+    float cap_reduction;
+    float driver_gain;
+    float slack;
+    double added_area;
+};
+
+// Read-only candidate generation shared by DRV/setup. Valid only for the
+// measured committed design. No Sizer snapshot and no edits inside this class.
+class LoadDownsizePlanner {
+   public:
+    LoadDownsizePlanner(Repair& backend, sta::dbSta* sta,
+                        const std::vector< NetState >& states,
+                        const RepairCommonOptions& options);
+    std::vector< LoadDownsizeCandidate > candidates(
+        const NetState& source,
+        const std::unordered_set< odb::dbObject* >& protected_loads = {});
+
+   private:
+    Repair& backend_;
+    sta::dbSta* sta_;
+    const RepairCommonOptions& options_;
+    std::unordered_map< odb::dbInst*, const NetState* > outputs_;
+};
+inline float tnsTolerance(float baseline, const RepairTolerances& tolerances) {
+    return std::max(tolerances.tns_absolute,
+                    std::abs(baseline) * tolerances.tns_relative);
+}
+inline bool timingNonRegressing(const DesignRepairMetrics& before,
+                                const DesignRepairMetrics& after,
+                                const RepairTolerances& tolerances) {
+    return after.setup_wns + tolerances.wns_absolute >= before.setup_wns &&
+           after.hold_wns + tolerances.wns_absolute >= before.hold_wns &&
+           after.setup_tns + tnsTolerance(before.setup_tns, tolerances) >=
+               before.setup_tns &&
+           after.hold_tns + tnsTolerance(before.hold_tns, tolerances) >=
+               before.hold_tns;
+}
+inline bool noNewDrv(const DesignRepairMetrics& before,
+                     const DesignRepairMetrics& after) {
+    return after.total_slew_violations <= before.total_slew_violations &&
+           after.total_cap_violations <= before.total_cap_violations &&
+           after.total_fanout_violations <= before.total_fanout_violations;
+}
 }  // namespace ecc::detail

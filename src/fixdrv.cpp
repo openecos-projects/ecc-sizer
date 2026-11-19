@@ -1,7 +1,7 @@
 #include "rsz/Resizer.hh"
 #include "dpl/Opendp.h"
 
-#include "sizer.h"
+#include "cell_sizing.h"
 #include <omp.h>
 #include <stdlib.h>
 #include <algorithm>
@@ -12,7 +12,7 @@
 #include <fstream>
 #include <ostream>
 #include <sstream>
-#include "ckt.h"
+#include "sizing_model.h"
 #include "odb/db.h"
 #include "ord/ordMain.hh"
 #include "utils.h"
@@ -34,7 +34,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned change = 0;
 
-    cout << "Fwd fix cap violation .. for view " << view << " " << std::endl;
+    ecc::logInfo() << "Fwd fix cap violation .. for view " << view << " " << std::endl;
 
     double remains = 0.0;
     double origins = 0.0;  // origin is not always the same current cap. fix can
@@ -68,7 +68,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
             }
             // if(fabs(nets[corner][outnet].cap + loadCap -
             //         pins[view][cells[cur].outpins[k]].totcap) > 1e-3) {
-            //     printf(
+            //     ecc::logPrintf(
             //         "Error: totcap not equal to net cap totcap %f, recalc
             //         %f\n", pins[view][cells[cur].outpins[k]].totcap,
             //         nets[corner][outnet].cap + loadCap);
@@ -248,7 +248,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
                 pins[view][cells[cur].outpins[k]].totcap =
                     nets[corner][outnet].cap + loadCap;
 #ifdef DEBUG
-                cout << "load cap now is = "
+                ecc::logInfo() << "load cap now is = "
                      << pins[view][cells[cur].outpins[k]].totcap << " ("
                      << maxCap << ") " << endl;
 #endif
@@ -262,8 +262,8 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 #ifdef DEBUG
             if(pins[view][cells[cur].outpins[k]].totcap > maxCap) {
                 if(lib_cell_info) {
-                    cout << "nothing more can be done.. ";
-                    cout << cells[cur].name << " " << lib_cell_info->name
+                    ecc::logInfo() << "nothing more can be done.. ";
+                    ecc::logInfo() << cells[cur].name << " " << lib_cell_info->name
                          << " FOs: " << cells[cur].fos.size() << " "
                          << pins[view][cells[cur].outpins[k]].totcap << "fF"
                          << endl;
@@ -274,11 +274,11 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
     }
     ofs.close();
 
-    printf("Fwd FixCap %d cells were changed\n", change);
-    cout << remains << " fF remains, origins " << origins << " fF . " << endl;
+    ecc::logPrintf("Fwd FixCap %d cells were changed\n", change);
+    ecc::logInfo() << remains << " fF remains, origins " << origins << " fF . " << endl;
     if(fabs(cap_violation - origins) > 3) {
-        printf("cap violation %f, origins %f\n", cap_violation, origins);
-        printf("fwd fix cap not equal to remains\n");
+        ecc::logPrintf("cap violation %f, origins %f\n", cap_violation, origins);
+        ecc::logPrintf("fwd fix cap not equal to remains\n");
         // exit(0);
     }
     cap_violation = remains;
@@ -289,7 +289,7 @@ unsigned Sizer::FwdFixCapViolation(unsigned view) {
 // cap violation.
 unsigned Sizer::BwdFixCapViolation(unsigned view) {
     unsigned change = 0;
-    cout << "Bwd fix cap violation .. for view " << view << " ";
+    ecc::logInfo() << "Bwd fix cap violation .. for view " << view << " ";
     unsigned corner = 0;  // mmmcViewList[view].corner;
 
     double remains = 0.0;
@@ -368,7 +368,7 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
             }
 #ifdef DEBUG
             if(pins[view][cells[cur].outpins[k]].totcap > maxCap) {
-                cout << endl
+                ecc::logInfo() << endl
                      << "--cap violation at : " << cells[cur].name
                      << " max cap: " << maxCap
                      << " totcap: " << pins[view][cells[cur].outpins[k]].totcap
@@ -377,8 +377,8 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
 #endif
         }
     }
-    cout << remains << " fF out of " << origins << " fF remains. " << endl;
-    cout << "cells changed: " << change << endl;
+    ecc::logInfo() << remains << " fF out of " << origins << " fF remains. " << endl;
+    ecc::logInfo() << "cells changed: " << change << endl;
     cap_violation = remains;
     return change;
 }
@@ -394,7 +394,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
     unsigned change = 0;
     unsigned thread_id = 0;
 
-    cout << "Fwd fix slew violation .. for view " << view << endl;
+    ecc::logInfo() << "Fwd fix slew violation .. for view " << view << endl;
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
     bool old_updatePinAcc = updatePinAcc;
@@ -445,7 +445,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 continue;
             }
 
-            //            cout << "MAX TRAN " <<
+            //            ecc::logInfo() << "MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
             //                << max(pins[view][curpin].rtran,
             //                pins[view][curpin].ftran) << "/" <<
@@ -617,19 +617,19 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                    delta_impact_type == 0) {
                     cell_resize(cells[cur], 1);
                     change++;
-                    // cout << "UPSIZED CELL " << cells[cur].name << " "
+                    // ecc::logInfo() << "UPSIZED CELL " << cells[cur].name << " "
                     //    << prev_type << " --> " << cells[cur].type << endl;
                 }
                 else {
                     cell_retype(cells[cur], 1);
                     change++;
-                    // cout << "UPTYPED CELL " << cells[cur].name << " "
+                    // ecc::logInfo() << "UPTYPED CELL " << cells[cur].name << " "
                     //    << prev_type << " --> " << cells[cur].type << endl;
                 }
 
                 OneTimer(cells[cur], STA_MARGIN, true);
             }
-            //            cout << "AFTER MAX TRAN " <<
+            //            ecc::logInfo() << "AFTER MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
             //                << max(pins[view][curpin].rtran,
             //                pins[view][curpin].ftran) << "/" <<
@@ -646,7 +646,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
             if(!IsTranVio(pins[view][curpin])) {
                 continue;
             }
-            //            cout << "MAX TRAN " <<
+            //            ecc::logInfo() << "MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
             //                << max(pins[view][curpin].rtran,
             //                pins[view][curpin].ftran) << "/" <<
@@ -797,13 +797,13 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                    delta_impact_type == 0) {
                     cell_resize(cells[ficell], 1);
                     change++;
-                    // cout << "UPSIZED CELL " << cells[ficell].name << " "
+                    // ecc::logInfo() << "UPSIZED CELL " << cells[ficell].name << " "
                     //    << prev_type << " --> " << cells[ficell].type << endl;
                 }
                 else {
                     cell_retype(cells[ficell], 1);
                     change++;
-                    // cout << "UPTYPED CELL " << cells[ficell].name << " "
+                    // ecc::logInfo() << "UPTYPED CELL " << cells[ficell].name << " "
                     //    << prev_type << " --> " << cells[ficell].type << endl;
                 }
 
@@ -850,7 +850,7 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
                 }
             }
 #endif
-            // cout << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
+            // ecc::logInfo() << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
             // << " "
             //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran) <<
             //    "/" <<
@@ -858,8 +858,8 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
         }
     }
     updatePinAcc = old_updatePinAcc;
-    cout << "finished." << endl;
-    cout << "cells changed: " << change << endl;
+    ecc::logInfo() << "finished." << endl;
+    ecc::logInfo() << "cells changed: " << change << endl;
     return change;
 }
 
@@ -870,7 +870,7 @@ unsigned Sizer::BwdFixSlewViolation(double maxTranRatio, unsigned view) {
     unsigned change = 0;
     unsigned thread_id = 0;
 
-    cout << "Bwd fix slew violation .. for view " << view << endl;
+    ecc::logInfo() << "Bwd fix slew violation .. for view " << view << endl;
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
 
@@ -931,14 +931,14 @@ unsigned Sizer::BwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                 // OneTimer(cells[ficell], STA_MARGIN, true);
             }
-            // cout << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
+            // ecc::logInfo() << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
             // << " "
             //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran) <<
             //    "/" <<
             //    pins[view][curpin].max_tran << endl;
         }
     }
-    cout << "finished. " << change << " times has been changed" << endl;
+    ecc::logInfo() << "finished. " << change << " times has been changed" << endl;
     return change;
 }
 
@@ -950,7 +950,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
     unsigned thread_id = 0;
     bool old_updatePinAcc = updatePinAcc;
     updatePinAcc = true;
-    cout << "Fwd fix slew violation .. for view " << view << endl;
+    ecc::logInfo() << "Fwd fix slew violation .. for view " << view << endl;
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
 
@@ -1022,7 +1022,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                         else {
                             if(delta_width <= 0) {
                                 if(VERBOSE >= 4) {
-                                    printf("Error: not defined delta_width\n");
+                                    ecc::logPrintf("Error: not defined delta_width\n");
                                 }
                                 benefit = delta_tran;
                             }
@@ -1041,7 +1041,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                         }
                     }
                     if(tmpEntry.delta_impact < -0.001) {
-                        printf("cell %s size %d, step %d, delta_impact %f\n",
+                        ecc::logPrintf("cell %s size %d, step %d, delta_impact %f\n",
                                cells[cur].name.c_str(), cells[cur].c_size,
                                tmpEntry.step, tmpEntry.delta_impact);
                         bool change_size =
@@ -1160,7 +1160,7 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                     }
                 }
                 if(tmpEntry.delta_impact < -0.001) {
-                    printf("cell %s size %d, step %d, delta_impact %f\n",
+                    ecc::logPrintf("cell %s size %d, step %d, delta_impact %f\n",
                            cells[focell].name.c_str(), cells[focell].c_size,
                            tmpEntry.step, tmpEntry.delta_impact);
                     bool change_size =
@@ -1226,8 +1226,8 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
         }
     }
     updatePinAcc = old_updatePinAcc;
-    cout << "Post fix slew " << change << " cells were changed." << endl;
-    cout << "finished." << endl;
+    ecc::logInfo() << "Post fix slew " << change << " cells were changed." << endl;
+    ecc::logInfo() << "finished." << endl;
     return change;
 }
 
@@ -1238,7 +1238,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
     unsigned change = 0;
     unsigned thread_id = 0;
 
-    cout << "Fwd fix slew violation .. for view " << view << endl;
+    ecc::logInfo() << "Fwd fix slew violation .. for view " << view << endl;
     unsigned corner = 0;  // mmmcViewList[view].corner;
     double prev_tns, cur_tns = 0.0;
 
@@ -1273,7 +1273,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                 continue;
             }
 
-            //            cout << "MAX TRAN " <<
+            //            ecc::logInfo() << "MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
             //                << max(pins[view][curpin].rtran,
             //                pins[view][curpin].ftran) << "/" <<
@@ -1434,21 +1434,21 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                    delta_impact_type == 0) {
                     cell_resize(cells[cur], 1);
                     change++;
-                    // cout << "UPSIZED CELL " << cells[cur].name << " "
+                    // ecc::logInfo() << "UPSIZED CELL " << cells[cur].name << " "
                     //    << prev_type << " --> " << cells[cur].type <<
                     //    endl;
                 }
                 else {
                     cell_retype(cells[cur], 1);
                     change++;
-                    // cout << "UPTYPED CELL " << cells[cur].name << " "
+                    // ecc::logInfo() << "UPTYPED CELL " << cells[cur].name << " "
                     //    << prev_type << " --> " << cells[cur].type <<
                     //    endl;
                 }
 
                 OneTimer(cells[cur], STA_MARGIN, true);
             }
-            //            cout << "AFTER MAX TRAN " <<
+            //            ecc::logInfo() << "AFTER MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
             //                << max(pins[view][curpin].rtran,
             //                pins[view][curpin].ftran) << "/" <<
@@ -1465,7 +1465,7 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
             if(!IsTranVio(pins[view][curpin])) {
                 continue;
             }
-            //            cout << "MAX TRAN " <<
+            //            ecc::logInfo() << "MAX TRAN " <<
             //            getFullPinName(pins[view][curpin]) << " "
             //                << max(pins[view][curpin].rtran,
             //                pins[view][curpin].ftran) << "/" <<
@@ -1624,21 +1624,21 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
                    delta_impact_type == 0) {
                     cell_resize(cells[ficell], 1);
                     change++;
-                    // cout << "UPSIZED CELL " << cells[ficell].name << " "
+                    // ecc::logInfo() << "UPSIZED CELL " << cells[ficell].name << " "
                     //    << prev_type << " --> " << cells[ficell].type <<
                     //    endl;
                 }
                 else {
                     cell_retype(cells[ficell], 1);
                     change++;
-                    // cout << "UPTYPED CELL " << cells[ficell].name << " "
+                    // ecc::logInfo() << "UPTYPED CELL " << cells[ficell].name << " "
                     //    << prev_type << " --> " << cells[ficell].type <<
                     //    endl;
                 }
 
                 OneTimer(cells[ficell], STA_MARGIN, true);
             }
-            // cout << "AFTER MAX TRAN " <<
+            // ecc::logInfo() << "AFTER MAX TRAN " <<
             // getFullPinName(pins[view][curpin])
             // << " "
             //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran)
@@ -1647,13 +1647,13 @@ unsigned Sizer::FwdFixSlackViolation(double maxTranRatio, unsigned view) {
             //    pins[view][curpin].max_tran << endl;
         }
     }
-    cout << "finished." << endl;
+    ecc::logInfo() << "finished." << endl;
     return change;
 }
 
 int Sizer::FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
                                    double maxTran, unsigned view) {
-    cout << "Fwd fix slew violation cell .. for view " << view << endl;
+    ecc::logInfo() << "Fwd fix slew violation cell .. for view " << view << endl;
     unsigned corner = 0;  // mmmcViewList[view].corner;
 
     int swap_cell_cnt = 0;
@@ -1732,7 +1732,7 @@ entry Sizer::calcCellBestEntry(CELL &cell, int cell_id, int sensFunc,
                 sf = CalSensMMMC(cells[i], k, 0, sensFunc, gamma, alpha, true);
             }
             // double delta_width =
-            // cout << "UPSIZING SF " << sf << endl;
+            // ecc::logInfo() << "UPSIZING SF " << sf << endl;
             if(sf != 0.0) {
                 delta_impact_size.push_back(1.0 / sf);
                 size_step.push_back(k);
@@ -1770,12 +1770,12 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
     unsigned swap_cnt = 0;
     if(STAGE == GLOBAL || STAGE == FINESWAP) {
         if(STAGE == GLOBAL) {
-            cout << endl
+            ecc::logInfo() << endl
                  << "(" << thread_id << ") Start global opt.. round " << iter
                  << endl;
         }
         else {
-            cout << endl
+            ecc::logInfo() << endl
                  << "(" << thread_id
                  << ") Start global opt (fine swap) .. round " << iter << endl;
         }
@@ -1822,7 +1822,7 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
             }
             bool attack = false;
             // if(i % 100 == 0) {
-            //     printf("Attack %d/%d\n", i, numcells);
+            //     ecc::logPrintf("Attack %d/%d\n", i, numcells);
             // }
             for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
                 if(pins[view][cells[i].outpins[j]].rslk < toler ||
@@ -1842,10 +1842,10 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
                 if(tmpEntry.delta_impact < 0.0)
                     targets.insert(tmpEntry);
 
-                // cout << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
+                // ecc::logInfo() << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
             }
         }
-        cout << "# priority targets  : " << targets.size() << endl;
+        ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
 
         if(targets.size() == 0) {
             // it's stuck. let's release some of cells
@@ -1871,7 +1871,7 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
             targets.erase(tmp);
             entry *it = &tmp;
             if(iter % 100 == 0) {
-                printf("Attack targets %d/%d\n", iter, num);
+                ecc::logPrintf("Attack targets %d/%d\n", iter, num);
             }
             iter++;
             if(update_cnt > (numcells * CORR_RATIO)) {
@@ -1890,7 +1890,7 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
 
             unsigned cur = it->id;
             if(changed[cur]) {
-                // std::cout << "Attack again " << cells[cur].name <<
+                // ecc::logInfo() << "Attack again " << cells[cur].name <<
                 // std::endl;
             }
 
@@ -1907,13 +1907,13 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
             if(it->change == UPSIZE) {
                 if(STAGE == GLOBAL) {
                     if(VERBOSE >= 4)
-                        cout << "GLOBAL TARGET = UPSIZE (" << it->step
+                        ecc::logInfo() << "GLOBAL TARGET = UPSIZE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
                 else {
                     if(VERBOSE >= 4)
-                        cout << "FINESWAP TARGET = UPSIZE (" << it->step
+                        ecc::logInfo() << "FINESWAP TARGET = UPSIZE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
@@ -1964,13 +1964,13 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
                 }
 
                 if(VERBOSE >= 4)
-                    cout << "-> " << cells[cur].type << " -- Restored" << endl;
+                    ecc::logInfo() << "-> " << cells[cur].type << " -- Restored" << endl;
                 cells[cur].isChanged -= 2;
             }
             else {  // accept
                 changed[cur] = true;
                 if(VERBOSE >= 4)
-                    cout << "-> " << cells[cur].type << " -- Accepted" << endl;
+                    ecc::logInfo() << "-> " << cells[cur].type << " -- Accepted" << endl;
                 count++;
                 update_cnt++;
                 swap_cnt++;
@@ -1994,7 +1994,7 @@ unsigned Sizer::AttackNew(unsigned iter, unsigned STAGE, double RATIO,
         }
         targets.clear();
     }
-    cout << "swap count = " << swap_cnt << endl;
+    ecc::logInfo() << "swap count = " << swap_cnt << endl;
 
     return swap_cnt;
 }

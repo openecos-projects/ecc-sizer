@@ -119,7 +119,7 @@ stdenv.mkDerivation {
     sed 's/^.*partition_gcd/# \0/g' -i thirdparty/OpenROAD/src/par/test/CMakeLists.txt
 
     # Fix TCL include path expectations
-    sed -i 's,<tcl8.6/,<,g' src/ckt.cpp src/analyze_timing.cpp src/lib_parser.cpp
+    sed -i 's,<tcl8.6/,<,g' src/sizing_model.cpp src/analyze_timing.cpp src/liberty_import.cpp
   '';
 
   cmakeFlags = [

@@ -46,12 +46,63 @@
 #include <sys/time.h>
 #include <sys/utsname.h>
 #include <vector>
-// #include "ckt.h"
+// #include "sizing_model.h"
+#include <optional>
+#include <sstream>
+#include <utility>
+#include <type_traits>
+#include "spdlog/spdlog.h"
+#include "fmt/printf.h"
+
+namespace ecc {
+// Stream-style diagnostics in the retained sizing search feed the same
+// spdlog logger as the application. Disabled messages do not build a string.
+class LogLine {
+public:
+    explicit LogLine(spdlog::level::level_enum level) : level_(level) {
+        if(spdlog::should_log(level)) stream_.emplace();
+    }
+    ~LogLine() noexcept {
+        if(!stream_) return;
+        try {
+            auto text = stream_->str();
+            while(!text.empty() && text.back() == '\n') text.pop_back();
+            if(!text.empty()) spdlog::log(level_, "{}", text);
+        } catch(...) { /* Logging must not interrupt ECO rollback. */ }
+    }
+    template<class T> requires std::is_arithmetic_v<T>
+    LogLine& operator<<(T value) {
+        if(stream_) *stream_ << value;
+        return *this;
+    }
+    template<class T> requires (!std::is_arithmetic_v<std::remove_cvref_t<T>>)
+    LogLine& operator<<(T&& value) {
+        if(stream_) *stream_ << std::forward<T>(value);
+        return *this;
+    }
+    LogLine& operator<<(std::ostream& (*manipulator)(std::ostream&)) {
+        if(stream_) manipulator(*stream_);
+        return *this;
+    }
+private:
+    spdlog::level::level_enum level_;
+    std::optional<std::ostringstream> stream_;
+};
+inline LogLine logInfo() { return LogLine(spdlog::level::info); }
+inline LogLine logDebug() { return LogLine(spdlog::level::debug); }
+inline LogLine logError() { return LogLine(spdlog::level::err); }
+template<class... Args>
+void logPrintf(const char* format, Args&&... args) {
+    if(spdlog::should_log(spdlog::level::info))
+        logInfo() << fmt::sprintf(format, std::forward<Args>(args)...);
+}
+}  // namespace ecc
+
 struct CELL;
 typedef unsigned cell_sizes;
 enum cell_vtypes { s = 0, m, f, default_vtype };
-// #include "sizer.h"
-// #include "ckt.h"
+// #include "cell_sizing.h"
+// #include "sizing_model.h"
 #define DBL_MAX 1.7976931348623158e+308 /* max value */
 
 inline cell_sizes getSizes(std::string size) {
@@ -99,7 +150,7 @@ inline cell_vtypes getVtypes(char type) {
         return m;
     }
     else {
-        std::cout << "ERROR\n";
+        ecc::logInfo() << "ERROR\n";
         return default_vtype;
     }
 }

@@ -47,7 +47,7 @@
 #include <iomanip>
 #include "db_sta/dbSta.hh"
 #include "sta/Sta.hh"
-// #include "sizer.h"
+// #include "cell_sizing.h"
 #include "tcl.h"
 #include "utils.h"
 #include <queue>
@@ -59,8 +59,6 @@
 #include <unistd.h>
 #include <cassert>
 #include <cctype>
-#include <cmath>
-#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -68,7 +66,6 @@
 #include <limits>
 #include <list>
 #include <map>
-#include <queue>
 #include <set>
 #include <stack>
 #include <string>
@@ -78,7 +75,7 @@
 #include "ord/Tech.h"
 #include "ord/Design.h"
 
-// Global-routing RC is controlled by the -use_gr_rc command-file option.
+// Parasitic refresh is supplied by the application session.
 #define NUM_VTS 3
 #define NUM_SIZES 10
 
@@ -864,6 +861,7 @@ class Circuit {
     Circuit(Sizer* sizer) : _sizer(sizer) {
     }
     ~Circuit() {
+        delete _ord_timing;
     }
 
     friend class Sizer;
@@ -878,19 +876,17 @@ class Circuit {
 
     void InitData();
     bool isDontUse(string master);
-    ord::Design* _ord_design;
-    ord::Timing* _ord_timing;
-    ord::Tech* _ord_tech;
+    ord::Design* _ord_design = nullptr;
+    ord::Timing* _ord_timing = nullptr;
+    ord::Tech* _ord_tech = nullptr;
 
    protected:
     void verilog_parser(string filename);
-    void sdc_converter(string filename);
-    void sdc_parser(string filename, unsigned mode = 0);
     void spef_parser(string filename, unsigned corner = 0);
-    void lib_parser(string filename, unsigned corner = 0);
+    void importLiberty(sta::LibertyLibrary* library, unsigned corner = 0);
     // OpenSTA
     void readDesign_opensta(sta::dbSta* _sta);
-    void init_opensta();
+
     void readSpef_opensta(sta::dbSta* _sta);
     void readSpefChangePinName(string& pin_name);
     sta::dbSta* _sta = nullptr;
@@ -954,21 +950,8 @@ class Circuit {
 
    private:
     // verilog
-    bool read_module(string& moduleName);
-    bool read_primary_input(string& primaryInput);
-    bool read_primary_output(string& primaryInput);
-    bool read_wire(string& wire);
-    bool read_cell_inst(string& cellType, string& cellInstName,
-                        vector< std::pair< string, string > >& pinNetPairs);
 
     // sdc
-    bool read_clock(string& clockName, string& clockPort, double& period);
-    bool read_input_delay(string& portName, double& delay);
-    bool read_driver_info(string& inPortName, string& driverSize,
-                          string& driverPin, double& inputTransitionFall,
-                          double& inputTransitionRise);
-    bool read_output_delay(string& portName, double& delay);
-    bool read_output_load(string& outPortName, double& load);
 
     // spec
     bool read_connections(vector< SpefConnection >& connections);

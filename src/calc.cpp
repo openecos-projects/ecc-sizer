@@ -1,3 +1,4 @@
+#include "utils.h"
 ///////////////////////////////////////////////////////////////////////////////
 // Authors: Hyein Lee and Jiajia Li
 //          (Ph.D. advisor: Andrew B. Kahng)
@@ -47,7 +48,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
-#include "sizer.h"
+#include "cell_sizing.h"
 #include "db_sta/dbNetwork.hh"
 double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
                         unsigned view, bool log) {
@@ -61,9 +62,9 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     if(TEST_MODE == "ALL_TEST") {
         tran_tot = tran_max = 0.0;
         T[view]->getTranVio(tran_tot, tran_max, tran_num);
-        printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", tran_num,
+        ecc::logPrintf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", tran_num,
                tran_max);
-        printf("Our slew violation :%f, OpenSTA slew violation: %f\n",
+        ecc::logPrintf("Our slew violation :%f, OpenSTA slew violation: %f\n",
                slew_violation, tran_tot);
     }
     if(!FIX_SLEW) {
@@ -100,9 +101,9 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
         double cap_tot, cap_max = 0;
         int cap_num = 0;
         T[view]->getCapVio(cap_tot, cap_max, cap_num);
-        printf("CAP VIOLATION cnt %d, cap_violation_wst %f\n", cap_num,
+        ecc::logPrintf("CAP VIOLATION cnt %d, cap_violation_wst %f\n", cap_num,
                cap_max);
-        printf("Our cap violation :%f, OpenSTA cap violation: %f\n",
+        ecc::logPrintf("Our cap violation :%f, OpenSTA cap violation: %f\n",
                cap_violation, cap_tot);
     }
     // exit(0);
@@ -113,33 +114,33 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
     // max_pt_err = CalcPTErrors(average_error, l2_norm);
     tot_violations = slew_violation + skew_violation + cap_violation;
     if(VERBOSE >= 1) {
-        cout << "--------------------------------------------" << endl;
-        cout << "Total Slack violation  : " << (-1) * skew_violation << "ns"
+        ecc::logInfo() << "--------------------------------------------" << endl;
+        ecc::logInfo() << "Total Slack violation  : " << (-1) * skew_violation << "ns"
              << endl;
-        cout << "--Max negative rslack  : " << max_neg_rslk << endl;
-        cout << "--Max negative fslack  : " << max_neg_fslk << endl;
-        cout << "--Max positive rslack  : " << max_pos_rslk << endl;
-        cout << "--Max positive rslack  : " << max_pos_rslk << endl;
+        ecc::logInfo() << "--Max negative rslack  : " << max_neg_rslk << endl;
+        ecc::logInfo() << "--Max negative fslack  : " << max_neg_fslk << endl;
+        ecc::logInfo() << "--Max positive rslack  : " << max_pos_rslk << endl;
+        ecc::logInfo() << "--Max positive rslack  : " << max_pos_rslk << endl;
         if(HOLD_CHECK) {
-            cout << "--Min negative (hold) rslack  : " << min_neg_rslk << endl;
-            cout << "--Min negative (hold) fslack  : " << min_neg_fslk << endl;
+            ecc::logInfo() << "--Min negative (hold) rslack  : " << min_neg_rslk << endl;
+            ecc::logInfo() << "--Min negative (hold) fslack  : " << min_neg_fslk << endl;
         }
-        cout << "Total Cap violation    : " << cap_violation << "fF" << endl;
-        cout << "Total Slew violation   : " << slew_violation << "ns ("
+        ecc::logInfo() << "Total Cap violation    : " << cap_violation << "fF" << endl;
+        ecc::logInfo() << "Total Slew violation   : " << slew_violation << "ns ("
              << maxTran[corner] << "ns) " << endl;
-        cout << "Total violations       : " << tot_violations << endl;
-        cout << "Total power            : " << power << "uW" << endl;
+        ecc::logInfo() << "Total violations       : " << tot_violations << endl;
+        ecc::logInfo() << "Total power            : " << power << "uW" << endl;
         if(CORR_PT && pt_err)
-            cout << "PT ERRORS  MAX : " << max_pt_err
+            ecc::logInfo() << "PT ERRORS  MAX : " << max_pt_err
                  << "\tAVG : " << average_error << "\tL2_NORM : " << l2_norm
                  << endl;
-        cout << "--------------------------------------------" << endl;
+        ecc::logInfo() << "--------------------------------------------" << endl;
     }
 
     if(log) {
         if(!rpt_power) {
             if(HOLD_CHECK)
-                cout << stage << " THREAD" << thread_id << "[view" << view
+                ecc::logInfo() << stage << " THREAD" << thread_id << "[view" << view
                      << "] "
                         "Violations(total/TNS/WNS/WNSMin/slew/cap/leakage/"
                         "numNS/slk_gb): "
@@ -150,7 +151,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
                      << power * 0.000001 << " " << skew_violation_cnt << " "
                      << GetGB(view) << endl;
             else
-                cout << stage << " THREAD" << thread_id << "[view" << view
+                ecc::logInfo() << stage << " THREAD" << thread_id << "[view" << view
                      << "] "
                         "Violations(total/TNS/WNS/slew/cap/leakage/numNS/"
                         "slk_gb): "
@@ -165,7 +166,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
             double int_leak_power = 0.0;
             int_leak_power = T[view]->getLeakPower();
             if(HOLD_CHECK)
-                cout << stage << " THREAD" << thread_id
+                ecc::logInfo() << stage << " THREAD" << thread_id
                      << " Violations(total/TNS/WNS/WNSMin/slew/cap/power/leak/"
                         "numNS/slk_gb): "
                      << tot_violations << " " << ((double)-1.0) * skew_violation
@@ -175,7 +176,7 @@ double Sizer::CalcStats(unsigned thread_id, bool rpt_power, string stage,
                      << power * 0.000001 << " " << int_leak_power << " "
                      << skew_violation_cnt << " " << GetGB(view) << endl;
             else
-                cout << stage << " THREAD" << thread_id << " VIEW" << view
+                ecc::logInfo() << stage << " THREAD" << thread_id << " VIEW" << view
                      << " Violations(total/TNS/WNS/slew/cap/power/leak/numNS/"
                         "slk_gb): "
                      << tot_violations << " " << ((double)-1.0) * skew_violation
@@ -255,7 +256,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
                pins[view][curpin].name == "clk" ||
                pins[view][curpin].owner == UINT_MAX) {
                 continue;
-                // printf("Pin name %s\n", pins[view][curpin].name.c_str());
+                // ecc::logPrintf("Pin name %s\n", pins[view][curpin].name.c_str());
             }
             string name = cells[i].name;
             string pin_name = getFullPinName(pins[view][curpin]);
@@ -267,7 +268,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
             //        pin_->getNet()->getSigType() != "GROUND" &&
             //        pin_->getNet()->getSigType() != "CLOCK");
             // if(pins[view][curpin].max_tran == 0) {
-            //     printf("Pin name %s max_tran %f\n",
+            //     ecc::logPrintf("Pin name %s max_tran %f\n",
             //            pins[view][curpin].name.c_str(),
             //            pins[view][curpin].max_tran);
             // }
@@ -340,7 +341,7 @@ double Sizer::CalcSlewViolation(unsigned view) {
                                     nets[corner][net_id].outpins[j];
                                 loadCap += pins[view][fopin].cap;
                             }
-                            // std::cout << "Too large PI net name: "
+                            // ecc::logInfo() << "Too large PI net name: "
                             //           << nets[view][net_id].name << " net cap
                             //           "
                             //           << nets[corner][net_id].cap << "load
@@ -379,9 +380,9 @@ double Sizer::CalcSlewViolation(unsigned view) {
             max(slew_violation_wst, slew_max - pins[view][curpin].max_tran);
     }
 #endif
-    printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
+    ecc::logPrintf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
            slew_violation_wst);
-    printf("Minimum slew_bound %f\n", slew_bound);
+    ecc::logPrintf("Minimum slew_bound %f\n", slew_bound);
     return slew_viol;
 }
 
@@ -403,7 +404,7 @@ double Sizer::showAllSlew(unsigned view, string filename) {
            pins[view][curpin].name == "clk" ||
            pins[view][curpin].owner == UINT_MAX) {
             continue;
-            // printf("Pin name %s\n", pins[view][curpin].name.c_str());
+            // ecc::logPrintf("Pin name %s\n", pins[view][curpin].name.c_str());
         }
         // string name = cells[i].name;
         string pin_name = getFullPinName(pins[view][curpin]);
@@ -481,9 +482,9 @@ double Sizer::showAllSlew(unsigned view, string filename) {
         }
     }
     ofs.close();
-    printf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
+    ecc::logPrintf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
            slew_violation_wst);
-    printf("Minimum slew_bound %f\n", slew_bound);
+    ecc::logPrintf("Minimum slew_bound %f\n", slew_bound);
     return slew_viol;
 }
 double Sizer::CalcSlackViolation(unsigned view) {
@@ -507,7 +508,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
 
         for(unsigned j = 0; j < cells[FFs[i]].inpins.size(); ++j) {
             unsigned curpin = cells[FFs[i]].inpins[j];
-            // cout << "CALC SLACK -- " << cells[FFs[i]].name << endl;
+            // ecc::logInfo() << "CALC SLACK -- " << cells[FFs[i]].name << endl;
 
             if(curpin == UINT_MAX) {
                 continue;
@@ -533,7 +534,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
                 min(pins[view][curpin].rslk, pins[view][curpin].fslk);
 
             if(slack < 0.0) {
-                // cout << "TNS UPDATE " <<
+                // ecc::logInfo() << "TNS UPDATE " <<
                 // getFullPinName(pins[view][curpin])
                 // << " " << slack << endl;
                 slack_viol += slack;
@@ -556,7 +557,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
             max_pos_rslk = max(max_pos_rslk, pins[view][curpin].rslk);
             max_pos_fslk = max(max_pos_fslk, pins[view][curpin].fslk);
             if(VERBOSE >= 4) {
-                cout << "TIMING END POINT CHECK: "
+                ecc::logInfo() << "TIMING END POINT CHECK: "
                      << getFullPinName(pins[view][curpin]) << " "
                      << pins[view][curpin].rslk << "/"
                      << pins[view][curpin].fslk << endl;
@@ -566,14 +567,14 @@ double Sizer::CalcSlackViolation(unsigned view) {
 
     for(unsigned i = 0; i < POs.size(); i++) {
         unsigned curpin = POs[i];
-        // cout << pins[view][curpin].name << endl;
+        // ecc::logInfo() << pins[view][curpin].name << endl;
         if(curpin == UINT_MAX) {
             continue;
         }
 
         double slack = min(pins[view][curpin].rslk, pins[view][curpin].fslk);
         if(slack < 0.0) {
-            // cout << "TNS UPDATE " << getFullPinName(pins[view][curpin])
+            // ecc::logInfo() << "TNS UPDATE " << getFullPinName(pins[view][curpin])
             // << " " << slack << endl;
             slack_viol += slack;
         }
@@ -608,7 +609,7 @@ double Sizer::CalcSlackViolation(unsigned view) {
         max_pos_rslk = max(max_pos_rslk, pins[view][curpin].rslk);
         max_pos_fslk = max(max_pos_fslk, pins[view][curpin].fslk);
         if(VERBOSE >= 4) {
-            cout << "TIMING END POINT CHECK: "
+            ecc::logInfo() << "TIMING END POINT CHECK: "
                  << getFullPinName(pins[view][curpin]) << " "
                  << pins[view][curpin].rslk << "/" << pins[view][curpin].fslk
                  << endl;
@@ -665,7 +666,7 @@ void Sizer::UpdateCapsFromCells() {
                     assert(pins[view][input_j].cap < 1e31);
                     // Pin capacitance when the pin is used as an input pin
                 }
-                // cout << "CAP CHECK: " << view << " " <<
+                // ecc::logInfo() << "CAP CHECK: " << view << " " <<
                 // getFullPinName(pins[view][cells[i].inpins[j]]) << " "  <<
                 // pins[view][cells[i].inpins[j]].cap << endl;
             }
@@ -736,7 +737,7 @@ double Sizer::CalcCapViolation(unsigned view) {
                 // pin_->getC
                 assert(pins[view][nets[corner][outnet].outpins[j]].cap < 1e31);
                 // if(loadCap > 2 * 1e31) {
-                //     cout << "TOT CAP CHECK: " << view << " " << endl;
+                //     ecc::logInfo() << "TOT CAP CHECK: " << view << " " << endl;
                 // }
             }
             if(TEST_MODE == "ALL_TEST") {
@@ -751,14 +752,14 @@ double Sizer::CalcCapViolation(unsigned view) {
                 sta::dbSta* sta = _ckt->_ord_timing->getSta();
                 sta::Net* sta_net = sta->getDbNetwork()->dbToSta(ord_net);
                 if(!pin_) {
-                    printf("Error pin %s not found\n", pin_name.c_str());
+                    ecc::logPrintf("Error pin %s not found\n", pin_name.c_str());
                     continue;
                 }
                 if(!(pin_->getNet() &&
                      pin_->getNet()->getSigType() != "POWER" &&
                      pin_->getNet()->getSigType() != "GROUND" &&
                      pin_->getNet()->getSigType() != "CLOCK")) {
-                    printf("Error pin %s, Net %s, type %s, is vdd/clk/gnd\n",
+                    ecc::logPrintf("Error pin %s, Net %s, type %s, is vdd/clk/gnd\n",
                            pin_name.c_str(), pin_->getNet()->getName().c_str(),
                            pin_->getNet()->getSigType().getString());
                     continue;
@@ -781,18 +782,18 @@ double Sizer::CalcCapViolation(unsigned view) {
                     _ckt->_ord_timing->getMaxCapLimit(pin_->getMTerm()) /
                     cap_unit;
                 if(!isEqual(nets[corner][outnet].cap, wire_cap2)) {
-                    // printf("Net %s, wire cap not equal %f, %f\n",
+                    // ecc::logPrintf("Net %s, wire cap not equal %f, %f\n",
                     //        netNameStr.c_str(), nets[corner][outnet].cap,
                     //        wire_cap2);
                     // diff_cap++;
                 }
                 if(fabs(pin_cap2 - loadCap) > 0.05) {
-                    // printf("Pin name %s, pin cap not equal %f, %f\n",
+                    // ecc::logPrintf("Pin name %s, pin cap not equal %f, %f\n",
                     //        pin_name.c_str(), loadCap, pin_cap2);
                     // diff_cap++;
                 }
                 if(!isEqual(maxCap, cap_limit)) {
-                    // printf("Pin name %s, CapLimit not equal %f, %f\n",
+                    // ecc::logPrintf("Pin name %s, CapLimit not equal %f, %f\n",
                     //        pin_name.c_str(), cap_limit, maxCap);
                     // diff_cap++;
                 }
@@ -804,7 +805,7 @@ double Sizer::CalcCapViolation(unsigned view) {
             cap_violation_wst = max(
                 cap_violation_wst, nets[corner][outnet].cap + loadCap - maxCap);
             if(cap_violation_wst > 2 * 1e31) {
-                cout << "TOT CAP CHECK: " << view << " " << endl;
+                ecc::logInfo() << "TOT CAP CHECK: " << view << " " << endl;
             }
             pins[view][cells[i].outpins[k]].totcap =
                 nets[corner][outnet].cap + loadCap;
@@ -835,17 +836,17 @@ double Sizer::CalcCapViolation(unsigned view) {
             max(cap_violation_wst, nets[corner][outnet].cap + loadCap - maxCap);
         pins[view][PIs[i]].totcap = nets[corner][outnet].cap + loadCap;
         if(cap_violation_wst > 2 * 1e31) {
-            cout << "TOT CAP CHECK: " << view << " "
+            ecc::logInfo() << "TOT CAP CHECK: " << view << " "
                  << getFullPinName(pins[view][PIs[i]]) << " "
                  << pins[view][PIs[i]].totcap << endl;
         }
-        // cout << "TOT CAP CHECK: " << view << " " <<
+        // ecc::logInfo() << "TOT CAP CHECK: " << view << " " <<
         // getFullPinName(pins[view][PIs[i]]) << " "  <<
         // pins[view][PIs[i]].totcap << endl;
     }
 #endif
     // has a bug cap_violation_wst
-    printf("CAP VIOLATION cnt %d, cap_violation_wst %f\n", cap_violation_cnt,
+    ecc::logPrintf("CAP VIOLATION cnt %d, cap_violation_wst %f\n", cap_violation_cnt,
            cap_violation_wst);
     return cap_viol;
 }

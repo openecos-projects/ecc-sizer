@@ -12,23 +12,22 @@
 #include <utility>
 
 namespace ecc {
-namespace {
-std::string trim(const std::string& text) {
+static std::string trim(const std::string& text) {
     const auto begin = text.find_first_not_of(" \t\r\n");
     if(begin == std::string::npos)
         return {};
     return text.substr(begin, text.find_last_not_of(" \t\r\n") - begin + 1);
 }
-void require(bool valid, const std::string& key) {
+static void require(bool valid, const std::string& key) {
     if(!valid)
         throw std::invalid_argument("invalid repair configuration: " + key);
 }
-bool boolean(const std::string& value) {
+static bool boolean(const std::string& value) {
     require(value == "true" || value == "false",
             "expected true/false: " + value);
     return value == "true";
 }
-unsigned count(const std::string& value) {
+static unsigned count(const std::string& value) {
     require(!value.empty() &&
                 value.find_first_not_of("0123456789") == std::string::npos,
             value);
@@ -36,13 +35,14 @@ unsigned count(const std::string& value) {
     require(number <= unsigned(std::numeric_limits< int >::max()), value);
     return static_cast< unsigned >(number);
 }
-double real(const std::string& value) {
+static double real(const std::string& value) {
     size_t used = 0;
     const double number = std::stod(value, &used);
     require(used == value.size() && std::isfinite(number), value);
     return number;
 }
-std::pair< std::string, std::string > assignment(const std::string& text) {
+static std::pair< std::string, std::string > assignment(
+    const std::string& text) {
     const auto split = text.find('=');
     require(split != std::string::npos, "expected key=value: " + text);
     const auto key = trim(text.substr(0, split)),
@@ -50,11 +50,6 @@ std::pair< std::string, std::string > assignment(const std::string& text) {
     require(!key.empty() && !value.empty(), "expected key=value: " + text);
     return {key, value};
 }
-bool noExtra(std::istringstream& input) {
-    std::string extra;
-    return !(input >> extra) || extra.front() == '#';
-}
-}  // namespace
 
 void RepairCommonOptions::validate() const {
     require(vt_suffixes.empty() || vt_suffixes.size() >= 2,
@@ -102,8 +97,7 @@ void RepairCommonOptions::validate() const {
 }
 void DesignRepairOptions::validate() const {
     RepairCommonOptions::validate();
-    require(ord_driver_batch_size > 0,
-            "design.ord_driver_batch_size > 0");
+    require(ord_driver_batch_size > 0, "design.ord_driver_batch_size > 0");
 }
 void SetupRepairSettings::validate() const {
     require(max_path_ends > 0 &&
@@ -123,31 +117,32 @@ void SetupRepairSettings::validate() const {
             "setup.max_area_growth >= 0");
     require(std::isfinite(min_improvement) && min_improvement > 0,
             "setup.min_improvement_ns > 0");
-    require(path_buffer_max_paths > 0, "setup.path_buffer_max_paths > 0");
-    require(path_buffer_max_candidates > 0,
-            "setup.path_buffer_max_candidates > 0");
-    require(path_buffer_batch_size > 0,
-            "setup.path_buffer_batch_size > 0");
-    require(path_buffer_strategy == "sequential" || path_buffer_strategy == "path_gain" ||
-                path_buffer_strategy == "feedback",
-            "setup.path_buffer_strategy must be sequential, path_gain or feedback");
-    require(path_buffer_gain_scope == "global" || path_buffer_gain_scope == "current_global" ||
-                path_buffer_gain_scope == "endpoints",
-            "setup.path_buffer_gain_scope must be global, current_global or endpoints");
-    require(path_buffer_placement == "trial" || path_buffer_placement == "final",
-            "setup.path_buffer_placement must be trial or final");
-    require(path_buffer_verification == "trial" || path_buffer_verification == "final",
-            "setup.path_buffer_verification must be trial or final");
-    require(std::isfinite(path_buffer_min_relative_improvement) &&
-                path_buffer_min_relative_improvement >= 0 &&
-                path_buffer_min_relative_improvement <= 1,
-            "setup.path_buffer_min_relative_improvement in [0,1]");
-    require(std::isfinite(path_buffer_max_seconds) && path_buffer_max_seconds >= 0,
-            "setup.path_buffer_max_seconds >= 0");
-    require(std::isfinite(path_buffer_max_area_growth) &&
-                (path_buffer_max_area_growth >= 0 ||
-                 path_buffer_max_area_growth == -1),
-            "setup.path_buffer_max_area_growth >= 0 or -1 (unlimited)");
+}
+void PathRepairSettings::validate() const {
+    require(paths_per_endpoint > 0, "path.paths_per_endpoint > 0");
+    require(std::isfinite(min_improvement) && min_improvement > 0,
+            "path.min_improvement_ns > 0");
+    require(max_paths > 0, "path.max_paths > 0");
+    require(max_candidates > 0, "path.max_candidates > 0");
+    require(batch_size > 0, "path.batch_size > 0");
+    require(strategy == "sequential" || strategy == "path_gain" ||
+                strategy == "feedback",
+            "path.strategy must be sequential, path_gain or feedback");
+    require(gain_scope == "global" || gain_scope == "current_global" ||
+                gain_scope == "endpoints",
+            "path.gain_scope must be global, current_global or endpoints");
+    require(placement == "trial" || placement == "final",
+            "path.placement must be trial or final");
+    require(verification == "trial" || verification == "final",
+            "path.verification must be trial or final");
+    require(std::isfinite(min_relative_improvement) &&
+                min_relative_improvement >= 0 && min_relative_improvement <= 1,
+            "path.min_relative_improvement in [0,1]");
+    require(std::isfinite(max_seconds) && max_seconds >= 0,
+            "path.max_seconds >= 0");
+    require(std::isfinite(max_area_growth) &&
+                (max_area_growth >= 0 || max_area_growth == -1),
+            "path.max_area_growth >= 0 or -1 (unlimited)");
 }
 void SetupRepairOptions::validate() const {
     common.validate();
@@ -156,6 +151,16 @@ void SetupRepairOptions::validate() const {
 SetupRepairOptions RepairConfig::setupOptions() const {
     SetupRepairOptions result;
     static_cast< SetupRepairSettings& >(result) = setup;
+    result.common = design;
+    return result;
+}
+void PathRepairOptions::validate() const {
+    common.validate();
+    PathRepairSettings::validate();
+}
+PathRepairOptions RepairConfig::pathOptions() const {
+    PathRepairOptions result;
+    static_cast< PathRepairSettings& >(result) = path;
     result.common = design;
     return result;
 }
@@ -183,10 +188,8 @@ void PowerRepairOptions::validate() const {
 void VgRepairSettings::validate() const {
     require(scope == "drv" || scope == "setup", "vg.scope: drv or setup");
     require(cuda_max_memory_mb > 0, "vg.cuda_max_memory_mb > 0");
-    require(backend == "cpu" || backend == "cuda",
-            "vg.backend: cpu or cuda");
-    require(std::isfinite(min_gain) && min_gain >= 0,
-            "vg.min_gain >= 0");
+    require(backend == "cpu" || backend == "cuda", "vg.backend: cpu or cuda");
+    require(std::isfinite(min_gain) && min_gain >= 0, "vg.min_gain >= 0");
     require(max_group_loads == 0 || max_group_loads >= 2,
             "vg.max_group_loads is zero or >= 2");
 }
@@ -199,37 +202,13 @@ PowerRepairOptions RepairConfig::powerOptions() const {
     result.common = design;
     return result;
 }
-void PbbiRepairSettings::validate() const {
-    require(objective == "timing" || objective == "area", "pbbi.objective must be timing or area");
-    require(std::isfinite(target_wns) && target_wns <= 0, "pbbi.target_wns_ns must be finite and <= 0");
-    require(!target_tns || (std::isfinite(*target_tns) && *target_tns <= 0), "pbbi.target_tns_ns must be finite and <= 0, or none");
-    require(objective != "area" || candidate_electrical_check, "pbbi.objective=area requires candidate_electrical_check");
-    require(scope == "path" || scope == "net", "pbbi.scope must be path or net");
-    require(scheduler == "sequential" || scheduler == "global" || scheduler == "adaptive", "pbbi.scheduler must be sequential, global or adaptive");
-    require(scheduler_window > 0, "pbbi.scheduler_window > 0");
-    require(slew_samples >= 2, "pbbi.slew_samples >= 2");
-    require(max_paths > 0, "pbbi.max_paths > 0");
-    require(paths_per_endpoint > 0, "pbbi.paths_per_endpoint > 0");
-    require(std::isfinite(max_seconds) && max_seconds >= 0, "pbbi.max_seconds >= 0");
-    require(std::isfinite(max_area_growth) && max_area_growth >= 0, "pbbi.max_area_growth >= 0");
-    require(std::isfinite(min_improvement) && min_improvement >= 0, "pbbi.min_improvement_ns >= 0");
-}
-void PbbiRepairOptions::validate() const { PbbiRepairSettings::validate(); common.validate(); }
-PbbiRepairOptions RepairConfig::pbbiOptions() const {
-    PbbiRepairOptions result;
-    static_cast<PbbiRepairSettings&>(result) = pbbi;
-    result.common = design;
-    return result;
-}
 void RepairConfig::validate() const {
     design.validate();
     setup.validate();
+    path.validate();
     power.validate();
     vg.validate();
     gobi.validate();
-    pbbi.validate();
-    require(!(pbbi.enabled && (setup.path_buffer_enabled || setup.path_buffer_only)),
-            "pbbi and path_buffer are separate setup algorithms");
     require(sta_threads > 0 &&
                 sta_threads <= unsigned(std::numeric_limits< int >::max()),
             "runtime.sta_threads > 0");
@@ -239,6 +218,7 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
     auto next = *this;
     auto& d = next.design;
     auto& s = next.setup;
+    auto& path = next.path;
     auto& p = next.power;
     auto& g = next.gobi;
     auto& t = d.tolerances;
@@ -268,8 +248,6 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
                     "common.vt_suffixes: empty trailing suffix");
         }
     }
-    else if(key == "power.enabled")
-        p.enabled = boolean(value);
     else if(key == "power.objective")
         p.objective = value;
     else if(key == "power.max_passes")
@@ -324,6 +302,12 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         d.max_inserted_buffers = count(value);
     else if(key == "design.ord_driver_batch_size")
         d.ord_driver_batch_size = count(value);
+    else if(key == "path.paths_per_endpoint")
+        path.paths_per_endpoint = count(value);
+    else if(key == "path.min_improvement_ns")
+        path.min_improvement = real(value) * 1e-9;
+    else if(key == "path.defer_rollback_refresh")
+        path.defer_rollback_refresh = boolean(value);
     else if(key == "setup.max_passes")
         s.max_passes = count(value);
     else if(key == "setup.skip_duplicate_trials")
@@ -350,134 +334,60 @@ void RepairConfig::set(const std::string& key, const std::string& value) {
         s.max_area_growth = real(value);
     else if(key == "setup.min_improvement_ns")
         s.min_improvement = real(value) * 1e-9;
-    else if(key == "pbbi.incremental_placement")
-        next.pbbi.incremental_placement = boolean(value);
-    else if(key == "pbbi.placement_feedback")
-        next.pbbi.placement_feedback = boolean(value);
-    else if(key == "pbbi.scope")
-        next.pbbi.scope = value;
-    else if(key == "pbbi.objective")
-        next.pbbi.objective = value;
-    else if(key == "pbbi.target_wns_ns")
-        next.pbbi.target_wns = real(value) * 1e-9;
-    else if(key == "pbbi.target_tns_ns") {
-        if(value == "none") next.pbbi.target_tns.reset();
-        else next.pbbi.target_tns = real(value) * 1e-9;
-    }
-    else if(key == "pbbi.scheduler")
-        next.pbbi.scheduler = value;
-    else if(key == "pbbi.scheduler_window")
-        next.pbbi.scheduler_window = count(value);
-    else if(key == "pbbi.path_cache")
-        next.pbbi.path_cache = boolean(value);
-    else if(key == "pbbi.forecast_cache")
-        next.pbbi.forecast_cache = boolean(value);
-    else if(key == "pbbi.candidate_electrical_check")
-        next.pbbi.candidate_electrical_check = boolean(value);
-    else if(key == "pbbi.operating_point_pruning")
-        next.pbbi.operating_point_pruning = boolean(value);
-    else if(key == "pbbi.failure_feedback")
-        next.pbbi.failure_feedback = boolean(value);
-    else if(key == "pbbi.pin_diagnostics")
-        next.pbbi.pin_diagnostics = boolean(value);
-    else if(key == "pbbi.buffer_aware_timing")
-        next.pbbi.buffer_aware_timing = boolean(value);
-    else if(key == "pbbi.slew_propagation")
-        next.pbbi.slew_propagation = boolean(value);
-    else if(key == "pbbi.slew_cache_entries")
-        next.pbbi.slew_cache_entries = count(value);
-    else if(key == "pbbi.slew_samples")
-        next.pbbi.slew_samples = count(value);
-    else if(key == "pbbi.timing_max_frontier_states")
-        next.pbbi.timing_max_frontier_states = count(value);
-    else if(key == "pbbi.timing_max_expansions")
-        next.pbbi.timing_max_expansions = count(value);
-    else if(key == "pbbi.enabled")
-        next.pbbi.enabled = boolean(value);
-    else if(key == "pbbi.gate_sizing")
-        next.pbbi.gate_sizing = boolean(value);
-    else if(key == "pbbi.sink_sizing")
-        next.pbbi.sink_sizing = boolean(value);
-    else if(key == "pbbi.max_paths")
-        next.pbbi.max_paths = count(value);
-    else if(key == "pbbi.paths_per_endpoint")
-        next.pbbi.paths_per_endpoint = count(value);
-    else if(key == "pbbi.max_trials")
-        next.pbbi.max_trials = count(value);
-    else if(key == "pbbi.max_frontier_states")
-        next.pbbi.max_frontier_states = count(value);
-    else if(key == "pbbi.max_expansions")
-        next.pbbi.max_expansions = count(value);
-    else if(key == "pbbi.max_inserted_buffers")
-        next.pbbi.max_inserted_buffers = count(value);
-    else if(key == "pbbi.max_refreshes")
-        next.pbbi.max_refreshes = count(value);
-    else if(key == "pbbi.max_seconds")
-        next.pbbi.max_seconds = real(value);
-    else if(key == "pbbi.max_area_growth")
-        next.pbbi.max_area_growth = real(value);
-    else if(key == "pbbi.min_improvement_ns")
-        next.pbbi.min_improvement = real(value) * 1e-9;
-    else if(key == "pbbi.defer_rollback_refresh")
-        next.pbbi.defer_rollback_refresh = boolean(value);
-    else if(key == "setup.path_buffer_enabled")
-        s.path_buffer_enabled = boolean(value);
-    else if(key == "setup.path_buffer_only")
-        s.path_buffer_only = boolean(value);
-    else if(key == "setup.path_buffer_recovery")
-        s.path_buffer_recovery = boolean(value);
-    else if(key == "setup.path_buffer_tree_candidates")
-        s.path_buffer_tree_candidates = boolean(value);
-    else if(key == "setup.path_buffer_gain_scope")
-        s.path_buffer_gain_scope = value;
-    else if(key == "setup.path_buffer_fanout_repair")
-        s.path_buffer_fanout_repair = boolean(value);
-    else if(key == "setup.path_buffer_strategy")
-        s.path_buffer_strategy = value;
-    else if(key == "setup.path_buffer_failure_cache")
-        s.path_buffer_failure_cache = boolean(value);
-    else if(key == "setup.path_buffer_adaptive_search")
-        s.path_buffer_adaptive_search = boolean(value);
-    else if(key == "setup.path_buffer_timing_precheck")
-        s.path_buffer_timing_precheck = boolean(value);
-    else if(key == "setup.path_buffer_calibrate")
-        s.path_buffer_calibrate = boolean(value);
-    else if(key == "setup.path_buffer_diversify")
-        s.path_buffer_diversify = boolean(value);
-    else if(key == "setup.path_buffer_endpoint_coverage")
-        s.path_buffer_endpoint_coverage = boolean(value);
-    else if(key == "setup.path_buffer_group_schedule")
-        s.path_buffer_group_schedule = boolean(value);
-    else if(key == "setup.path_buffer_incremental_parasitics")
-        s.path_buffer_incremental_parasitics = boolean(value);
-    else if(key == "setup.path_buffer_incremental_analysis")
-        s.path_buffer_incremental_analysis = boolean(value);
-    else if(key == "setup.path_buffer_reuse_rejections")
-        s.path_buffer_reuse_rejections = boolean(value);
-    else if(key == "setup.path_buffer_placement")
-        s.path_buffer_placement = value;
-    else if(key == "setup.path_buffer_verification")
-        s.path_buffer_verification = value;
-    else if(key == "setup.path_buffer_min_relative_improvement")
-        s.path_buffer_min_relative_improvement = real(value);
-    else if(key == "setup.path_buffer_max_seconds")
-        s.path_buffer_max_seconds = real(value);
-    else if(key == "setup.path_buffer_max_refreshes")
-        s.path_buffer_max_refreshes = count(value);
-    else if(key == "setup.path_buffer_max_paths")
-        s.path_buffer_max_paths = count(value);
-    else if(key == "setup.path_buffer_max_candidates")
-        s.path_buffer_max_candidates = count(value);
-    else if(key == "setup.path_buffer_max_trials")
-        s.path_buffer_max_trials = count(value);
-    else if(key == "setup.path_buffer_max_consecutive_rejections")
-        s.path_buffer_max_consecutive_rejections = count(value);
-    else if(key == "setup.path_buffer_batch_size")
-        s.path_buffer_batch_size = count(value);
-    else if(key == "setup.path_buffer_max_inserted_buffers")
-        s.path_buffer_max_inserted_buffers = count(value);
-    else if(key == "setup.path_buffer_max_area_growth")
-        s.path_buffer_max_area_growth = real(value);
+    else if(key == "path.recovery")
+        path.recovery = boolean(value);
+    else if(key == "path.tree_candidates")
+        path.tree_candidates = boolean(value);
+    else if(key == "path.gain_scope")
+        path.gain_scope = value;
+    else if(key == "path.fanout_repair")
+        path.fanout_repair = boolean(value);
+    else if(key == "path.strategy")
+        path.strategy = value;
+    else if(key == "path.failure_cache")
+        path.failure_cache = boolean(value);
+    else if(key == "path.adaptive_search")
+        path.adaptive_search = boolean(value);
+    else if(key == "path.timing_precheck")
+        path.timing_precheck = boolean(value);
+    else if(key == "path.calibrate")
+        path.calibrate = boolean(value);
+    else if(key == "path.diversify")
+        path.diversify = boolean(value);
+    else if(key == "path.endpoint_coverage")
+        path.endpoint_coverage = boolean(value);
+    else if(key == "path.group_schedule")
+        path.group_schedule = boolean(value);
+    else if(key == "path.incremental_parasitics")
+        path.incremental_parasitics = boolean(value);
+    else if(key == "path.incremental_analysis")
+        path.incremental_analysis = boolean(value);
+    else if(key == "path.reuse_rejections")
+        path.reuse_rejections = boolean(value);
+    else if(key == "path.placement")
+        path.placement = value;
+    else if(key == "path.verification")
+        path.verification = value;
+    else if(key == "path.min_relative_improvement")
+        path.min_relative_improvement = real(value);
+    else if(key == "path.max_seconds")
+        path.max_seconds = real(value);
+    else if(key == "path.max_refreshes")
+        path.max_refreshes = count(value);
+    else if(key == "path.max_paths")
+        path.max_paths = count(value);
+    else if(key == "path.max_candidates")
+        path.max_candidates = count(value);
+    else if(key == "path.max_trials")
+        path.max_trials = count(value);
+    else if(key == "path.max_consecutive_rejections")
+        path.max_consecutive_rejections = count(value);
+    else if(key == "path.batch_size")
+        path.batch_size = count(value);
+    else if(key == "path.max_inserted_buffers")
+        path.max_inserted_buffers = count(value);
+    else if(key == "path.max_area_growth")
+        path.max_area_growth = real(value);
     else if(key == "tolerances.wns_absolute_ns")
         t.wns_absolute = real(value) * 1e-9;
     else if(key == "tolerances.tns_absolute_ns")
@@ -507,8 +417,8 @@ void RepairConfig::read(std::istream& input, const std::string& source) {
                 section = trim(line.substr(1, line.size() - 2));
                 require(section == "common" || section == "design" ||
                             section == "setup" || section == "power" ||
-                            section == "vg" || section == "gobi" || section == "tolerances" ||
-                            section == "runtime",
+                            section == "vg" || section == "gobi" ||
+                            section == "tolerances" || section == "runtime",
                         "unknown section " + section);
                 continue;
             }
@@ -537,46 +447,9 @@ void RepairConfig::write(std::ostream& output) const {
     // trip.
     std::ostringstream text;
     text << std::setprecision(std::numeric_limits< double >::max_digits10);
-    text << "pbbi.candidate_electrical_check=" << (pbbi.candidate_electrical_check ? "true" : "false") << '\n';
-    text << "pbbi.operating_point_pruning=" << (pbbi.operating_point_pruning ? "true" : "false") << '\n';
-    text << "pbbi.failure_feedback=" << (pbbi.failure_feedback ? "true" : "false") << '\n';
-    text << "pbbi.scope=" << pbbi.scope << '\n';
-    text << "pbbi.objective=" << pbbi.objective << '\n';
-    text << "pbbi.target_wns_ns=" << pbbi.target_wns * 1e9 << '\n';
-    text << "pbbi.target_tns_ns=";
-    if(pbbi.target_tns) text << *pbbi.target_tns * 1e9;
-    else text << "none";
-    text << '\n';
-    text << "pbbi.scheduler=" << pbbi.scheduler << '\n';
-    text << "pbbi.incremental_placement=" << (pbbi.incremental_placement ? "true" : "false") << '\n';
-    text << "pbbi.placement_feedback=" << (pbbi.placement_feedback ? "true" : "false") << '\n';
-    text << "pbbi.scheduler_window=" << pbbi.scheduler_window << '\n';
-    text << "pbbi.path_cache=" << (pbbi.path_cache ? "true" : "false") << '\n';
-    text << "pbbi.forecast_cache=" << (pbbi.forecast_cache ? "true" : "false") << '\n';
-    text << "pbbi.pin_diagnostics=" << (pbbi.pin_diagnostics ? "true" : "false") << '\n';
-    text << "pbbi.buffer_aware_timing=" << (pbbi.buffer_aware_timing ? "true" : "false") << '\n';
-    text << "pbbi.slew_propagation=" << (pbbi.slew_propagation ? "true" : "false") << '\n';
-    text << "pbbi.slew_cache_entries=" << pbbi.slew_cache_entries << '\n';
-    text << "pbbi.slew_samples=" << pbbi.slew_samples << '\n';
-    text << "pbbi.timing_max_frontier_states=" << pbbi.timing_max_frontier_states << '\n';
-    text << "pbbi.timing_max_expansions=" << pbbi.timing_max_expansions << '\n';
-    text << "pbbi.enabled=" << (pbbi.enabled ? "true" : "false") << '\n';
-    text << "pbbi.gate_sizing=" << (pbbi.gate_sizing ? "true" : "false") << '\n';
-    text << "pbbi.sink_sizing=" << (pbbi.sink_sizing ? "true" : "false") << '\n';
-    text << "pbbi.max_paths=" << pbbi.max_paths << '\n';
-    text << "pbbi.paths_per_endpoint=" << pbbi.paths_per_endpoint << '\n';
-    text << "pbbi.max_trials=" << pbbi.max_trials << '\n';
-    text << "pbbi.max_frontier_states=" << pbbi.max_frontier_states << '\n';
-    text << "pbbi.max_expansions=" << pbbi.max_expansions << '\n';
-    text << "pbbi.max_inserted_buffers=" << pbbi.max_inserted_buffers << '\n';
-    text << "pbbi.max_refreshes=" << pbbi.max_refreshes << '\n';
-    text << "pbbi.max_seconds=" << pbbi.max_seconds << '\n';
-    text << "pbbi.max_area_growth=" << pbbi.max_area_growth << '\n';
-    text << "pbbi.min_improvement_ns=" << pbbi.min_improvement * 1e9 << '\n';
-    text << "pbbi.defer_rollback_refresh=" << (pbbi.defer_rollback_refresh ? "true" : "false") << '\n';
-
     const auto& d = design;
     const auto& s = setup;
+    const auto& path = this->path;
     const auto& t = d.tolerances;
     text << "common.max_fanout=" << d.max_fanout << '\n'
          << "common.margin=" << d.margin << '\n'
@@ -611,44 +484,45 @@ void RepairConfig::write(std::ostream& output) const {
          << "setup.max_area_growth=" << s.max_area_growth << '\n'
          << "setup.min_improvement_ns=" << double(s.min_improvement) * 1e9
          << '\n'
-         << "setup.path_buffer_enabled="
-         << (s.path_buffer_enabled ? "true" : "false") << '\n'
-         << "setup.path_buffer_only="
-         << (s.path_buffer_only ? "true" : "false") << '\n'
-         << "setup.path_buffer_recovery=" << (s.path_buffer_recovery ? "true" : "false") << '\n'
-         << "setup.path_buffer_tree_candidates=" << (s.path_buffer_tree_candidates ? "true" : "false") << '\n'
-         << "setup.path_buffer_gain_scope=" << s.path_buffer_gain_scope << '\n'
-         << "setup.path_buffer_fanout_repair="
-         << (s.path_buffer_fanout_repair ? "true" : "false") << '\n'
-         << "setup.path_buffer_strategy=" << s.path_buffer_strategy << '\n'
-         << "setup.path_buffer_failure_cache=" << (s.path_buffer_failure_cache ? "true" : "false") << '\n'
-         << "setup.path_buffer_adaptive_search=" << (s.path_buffer_adaptive_search ? "true" : "false") << '\n'
-         << "setup.path_buffer_timing_precheck=" << (s.path_buffer_timing_precheck ? "true" : "false") << '\n'
-         << "setup.path_buffer_calibrate=" << (s.path_buffer_calibrate ? "true" : "false") << '\n'
-         << "setup.path_buffer_diversify=" << (s.path_buffer_diversify ? "true" : "false") << '\n'
-         << "setup.path_buffer_endpoint_coverage=" << (s.path_buffer_endpoint_coverage ? "true" : "false") << '\n'
-         << "setup.path_buffer_group_schedule=" << (s.path_buffer_group_schedule ? "true" : "false") << '\n'
-         << "setup.path_buffer_incremental_parasitics=" << (s.path_buffer_incremental_parasitics ? "true" : "false") << '\n'
-         << "setup.path_buffer_incremental_analysis=" << (s.path_buffer_incremental_analysis ? "true" : "false") << '\n'
-         << "setup.path_buffer_reuse_rejections=" << (s.path_buffer_reuse_rejections ? "true" : "false") << '\n'
-         << "setup.path_buffer_placement=" << s.path_buffer_placement << '\n'
-         << "setup.path_buffer_verification=" << s.path_buffer_verification << '\n'
-         << "setup.path_buffer_min_relative_improvement="
-         << s.path_buffer_min_relative_improvement << '\n'
-         << "setup.path_buffer_max_seconds=" << s.path_buffer_max_seconds << '\n'
-         << "setup.path_buffer_max_refreshes=" << s.path_buffer_max_refreshes << '\n'
-         << "setup.path_buffer_max_paths=" << s.path_buffer_max_paths << '\n'
-         << "setup.path_buffer_max_candidates="
-         << s.path_buffer_max_candidates << '\n'
-         << "setup.path_buffer_max_trials=" << s.path_buffer_max_trials << '\n'
-         << "setup.path_buffer_max_consecutive_rejections="
-         << s.path_buffer_max_consecutive_rejections << '\n'
-         << "setup.path_buffer_batch_size=" << s.path_buffer_batch_size
+         << "path.recovery=" << (path.recovery ? "true" : "false") << '\n'
+         << "path.tree_candidates=" << (path.tree_candidates ? "true" : "false")
          << '\n'
-         << "setup.path_buffer_max_inserted_buffers="
-         << s.path_buffer_max_inserted_buffers << '\n'
-         << "setup.path_buffer_max_area_growth="
-         << s.path_buffer_max_area_growth << '\n'
+         << "path.gain_scope=" << path.gain_scope << '\n'
+         << "path.fanout_repair=" << (path.fanout_repair ? "true" : "false")
+         << '\n'
+         << "path.strategy=" << path.strategy << '\n'
+         << "path.failure_cache=" << (path.failure_cache ? "true" : "false")
+         << '\n'
+         << "path.adaptive_search=" << (path.adaptive_search ? "true" : "false")
+         << '\n'
+         << "path.timing_precheck=" << (path.timing_precheck ? "true" : "false")
+         << '\n'
+         << "path.calibrate=" << (path.calibrate ? "true" : "false") << '\n'
+         << "path.diversify=" << (path.diversify ? "true" : "false") << '\n'
+         << "path.endpoint_coverage="
+         << (path.endpoint_coverage ? "true" : "false") << '\n'
+         << "path.group_schedule=" << (path.group_schedule ? "true" : "false")
+         << '\n'
+         << "path.incremental_parasitics="
+         << (path.incremental_parasitics ? "true" : "false") << '\n'
+         << "path.incremental_analysis="
+         << (path.incremental_analysis ? "true" : "false") << '\n'
+         << "path.reuse_rejections="
+         << (path.reuse_rejections ? "true" : "false") << '\n'
+         << "path.placement=" << path.placement << '\n'
+         << "path.verification=" << path.verification << '\n'
+         << "path.min_relative_improvement=" << path.min_relative_improvement
+         << '\n'
+         << "path.max_seconds=" << path.max_seconds << '\n'
+         << "path.max_refreshes=" << path.max_refreshes << '\n'
+         << "path.max_paths=" << path.max_paths << '\n'
+         << "path.max_candidates=" << path.max_candidates << '\n'
+         << "path.max_trials=" << path.max_trials << '\n'
+         << "path.max_consecutive_rejections="
+         << path.max_consecutive_rejections << '\n'
+         << "path.batch_size=" << path.batch_size << '\n'
+         << "path.max_inserted_buffers=" << path.max_inserted_buffers << '\n'
+         << "path.max_area_growth=" << path.max_area_growth << '\n'
          << "tolerances.wns_absolute_ns=" << double(t.wns_absolute) * 1e9
          << '\n'
          << "tolerances.tns_absolute_ns=" << double(t.tns_absolute) * 1e9
@@ -662,7 +536,6 @@ void RepairConfig::write(std::ostream& output) const {
     for(size_t i = 0; i < d.vt_suffixes.size(); ++i)
         text << (i ? "," : "") << d.vt_suffixes[i];
     text << '\n'
-         << "power.enabled=" << (power.enabled ? "true" : "false") << '\n'
          << "power.objective=" << power.objective << '\n'
          << "power.max_passes=" << power.max_passes << '\n'
          << "power.max_trials=" << power.max_trials << '\n'
@@ -688,52 +561,11 @@ void RepairConfig::write(std::ostream& output) const {
          << "gobi.max_nets=" << gobi.max_nets << '\n'
          << "gobi.require_drv_reduction="
          << (gobi.require_drv_reduction ? "true" : "false") << '\n';
+    text << "path.paths_per_endpoint=" << path.paths_per_endpoint << '\n'
+         << "path.min_improvement_ns=" << double(path.min_improvement) * 1e9
+         << '\n'
+         << "path.defer_rollback_refresh="
+         << (path.defer_rollback_refresh ? "true" : "false") << '\n';
     output << text.str();
-}
-void loadRepairConfigFiles(RepairConfig& config,
-                           const std::string& command_file) {
-    std::ifstream commands(command_file);
-    if(!commands)
-        throw std::runtime_error("cannot open command file: " + command_file);
-    std::string line;
-    while(std::getline(commands, line)) {
-        std::istringstream input(line);
-        std::string flag, path;
-        input >> flag;
-        if(flag == "-sizer_repair_config") {
-            require(bool(input >> std::quoted(path)) && noExtra(input),
-                    flag + " expects one file path");
-            config.readFile(path);
-        }
-    }
-}
-bool applyRepairConfigOverride(RepairConfig& config, const std::string& line) {
-    std::istringstream input(line);
-    std::string flag, value, key;
-    input >> flag;
-    if(flag == "-sizer_repair_set") {
-        require(bool(input >> value) && noExtra(input),
-                flag + " expects key=value");
-        auto entry = assignment(value);
-        config.set(entry.first, entry.second);
-        return true;
-    }
-    if(flag == "-sizer_setup_trials")
-        key = "setup.max_trials";
-    else if(flag == "-sizer_setup_passes")
-        key = "setup.max_passes";
-    else if(flag == "-sizer_setup_area_growth")
-        key = "setup.max_area_growth";
-    else if(flag == "-sizer_repair_no_gate_resize") {
-        require(noExtra(input), flag + " takes no value");
-        config.set("common.allow_gate_resize", "false");
-        return true;
-    }
-    else
-        return false;
-    require(bool(input >> value) && noExtra(input),
-            flag + " expects one value");
-    config.set(key, value);
-    return true;
 }
 }  // namespace ecc

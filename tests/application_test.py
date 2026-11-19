@@ -66,6 +66,11 @@ set_max_fanout 4 [current_design]
         self.assertIn("--flow", self.run_sizer("--help"))
         for args in (("--threads",), ("--wat",),
                      (self.script, "--flow", "pbbi"),
+                     ("-env", "old.env", "-f", "old.cmd"),
+                     ("legacy", "-env", "old.env"),
+                     (self.script, "--set", "pbbi.enabled=true"),
+                     (self.script, "--set", "setup.path_buffer_only=true"),
+                     (self.script, "--set", "power.enabled=true"),
                      (self.script, "--flow", "native,"),
                      (self.script, "--set", "common.max_fanout=1"),
                      ("--def", "missing.def")):
@@ -107,6 +112,63 @@ set_max_fanout 4 [current_design]
                                 "--flow", "ord,legalize", "--log-level", "warn",
                                 "--output", self.work / "direct")
         self.assertNotIn("Starting ord", output)
+
+    def test_hold_and_unplaced_preplacement(self):
+        output = self.run_sizer(self.script, "--flow", "hold", "--threads", "1",
+                                "--output", self.work / "hold")
+        self.assertIn("hold finished", output)
+        # Preplacement must work without rows/locations or a wire RC model.
+        self.script.write_text(f"""
+read_lef {{{TECH}}}
+read_liberty {{{LIB}}}
+read_verilog {{{ROOT / 'tests/data/fanout_repair_sta.v'}}}
+link_design top
+read_sdc {{{SDC}}}
+""")
+        for stage in ("preplace", "preplace-gain"):
+            output = self.run_sizer(self.script, "--flow", stage, "--threads", "1",
+                                    "--output", self.work / stage)
+            self.assertIn(f"{stage} finished", output)
+            self.assertTrue((self.work / f"{stage}.odb").is_file())
+
+    def test_spef_and_global_routing_hold(self):
+        spef = self.work / "input parasitics.spef"
+        with self.script.open("a") as script:
+            script.write(f"estimate_parasitics -placement -spef_file {{{spef}}}\n")
+        self.run_sizer(self.script, "--flow", "hold", "--threads", "1",
+                       "--output", self.work / "seed")
+        original = spef.read_bytes()
+        # Reload the seed design directly, without overwriting the SPEF input.
+        output = self.run_sizer("--odb", self.work / "seed.odb", "--lib", LIB,
+                                "--sdc", SDC, "--spef", spef, "--flow", "hold",
+                                "--threads", "1", "--output", self.work / "postroute")
+        self.assertIn("hold finished", output)
+        self.assertEqual(spef.read_bytes(), original)
+        extracted_script = self.work / "extracted.tcl"
+        extracted_script.write_text(f"""
+read_liberty {{{LIB}}}
+read_db {{{self.work / 'seed.odb'}}}
+read_sdc {{{SDC}}}
+read_spef {{{spef}}}
+""")
+        output = self.run_sizer(extracted_script, "--flow", "hold", "--threads", "1",
+                                "--output", self.work / "script-spef")
+        self.assertIn("hold finished", output)
+        self.assertIn("placement RC", self.run_sizer(extracted_script, ok=False))
+        with self.script.open("a") as script:
+            script.write("make_tracks\nset_routing_layers -signal metal2-metal6 -clock metal2-metal6\n")
+        output = self.run_sizer(self.script, "--global-routing", "--flow", "hold",
+                                "--threads", "1", "--output", self.work / "routed")
+        self.assertIn("hold finished", output)
+
+    def test_sizing_uses_loaded_design(self):
+        with self.script.open("a") as script:
+            script.write("set_input_delay 0 -clock clk [get_ports in]\n"
+                         "set_output_delay 1 -clock clk [get_ports out*]\n")
+        output = self.run_sizer(self.script, "--flow", "sizing", "--threads", "1",
+                                "--output", self.work / "sizing")
+        self.assertIn("sizing finished", output)
+        self.assertTrue((self.work / "sizing.odb").is_file())
 
 
 if __name__ == "__main__":

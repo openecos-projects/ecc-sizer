@@ -6,9 +6,16 @@
 #include <string>
 #include <vector>
 
-namespace ord { class Tech; class Design; }
-namespace odb { class dbBlock; }
-namespace sta { class dbSta; }
+namespace ord {
+class Tech;
+class Design;
+}  // namespace ord
+namespace odb {
+class dbBlock;
+}
+namespace sta {
+class dbSta;
+}
 
 namespace ecc {
 
@@ -16,16 +23,18 @@ struct DesignInputs {
     std::string script;
     std::string odb;
     std::string def;
-    std::vector<std::string> lef;
-    std::vector<std::string> liberty;
+    std::vector< std::string > lef;
+    std::vector< std::string > liberty;
     std::string sdc;
     std::string rc;
+    std::string spef;
+    bool global_routing = false;
 };
 
 // Owns the OpenROAD session. OpenDB is the only mutable design model;
 // solvers may keep short-lived analysis/candidate data derived from it.
 class DesignSession {
-public:
+   public:
     explicit DesignSession(const DesignInputs& inputs);
     ~DesignSession();
     DesignSession(const DesignSession&) = delete;
@@ -37,15 +46,19 @@ public:
 
     // Arguments go through Tcl objects, so filenames and names are never
     // interpolated as Tcl code. Every Tcl failure becomes an exception.
-    std::string command(std::initializer_list<std::string> words) const;
+    std::string command(std::initializer_list< std::string > words) const;
     void initializePlacementRC();
+    void initializeParasitics();
+    bool hasExtractedParasitics() const;
     void refresh();
     void reconnectSupplies();
     void write(const std::string& prefix) const;
 
-private:
-    std::unique_ptr<ord::Tech> tech_;
-    std::unique_ptr<ord::Design> design_;
+   private:
+    std::unique_ptr< ord::Tech > tech_;
+    std::unique_ptr< ord::Design > design_;
+    DesignInputs inputs_;
+    bool script_spef_ = false;
     unsigned baseline_missing_supplies_ = 0;
 };
 

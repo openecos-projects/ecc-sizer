@@ -3,7 +3,7 @@
 #pragma once
 
 #include "repair_config.h"
-#include "repair_design.h"
+#include "repair_drv.h"
 
 #include <functional>
 #include <string>
@@ -127,7 +127,7 @@ class OpenDbPathRepairer {
     static PathBufferRepairResult repair(
         odb::dbBlock* block, sta::dbSta* sta,
         const std::function< void() >& refresh,
-        const SetupRepairOptions& options = {});
+        const PathRepairOptions& options = {});
 };
 
 }  // namespace ecc

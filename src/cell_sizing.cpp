@@ -42,7 +42,7 @@
 #include "est/EstimateParasitics.h"
 #include "repair_parasitics.h"
 
-#include "sizer.h"
+#include "cell_sizing.h"
 #include <iomanip>
 
 #include <omp.h>
@@ -55,7 +55,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
-#include "ckt.h"
+#include "sizing_model.h"
 #include "odb/db.h"
 #include "ord/ordMain.hh"
 #include "utils.h"
@@ -71,30 +71,20 @@
 #include <arpa/inet.h>
 #include "ord/Design.h"
 #include "ord/Timing.h"
-#ifdef HAVE_GPERFTOOLS_PROFILER
-#include <gperftools/profiler.h>
-#endif
 #include "ord/OpenRoad.hh"
 #include "grt/GlobalRouter.h"
 #include "design_edit.h"
-#include "repair_fanout.h"
-#include "repair_design.h"
-#include "repair_design_ord.h"
+#include "repair_drv.h"
 #include "repair_vg.h"
-#include "repair_pbbi.h"
 #include "repair_vg_cuda.h"
 #include "repair_gobi.h"
 #include "repair_gobi_cuda.h"
 #include "repair_timing.h"
-#include "repair_power.h"
-#include "repair_placement.h"
 #include <stdexcept>
 #include "special_net.h"
 
 // global variables
 // Profiling runtime switch and output file name.
-bool PROF_ON = false;
-std::string PROF_FILE = "sizer.prof";
 bool ISO_TIME = false;
 bool MINIMUM = false;
 bool MAXIMUM = false;
@@ -226,8 +216,6 @@ double GUARD_BAND_2ND_GTR = 0.0;
 string PRFT_FI = "";
 string UD_FI = "";
 string GTR_FI = "";
-string ENV_FI = "";
-string CMD_FI = "";
 bool LEAKOPT = true;
 int DIFFICULTY = 0;
 int MAX_TRAN_CONST = 1;
@@ -491,7 +479,7 @@ int get_available_port(int start_port) {
         // Create socket.
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if(sockfd < 0) {
-            std::cerr << "Socket creation failed" << std::endl;
+            ecc::logError() << "Socket creation failed" << std::endl;
             return -1;
         }
 
@@ -508,7 +496,7 @@ int get_available_port(int start_port) {
             continue;
         }
 
-        std::cout << "Available port found: " << port << std::endl;
+        ecc::logInfo() << "Available port found: " << port << std::endl;
         close(sockfd);
         return port;
     }
@@ -569,153 +557,6 @@ vector< string > split(string input, string delim) {
     return result;
 }
 
-void Sizer::ReportOptions() {
-    cout << "----------- Report Options -----------" << endl;
-    cout << "Thread Number  : " << MAX_THREAD << endl;
-    cout << "PT Port        : " << PTPORT << endl;
-    cout << "PT Number      : " << PTNUM << endl;
-    cout << "PRFT PT Number : " << PRFT_PTNUM << endl;
-    cout << "Delay Metric   : " << DelayMetricNames[WIRE_METRIC] << endl;
-    cout << "Slew Metric    : " << SlewMetricNames[SLEW_METRIC] << endl;
-    cout << "Cap. Metric    : " << CapMetricNames[CAP_METRIC] << endl;
-    cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
-         << GTRMetricNames[GTR_METRIC2] << endl;
-    cout << "Timing repair  : cap=" << FIX_CAP_REPAIR
-         << " slew=" << FIX_SLEW_REPAIR << " global=" << FIX_GLOBAL << endl;
-    cout << "Hold margin    : " << hold_margin << " ns" << endl;
-    cout << "Postroute Mode : " << postrouteMode << endl;
-    cout << "Blockage-aware Steiner : " << blockageAwareSteiner << endl;
-    if(placement_wire_rc_explicit) {
-        cout << "Placement wire RC override: resistance="
-             << placement_wire_resistance << " ohm/um capacitance="
-             << placement_wire_capacitance << " pF/um source="
-             << placement_wire_rc_corner << endl;
-    }
-    cout << "GR RC iterations: " << gr_rc_congestion_iterations << endl;
-    cout << "Test Mode      : " << TEST_MODE << endl;
-    if(sizerDesignRepairMode || sizerVgRepairMode || sizerGobiRepairMode) {
-        cout << "Sizer repair   : native repair, max fanout "
-             << nativeRepairConfig.design.max_fanout << endl;
-        cout << "Sizer repair configuration begin" << endl;
-        nativeRepairConfig.write(cout);
-        cout << "Sizer repair configuration end" << endl;
-    }
-    if(sizerFanoutRepairMode) {
-        cout << "Sizer Fanout   : repair to " << sizerMaxFanout << endl;
-        cout << "Buffer Cell    : "
-             << (sizerBufferCell.empty() ? "auto" : sizerBufferCell)
-             << endl;
-        cout << "Repair Clocks  : "
-             << (sizerRepairClockNets ? "yes" : "no") << endl;
-    }
-    cout << "ALPHA          : " << ALPHA << endl;
-    cout << "TRIAL RATE     : " << TRIAL_RATE << endl;
-    if(USE_PT)
-        cout << "Use Timer" << endl;
-    if(CORR_PT)
-        cout << "Correlated with Timer -" << CorrPTMetricNames[CORR_PT_METRIC]
-             << endl;
-    if(!LEAKOPT)
-        cout << "GTR only" << endl;
-    if(FAST)
-        cout << "Fast mode" << endl;
-    if(CORR_DYN)
-        cout << "Correlate total power" << endl;
-
-    cout << "--------- Design Information ---------" << endl;
-    cout << "TOP NAME       : " << benchname << endl;
-    cout << "VERILOG FILE   : " << verilogFile << endl;
-    cout << "SPEF FILE      : " << spefFile << endl;
-    cout << "DEF FILE       : " << defFile << endl;
-    cout << "SDC FILE       : " << sdcFile << endl;
-    cout << "TIMER SDC FILE : " << timerSdcFile << endl;
-    cout << "CLOCK PORT     : " << clockName << endl;
-
-    cout << "------ Environment Information -------" << endl;
-    cout << "HOME           : " << root << endl;
-    cout << "DB PATH        : " << dbLibPath << endl;
-    cout << "LIB PATH       : " << libLibPath << endl;
-    cout << "DB LIST        : ";
-    for(unsigned i = 0; i < dbLibs.size(); ++i) {
-        if(i == 0)
-            cout << dbLibs[0] << endl;
-        else
-            cout << "                " << dbLibs[i] << endl;
-    }
-    if(dbLibs.size() == 0)
-        cout << endl;
-    cout << "MIN DB LIST    : ";
-    for(unsigned i = 0; i < dbMinLibs.size(); ++i) {
-        if(i == 0)
-            cout << dbMinLibs[i] << endl;
-        else
-            cout << "                " << dbMinLibs[i] << endl;
-    }
-    if(dbMinLibs.size() == 0)
-        cout << endl;
-    cout << "LIB LIST       : ";
-    for(unsigned i = 0; i < libLibs.size(); ++i) {
-        if(i == 0)
-            cout << libLibs[i] << endl;
-        else
-            cout << "                 " << libLibs[i] << endl;
-    }
-    if(libLibs.size() == 0)
-        cout << endl;
-    cout << "ENV LIB LIST   : ";
-    for(unsigned i = 0; i < envlibLibs.size(); ++i) {
-        if(i == 0)
-            cout << envlibLibs[i] << endl;
-        else
-            cout << "                 " << envlibLibs[i] << endl;
-    }
-    if(envlibLibs.size() == 0)
-        cout << endl;
-    cout << "SUFFIX LIST    : ";
-    for(unsigned i = 0; i < libSuffix.size(); ++i) {
-        if(i == 0)
-            cout << libSuffix[i] << endl;
-        else
-            cout << "                 " << libSuffix[i] << endl;
-    }
-    if(libSuffix.size() == 0)
-        cout << endl;
-    cout << "LEF LIST       : ";
-    for(unsigned i = 0; i < lefFiles.size(); ++i) {
-        if(i == 0)
-            cout << lefFiles[i] << endl;
-        else
-            cout << "                 " << lefFiles[i] << endl;
-    }
-    if(lefFiles.size() == 0)
-        cout << endl;
-
-    cout << "SUFFIX NVT     : " << suffixNVT << endl;
-    cout << "SUFFIX LVT     : " << suffixLVT << endl;
-    cout << "SUFFIX HVT     : " << suffixHVT << endl;
-    cout << "SUFFIX         : " << suffix << endl;
-    cout << "EQUIV CELL SORT: " << equivCellSortModeName() << endl;
-    cout << "--------------------------------------" << endl;
-
-    cout << "DONT TOUCH LIST       : ";
-    for(unsigned i = 0; i < dontTouchInst.size(); ++i) {
-        cout << dontTouchInst[i] << " ";
-    }
-    cout << endl;
-
-    cout << "DONT TOUCH CELL LIST       : ";
-    for(unsigned i = 0; i < dontTouchCell.size(); ++i) {
-        cout << dontTouchCell[i] << " ";
-    }
-    cout << endl;
-
-    cout << "DONT USE LIST       : ";
-    for(unsigned i = 0; i < dontUseCell.size(); ++i) {
-        cout << dontUseCell[i] << " ";
-    }
-    cout << endl;
-}
-
 void Sizer::setEquivCellSortMode(const string& mode) {
     if(mode == "leakage") {
         sortEquivCellsByLeakage = true;
@@ -727,7 +568,7 @@ void Sizer::setEquivCellSortMode(const string& mode) {
         return;
     }
 
-    cout << "Error: unsupported -equiv_cell_sort mode '" << mode
+    ecc::logInfo() << "Error: unsupported -equiv_cell_sort mode '" << mode
          << "'. Use drive_resistance or leakage." << endl;
     exit(1);
 }
@@ -779,7 +620,7 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
     }
     else {
         if(VERBOSE >= 4) {
-            printf("Error: main_lib_cell_id can't find %d\n", main_lib_cell_id);
+            ecc::logPrintf("Error: main_lib_cell_id can't find %d\n", main_lib_cell_id);
         }
     }
 
@@ -797,7 +638,7 @@ LibCellInfo *Sizer::getLibCellInfo(int main_lib_cell_id, cell_sizes size,
         }
     }
     else {
-        printf(
+        ecc::logPrintf(
             "Error: Cell size %d /vtype %d can't find, cell main_lib_cell_id "
             "%d\n",
             size, vtype, main_lib_cell_id);
@@ -1041,7 +882,7 @@ bool Sizer::cell_retype(CELL &cell, int dir, bool pt_corr, bool update_cap) {
         return false;
 
     cell_vtypes vtype = cell.c_vtype;
-    // printf("retype %s\n", cell.name.c_str());
+    // ecc::logPrintf("retype %s\n", cell.name.c_str());
     if(dir == 0)
         return (cell.c_vtype == (numVt - 1));
 
@@ -1195,11 +1036,11 @@ bool Sizer::cell_move(CELL &cell, cell_sizes org_size, cell_vtypes org_vt,
         default:
             break;
     }
-    //    cout <<cell.type<<")";
+    //    ecc::logInfo() <<cell.type<<")";
     //    if ( changed )
-    //        cout << " -- cell changed" << endl;
+    //        ecc::logInfo() << " -- cell changed" << endl;
     //    else
-    //        cout << " -- cell not changed" << endl;
+    //        ecc::logInfo() << " -- cell not changed" << endl;
     return changed;
 }
 
@@ -1232,7 +1073,7 @@ bool Sizer::cell_change(CELL &cell, cell_sizes size, cell_vtypes vt,
             }
         }
 
-        // cout << "CHANGED -- " << cell.type << endl;
+        // ecc::logInfo() << "CHANGED -- " << cell.type << endl;
 
         return true;
     }
@@ -1272,25 +1113,17 @@ void Sizer::CleanIntFiles() {
     system(Commands);
 }
 
-void Sizer::Parser() {
+void Sizer::Parser(ord::Design& design) {
     double begin = cpuTime();
-    size_t found = benchname.find_last_of("/\\");
-    if(found == benchname.npos)
-        directory = benchname + "/";
-    else {
-        directory = benchname.substr(0, found);
-        benchname = directory;
-        directory += "/";
-    }
-    directory = root + "/" + directory;
-
-    cout << "BENCHMARK            : " << benchname << endl;
-    cout << "BENCHMARK DIRECTORY  : " << directory << endl << endl;
-
+    directory = "./";
     _ckt = new Circuit(this);
+    _ckt->_ord_design = &design;
+    _ckt->_ord_tech = design.getTech();
+    _ckt->_ord_timing = new ord::Timing(&design);
+    _ckt->_sta = design.getTech()->getSta();
     _ckt->Parser(directory + benchname);
     _sta = _ckt->_sta;
-    cout << endl
+    ecc::logInfo() << endl
          << "Hard Runtime Limit   : " << RuntimeLimit / 3600 << " hours"
          << endl;
     _ckt->Print_Stats();
@@ -1316,7 +1149,7 @@ void Sizer::Parser() {
                 for(unsigned k = 0; k < mmmcWaiveTranLists[j].size(); ++k) {
                     if(getFullPinName(pin) == mmmcWaiveTranLists[j][k]) {
                         g_pins[j][i].waiveTran = true;
-                        cout << "WAIVE TRAN " << j << " " << getFullPinName(pin)
+                        ecc::logInfo() << "WAIVE TRAN " << j << " " << getFullPinName(pin)
                              << endl;
                     }
                 }
@@ -1335,15 +1168,14 @@ void Sizer::Parser() {
     /*
     for(unsigned i=0 ; i<_ckt->numnets ; i++) {
 
-      cout << "--------- all sub node list (" << g_nets[0][i].name <<
+      ecc::logInfo() << "--------- all sub node list (" << g_nets[0][i].name <<
     ")--------" << endl;
-
 
         vector <SUB_NODE> *subNodeVecPtr = &g_nets[0][i].subNodeVec;
             std::vector<SUB_NODE>::iterator subNodeIter;
         for (subNodeIter = subNodeVecPtr->begin(); subNodeIter !=
     subNodeVecPtr->end(); ++subNodeIter) {
-                cout << "Id: " << subNodeIter->id << ", Cap: " <<
+                ecc::logInfo() << "Id: " << subNodeIter->id << ", Cap: " <<
     subNodeIter->cap << " " << subNodeIter->isSink << endl;
 
                 for (unsigned int i=0; i < subNodeIter->adj.size(); ++i) {
@@ -1352,8 +1184,7 @@ void Sizer::Parser() {
                 }
             }
 
-
-        cout << endl ;
+        ecc::logInfo() << endl ;
     }
     */
 
@@ -1364,16 +1195,16 @@ void Sizer::Parser() {
         POs.push_back(_ckt->POs[i]);
         _pos_set.insert(_ckt->POs[i]);
         if(VERBOSE > 0)
-            cout << "PO -- " << getFullPinName(g_pins[0][POs[i]]) << endl;
+            ecc::logInfo() << "PO -- " << getFullPinName(g_pins[0][POs[i]]) << endl;
         if(g_pins[0][POs[i]].owner != UINT_MAX) {
-            printf("PO has cell %s \n",
+            ecc::logPrintf("PO has cell %s \n",
                    g_cells[g_pins[0][POs[i]].owner].name.c_str());
         }
     }
     for(unsigned i = 0; i < _ckt->PIs.size(); ++i) {
         PIs.push_back(_ckt->PIs[i]);
         if(VERBOSE > 0)
-            cout << "PI -- " << getFullPinName(g_pins[0][PIs[i]]) << endl;
+            ecc::logInfo() << "PI -- " << getFullPinName(g_pins[0][PIs[i]]) << endl;
     }
     for(unsigned mode = 0; mode < this->numModes; ++mode) {
         for(unsigned i = 0; i < PIs.size(); ++i) {
@@ -1391,7 +1222,7 @@ void Sizer::Parser() {
                 // outdelays has bug
                 NET net = _ckt->g_nets[j][net_id];
                 if(!net.is_clock && spefFile != "" && spefFile != "None") {
-                    printf(
+                    ecc::logPrintf(
                         "Error: pin %s has no spef pin, pin's net name is %s\n",
                         getFullPinName(pin).c_str(), net.name.c_str());
                 }
@@ -1423,7 +1254,7 @@ void Sizer::Parser() {
     InitNets();  // calculate network cap for net delay
 
     // write pin list file for PT correlation
-    if(TEST_MODE != "") {
+    if(TEST_MODE != "" && TEST_MODE != "NO_TEST") {
         string pin_file = benchname + ".pin_list";
         ofstream ofp(pin_file.c_str());
         for(unsigned i = 0; i < numpins; i++) {
@@ -1443,24 +1274,12 @@ void Sizer::Parser() {
     time_IO += cpuTime() - begin;
 }
 
-void Sizer::loadOpenRoadDesignForFanoutRepair() {
-    if(mmmcOn) {
-        cout << "Error: Sizer native repair currently requires single-mode "
-                "configuration."
-             << endl;
-        exit(1);
-    }
-    _ckt = new Circuit(this);
-    _ckt->init_opensta();
-    _sta = _ckt->_sta;
-}
-
 void Sizer::ExitPTimer() {
     for(unsigned i = 0; i < MAX_THREAD; i++) {
         for(int view = 0; view < numViews; view++) {
             tot_timer_time += PTimer[i][view]->pt_time;
             // PTimer[i][view]->Exit();
-            cout << "Exit PrimeTime number " << i << " " << view << endl;
+            ecc::logInfo() << "Exit PrimeTime number " << i << " " << view << endl;
             // delete PTimer[i][view];
         }
         // delete[] PTimer[i];
@@ -1484,7 +1303,7 @@ designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
         // exeOSServer(serverName, port, view);
     }
     else {
-        printf("Error: OpenSTA is not enabled\n");
+        ecc::logPrintf("Error: OpenSTA is not enabled\n");
         exit(0);
     }
 }
@@ -1502,53 +1321,9 @@ void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
     }
 }
 
-void Sizer::refreshOpenStaParasitics(bool verbose_global_route) {
-    auto design = _ckt->_ord_design;
-    auto sta = _ckt->_ord_timing->getSta();
-
-    if(!use_gr_rc || (!noSPEF && !spefFile.empty())) {
-        design->evalTclString("estimate_parasitics -placement");
-        sta->findRequireds();
-        return;
-    }
-
-    // Master swaps invalidate timing data before timing-aware global routing
-    // asks STA for net slacks. Use placement RC only as a complete routing
-    // seed, then replace it with freshly routed parasitics.
-    design->evalTclString("estimate_parasitics -placement");
-
-    auto db_tech = design->getTech()->getDB()->getTech();
-    auto* low_layer = db_tech->findLayer(min_route_layer.c_str());
-    auto* high_layer = db_tech->findLayer(max_route_layer.c_str());
-    if(low_layer == nullptr || high_layer == nullptr) {
-        cout << "Error: invalid routing layer(s): min=" << min_route_layer
-             << " max=" << max_route_layer << endl;
-        exit(1);
-    }
-    auto signal_low_layer = low_layer->getRoutingLevel();
-    auto signal_high_layer = high_layer->getRoutingLevel();
-    auto grt = design->getGlobalRouter();
-    grt->clear();
-    grt->setAllowCongestion(true);
-    grt->setMinRoutingLayer(signal_low_layer);
-    grt->setMaxRoutingLayer(signal_high_layer);
-    grt->setMinLayerForClock(signal_low_layer);
-    grt->setMaxLayerForClock(signal_high_layer);
-    grt->setAdjustment(0.0);
-    grt->setResistanceAware(false);
-    grt->setVerbose(verbose_global_route);
-    const int gr_iterations = gr_rc_congestion_iterations;
-    grt->setCongestionIterations(gr_iterations);
-    printf("Run Global Routing after size update...\n");
-    string global_route_cmd =
-        "global_route -congestion_iterations " + to_string(gr_iterations) +
-        " -allow_congestion";
-    if(verbose_global_route) {
-        global_route_cmd += " -verbose";
-    }
-    design->evalTclString(global_route_cmd);
-    design->evalTclString("estimate_parasitics -global_routing");
-    sta->findRequireds();
+void Sizer::refreshOpenStaParasitics(bool) {
+    if(!refresh_design) throw std::logic_error("missing sizing refresh service");
+    refresh_design();
 }
 
 void Sizer::applyOpenStaDbChanges(
@@ -1675,8 +1450,8 @@ ecc::FanoutRepairResult Sizer::repairFanout(
 }
 
 void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
-    std::cerr << "Update PT sizes... " << std::endl;
-    std::cerr << "numcell = " << cells.size() << std::endl;
+    ecc::logError() << "Update PT sizes... " << std::endl;
+    ecc::logError() << "numcell = " << cells.size() << std::endl;
     auto db = ord::OpenRoad::openRoad()->getDb();
     auto block = _ckt->_ord_design->getBlock();
     int count = 0;
@@ -1688,7 +1463,7 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
             continue;
         count++;
     }
-    printf("Update PT sizes changed count %d\n", count);
+    ecc::logPrintf("Update PT sizes changed count %d\n", count);
     if(count > 0) {
         double begin = cpuTime();
         applyOpenStaDbChanges([&]() {
@@ -1708,7 +1483,7 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
                 }
                 else {
                     string type = inst->getMaster()->getName();
-                    std::cerr << "Error: cannot find master " << cells[i].type
+                    ecc::logError() << "Error: cannot find master " << cells[i].type
                               << " for cell " << cells[i].name
                               << ", current master is " << type << std::endl;
                     cells[i].type = type;
@@ -1720,7 +1495,7 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
         T[0]->pt_time += cpuTime() - begin;
     }
 
-    // else cout << "No cell has been changed." << endl;
+    // else ecc::logInfo() << "No cell has been changed." << endl;
 }
 
 void Sizer::CheckTriSizes(string opt_str) {
@@ -1738,14 +1513,14 @@ void Sizer::CheckTriSizes(string opt_str) {
         string cellType = sizes[i].second;
         checked[cell2id[cellName]] = true;
         if(cells[cell2id[cellName]].type != cellType) {
-            cout << "Error -- cell size mismatch: " << cellName << " "
+            ecc::logInfo() << "Error -- cell size mismatch: " << cellName << " "
                  << cells[cell2id[cellName]].type << "(File: " << cellType
                  << ")" << endl;
         };
     }
     for(unsigned i = 0; i < numcells; ++i) {
         if(!checked[i]) {
-            cout << "Error -- no cell size info from the file: "
+            ecc::logInfo() << "Error -- no cell size info from the file: "
                  << cells[i].name << " " << cells[i].type << endl;
         }
     }
@@ -1770,14 +1545,14 @@ void Sizer::CheckPTSizes(unsigned option) {
         string cellType = sizes[i].second;
         checked[cell2id[cellName]] = true;
         if(cells[cell2id[cellName]].type != cellType) {
-            cout << "Error -- cell size mismatch: " << cellName << " "
+            ecc::logInfo() << "Error -- cell size mismatch: " << cellName << " "
                  << cells[cell2id[cellName]].type << "(Timer: " << cellType
                  << ")" << endl;
         };
     }
     for(unsigned i = 0; i < numcells; ++i) {
         if(!checked[i]) {
-            cout << "Error -- no cell size info from timer: " << cells[i].name
+            ecc::logInfo() << "Error -- no cell size info from timer: " << cells[i].name
                  << " " << cells[i].type << endl;
         }
     }
@@ -1855,7 +1630,7 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
     //    double begin=cpuTime();
     //    for(unsigned i=0 ; i<numcells ; i++) {
     //        if(isff(cells[i])) continue;
-    //        //cout << "Update sizing: " << cells[i].name << "->" <<
+    //        //ecc::logInfo() << "Update sizing: " << cells[i].name << "->" <<
     //        cells[i].type << endl;
     //        T[view]->sizeCell(cells[i].name, cells[i].type);
     //    }
@@ -1863,8 +1638,8 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
     // ostr.str("");
     // ostr << option;
 
-    std::cerr << "Update PT sizes... " << std::endl;
-    std::cerr << "numcell = " << numcells << std::endl;
+    ecc::logError() << "Update PT sizes... " << std::endl;
+    ecc::logError() << "numcell = " << numcells << std::endl;
     auto db = ord::OpenRoad::openRoad()->getDb();
     auto block = _ckt->_ord_design->getBlock();
     count = 0;
@@ -1877,7 +1652,7 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
         count++;
     }
     auto sta_ = _ckt->_ord_timing->getSta();
-    printf("Update PT sizes changed count %d\n", count);
+    ecc::logPrintf("Update PT sizes changed count %d\n", count);
     if(count > 0) {
         double begin = cpuTime();
         applyOpenStaDbChanges([&]() {
@@ -1892,7 +1667,7 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
                 auto new_master = db->findMaster(cells[i].type.c_str());
                 if(new_master == NULL) {
                     string type = inst->getMaster()->getName();
-                    std::cerr << "Error: cannot find master " << cells[i].type
+                    ecc::logError() << "Error: cannot find master " << cells[i].type
                               << " for cell " << cells[i].name
                               << ", current master is " << type << std::endl;
                     cells[i].type = type;
@@ -1908,7 +1683,7 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
         });
         T[0]->pt_time += cpuTime() - begin;
     }
-    // else cout << "No cell has been changed." << endl;
+    // else ecc::logInfo() << "No cell has been changed." << endl;
 }
 
 void Sizer::wait(int seconds) {
@@ -2088,7 +1863,7 @@ void Sizer::exePTServerOne(int port, unsigned view) {
     string var = "PRIMETIME_EXECUTABLE";
     const char *val = ::getenv(var.c_str());
     if(val != 0)
-        cout << var << ": " << val << endl;
+        ecc::logInfo() << var << ": " << val << endl;
     else
         val = "pt_shell";
 
@@ -2288,7 +2063,7 @@ void Sizer::exeETSServerOne(int port, unsigned view) {
     string var = "ETS_EXECUTABLE";
     const char *etsCmd = ::getenv(var.c_str());
     if(etsCmd != 0)
-        cout << var << ": " << etsCmd << endl;
+        ecc::logInfo() << var << ": " << etsCmd << endl;
     else
         etsCmd = "ets";
 
@@ -2304,31 +2079,31 @@ void Sizer::exeETSServerOne(int port, unsigned view) {
         fout2 << etsCmd << " " << ptOption << " -nowin -init " << serverTcl
               << endl;
     if(VERBOSE >= 1)
-        cout << "File write done" << endl;
+        ecc::logInfo() << "File write done" << endl;
     fout2.close();
     if(VERBOSE >= 1)
-        cout << "Launch file generated" << endl;
+        ecc::logInfo() << "Launch file generated" << endl;
 
     //    if ( VERBOSE == 100 ) {
-    //        cout << "Waiting" ;
+    //        ecc::logInfo() << "Waiting" ;
     //        while ( i++ < 30 ) {
-    //            cout << ".";
+    //            ecc::logInfo() << ".";
     //                wait (1);
     //        }
-    //        cout << endl;
+    //        ecc::logInfo() << endl;
     //    }
     //
     if(system(NULL)) {
         if(VERBOSE >= 1)
-            cout << "Processor is OK" << endl;
+            ecc::logInfo() << "Processor is OK" << endl;
     }
     else {
         if(VERBOSE >= 1)
-            cout << "Processor is not responding!!" << endl;
+            ecc::logInfo() << "Processor is not responding!!" << endl;
     }
 
     if(VERBOSE >= 1)
-        cout << "System commands..." << endl;
+        ecc::logInfo() << "System commands..." << endl;
 
     // Execute ETS
     char Commands[250];
@@ -2336,16 +2111,16 @@ void Sizer::exeETSServerOne(int port, unsigned view) {
     sprintf(Commands, "chmod +x ./%s", launchFile.c_str());
 
     if(VERBOSE >= 1)
-        cout << "RUN COMMAND....chmod +x " << launchFile.c_str() << endl;
+        ecc::logInfo() << "RUN COMMAND....chmod +x " << launchFile.c_str() << endl;
 
     int ret;
     if(!(ret = system(Commands))) {
         if(VERBOSE >= 1)
-            cout << "Command : " << Commands << " is done sucessfully" << endl;
+            ecc::logInfo() << "Command : " << Commands << " is done sucessfully" << endl;
     }
     else {
         if(VERBOSE >= 1)
-            cout << "Command : " << Commands << " exited with code " << ret
+            ecc::logInfo() << "Command : " << Commands << " exited with code " << ret
                  << endl;
     }
 
@@ -2358,19 +2133,19 @@ void Sizer::exeETSServerOne(int port, unsigned view) {
     }
 
     if(VERBOSE >= 1)
-        cout << "RUN COMMAND.... xterm -T Sizer...." << endl;
+        ecc::logInfo() << "RUN COMMAND.... xterm -T Sizer...." << endl;
 
     if(!(ret = system(Commands))) {
         if(VERBOSE >= 1)
-            cout << "Command : " << Commands << " is done sucessfully" << endl;
+            ecc::logInfo() << "Command : " << Commands << " is done sucessfully" << endl;
     }
     else {
         if(VERBOSE >= 1)
-            cout << "Command : " << Commands << " exited with code " << ret
+            ecc::logInfo() << "Command : " << Commands << " exited with code " << ret
                  << endl;
     }
 
-    cout << "Running ETS done" << endl;
+    ecc::logInfo() << "Running ETS done" << endl;
 }
 
 void Sizer::exeOSServerOne(int port, unsigned view) {
@@ -2550,7 +2325,7 @@ void Sizer::exeOSServerOne(int port, unsigned view) {
     string launchFile = "launch_os." + ostr.str() + ".cmd";
     fout.open(launchFile.c_str());
     if(val != 0)
-        cout << var << ": " << val << endl;
+        ecc::logInfo() << var << ": " << val << endl;
     else {
         fout << "OPENSTA_EXECUTABLE=$(pwd)/sta" << endl;
         val = "${OPENSTA_EXECUTABLE}";
@@ -2606,7 +2381,7 @@ void Sizer::exePTServer(string &serverName, int &port, unsigned view) {
     while(true) {
         flag = false;
         if(port > 9999) {
-            cout << "Error: cannot open PT socket" << endl;
+            ecc::logInfo() << "Error: cannot open PT socket" << endl;
             exit(0);
         }
         std::ostringstream ostr;
@@ -2617,7 +2392,7 @@ void Sizer::exePTServer(string &serverName, int &port, unsigned view) {
         sprintf(socketFile, "socket-%d.tmp", port);
         sprintf(hostnameFile, "hostname-%d.tmp", port);
         int tmp_cnt = 0;
-        cout << "waiting for socket file ";
+        ecc::logInfo() << "waiting for socket file ";
         while(flag2) {
             ifstream fp;
             wait(1);
@@ -2625,15 +2400,15 @@ void Sizer::exePTServer(string &serverName, int &port, unsigned view) {
             if(fp)
                 flag2 = false;
             fp.close();
-            cout << ".";
+            ecc::logInfo() << ".";
             if(tmp_cnt++ > max(200, (int)numcells))
                 break;
         }
-        cout << endl;
+        ecc::logInfo() << endl;
         file.open(socketFile);
-        cout << "open socket file: " << socketFile << endl;
+        ecc::logInfo() << "open socket file: " << socketFile << endl;
         if(!file) {
-            cout << "Error: socket file not found" << endl;
+            ecc::logInfo() << "Error: socket file not found" << endl;
         }
         while(std::getline(file, line)) {
             if(line.find("Error") != string::npos)
@@ -2655,7 +2430,7 @@ void Sizer::exePTServer(string &serverName, int &port, unsigned view) {
         }
     }
     file.close();
-    cout << "PT socket is opened at " << serverName << ":" << port << endl;
+    ecc::logInfo() << "PT socket is opened at " << serverName << ":" << port << endl;
     // sprintf(Commands, "\\rm socket-*.tmp" );
     sprintf(Commands, "\\rm -f %s", socketFile);
     system(Commands);
@@ -2672,7 +2447,7 @@ void Sizer::exeETSServer(string &serverName, int &port, unsigned view) {
     while(true) {
         flag = false;
         if(port > 9999) {
-            cout << "Error: cannot open ETS socket" << endl;
+            ecc::logInfo() << "Error: cannot open ETS socket" << endl;
             exit(0);
         }
         exeETSServerOne(port, view);
@@ -2680,7 +2455,7 @@ void Sizer::exeETSServer(string &serverName, int &port, unsigned view) {
         sprintf(socketFile, "socket-%d.tmp", port);
         sprintf(hostnameFile, "hostname-%d.tmp", port);
         int tmp_cnt = 0;
-        cout << "waiting for socket file " << endl;
+        ecc::logInfo() << "waiting for socket file " << endl;
         while(flag2) {
             ifstream fp;
             wait(1);
@@ -2688,15 +2463,15 @@ void Sizer::exeETSServer(string &serverName, int &port, unsigned view) {
             if(fp)
                 flag2 = false;
             fp.close();
-            cout << ".";
+            ecc::logInfo() << ".";
             if(tmp_cnt++ > max(200, (int)numcells))
                 break;
         }
-        cout << endl;
+        ecc::logInfo() << endl;
         file.open(socketFile);
-        cout << "open socket file: " << socketFile << endl;
+        ecc::logInfo() << "open socket file: " << socketFile << endl;
         if(!file) {
-            cout << "Error: socket file not found" << endl;
+            ecc::logInfo() << "Error: socket file not found" << endl;
             flag = true;
         }
         else {
@@ -2723,7 +2498,7 @@ void Sizer::exeETSServer(string &serverName, int &port, unsigned view) {
         }
     }
     file.close();
-    cout << "ETS socket is opened at " << serverName << ":" << port << endl;
+    ecc::logInfo() << "ETS socket is opened at " << serverName << ":" << port << endl;
     // sprintf(Commands, "\\rm socket-*.tmp" );
     if(NO_LOG) {
         sprintf(Commands, "\\rm -f %s", socketFile);
@@ -2742,7 +2517,7 @@ void Sizer::exeOSServer(string &serverName, int &port, unsigned view) {
     while(true) {
         flag = false;
         if(port > 9999) {
-            cout << "Error: cannot open OpenSTA socket" << endl;
+            ecc::logInfo() << "Error: cannot open OpenSTA socket" << endl;
             exit(0);
         }
         std::ostringstream ostr;
@@ -2753,7 +2528,7 @@ void Sizer::exeOSServer(string &serverName, int &port, unsigned view) {
         sprintf(socketFile, "socket-%d.tmp", port);
         sprintf(hostnameFile, "hostname-%d.tmp", port);
         int tmp_cnt = 0;
-        cout << "waiting for socket file ";
+        ecc::logInfo() << "waiting for socket file ";
         while(flag2) {
             ifstream fp;
             wait(1);
@@ -2761,15 +2536,15 @@ void Sizer::exeOSServer(string &serverName, int &port, unsigned view) {
             if(fp)
                 flag2 = false;
             fp.close();
-            cout << ".";
+            ecc::logInfo() << ".";
             if(tmp_cnt++ > max(200, (int)numcells))
                 break;
         }
-        cout << endl;
+        ecc::logInfo() << endl;
         file.open(socketFile);
-        cout << "open socket file: " << socketFile << endl;
+        ecc::logInfo() << "open socket file: " << socketFile << endl;
         if(!file) {
-            cout << "Error: socket file not found" << endl;
+            ecc::logInfo() << "Error: socket file not found" << endl;
         }
         while(std::getline(file, line)) {
             if(line.find("Error") != string::npos)
@@ -2791,7 +2566,7 @@ void Sizer::exeOSServer(string &serverName, int &port, unsigned view) {
         }
     }
     file.close();
-    cout << "OpenSTA socket is opened at " << serverName << ":" << port << endl;
+    ecc::logInfo() << "OpenSTA socket is opened at " << serverName << ":" << port << endl;
     // sprintf(Commands, "\\rm socket-*.tmp" );
     sprintf(Commands, "\\rm -f %s", socketFile);
     system(Commands);
@@ -2799,7 +2574,7 @@ void Sizer::exeOSServer(string &serverName, int &port, unsigned view) {
 
 void Sizer::SizeOut(bool success) {
     double begin = cpuTime();
-    cout << endl << "Saving final sizes... " << benchname + ".size" << endl;
+    ecc::logInfo() << endl << "Saving final sizes... " << benchname + ".size" << endl;
     string filename = benchname + ".size";
     if(!success)
         filename = benchname + ".int.size";
@@ -2812,17 +2587,17 @@ void Sizer::SizeOut(bool success) {
         }
         if(lib_cell_info != NULL) {  //&& lib_cell_info->name != init_sizes[i]
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
-            // cout << cells[i].name << " "<<lib_cell_info->name<<endl;
+            // ecc::logInfo() << cells[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
-    printf("Save out----------- %d cells were changed------------\n", changed);
+    ecc::logPrintf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
     time_SizeOut = cpuTime() - begin;
 }
 
 void Sizer::SizeOut(string path, vector< CELL > &c) {
     string filename = path + "/" + benchname + ".size";
-    cout << endl << "Saving final sizes... " << filename << endl;
+    ecc::logInfo() << endl << "Saving final sizes... " << filename << endl;
     ofstream outsz(filename.c_str());
     int changed = 0;
     for(unsigned i = 0; i < c.size(); i++) {
@@ -2832,16 +2607,16 @@ void Sizer::SizeOut(string path, vector< CELL > &c) {
         }
         if(lib_cell_info != NULL) {
             outsz << c[i].name << " " << lib_cell_info->name << endl;
-            // cout << c[i].name << " "<<lib_cell_info->name<<endl;
+            // ecc::logInfo() << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
-    printf("Save out----------- %d cells were changed------------\n", changed);
+    ecc::logPrintf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
 void Sizer::SizeChangeOut(string path, vector< CELL > &c) {
     string filename = path + "/" + benchname + ".size";
-    cout << endl << "Saving final sizes... " << filename << endl;
+    ecc::logInfo() << endl << "Saving final sizes... " << filename << endl;
     ofstream outsz(filename.c_str());
     int changed = 0;
     for(unsigned i = 0; i < c.size(); i++) {
@@ -2851,16 +2626,16 @@ void Sizer::SizeChangeOut(string path, vector< CELL > &c) {
         }
         if(lib_cell_info != NULL && lib_cell_info->name != init_sizes[i]) {
             outsz << c[i].name << " " << lib_cell_info->name << endl;
-            // cout << c[i].name << " "<<lib_cell_info->name<<endl;
+            // ecc::logInfo() << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
-    printf("Save out----------- %d cells were changed------------\n", changed);
+    ecc::logPrintf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
 void Sizer::SizeOut(string path) {
     string filename = path + "/" + benchname + ".size";
-    cout << endl << "Saving final sizes... " << filename << endl;
+    ecc::logInfo() << endl << "Saving final sizes... " << filename << endl;
     ofstream outsz(filename.c_str());
     int changed = 0;
     for(unsigned i = 0; i < numcells; i++) {
@@ -2870,15 +2645,15 @@ void Sizer::SizeOut(string path) {
         }
         if(lib_cell_info != NULL) {
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
-            // cout << c[i].name << " "<<lib_cell_info->name<<endl;
+            // ecc::logInfo() << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
-    printf("Save out----------- %d cells were changed------------\n", changed);
+    ecc::logPrintf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
 void Sizer::SizeTempOut(string option) {
-    cout << endl
+    ecc::logInfo() << endl
          << "Saving final sizes... " << benchname + "." + option + ".sizes"
          << endl;
     string filename = benchname + "." + option + ".sizes";
@@ -2891,16 +2666,16 @@ void Sizer::SizeTempOut(string option) {
         }
         if(lib_cell_info != NULL) {
             outsz << cells[i].name << " " << lib_cell_info->name << endl;
-            // cout << c[i].name << " "<<lib_cell_info->name<<endl;
+            // ecc::logInfo() << c[i].name << " "<<lib_cell_info->name<<endl;
         }
     }
-    printf("Save out----------- %d cells were changed------------\n", changed);
+    ecc::logPrintf("Save out----------- %d cells were changed------------\n", changed);
     outsz.close();
 }
 
 bool Sizer::SizeIn(string path) {
     string filename = path + "/" + benchname + ".size";
-    cout << endl << "Size in sizes... " << filename << endl;
+    ecc::logInfo() << endl << "Size in sizes... " << filename << endl;
     vector< pair< string, string > > sizes = readSizes(filename);
     if(sizes.size() == 0)
         return false;
@@ -2921,7 +2696,7 @@ bool Sizer::SizeIn(string path) {
 }
 
 void Sizer::UDSizeIn(string filename) {
-    cout << "Reading sizes... " << filename << endl;
+    ecc::logInfo() << "Reading sizes... " << filename << endl;
     vector< pair< string, string > > sizes = readSizes(filename);
     if(sizes.size() == 0)
         return;
@@ -2937,7 +2712,7 @@ void Sizer::UDSizeIn(string filename) {
 }
 
 void Sizer::UDSizeIn(vector< CELL > &int_cells, string filename) {
-    cout << "Reading sizes... " << filename << endl;
+    ecc::logInfo() << "Reading sizes... " << filename << endl;
     vector< pair< string, string > > sizes = readSizes(filename);
     if(sizes.size() == 0)
         return;
@@ -2953,7 +2728,7 @@ void Sizer::UDSizeIn(vector< CELL > &int_cells, string filename) {
 }
 
 void Sizer::SizeInit(string option) {
-    cout << "Reading sizes... " << option << endl;
+    ecc::logInfo() << "Reading sizes... " << option << endl;
     string filename = option;
     vector< pair< string, string > > sizes = readSizes(filename);
     if(sizes.size() == 0)
@@ -2967,14 +2742,14 @@ void Sizer::SizeInit(string option) {
             g_cells[cell2id[cellName]].c_vtype = lib_cell_info->c_vtype;
             g_cells[cell2id[cellName]].c_size = lib_cell_info->c_size;
         }
-        // cout << "SIZE INIT " << g_cells[cell2id[cellName]].name  << " " <<
+        // ecc::logInfo() << "SIZE INIT " << g_cells[cell2id[cellName]].name  << " " <<
         // g_cells[cell2id[cellName]].type << endl;
         g_cells[cell2id[cellName]].isChanged++;
     }
 }
 
 void Sizer::SizeInfromPT(string filename) {
-    cout << "Reading sizes... " << filename << endl;
+    ecc::logInfo() << "Reading sizes... " << filename << endl;
     vector< pair< string, string > > sizes = readSizesPT(filename);
     if(sizes.size() == 0)
         return;
@@ -2999,7 +2774,7 @@ vector< pair< string, string > > Sizer::readSizes(const string &filename) {
     // Open the file in read mode, exit if could not open
     ifstream infile(filename.c_str());
     if(!infile) {
-        cout << "-E-: readSizes: Could not read sizes from '" << filename << "'"
+        ecc::logInfo() << "-E-: readSizes: Could not read sizes from '" << filename << "'"
              << endl;
         return sizes;
         //    exit(1);
@@ -3026,7 +2801,7 @@ vector< pair< string, string > > Sizer::readSizesPT(const string &filename) {
     // Open the file in read mode, exit if could not open
     ifstream infile(filename.c_str());
     if(!infile) {
-        cout << "-E-: readSizes: Could not read sizes from '" << filename << "'"
+        ecc::logInfo() << "-E-: readSizes: Could not read sizes from '" << filename << "'"
              << endl;
         return sizes;
         //    exit(1);
@@ -3045,7 +2820,7 @@ vector< pair< string, string > > Sizer::readSizesPT(const string &filename) {
         size = tmp.substr(1, tmp.length() - 2);
         if(infile.eof())
             break;
-        // cout << inst << " " << size << endl;
+        // ecc::logInfo() << inst << " " << size << endl;
         sizes.push_back(make_pair(inst, size));
     }
     // Close the file
@@ -3108,33 +2883,33 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
         hold_tns = T[view]->getTNSHold(clk_name[worst_corner]);
     }
 
-    cout << sizeout << "[" << view << "] WNS from Timer     : " << wns << endl;
-    cout << sizeout << "[" << view
+    ecc::logInfo() << sizeout << "[" << view << "] WNS from Timer     : " << wns << endl;
+    ecc::logInfo() << sizeout << "[" << view
          << "] TNS                : " << skew_violation << " ps" << endl;
-    cout << sizeout << "[" << view << "] Leakage Power      : " << current_leak
+    ecc::logInfo() << sizeout << "[" << view << "] Leakage Power      : " << current_leak
          << " (" << (current_leak / init_leak[view] - 1) * 100.0 << " % )"
          << endl;
-    cout << sizeout << "[" << view << "] Total Power        : " << current_tot
+    ecc::logInfo() << sizeout << "[" << view << "] Total Power        : " << current_tot
          << " (" << (current_tot / init_tot[view] - 1) * 100.0 << " % ) "
          << endl;
-    cout << sizeout << "[" << view << "] # Swap             : " << swap_count
+    ecc::logInfo() << sizeout << "[" << view << "] # Swap             : " << swap_count
          << endl;
-    cout << sizeout << "[" << view
+    ecc::logInfo() << sizeout << "[" << view
          << "] % HVT cells        : " << hvt_ratio * 100.0 << endl;
-    cout << sizeout << "[" << view
+    ecc::logInfo() << sizeout << "[" << view
          << "] % HVT cells (init) : " << hvt_init_ratio * 100.0 << endl;
 
     if(HOLD_CHECK) {
-        cout << sizeout << "[" << view << "] WNS hold           : " << hold_wns
+        ecc::logInfo() << sizeout << "[" << view << "] WNS hold           : " << hold_wns
              << endl;
-        cout << sizeout << "[" << view << "] TNS hold           : " << hold_tns
+        ecc::logInfo() << sizeout << "[" << view << "] TNS hold           : " << hold_tns
              << endl;
     }
 
-    cout << sizeout << " Cap. Vio.      : " << cap_violation
+    ecc::logInfo() << sizeout << " Cap. Vio.      : " << cap_violation
          << " fF,  #: " << cap_violation_cnt << " max: " << cap_violation_wst
          << endl;
-    cout << sizeout << " Slew. Vio.     : " << tran_tot
+    ecc::logInfo() << sizeout << " Slew. Vio.     : " << tran_tot
          << " ps,  #: " << tran_num << ", max: " << tran_max << endl;
 
     SizeOut("./", c);
@@ -3164,7 +2939,7 @@ inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
         }
         bool attack = false;
         if(i % 100 == 0) {
-            printf("Attack %d/%d\n", i, numcells);
+            ecc::logPrintf("Attack %d/%d\n", i, numcells);
         }
         for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
             if(pins[view][cells[i].outpins[j]].rslk < toler ||
@@ -3218,7 +2993,7 @@ inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
                         sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
                                          leak_exponent, alpha, true);
                     }
-                    // cout << "UPSIZING SF " << sf << endl;
+                    // ecc::logInfo() << "UPSIZING SF " << sf << endl;
                     if(sf != 0.0) {
                         delta_impact_size.push_back(1.0 / sf);
                         size_step.push_back(k);
@@ -3236,7 +3011,7 @@ inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
                         sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
                                          leak_exponent, alpha, true);
                     }
-                    // cout << "UPGRADING SF " << sf << endl;
+                    // ecc::logInfo() << "UPGRADING SF " << sf << endl;
                     if(sf != 0.0) {
                         delta_impact_type.push_back(1.0 / sf);
                         type_step.push_back(k);
@@ -3277,10 +3052,10 @@ inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
             if(tmpEntry.delta_impact < 0.0)
                 targets.insert(tmpEntry);
 
-            // cout << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
+            // ecc::logInfo() << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
         }
     }
-    cout << "# priority targets  : " << targets.size() << endl;
+    ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
 
     // if no cells with a positive gain, simply insert top x% negative slack
     // cells.
@@ -3349,10 +3124,10 @@ inline void Sizer::buildTargets(unsigned iter, unsigned STAGE, double RATIO,
                 targets.insert(tmpEntry);
             }
         }
-        cout << "# uniform targets  : " << targets.size() << endl;
+        ecc::logInfo() << "# uniform targets  : " << targets.size() << endl;
     }
 
-    std::cerr << "Targets Building Finished. Target.size = " << targets.size()
+    ecc::logError() << "Targets Building Finished. Target.size = " << targets.size()
               << std::endl;
     // if(targets.size() == 0) {
     //     // it's stuck. let's release some of cells
@@ -3371,12 +3146,12 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
     unsigned swap_cnt = 0;
     if(STAGE == GLOBAL || STAGE == FINESWAP) {
         if(STAGE == GLOBAL) {
-            cout << endl
+            ecc::logInfo() << endl
                  << "(" << thread_id << ") Start global opt.. round " << iter
                  << endl;
         }
         else {
-            cout << endl
+            ecc::logInfo() << endl
                  << "(" << thread_id
                  << ") Start global opt (fine swap) .. round " << iter << endl;
         }
@@ -3423,7 +3198,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             }
             bool attack = false;
             // if(i % 100 == 0) {
-            //     printf("Attack %d/%d\n", i, numcells);
+            //     ecc::logPrintf("Attack %d/%d\n", i, numcells);
             // }
             for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
                 if(pins[view][cells[i].outpins[j]].rslk < toler ||
@@ -3480,7 +3255,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                             sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
                                              leak_exponent, alpha, true);
                         }
-                        // cout << "UPSIZING SF " << sf << endl;
+                        // ecc::logInfo() << "UPSIZING SF " << sf << endl;
                         if(sf != 0.0) {
                             delta_impact_size.push_back(1.0 / sf);
                             size_step.push_back(k);
@@ -3498,7 +3273,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                             sf = CalSensMMMC(cells[i], k, 0, sensFuncT,
                                              leak_exponent, alpha, true);
                         }
-                        // cout << "UPGRADING SF " << sf << endl;
+                        // ecc::logInfo() << "UPGRADING SF " << sf << endl;
                         if(sf != 0.0) {
                             delta_impact_type.push_back(1.0 / sf);
                             type_step.push_back(k);
@@ -3539,10 +3314,10 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 if(tmpEntry.delta_impact < 0.0)
                     targets.insert(tmpEntry);
 
-                // cout << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
+                // ecc::logInfo() << "DELTA IMPACT " << tmpEntry.delta_impact << endl;
             }
         }
-        cout << "# priority targets  : " << targets.size() << endl;
+        ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
 
         // if no cells with a positive gain, simply insert top x% negative slack
         // cells.
@@ -3612,7 +3387,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                     targets.insert(tmpEntry);
                 }
             }
-            cout << "# uniform targets  : " << targets.size() << endl;
+            ecc::logInfo() << "# uniform targets  : " << targets.size() << endl;
         }
 
         if(targets.size() == 0) {
@@ -3639,7 +3414,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
         for(set< entry >::iterator it = targets.begin(); it != targets.end();
             it++) {
             if(iter % 100 == 0) {
-                printf("Attack targets %d/%d\n", iter, num);
+                ecc::logPrintf("Attack targets %d/%d\n", iter, num);
             }
             iter++;
             if(update_cnt > (numcells * CORR_RATIO) && CORR_PT) {
@@ -3705,13 +3480,13 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             if(it->change == UPSIZE) {
                 if(STAGE == GLOBAL) {
                     if(VERBOSE >= 4)
-                        cout << "GLOBAL TARGET = UPSIZE (" << it->step
+                        ecc::logInfo() << "GLOBAL TARGET = UPSIZE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
                 else {
                     if(VERBOSE >= 4)
-                        cout << "FINESWAP TARGET = UPSIZE (" << it->step
+                        ecc::logInfo() << "FINESWAP TARGET = UPSIZE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
@@ -3725,13 +3500,13 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
             else {
                 if(STAGE == GLOBAL) {
                     if(VERBOSE >= 4)
-                        cout << "GLOBAL TARGET = UPTYPE (" << it->step
+                        ecc::logInfo() << "GLOBAL TARGET = UPTYPE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
                 else {
                     if(VERBOSE >= 4)
-                        cout << "FINESWAP TARGET = UPTYPE (" << it->step
+                        ecc::logInfo() << "FINESWAP TARGET = UPTYPE (" << it->step
                              << "): " << cells[cur].name << " "
                              << cells[cur].type;
                 }
@@ -3791,7 +3566,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                         CalcStats((unsigned)thread_id, false, "", view1, false);
                         new_tns = viewTNS[view1];
 
-                        // cout << "TNS comparison " << view << " " << prev_tns
+                        // ecc::logInfo() << "TNS comparison " << view << " " << prev_tns
                         // << " " << new_tns << endl;
                     }
 
@@ -3828,13 +3603,13 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
                 }
 
                 if(VERBOSE >= 4)
-                    cout << "-> " << cells[cur].type << " -- Restored" << endl;
+                    ecc::logInfo() << "-> " << cells[cur].type << " -- Restored" << endl;
                 cells[cur].isChanged -= 2;
             }
             else {  // accept
                 changed[cur] = true;
                 if(VERBOSE >= 4)
-                    cout << "-> " << cells[cur].type << " -- Accepted" << endl;
+                    ecc::logInfo() << "-> " << cells[cur].type << " -- Accepted" << endl;
                 count++;
                 update_cnt++;
                 swap_cnt++;
@@ -3856,7 +3631,7 @@ unsigned Sizer::Attack(unsigned iter, unsigned STAGE, double RATIO,
         }
         targets.clear();
     }
-    cout << "swap count = " << swap_cnt << endl;
+    ecc::logInfo() << "swap count = " << swap_cnt << endl;
 
     return swap_cnt;
 }
@@ -4037,10 +3812,10 @@ unsigned Sizer::OptWNSPath(unsigned STAGE, unsigned view) {
             swap_cnt++;
         }
     }
-    cout << "OptWNS: swap: " << swap_cnt << " target: " << targets.size()
+    ecc::logInfo() << "OptWNS: swap: " << swap_cnt << " target: " << targets.size()
          << endl;
     if(swap_cnt != 0)
-        cout << "OptWNS: Accept rate: "
+        ecc::logInfo() << "OptWNS: Accept rate: "
              << (double)swap_cnt / (double)(swap_cnt + restore) << endl;
     targets.clear();
     return swap_cnt;
@@ -4068,8 +3843,8 @@ int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
     set< entry > targets;
 
     unsigned curnet = pins[view][cells[cell_index].outpin].net;
-    // cout << "net - " << nets[corner][curnet].name << endl;
-    // cout << "net inpin - " <<
+    // ecc::logInfo() << "net - " << nets[corner][curnet].name << endl;
+    // ecc::logInfo() << "net inpin - " <<
     // getFullPinName(pins[nets[corner][curnet].inpin]) << endl;
 
     // bool ignore = false;
@@ -4110,14 +3885,14 @@ int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
         tmpEntry2.delta_impact = -min(pins[view][cells[curfo].outpin].rslk,
                                       pins[view][cells[curfo].outpin].fslk) *
                                  pins[view][curpin].cap;
-        // cout << "fo cells ----"  << cells[curfo].name << "-" <<
+        // ecc::logInfo() << "fo cells ----"  << cells[curfo].name << "-" <<
         // cells[curfo].type << "delta impact: " << tmpEntry2.delta_impact <<
         // endl;
-        // cout << "pin name -- " << getFullPinName(pins[view][curpin]) << endl;
+        // ecc::logInfo() << "pin name -- " << getFullPinName(pins[view][curpin]) << endl;
         targets.insert(tmpEntry2);
     }
 
-    // cout << "Target cell # " << targets.size() << endl;
+    // ecc::logInfo() << "Target cell # " << targets.size() << endl;
     if(targets.size() == 0)
         return 0;
 
@@ -4172,7 +3947,7 @@ int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
         }
         else {
             swap_cnt++;
-            cout << "down cells ----" << cells[cur].name << "-"
+            ecc::logInfo() << "down cells ----" << cells[cur].name << "-"
                  << cells[cur].type << endl;
         }
     }
@@ -4213,7 +3988,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
                       pins[view][cells[cell_index].outpin].fslk);
     }
 
-    cout << "WNS is -- " << WNS << " TNS is -- " << TNS << " org slk -- "
+    ecc::logInfo() << "WNS is -- " << WNS << " TNS is -- " << TNS << " org slk -- "
          << org_slk << " guardband[worst_corner] -- " << gb << endl;
     //    org_slk += gb;
     //    WNS += gb;
@@ -4247,7 +4022,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
                           pins[view][cells[cell_index].outpin].fslk);
         }
 
-        cout << "new slk (uptype) -- " << new_slk << endl;
+        ecc::logInfo() << "new slk (uptype) -- " << new_slk << endl;
         if(new_slk < org_slk + gb) {
             // revert
             if(change) {
@@ -4285,7 +4060,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
 
             if(!revert) {
                 // accept and go futher
-                cout << "Cell uptyped --- " << cells[cell_index].name << " (->"
+                ecc::logInfo() << "Cell uptyped --- " << cells[cell_index].name << " (->"
                      << cells[cell_index].type << ") slack: " << org_slk << "->"
                      << new_slk << endl;
                 org_slk = new_slk;
@@ -4314,7 +4089,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
         else
             new_tns = CalcSlackViolation();
         if(TNS < new_tns) {
-            cout << "TNS worse " << TNS << " " << new_tns << endl;
+            ecc::logInfo() << "TNS worse " << TNS << " " << new_tns << endl;
             revert = true;
         }
 
@@ -4329,13 +4104,13 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
             new_slk = min(pins[view][cells[cell_index].outpin].rslk,
                           pins[view][cells[cell_index].outpin].fslk);
         }
-        cout << "Try -- new slk (upsize/" << upsize << "): " << new_slk << "/"
+        ecc::logInfo() << "Try -- new slk (upsize/" << upsize << "): " << new_slk << "/"
              << new_tns << " cell type : " << cells[cell_index].type << endl;
-        // cout << "Try -- new slk (upsize/" << upsize << "): " << new_slk << "
+        // ecc::logInfo() << "Try -- new slk (upsize/" << upsize << "): " << new_slk << "
         // cell type : " << cells[cell_index].type << endl;
 
         if(new_slk < org_slk + gb) {
-            cout << "slk worse " << new_slk << " " << org_slk + gb << endl;
+            ecc::logInfo() << "slk worse " << new_slk << " " << org_slk + gb << endl;
 
             // revert
             if(change)
@@ -4362,7 +4137,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
                                         pins[view][pin_index].fslk);
                     }
                     if(pin_slack < WNS) {
-                        cout << "pin slk of sibling (upsize) -- " << pin_slack
+                        ecc::logInfo() << "pin slk of sibling (upsize) -- " << pin_slack
                              << "/" << WNS << endl;
                         revert = true;
                         break;
@@ -4374,7 +4149,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
 
             if(!revert) {
                 // accept and go futher
-                // cout << "Cell upsized --- " << cells[cell_index].name << "
+                // ecc::logInfo() << "Cell upsized --- " << cells[cell_index].name << "
                 // (->" << cells[cell_index].type << ") slack: " << org_slk
                 // <<"->" << new_slk<< endl;
                 org_slk = new_slk;
@@ -4382,7 +4157,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
             }
             else {
                 // revert
-                // cout << "Cell revert ......" << endl;
+                // ecc::logInfo() << "Cell revert ......" << endl;
                 if(change)
                     cell_resize(cells[cell_index], -upsize, corr_pt);
                 OneTimer(cells[cell_index], STA_MARGIN);
@@ -4395,7 +4170,7 @@ int Sizer::UpSizeCellGreedy(bool corr_pt, unsigned option, unsigned cell_index,
 unsigned Sizer::OptWNSPathBalance(bool corr_pt, unsigned option,
                                   unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
-    cout << "OptWNSPathBalance() start..." << endl;
+    ecc::logInfo() << "OptWNSPathBalance() start..." << endl;
     if(corr_pt)
         T = PTimer[option];
     // double GB = -5.0;
@@ -4417,7 +4192,7 @@ unsigned Sizer::OptWNSPathBalance(bool corr_pt, unsigned option,
             // CalcSlack();
         }
         prevWNS = WNS;
-        cout << "[OptWNSPathBalance" << option << "] ";
+        ecc::logInfo() << "[OptWNSPathBalance" << option << "] ";
         CalcStats();
         if(corr_pt)
             WNS = T[view]->getWorstSlack(clk_name[worst_corner]);
@@ -4429,7 +4204,7 @@ unsigned Sizer::OptWNSPathBalance(bool corr_pt, unsigned option,
         else
             stopCnt = 0;
 
-        cout << "WNS is -- " << WNS << endl;
+        ecc::logInfo() << "WNS is -- " << WNS << endl;
 
         if(WNS >= 0.0)
             break;
@@ -4476,7 +4251,7 @@ unsigned Sizer::OptWNSPathBalance(bool corr_pt, unsigned option,
             }
         }
 
-        cout << "Critical path # : " << path_cell_list.size() << endl;
+        ecc::logInfo() << "Critical path # : " << path_cell_list.size() << endl;
 
         // optimize critical paths
 
@@ -4492,7 +4267,7 @@ unsigned Sizer::OptWNSPathBalance(bool corr_pt, unsigned option,
 
             for(unsigned i = path.size() - 1; i > 1; i--) {
                 if(r_size(cells[path[i - 1]]) - r_size(cells[path[i]]) > 2) {
-                    cout << "Unbalanced path: " << cells[path[i]].type << "----"
+                    ecc::logInfo() << "Unbalanced path: " << cells[path[i]].type << "----"
                          << cells[path[i - 1]].type << endl;
                     swap_cnt +=
                         UpSizeCellGreedy(corr_pt, option, path[i], 0.0, 1);
@@ -4537,9 +4312,9 @@ vector< unsigned > Sizer::GetCellList(unsigned index, unsigned num_cell) {
 
     if(VERBOSE >= 300) {
         for(unsigned i = 0; i < cell_list.size(); i++) {
-            cout << cells[cell_list[i]].name << " ";
+            ecc::logInfo() << cells[cell_list[i]].name << " ";
         }
-        cout << endl;
+        ecc::logInfo() << endl;
     }
 
     return cell_list;
@@ -4552,7 +4327,7 @@ vector< vector< int > > Sizer::GenSequence(unsigned option, unsigned num_cell) {
 
     vector< vector< int > > gray_code_ary;
 
-    cout << option << endl;
+    ecc::logInfo() << option << endl;
     vector< int > sequence;
     for(unsigned j = 0; j < option; j++) {
         sequence.push_back(j);
@@ -4662,9 +4437,9 @@ vector< vector< int > > Sizer::GenSequence(unsigned option, unsigned num_cell) {
     if(VERBOSE >= 300) {
         for(unsigned i = 0; i < gray_code_ary.size(); ++i) {
             for(unsigned j = 0; j < gray_code_ary[i].size(); ++j) {
-                cout << gray_code_ary[i][j] << " ";
+                ecc::logInfo() << gray_code_ary[i][j] << " ";
             }
-            cout << endl;
+            ecc::logInfo() << endl;
         }
     }
     return gray_code_ary;
@@ -4672,15 +4447,15 @@ vector< vector< int > > Sizer::GenSequence(unsigned option, unsigned num_cell) {
 
 unsigned Sizer::InitWNSPath(unsigned view, unsigned numPath) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
-    cout << "InitWNSPath() starts....... " << view << endl;
+    ecc::logInfo() << "InitWNSPath() starts....... " << view << endl;
 
     vector< vector< unsigned > > path_cell_list;
 
-    cout << "INIT WNS PATH WORST SLACK " << worst_slack << endl;
+    ecc::logInfo() << "INIT WNS PATH WORST SLACK " << worst_slack << endl;
 
     for(unsigned i = 0; i < POs.size(); i++) {
         double slack = min(pins[view][POs[i]].rslk, pins[view][POs[i]].fslk);
-        cout << "INIT WNS PATH PO " << getFullPinName(pins[view][POs[i]]) << " "
+        ecc::logInfo() << "INIT WNS PATH PO " << getFullPinName(pins[view][POs[i]]) << " "
              << slack << " " << worst_slack << endl;
         if(slack > worst_slack)
             continue;
@@ -4724,7 +4499,7 @@ unsigned Sizer::InitWNSPath(unsigned view, unsigned numPath) {
             double slack =
                 min(pins[view][curpin].rslk, pins[view][curpin].fslk);
 
-            cout << "INIT WNS PATH FF " << getFullPinName(pins[view][curpin])
+            ecc::logInfo() << "INIT WNS PATH FF " << getFullPinName(pins[view][curpin])
                  << " " << slack << " " << worst_slack << endl;
 
             if(slack > worst_slack)
@@ -4757,7 +4532,7 @@ unsigned Sizer::InitWNSPath(unsigned view, unsigned numPath) {
         vector< unsigned > path = path_cell_list[i];
 
         for(unsigned j = 0; j < path.size(); ++j) {
-            cout << "init size -- " << path[j] << endl;
+            ecc::logInfo() << "init size -- " << path[j] << endl;
 
             if(InitSize(path[j]))
                 cnt++;
@@ -4791,10 +4566,10 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                                unsigned option, int num_cell, unsigned STEP,
                                unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
-    cout << "OptWNSPathGray() starts.......for view " << view << endl;
-    cout << "option " << option;
-    cout << " num_cell " << num_cell;
-    cout << " STEP " << STEP;
+    ecc::logInfo() << "OptWNSPathGray() starts.......for view " << view << endl;
+    ecc::logInfo() << "option " << option;
+    ecc::logInfo() << " num_cell " << num_cell;
+    ecc::logInfo() << " STEP " << STEP;
 
     if(corr_pt)
         T = PTimer[thread_id];
@@ -4808,7 +4583,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
 
     vector< vector< int > > gray_code_ary;
 
-    cout << option << endl;
+    ecc::logInfo() << option << endl;
     vector< int > sequence;
     for(unsigned j = 0; j < option; j++) {
         sequence.push_back(j);
@@ -5050,7 +4825,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                 max_neg_slk =
                     min(pins[view][cells[path[path.size() - 1]].outpin].rslk,
                         pins[view][cells[path[path.size() - 1]].outpin].fslk);
-                //                cout << "Original slack - " << max_neg_slk <<
+                //                ecc::logInfo() << "Original slack - " << max_neg_slk <<
                 //                endl;
                 vector< cell_sizes > org_size_list;
                 vector< cell_vtypes > org_vt_list;
@@ -5069,13 +4844,13 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
 
                     //                    for (unsigned l = 0; l < num_cell_set
                     //                    ; l ++ ) {
-                    //                        cout << gray_code_ary[k][l] ;
+                    //                        ecc::logInfo() << gray_code_ary[k][l] ;
                     //                    }
-                    //                    cout << endl;
+                    //                    ecc::logInfo() << endl;
 
                     // try
                     for(unsigned l = 0; l < num_cell_set; l++) {
-                        // cout << "change set[" << k << "]: " <<
+                        // ecc::logInfo() << "change set[" << k << "]: " <<
                         // cells[path[start+l]].name;
 
                         if(k == 0) {
@@ -5092,7 +4867,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                             //                                gray_code_ary[k][l]);
                             //                                OneTimer(cells[path[start+l]],STA_MARGIN);
                             //
-                            //                                cout <<
+                            //                                ecc::logInfo() <<
                             //                                cells[path[start+l]].type<<"-";
                             //                                cout
                             //                                <<gray_code_ary[k][l]<<")";
@@ -5100,7 +4875,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                         }
                         else {
                             if(gray_code_ary[k][l] != gray_code_ary[k - 1][l]) {
-                                //                               cout <<
+                                //                               ecc::logInfo() <<
                                 //                               gray_code_ary[k][l]
                                 //                               << "--" ;
 
@@ -5113,7 +4888,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                             }
                         }
                     }
-                    // cout << endl;
+                    // ecc::logInfo() << endl;
 
                     for(unsigned l = 0; l < num_cell_set; l++) {
                         // max cap check
@@ -5210,22 +4985,22 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                                 pins[view][cells[path[path.size() - 1]].outpin]
                                     .fslk);
 
-                    // cout << "slack with gray code [" << k << "] :" <<
+                    // ecc::logInfo() << "slack with gray code [" << k << "] :" <<
                     // one_rslk << " " << one_fslk << endl;
 
                     // save the best solution
 
                     if(!max_cap_vio && max_neg_slk < wslk) {
-                        // cout << "max slack " << max_neg_slk ;
+                        // ecc::logInfo() << "max slack " << max_neg_slk ;
                         max_neg_slk = wslk;
                         best_sol = k;
-                        // cout << "->" << max_neg_slk ;
-                        // cout << " *** best slack change with gray code [" <<
+                        // ecc::logInfo() << "->" << max_neg_slk ;
+                        // ecc::logInfo() << " *** best slack change with gray code [" <<
                         // k << "] :" << wslk << endl;
                     }
                 }
 
-                //    cout << "Restored slack - " <<
+                //    ecc::logInfo() << "Restored slack - " <<
                 //    pins[view][cells[path[path.size()-1]].outpin].rslk << " "
                 //    << pins[view][cells[path[j]].outpin].fslk << endl;
 
@@ -5238,9 +5013,9 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                         if(changed)
                             OneTimer(cells[path[start + l]], STA_MARGIN);
                     }
-                    //                    cout << "Improved slack [" << best_sol
+                    //                    ecc::logInfo() << "Improved slack [" << best_sol
                     //                    << "] - "<< "(" ;
-                    //                    cout <<
+                    //                    ecc::logInfo() <<
                     //                    pins[view][cells[path[path.size()-1]].outpin].rslk
                     //                        << ", " <<
                     //                        pins[view][cells[path[path.size()-1]].outpin].fslk
@@ -5275,12 +5050,12 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                 WNS = min(max_neg_rslk, max_neg_fslk);
             count++;
 
-            // cout << count << " Trial -- current WNS :" << WNS << " TNS : " <<
+            // ecc::logInfo() << count << " Trial -- current WNS :" << WNS << " TNS : " <<
             // TNS << endl;
 
             // current best solution
             if(min_tns > TNS) {
-                cout << " Current best -- WNS : " << WNS << " TNS : " << TNS
+                ecc::logInfo() << " Current best -- WNS : " << WNS << " TNS : " << TNS
                      << endl;
                 min_tns = TNS;
                 found_local_min = true;
@@ -5295,7 +5070,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
     }
 
     if(TNS > min_tns && found_local_min || !found_local_min) {
-        cout << "Revert to the best solution.." << endl;
+        ecc::logInfo() << "Revert to the best solution.." << endl;
         // revert to the best solution
         for(unsigned i = 0; i < numcells; i++) {
             cells[i] = cur_best[i];
@@ -5304,9 +5079,9 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
 
     double cpu_time = cpuTime() - begin;
 
-    cout << "total tried paths num : " << count
+    ecc::logInfo() << "total tried paths num : " << count
          << " / avg trial count per path : " << trial_count / count << endl;
-    cout << "RunTime (total/path/trial): " << cpu_time << " "
+    ecc::logInfo() << "RunTime (total/path/trial): " << cpu_time << " "
          << cpu_time / count << " " << cpu_time / count / trial_count << endl;
 
     return 0;
@@ -5316,7 +5091,7 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
 void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     if(STAGE == GLOBAL) {
-        cout << "RELEASE/GLOBAL - Start global releasing .. " << endl;
+        ecc::logInfo() << "RELEASE/GLOBAL - Start global releasing .. " << endl;
         for(unsigned i = 0; i < numcells; i++) {
             // if(isff(cells[i]))
             //    continue;
@@ -5375,7 +5150,7 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
         }
     }
     else if(STAGE == LEGALIZE) {
-        cout << "RELEASE/LEGALIZE - Start releasing .. with factor 0.5" << endl;
+        ecc::logInfo() << "RELEASE/LEGALIZE - Start releasing .. with factor 0.5" << endl;
         for(unsigned i = 0; i < numcells; i++) {
             // if(isff(cells[i]))
             //    continue;
@@ -5391,7 +5166,7 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
     }
 
     else if(STAGE == CRIT_LEGALIZE) {
-        cout << "RELEASE/CRIT_LEGALIZE - Start releasing .. " << endl;
+        ecc::logInfo() << "RELEASE/CRIT_LEGALIZE - Start releasing .. " << endl;
         for(unsigned i = 0; i < numcells; i++) {
             // if ( isff(cells[i])) continue;
 
@@ -5423,7 +5198,7 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
                     continue;
                 // if ( isff(cells[pins[index].owner])) continue;
 
-                // cout << "legalizing..target cell -- " <<
+                // ecc::logInfo() << "legalizing..target cell -- " <<
                 // cells[pins[view][index].owner].type <<" " <<
                 // r_size(cells[pins[view][index].owner]) << endl;
                 if(!isMin(cells[pins[view][index].owner]))
@@ -5432,7 +5207,7 @@ void Sizer::Release(bool success, unsigned STAGE, unsigned view) {
         }
     }
     else if(STAGE == CRIT_RESET) {
-        cout << "RELEASE/CRIT_RESET - Start reset .. " << endl;
+        ecc::logInfo() << "RELEASE/CRIT_RESET - Start reset .. " << endl;
         for(unsigned i = 0; i < numcells; i++) {
             // if ( isff(cells[i])) continue;
 
@@ -5491,7 +5266,8 @@ void *timer_thread(void *void_thread_args) {
     }
     if((pthread_cancel(_this->threads[thread_args->thread_id])) != 0)
         perror("pthread_cancel");
-    cout << "(timeout) Killing main thread " << thread_args->thread_id << endl;
+    ecc::logInfo() << "(timeout) Killing main thread " << thread_args->thread_id << endl;
+    return nullptr;
 }
 
 void *static_poweropt_driver(void *void_thread_args) {
@@ -5512,1125 +5288,6 @@ void *static_poweropt_driver(void *void_thread_args) {
     return void_thread_args;
 }
 
-void Sizer::runSizerFanoutRepair() {
-    auto *design = _ckt->_ord_design;
-    odb::dbDatabase *db = design->getTech()->getDB();
-    odb::dbMaster *buffer_master = nullptr;
-
-    if(!sizerBufferCell.empty()) {
-        buffer_master = db->findMaster(sizerBufferCell.c_str());
-        if(buffer_master == nullptr || !design->isBuffer(buffer_master)) {
-            cout << "Error: -buffer_cell '" << sizerBufferCell
-                 << "' is not a known buffer master." << endl;
-            exit(1);
-        }
-    }
-    else {
-        uint64_t best_area = numeric_limits< uint64_t >::max();
-        for(odb::dbLib *lib : db->getLibs()) {
-            for(odb::dbMaster *master : lib->getMasters()) {
-                if(!master->isFrozen() || !design->isBuffer(master)
-                   || _ckt->isDontUse(master->getName())) {
-                    continue;
-                }
-                const uint64_t area
-                    = static_cast< uint64_t >(master->getWidth())
-                      * static_cast< uint64_t >(master->getHeight());
-                if(buffer_master == nullptr || area < best_area
-                   || (area == best_area
-                       && master->getName() < buffer_master->getName())) {
-                    buffer_master = master;
-                    best_area = area;
-                }
-            }
-        }
-        if(buffer_master == nullptr) {
-            cout << "Error: no usable buffer master was found. Specify one "
-                    "with -buffer_cell."
-                 << endl;
-            exit(1);
-        }
-    }
-
-    cout << "Sizer fanout repair: buffer=" << buffer_master->getName()
-         << " max_fanout=" << sizerMaxFanout << endl;
-    design->evalTclString("set_max_fanout "
-                          + to_string(sizerMaxFanout)
-                          + " [current_design]");
-    design->evalTclString(
-        "report_check_types -max_fanout -digits 3");
-
-    ecc::FanoutRepairOptions options;
-    options.max_fanout = sizerMaxFanout;
-    options.repair_clock_nets = sizerRepairClockNets;
-    options.insertion.buffer_name_prefix = "sizer_fanout_buf";
-    options.insertion.net_name_prefix = "sizer_fanout_net";
-    if(!sizerRepairClockNets) {
-        sta::dbSta *db_sta = _ckt->_ord_timing->getSta();
-        sta::dbNetwork *db_network = db_sta->getDbNetwork();
-        for(odb::dbNet *net : design->getBlock()->getNets()) {
-            sta::Net *sta_net = db_network->dbToSta(net);
-            if(sta_net != nullptr
-               && db_sta->isClock(sta_net, db_sta->cmdMode())) {
-                options.excluded_nets.push_back(net);
-            }
-        }
-    }
-    const ecc::FanoutRepairResult result
-        = repairFanout(buffer_master, options);
-    if(!result) {
-        cout << "Error: Sizer fanout repair failed: " << result.message
-             << endl;
-        exit(1);
-    }
-
-    cout << "Sizer fanout repair complete: examined=" << result.nets_examined
-         << " violating=" << result.violating_nets
-         << " inserted_buffers=" << result.inserted_buffers.size()
-         << " max_fanout_before=" << result.before_max_fanout
-         << " max_fanout_after=" << result.after_max_fanout << endl;
-    design->evalTclString(
-        "report_check_types -max_fanout -digits 3");
-
-    if(resultDefFile.empty()) {
-        resultDefFile = benchname + ".fanout.def";
-    }
-    if(resultVerilogFile.empty()) {
-        resultVerilogFile = benchname + ".fanout.v";
-    }
-    design->writeDef(resultDefFile);
-    design->evalTclString("write_verilog " + resultVerilogFile);
-    cout << "Wrote fanout-repaired DEF: " << resultDefFile << endl;
-    cout << "Wrote fanout-repaired Verilog: " << resultVerilogFile << endl;
-}
-
-void Sizer::writeRepairStageSnapshot(const std::string& stage) {
-    if(!sizerRepairStagePrefix.empty())
-        _ckt->_ord_design->writeDef(sizerRepairStagePrefix + "." + stage + ".def");
-}
-
-void Sizer::runSizerDesignRepair() {
-    auto* design = _ckt->_ord_design;
-    auto* block = design->getBlock();
-    auto* sta = _ckt->_ord_timing->getSta();
-    if(use_gr_rc) {
-        cout << "Error: native design repair currently requires placement RC."
-             << endl;
-        exit(1);
-    }
-    auto options = nativeRepairConfig.design;
-    for(auto* inst : block->getInsts()) {
-        if(std::find(dontTouchInst.begin(), dontTouchInst.end(),
-                     inst->getName()) != dontTouchInst.end() ||
-           std::find(dontTouchCell.begin(), dontTouchCell.end(),
-                     inst->getMaster()->getName()) != dontTouchCell.end()) {
-            options.excluded_instances.push_back(inst);
-        }
-    }
-    for(auto* lib : block->getDataBase()->getLibs()) {
-        for(auto* master : lib->getMasters()) {
-            if(_ckt->isDontUse(master->getName()) ||
-               (!sizerBufferCell.empty() &&
-                sta->getDbNetwork()->libertyCell(
-                    sta->getDbNetwork()->dbToSta(master)) &&
-                sta->getDbNetwork()
-                    ->libertyCell(sta->getDbNetwork()->dbToSta(master))
-                    ->isBuffer() &&
-                master->getName() != sizerBufferCell)) {
-                options.excluded_masters.push_back(master);
-            }
-        }
-    }
-    // Design::evalTclString returns a string and discards Tcl_Eval's status.
-    // Convert errors into exceptions so the ECO cannot accept stale timing.
-    const auto checked_tcl = [&](const std::string& command) {
-        const auto status = design->evalTclString(
-            "if {[catch {" + command +
-            "} __sizer_repair_error]} {"
-            "set __sizer_repair_status \"ERROR: $__sizer_repair_error\""
-            "} else {set __sizer_repair_status OK}");
-        if(status != "OK")
-            throw std::runtime_error(status);
-    };
-    const auto missing_supplies = [&]() {
-        unsigned missing = 0;
-        for(auto* inst : block->getInsts()) {
-            for(auto* pin : inst->getITerms()) {
-                const auto type = pin->getSigType();
-                if((type == odb::dbSigType::POWER ||
-                    type == odb::dbSigType::GROUND) &&
-                   (!pin->getNet() || pin->getNet()->getSigType() != type))
-                    ++missing;
-            }
-        }
-        return missing;
-    };
-    ecc::connectMissingWildcardSpecialNetPins(block);
-    const auto baseline_missing = missing_supplies();
-    const auto refresh = [&]() {
-        ecc::connectMissingWildcardSpecialNetPins(block);
-        if(missing_supplies() > baseline_missing)
-            throw std::runtime_error(
-                "repair introduced disconnected or mismatched supply pins");
-        checked_tcl("estimate_parasitics -placement");
-        sta->findRequireds();
-    };
-    options.prepare = [&]() {
-        ecc::legalizeRepairPlacement(block,
-                                     ord::OpenRoad::openRoad()->getOpendp(),
-                                     options.excluded_instances);
-    };
-    ecc::DesignRepairResult result;
-    ecc::SetupRepairResult setup_result;
-    ecc::PbbiRepairResult pbbi_result;
-    ecc::PowerRepairResult power_result;
-    double design_ms = 0, setup_ms = 0;
-    try {
-        checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
-                    " [current_design]");
-        // VG has already legalized and refreshed this same OpenDB block.
-        if(!sizerVgRepairMode)
-            options.prepare();
-        refresh();
-        if(!sizerVgRepairMode)
-            writeRepairStageSnapshot("input");
-        const auto design_start = std::chrono::steady_clock::now();
-        result =
-            ecc::OpenDbDesignRepairer::repair(block, sta, refresh, options);
-        design_ms = std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - design_start).count();
-        if(result.ok)
-            writeRepairStageSnapshot("design");
-        if(result.ok && sizerSetupRepairMode) {
-            auto setup_options = nativeRepairConfig.setupOptions();
-            setup_options.common = options;
-            const auto setup_start = std::chrono::steady_clock::now();
-            const auto write_path_checkpoint = [&]() {
-                if(!sizerRepairStagePrefix.empty()) {
-                    const auto checkpoint = sizerRepairStagePrefix + ".path-last.def";
-                    const auto temporary = checkpoint + ".tmp";
-                    design->writeDef(temporary);
-                    if(std::rename(temporary.c_str(), checkpoint.c_str()) != 0)
-                        throw std::runtime_error("cannot publish path checkpoint");
-                }
-            };
-            if(!nativeRepairConfig.pbbi.enabled &&
-               (setup_options.path_buffer_enabled || setup_options.path_buffer_only))
-                write_path_checkpoint();
-            setup_options.path_fanout_observer = [&](const ecc::PathFanoutCheck& check) {
-                cout << "Sizer path fanout: phase=" << check.phase
-                     << " net=" << std::quoted(check.net)
-                     << " pin=" << std::quoted(check.pin)
-                     << " mode=" << std::quoted(check.mode)
-                     << " load=" << check.load << " limit=" << check.limit
-                     << " slack=" << check.slack << endl;
-            };
-            unsigned path_committed_buffers = 0;
-            setup_options.path_trial_observer = [&](unsigned trial_index, const ecc::PathBufferTrial& trial) {
-                cout << "Sizer path trial: index=" << trial_index
-                     << " accepted=" << trial.rejection_reasons.empty()
-                     << " placement_provisional=" << trial.placement_provisional
-                     << " full_verified=" << trial.full_verified
-                     << " metrics_complete=" << trial.metrics_complete
-                     << " frontier_audit=" << trial.frontier_audit
-                     << " buffers=" << trial.buffers
-                     << " reasons=";
-                if(trial.rejection_reasons.empty())
-                    cout << "none";
-                for(size_t i = 0; i < trial.rejection_reasons.size(); ++i)
-                    cout << (i ? "," : "") << trial.rejection_reasons[i];
-                const auto metrics = [&](const char* suffix,
-                                         const ecc::DesignRepairMetrics& m, bool complete) {
-                    cout << " setup_wns_" << suffix << "_ns=" << m.setup_wns * 1e9
-                         << " setup_tns_" << suffix << "_ns=" << m.setup_tns * 1e9
-                         << " hold_wns_" << suffix << "_ns=" << m.hold_wns * 1e9
-                         << " hold_tns_" << suffix << "_ns=" << m.hold_tns * 1e9;
-                    if(complete) cout << " slew_" << suffix << "=" << m.total_slew_violations
-                         << " cap_" << suffix << "=" << m.total_cap_violations
-                         << " fanout_" << suffix << "=" << m.total_fanout_violations
-                         << " severity_" << suffix << "=" << m.severity
-                         << " area_" << suffix << "_dbu2=" << m.area;
-                };
-                metrics("before", trial.before, true);
-                metrics("after", trial.after, trial.metrics_complete);
-                cout << " objective_endpoints=" << trial.objective_endpoints
-                     << " objective_wns_before_ns=" << trial.objective_wns_before * 1e9
-                     << " objective_wns_after_ns=" << trial.objective_wns_after * 1e9
-                     << " objective_tns_before_ns=" << trial.objective_tns_before * 1e9
-                     << " objective_tns_after_ns=" << trial.objective_tns_after * 1e9
-                     << " prepare_ms=" << trial.prepare_ms
-                     << " refresh_ms=" << trial.refresh_ms
-                     << " measure_ms=" << trial.measure_ms << endl;
-                for(const auto& candidate : trial.candidates)
-                    cout << "Sizer path candidate: trial=" << trial_index
-                         << " net=" << std::quoted(candidate.net)
-                         << " master=" << std::quoted(candidate.master)
-                         << " recovery=" << candidate.recovery
-                              << " planned_buffers=" << candidate.planned_buffers
-                         << " loads=" << candidate.loads
-                         << " predicted_driver_gain_ns="
-                         << candidate.predicted_driver_gain * 1e9
-                         << " predicted_wns_gain_ns=" << candidate.predicted_wns_gain * 1e9
-                         << " predicted_tns_gain_ns=" << candidate.predicted_tns_gain * 1e9
-                         << " ranked_wns_gain_ns=" << candidate.ranked_wns_gain * 1e9
-                         << " ranked_tns_gain_ns=" << candidate.ranked_tns_gain * 1e9
-                         << " predicted_path_gain_ns=" << candidate.predicted_path_gain * 1e9
-                         << " predicted_electrical_excess=" << candidate.predicted_electrical_excess
-                         << " electrical_retry=" << candidate.electrical_retry
-                         << " deferred_retry=" << candidate.deferred_retry
-                         << " fingerprint=" << std::quoted(candidate.fingerprint)
-                         << " affected_endpoints=" << candidate.affected_endpoints
-                         << " covered_endpoints=" << candidate.covered_endpoints
-                         << " covered_tns_gain_ns=" << candidate.covered_tns_gain * 1e9
-                         << " family_attempts=" << candidate.family_attempts
-                         << " generation=" << candidate.generation
-                         << " load_group=" << std::quoted(candidate.load_group)
-                         << " x=" << candidate.x << " y=" << candidate.y << endl;
-                if(trial.rejection_reasons.empty()) {
-                    path_committed_buffers += trial.buffers;
-                    if(!trial.placement_provisional) write_path_checkpoint();
-                }
-                cout << "Sizer path progress: trial=" << trial_index
-                     << (trial.placement_provisional ? " provisional_buffers=" : " committed_buffers=")
-                     << path_committed_buffers
-                     << " elapsed_ms=" << std::chrono::duration<double, std::milli>(
-                            std::chrono::steady_clock::now() - setup_start).count() << endl;
-            };
-            if(nativeRepairConfig.pbbi.enabled) {
-                auto pbbi_options = nativeRepairConfig.pbbiOptions();
-                pbbi_options.common = options;
-                pbbi_options.common.prepare = [&]() {
-                    ecc::legalizeRepairPlacement(block,
-                        ord::OpenRoad::openRoad()->getOpendp(),
-                        options.excluded_instances,
-                        pbbi_options.incremental_placement);
-                };
-                pbbi_result = ecc::OpenDbPbbiRepairer::repair(block, sta, design->getResizer(), refresh, pbbi_options);
-                setup_result.ok = pbbi_result.ok;
-                setup_result.converged = pbbi_result.converged;
-                setup_result.message = pbbi_result.message;
-                setup_result.before.design = pbbi_result.before;
-                setup_result.before.setup_tns = pbbi_result.before.setup_tns;
-                setup_result.after.design = pbbi_result.after;
-                setup_result.after.setup_tns = pbbi_result.after.setup_tns;
-                setup_result.after.hold_tns = pbbi_result.after.hold_tns;
-                setup_result.after.slew_violations = pbbi_result.after.total_slew_violations;
-                setup_result.after.cap_violations = pbbi_result.after.total_cap_violations;
-                setup_result.after.fanout_violations = pbbi_result.after.total_fanout_violations;
-                setup_result.attempted_batches = pbbi_result.attempted;
-                setup_result.accepted_batches = pbbi_result.accepted;
-                setup_result.rejected_batches = pbbi_result.rejected;
-                setup_result.inserted_buffers = pbbi_result.inserted_buffers;
-                setup_result.resized_cells = pbbi_result.resized_cells;
-                setup_result.refreshes = pbbi_result.refreshes;
-                setup_result.rollback_refreshes = pbbi_result.rollback_refreshes;
-                setup_result.candidate_ms = pbbi_result.collect_ms;
-                setup_result.prepare_ms = pbbi_result.prepare_ms;
-                setup_result.refresh_ms = pbbi_result.refresh_ms;
-                setup_result.measure_ms = pbbi_result.measure_ms;
-            } else if(setup_options.path_buffer_incremental_parasitics &&
-                      (setup_options.path_buffer_enabled || setup_options.path_buffer_only)) {
-                ecc::PlacementParasiticUpdater incremental(
-                    block, sta, design->getResizer()->getEstimateParasitics());
-                setup_options.path_verification_refresh = refresh;
-                setup_options.path_incremental_verification = [&]() { incremental.verifyTiming(); };
-                setup_options.path_analysis_changes = [&]() { return incremental.takeAnalysisChanges(); };
-                double supply_ms = 0;
-                const auto incremental_refresh = [&]() {
-                    const auto supply_start = std::chrono::steady_clock::now();
-                    ecc::connectMissingWildcardSpecialNetPins(block);
-                    if(missing_supplies() > baseline_missing)
-                        throw std::runtime_error("repair introduced disconnected or mismatched supply pins");
-                    supply_ms += std::chrono::duration<double, std::milli>(
-                        std::chrono::steady_clock::now() - supply_start).count();
-                    incremental.update();
-                };
-                setup_result = ecc::OpenDbSetupRepairer::repair(
-                    block, sta, incremental_refresh, setup_options);
-                const auto& stats = incremental.statistics();
-                cout << "Sizer path incremental: updates=" << stats.updates
-                     << " verifications=" << stats.verifications
-                     << " watched_instances=" << stats.watched_instances
-                     << " updated_nets=" << stats.updated_nets
-                     << " refreshed_vertices=" << stats.refreshed_vertices
-                     << " analysis_vertices=" << stats.analysis_vertices
-                     << " analysis_slew_changes=" << stats.analysis_slew_changes
-                     << " supply_ms=" << supply_ms
-                     << " geometry_ms=" << stats.geometry_ms
-                     << " rc_ms=" << stats.rc_ms
-                     << " sta_ms=" << stats.sta_ms << endl;
-            } else {
-                setup_result = ecc::OpenDbSetupRepairer::repair(block, sta, refresh, setup_options);
-            }
-            setup_ms = std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - setup_start).count();
-            if(!setup_result.ok) throw std::runtime_error(setup_result.message);
-            if(setup_options.path_buffer_placement == "final" &&
-               (setup_options.path_buffer_enabled || setup_options.path_buffer_only))
-                write_path_checkpoint();
-            writeRepairStageSnapshot("setup");
-        }
-        if(result.ok && nativeRepairConfig.power.enabled) {
-            auto power_options = nativeRepairConfig.powerOptions();
-            power_options.common = options;
-            power_result = ecc::OpenDbPowerRepairer::repair(block, sta, refresh, power_options);
-            if(!power_result.ok) throw std::runtime_error(power_result.message);
-        }
-        if(result.ok)
-            checked_tcl("check_placement");
-    }
-    catch(const std::exception& error) {
-        cerr << "Native design repair failed: " << error.what() << endl;
-        exit(1);
-    }
-    cout << "Sizer design repair: " << result.message
-         << " elapsed_ms=" << design_ms
-         << " accepted_passes=" << result.accepted_passes
-         << " rejected_passes=" << result.rejected_passes
-         << " inserted_buffers=" << result.inserted_buffers
-         << " resized_buffers=" << result.resized_buffers
-         << " resized_gates=" << result.resized_gates
-         << " vt_swaps=" << result.vt_swaps
-         << " downsized_loads=" << result.downsized_loads
-         << " rejected_load_batches=" << result.rejected_load_batches
-         << " supply_pin_errors=" << missing_supplies()
-         << " placement_legal=" << result.ok
-         << " severity_before=" << result.before.severity
-         << " severity_after=" << result.after.severity
-         << " remaining_fanout_nets=" << result.after.fanout_nets
-         << " remaining_cap_nets=" << result.after.capacitance_nets
-         << " remaining_slew_nets=" << result.after.slew_nets
-         << " skipped_nets=" << result.after.skipped_nets
-         << " converged=" << result.converged << endl;
-    if(sizerSetupRepairMode && result.ok) {
-        if(nativeRepairConfig.pbbi.enabled) {
-            cout << "Sizer PBBI: paths=" << pbbi_result.paths
-                 << " solved_paths=" << pbbi_result.solved_paths
-                 << " collected_problems=" << pbbi_result.collected_problems
-                 << " duplicate_problems=" << pbbi_result.duplicate_problems
-                 << " max_problem_nets=" << pbbi_result.max_problem_nets
-                 << " electrical_evaluations=" << pbbi_result.electrical_evaluations
-                 << " electrical_unsupported=" << pbbi_result.electrical_unsupported
-                 << " electrical_ms=" << pbbi_result.electrical_ms
-                 << " feedback_reorders=" << pbbi_result.feedback_reorders
-                 << " scheduler_decisions=" << pbbi_result.scheduler_decisions
-                 << " scheduler_cross_path=" << pbbi_result.scheduler_cross_path
-                 << " scheduler_peak_candidates=" << pbbi_result.scheduler_peak_candidates
-                 << " scheduler_overlap_admissions=" << pbbi_result.scheduler_overlap_admissions
-                 << " path_cache_hits=" << pbbi_result.path_cache_hits
-                 << " path_cache_misses=" << pbbi_result.path_cache_misses
-                 << " path_cache_invalidations=" << pbbi_result.path_cache_invalidations
-                 << " forecast_cache_hits=" << pbbi_result.forecast_cache_hits
-                 << " forecast_cache_misses=" << pbbi_result.forecast_cache_misses
-                 << " forecast_cache_invalidations=" << pbbi_result.forecast_cache_invalidations
-                 << " skipped_paths=" << pbbi_result.skipped_paths
-                 << " exhausted_paths=" << pbbi_result.exhausted_paths
-                 << " cancelled_paths=" << pbbi_result.cancelled_paths
-                 << " admission_deferred=" << pbbi_result.admission_deferred
-                 << " expansions=" << pbbi_result.expansions
-                 << " peak_states=" << pbbi_result.peak_states
-                 << " truncated_states=" << pbbi_result.truncated_states
-                 << " duplicate_plans=" << pbbi_result.duplicate_plans
-                 << " attempted=" << pbbi_result.attempted
-                 << " accepted=" << pbbi_result.accepted
-                 << " area_reductions=" << pbbi_result.area_reductions
-                 << " target_met=" << pbbi_result.target_met
-                 << " target_wns_ns=" << pbbi_result.target_wns*1e9
-                 << " target_tns_ns=" << pbbi_result.target_tns*1e9
-                 << " rejected=" << pbbi_result.rejected
-                 << " buffers=" << pbbi_result.inserted_buffers
-                 << " resizes=" << pbbi_result.resized_cells
-                 << " baseline_model_violations=" << pbbi_result.baseline_model_violations
-                 << " slew_cache_hits=" << pbbi_result.slew_cache_hits
-                 << " slew_cache_misses=" << pbbi_result.slew_cache_misses
-                 << " slew_rejected=" << pbbi_result.slew_rejected
-                 << " response_evaluations=" << pbbi_result.response_evaluations
-                 << " timing_nets=" << pbbi_result.timing_nets
-                 << " timing_buffered_nets=" << pbbi_result.timing_buffered_nets
-                 << " timing_fallback_nets=" << pbbi_result.timing_fallback_nets
-                 << " timing_exhausted_nets=" << pbbi_result.timing_exhausted_nets
-                 << " timing_readonly_arcs=" << pbbi_result.timing_readonly_arcs
-                 << " timing_fallback_arcs=" << pbbi_result.timing_fallback_arcs
-                 << " timing_vertices=" << pbbi_result.timing_vertices
-                 << " timing_edges=" << pbbi_result.timing_edges
-                 << " timing_expansions=" << pbbi_result.timing_expansions
-                 << " timing_truncated=" << pbbi_result.timing_truncated
-                 << " forecast_paths=" << pbbi_result.forecast_paths
-                 << " timing_ms=" << pbbi_result.timing_ms
-                 << " solve_ms=" << pbbi_result.solve_ms
-                 << " elapsed_ms=" << setup_ms << endl;
-            for(const auto& [reason,count]:pbbi_result.skip_reasons)
-                cout << "Sizer PBBI skip: count=" << count << " reason=" << reason << endl;
-            for(size_t i=0;i<pbbi_result.trials.size();++i) {
-                const auto& t=pbbi_result.trials[i];
-                cout << "Sizer PBBI trial: index=" << i+1
-                     << " accepted=" << t.accepted << " buffers=" << t.buffers
-                     << " area_recovery=" << t.area_recovery
-                     << " target_before=" << t.target_before
-                     << " target_after=" << t.target_after
-                     << " area_before_dbu2=" << t.before.area
-                     << " area_after_dbu2=" << t.after.area
-                     << " resizes=" << t.resized_cells << " path_nets=" << t.path_nets
-                     << " path_rank=" << t.path_rank
-                     << " source_paths=" << t.source_paths
-                     << " pool_candidates=" << t.pool_candidates
-                     << " pool_nonregressing_setup=" << t.pool_nonregressing_setup
-                     << " bounded_offpath_loads=" << t.bounded_offpath_loads
-                     << " pool_paths=" << t.pool_paths
-                     << " affected_nets=" << t.affected_nets
-                     << " affected_gates=" << t.affected_gates
-                     << " affected_endpoints=" << t.affected_endpoints
-                     << " predicted_slew_violations=" << t.predicted_slew_violations
-                     << " predicted_cap_violations=" << t.predicted_cap_violations
-                     << " predicted_severity=" << t.predicted_severity
-                     << " predicted_wns_delta_ns=" << t.predicted_wns_delta*1e9
-                     << " predicted_tns_delta_ns=" << t.predicted_tns_delta*1e9
-                     << " prediction_baseline_wns_ns=" << t.prediction_baseline_wns*1e9
-                     << " prediction_baseline_tns_ns=" << t.prediction_baseline_tns*1e9
-                     << " graph_baseline_wns_ns=" << t.graph_baseline_wns*1e9
-                     << " graph_baseline_tns_ns=" << t.graph_baseline_tns*1e9
-                     << " prediction_endpoints=" << t.prediction_endpoints
-                     << " graph_endpoints=" << t.graph_endpoints
-                     << " predicted_gain_ns=" << t.predicted_gain*1e9
-                     << " predicted_cost_dbu2=" << t.predicted_cost
-                     << " wns_before_ns=" << t.before.setup_wns*1e9
-                     << " wns_after_ns=" << t.after.setup_wns*1e9
-                     << " tns_before_ns=" << t.before.setup_tns*1e9
-                     << " tns_after_ns=" << t.after.setup_tns*1e9
-                     << " prepare_ms=" << t.prepare_ms << " refresh_ms=" << t.refresh_ms
-                     << " moved_instances=" << t.moved_instances
-                     << " moved_unsized_instances=" << t.moved_unsized_instances
-                     << " max_displacement_dbu=" << t.max_displacement_dbu
-                     << " protected_instances=" << t.protected_instances
-                     << " placement_failed=" << t.placement_failed
-                     << " measure_ms=" << t.measure_ms << " reasons=";
-                for(const auto& reason:t.rejection_reasons)cout << reason << ',';
-                cout << " fingerprint=" << t.fingerprint << endl;
-                if(nativeRepairConfig.pbbi.pin_diagnostics)for(const auto& v:t.violations)
-                    cout << "Sizer PBBI pin: trial=" << i+1
-                         << " kind=" << v.kind << " pin=" << std::quoted(v.pin)
-                         << " net=" << std::quoted(v.net) << " master=" << std::quoted(v.master)
-                         << " relation=" << v.relation << " rf=" << v.transition
-                         << " had_before=" << v.had_before << " before=" << v.before
-                         << " after=" << v.after << " limit=" << v.limit
-                         << " has_prediction=" << v.has_prediction << " predicted=" << v.predicted
-                         << " moved_net_instances=" << v.moved_net_instances
-                         << " net_max_displacement_dbu=" << v.net_max_displacement_dbu << endl;
-            }
-        }
-        cout << "Sizer setup repair: " << setup_result.message
-             << " elapsed_ms=" << setup_ms
-             << " accepted_batches=" << setup_result.accepted_batches
-             << " rejected_batches=" << setup_result.rejected_batches
-             << " attempted_batches=" << setup_result.attempted_batches
-             << " path_buffer_attempted=" << setup_result.path.attempted_trials
-             << " path_buffer_accepted=" << setup_result.path.accepted_trials
-             << " path_buffer_rejected=" << setup_result.path.rejected_trials
-             << " path_buffer_consecutive_rejections=" << setup_result.path.consecutive_rejections
-             << " path_buffer_stopped_on_rejections=" << setup_result.path.stopped_on_rejections
-             << " path_buffer_inserted_buffers="
-             << setup_result.path.inserted_buffers
-             << " path_buffer_candidates="
-             << setup_result.path.candidate_count
-             << " path_buffer_duplicate_candidates="
-             << setup_result.path.duplicate_candidates
-             << " path_buffer_fanout_precheck_rejections=" << setup_result.path.fanout_precheck_rejections
-             << " path_buffer_fanout_tree_trials=" << setup_result.path.fanout_tree_trials
-             << " path_buffer_screened_candidates=" << setup_result.path.screened_candidates
-             << " path_buffer_failure_cache_hits=" << setup_result.path.failure_cache_hits
-             << " path_buffer_reused_rejections=" << setup_result.path.reused_rejections
-             << " path_buffer_electrical_full_scans=" << setup_result.path.electrical_full_scans
-             << " path_buffer_electrical_net_checks=" << setup_result.path.electrical_net_checks
-             << " path_buffer_electrical_instance_checks=" << setup_result.path.electrical_instance_checks
-
-             << " path_buffer_deferred_candidates=" << setup_result.path.deferred_candidates
-             << " path_buffer_invalidated_failures=" << setup_result.path.invalidated_failures
-             << " path_buffer_deferred_trials=" << setup_result.path.deferred_trials
-             << " path_buffer_repeated_trials=" << setup_result.path.repeated_trials
-             << " path_buffer_calibrated_candidates=" << setup_result.path.calibrated_candidates
-             << " path_buffer_feedback_updates=" << setup_result.path.feedback_updates
-             << " path_buffer_frontier_suspended=" << setup_result.path.frontier_suspended
-             << " path_buffer_frontier_audits=" << setup_result.path.frontier_audits
-             << " path_buffer_frontier_reopened=" << setup_result.path.frontier_reopened
-             << " path_buffer_timing_precheck_rejections=" << setup_result.path.timing_precheck_rejections
-             << " path_buffer_final_placement_attempted=" << setup_result.path.final_placement.attempted
-             << " path_buffer_final_placement_accepted=" << setup_result.path.final_placement.accepted
-             << " path_buffer_final_placement_rolled_back=" << setup_result.path.final_placement.rolled_back
-             << " path_buffer_provisional_buffers=" << setup_result.path.final_placement.provisional_buffers
-             << " path_buffer_final_placement_ms=" << setup_result.path.final_placement.elapsed_ms
-             << " path_buffer_pre_dp_wns_ns=" << setup_result.path.final_placement.before.setup_wns * 1e9
-             << " path_buffer_pre_dp_tns_ns=" << setup_result.path.final_placement.before.setup_tns * 1e9
-             << " path_buffer_post_dp_wns_ns=" << setup_result.path.final_placement.after.setup_wns * 1e9
-             << " path_buffer_post_dp_tns_ns=" << setup_result.path.final_placement.after.setup_tns * 1e9
-             << " skipped_duplicate_batches=" << setup_result.skipped_duplicate_batches
-             << " refreshes=" << setup_result.refreshes
-             << " rollback_refreshes=" << setup_result.rollback_refreshes
-             << " candidate_ms=" << setup_result.candidate_ms
-             << " prepare_ms=" << setup_result.prepare_ms
-             << " refresh_ms=" << setup_result.refresh_ms
-             << " measure_ms=" << setup_result.measure_ms
-             << " inserted_buffers=" << setup_result.inserted_buffers
-             << " resized_cells=" << setup_result.resized_cells
-             << " vt_swaps=" << setup_result.vt_swaps
-             << " downsized_loads=" << setup_result.downsized_loads
-             << " wns_before_ns=" << setup_result.before.design.setup_wns * 1e9
-             << " wns_after_ns=" << setup_result.after.design.setup_wns * 1e9
-             << " tns_before_ns=" << setup_result.before.setup_tns * 1e9
-             << " tns_after_ns=" << setup_result.after.setup_tns * 1e9
-             << " converged=" << setup_result.converged << endl;
-    }
-    if(result.ok && nativeRepairConfig.power.enabled) {
-        cout << "Sizer power repair: " << power_result.message
-             << " objective=" << nativeRepairConfig.power.objective
-             << " accepted_batches=" << power_result.accepted_batches
-             << " rejected_batches=" << power_result.rejected_batches
-             << " attempted_batches=" << power_result.attempted_batches
-             << " downsized_cells=" << power_result.downsized_cells
-             << " vt_swaps=" << power_result.vt_swaps
-             << " refreshes=" << power_result.refreshes
-             << " elapsed_ms=" << power_result.elapsed_ms
-             << " leakage_before_w=" << power_result.before.leakage
-             << " leakage_after_w=" << power_result.after.leakage
-             << " total_before_w=" << power_result.before.total
-             << " total_after_w=" << power_result.after.total << endl;
-    }
-    if(!result.ok)
-        exit(1);
-    design->evalTclString(
-        "report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
-    design->evalTclString("report_wns");
-    design->evalTclString("report_tns");
-    if(resultDefFile.empty())
-        resultDefFile = benchname + ".repair.def";
-    if(resultVerilogFile.empty())
-        resultVerilogFile = benchname + ".repair.v";
-    design->writeDef(resultDefFile);
-    design->evalTclString("write_verilog " + resultVerilogFile);
-}
-
-// OpenROAD-style native DRV repair.  This keeps the levelized driver walk and
-// repair-driver ordering as a separate A/B strategy from Sizer's batch-native
-// repair_design implementation.
-void Sizer::runSizerOrdDesignRepair() {
-    auto* design = _ckt->_ord_design;
-    auto* block = design->getBlock();
-    auto* sta = _ckt->_ord_timing->getSta();
-    if(use_gr_rc) {
-        cerr << "OpenROAD-style design repair requires placement RC." << endl;
-        exit(1);
-    }
-    auto options = nativeRepairConfig.design;
-    options.max_fanout = sizerMaxFanout;
-    for(auto* inst : block->getInsts()) {
-        if(std::find(dontTouchInst.begin(), dontTouchInst.end(),
-                     inst->getName()) != dontTouchInst.end() ||
-           std::find(dontTouchCell.begin(), dontTouchCell.end(),
-                     inst->getMaster()->getName()) != dontTouchCell.end())
-            options.excluded_instances.push_back(inst);
-    }
-    for(auto* lib : block->getDataBase()->getLibs()) {
-        for(auto* master : lib->getMasters()) {
-            if(_ckt->isDontUse(master->getName()) ||
-               (!sizerBufferCell.empty() &&
-                sta->getDbNetwork()->libertyCell(
-                    sta->getDbNetwork()->dbToSta(master)) &&
-                sta->getDbNetwork()
-                    ->libertyCell(sta->getDbNetwork()->dbToSta(master))
-                    ->isBuffer() &&
-                master->getName() != sizerBufferCell))
-                options.excluded_masters.push_back(master);
-        }
-    }
-    const auto checked_tcl = [&](const std::string& command) {
-        const auto status = design->evalTclString(
-            "if {[catch {" + command +
-            "} __sizer_ord_error]} {"
-            "set __sizer_ord_status \"ERROR: $__sizer_ord_error\""
-            "} else {set __sizer_ord_status OK}");
-        if(status != "OK")
-            throw std::runtime_error(status);
-    };
-    const auto missing_supplies = [&]() {
-        unsigned missing = 0;
-        for(auto* inst : block->getInsts()) {
-            for(auto* pin : inst->getITerms()) {
-                const auto type = pin->getSigType();
-                if((type == odb::dbSigType::POWER ||
-                    type == odb::dbSigType::GROUND) &&
-                   (!pin->getNet() || pin->getNet()->getSigType() != type))
-                    ++missing;
-            }
-        }
-        return missing;
-    };
-    ecc::connectMissingWildcardSpecialNetPins(block);
-    const auto baseline_missing = missing_supplies();
-    const auto refresh = [&]() {
-        ecc::connectMissingWildcardSpecialNetPins(block);
-        if(missing_supplies() > baseline_missing)
-            throw std::runtime_error(
-                "OpenROAD-style repair changed supply connectivity");
-        checked_tcl("estimate_parasitics -placement");
-        sta->findRequireds();
-    };
-    options.prepare = [&]() {
-        ecc::legalizeRepairPlacement(block,
-                                     ord::OpenRoad::openRoad()->getOpendp(),
-                                     options.excluded_instances);
-    };
-    ecc::OrdDesignRepairResult result;
-    try {
-        checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
-                    " [current_design]");
-        options.prepare();
-        refresh();
-        writeRepairStageSnapshot("input");
-        const auto start = std::chrono::steady_clock::now();
-        result = ecc::OpenDbOrdDesignRepairer::repair(block, sta, refresh,
-                                                       options);
-        const double elapsed_ms = std::chrono::duration<double, std::milli>(
-                                      std::chrono::steady_clock::now() - start)
-                                      .count();
-        if(result.ok)
-            writeRepairStageSnapshot("design");
-        checked_tcl("check_placement");
-        cout << "Sizer OpenROAD-style design repair: " << result.message
-             << " elapsed_ms=" << elapsed_ms
-             << " passes=" << result.passes
-             << " rejected_passes=" << result.rejected_passes
-             << " repaired_nets=" << result.repaired_nets
-             << " inserted_buffers=" << result.inserted_buffers
-             << " resized_buffers=" << result.resized_buffers
-             << " resized_gates=" << result.resized_gates
-             << " vt_swaps=" << result.vt_swaps
-             << " supply_pin_errors=" << missing_supplies()
-             << " severity_before=" << result.before.severity
-             << " severity_after=" << result.after.severity
-             << " remaining_fanout_nets=" << result.after.fanout_nets
-             << " remaining_cap_nets=" << result.after.capacitance_nets
-             << " remaining_slew_nets=" << result.after.slew_nets
-             << " converged=" << result.converged << endl;
-    }
-    catch(const std::exception& error) {
-        cerr << "OpenROAD-style design repair failed: " << error.what()
-             << endl;
-        exit(1);
-    }
-    if(!result.ok)
-        exit(1);
-    design->evalTclString(
-        "report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
-    design->evalTclString("report_wns");
-    design->evalTclString("report_tns");
-    if(resultDefFile.empty())
-        resultDefFile = benchname + ".ord_design.def";
-    if(resultVerilogFile.empty())
-        resultVerilogFile = benchname + ".ord_design.v";
-    design->writeDef(resultDefFile);
-    design->evalTclString("write_verilog " + resultVerilogFile);
-}
-
-// One-shot CPU/CUDA VG-style repair.  Candidate collection and solving happen on
-// the same OpenDB/STA snapshot; all accepted buffer edits are applied in one
-// ECO and evaluated with one refresh.
-void Sizer::runSizerVgRepair(bool write_output) {
-    auto* design = _ckt->_ord_design;
-    auto* block = design->getBlock();
-    auto* sta = _ckt->_ord_timing->getSta();
-    if(use_gr_rc) {
-        cerr << "VG repair currently requires placement RC." << endl;
-        exit(1);
-    }
-    auto options = nativeRepairConfig.design;
-    options.max_fanout = sizerMaxFanout;
-    for(auto* inst : block->getInsts()) {
-        if(std::find(dontTouchInst.begin(), dontTouchInst.end(),
-                     inst->getName()) != dontTouchInst.end() ||
-           std::find(dontTouchCell.begin(), dontTouchCell.end(),
-                     inst->getMaster()->getName()) != dontTouchCell.end())
-            options.excluded_instances.push_back(inst);
-    }
-    for(auto* lib : block->getDataBase()->getLibs()) {
-        for(auto* master : lib->getMasters()) {
-            if(_ckt->isDontUse(master->getName()) ||
-               (!sizerBufferCell.empty() &&
-                sta->getDbNetwork()->libertyCell(
-                    sta->getDbNetwork()->dbToSta(master)) &&
-                sta->getDbNetwork()
-                    ->libertyCell(sta->getDbNetwork()->dbToSta(master))
-                    ->isBuffer() &&
-                master->getName() != sizerBufferCell))
-                options.excluded_masters.push_back(master);
-        }
-    }
-    const auto checked_tcl = [&](const std::string& command) {
-        const auto status = design->evalTclString(
-            "if {[catch {" + command +
-            "} __sizer_vg_error]} {"
-            "set __sizer_vg_status \"ERROR: $__sizer_vg_error\""
-            "} else {set __sizer_vg_status OK}");
-        if(status != "OK")
-            throw std::runtime_error(status);
-    };
-    const auto missing_supplies = [&]() {
-        unsigned missing = 0;
-        for(auto* inst : block->getInsts()) {
-            for(auto* pin : inst->getITerms()) {
-                const auto type = pin->getSigType();
-                if((type == odb::dbSigType::POWER ||
-                    type == odb::dbSigType::GROUND) &&
-                   (!pin->getNet() || pin->getNet()->getSigType() != type))
-                    ++missing;
-            }
-        }
-        return missing;
-    };
-    ecc::connectMissingWildcardSpecialNetPins(block);
-    const auto baseline_missing = missing_supplies();
-    const auto refresh = [&]() {
-        ecc::connectMissingWildcardSpecialNetPins(block);
-        if(missing_supplies() > baseline_missing)
-            throw std::runtime_error(
-                "VG repair introduced disconnected or mismatched supply pins");
-        ecc::legalizeRepairPlacement(
-            block, ord::OpenRoad::openRoad()->getOpendp(),
-            options.excluded_instances);
-        checked_tcl("estimate_parasitics -placement");
-        sta->findRequireds();
-    };
-    try {
-        checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
-                    " [current_design]");
-        refresh();
-        writeRepairStageSnapshot("input");
-        ecc::VgRepairOptions vg_options;
-        vg_options.common = options;
-        vg_options.scope = nativeRepairConfig.vg.scope;
-        vg_options.backend = nativeRepairConfig.vg.backend;
-        vg_options.cuda_max_memory_mb = nativeRepairConfig.vg.cuda_max_memory_mb;
-        vg_options.max_buffers = nativeRepairConfig.vg.max_buffers;
-        vg_options.max_nets = nativeRepairConfig.vg.max_nets;
-        vg_options.max_group_loads = nativeRepairConfig.vg.max_group_loads;
-        vg_options.min_gain = nativeRepairConfig.vg.min_gain;
-        vg_options.require_drv_reduction =
-            nativeRepairConfig.vg.require_drv_reduction;
-        const auto result =
-            ecc::OpenDbVgRepairer::repair(
-                block, sta, refresh, design->getResizer(), vg_options);
-        if(!result.ok)
-            throw std::runtime_error(result.message);
-        checked_tcl("check_placement");
-        cout << "Sizer VG repair: " << result.message
-             << " backend=" << vg_options.backend
-             << " backend_used=" << result.backend_used
-             << " cuda_fallback=\"" << result.cuda_fallback << "\""
-             << " cuda_available="
-             << (ecc::vgCudaAvailable() ? "true" : "false")
-             << " nets_collected=" << result.nets_collected
-             << " plans_collected=" << result.plans_collected
-             << " attempted_buffers=" << result.attempted_buffers
-             << " inserted_buffers=" << result.inserted_buffers
-             << " refreshes=" << result.refreshes
-             << " collect_ms=" << result.collect_ms
-             << " solve_ms=" << result.solve_ms
-             << " apply_ms=" << result.apply_ms
-             << " severity_before=" << result.before.severity
-             << " severity_after=" << result.after.severity
-             << " setup_wns_before_ns=" << result.before.setup_wns * 1e9
-             << " setup_wns_after_ns=" << result.after.setup_wns * 1e9
-             << " committed=" << result.committed << endl;
-    } catch(const std::exception& error) {
-        cerr << "Sizer VG repair failed: " << error.what() << endl;
-        exit(1);
-    }
-    writeRepairStageSnapshot("vg");
-    if(!write_output)
-        return;
-    design->evalTclString("report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
-    design->evalTclString("report_wns");
-    design->evalTclString("report_tns");
-    if(resultDefFile.empty())
-        resultDefFile = benchname + ".vg.def";
-    if(resultVerilogFile.empty())
-        resultVerilogFile = benchname + ".vg.v";
-    design->writeDef(resultDefFile);
-    design->evalTclString("write_verilog " + resultVerilogFile);
-}
-
-void Sizer::runSizerGobiRepair(bool write_output) {
-    auto* design = _ckt->_ord_design;
-    auto* block = design->getBlock();
-    auto* sta = _ckt->_ord_timing->getSta();
-    if(use_gr_rc) {
-        cerr << "GOBI repair currently requires placement RC." << endl;
-        exit(1);
-    }
-    auto options = nativeRepairConfig.design;
-    options.max_fanout = sizerMaxFanout;
-    for(auto* inst : block->getInsts()) {
-        if(std::find(dontTouchInst.begin(), dontTouchInst.end(),
-                     inst->getName()) != dontTouchInst.end() ||
-           std::find(dontTouchCell.begin(), dontTouchCell.end(),
-                     inst->getMaster()->getName()) != dontTouchCell.end())
-            options.excluded_instances.push_back(inst);
-    }
-    for(auto* lib : block->getDataBase()->getLibs()) {
-        for(auto* master : lib->getMasters()) {
-            if(_ckt->isDontUse(master->getName()) ||
-               (!sizerBufferCell.empty() &&
-                sta->getDbNetwork()->libertyCell(
-                    sta->getDbNetwork()->dbToSta(master)) &&
-                sta->getDbNetwork()
-                    ->libertyCell(sta->getDbNetwork()->dbToSta(master))
-                    ->isBuffer() &&
-                master->getName() != sizerBufferCell))
-                options.excluded_masters.push_back(master);
-        }
-    }
-    const auto checked_tcl = [&](const std::string& command) {
-        const auto status = design->evalTclString(
-            "if {[catch {" + command +
-            "} __sizer_gobi_error]} {"
-            "set __sizer_gobi_status \"ERROR: $__sizer_gobi_error\""
-            "} else {set __sizer_gobi_status OK}");
-        if(status != "OK")
-            throw std::runtime_error(status);
-    };
-    const auto missing_supplies = [&]() {
-        unsigned missing = 0;
-        for(auto* inst : block->getInsts()) {
-            for(auto* pin : inst->getITerms()) {
-                const auto type = pin->getSigType();
-                if((type == odb::dbSigType::POWER ||
-                    type == odb::dbSigType::GROUND) &&
-                   (!pin->getNet() || pin->getNet()->getSigType() != type))
-                    ++missing;
-            }
-        }
-        return missing;
-    };
-    ecc::connectMissingWildcardSpecialNetPins(block);
-    const auto baseline_missing = missing_supplies();
-    const auto refresh = [&]() {
-        ecc::connectMissingWildcardSpecialNetPins(block);
-        if(missing_supplies() > baseline_missing)
-            throw std::runtime_error(
-                "GOBI repair introduced disconnected or mismatched supply pins");
-        ecc::legalizeRepairPlacement(
-            block, ord::OpenRoad::openRoad()->getOpendp(),
-            options.excluded_instances);
-        checked_tcl("estimate_parasitics -placement");
-        sta->findRequireds();
-    };
-    try {
-        checked_tcl("set_max_fanout " + to_string(options.max_fanout) +
-                    " [current_design]");
-        refresh();
-        writeRepairStageSnapshot("input");
-        ecc::GobiRepairOptions gobi_options;
-        gobi_options.common = options;
-        gobi_options.backend = nativeRepairConfig.gobi.backend;
-        gobi_options.max_buffers = nativeRepairConfig.gobi.max_buffers;
-        gobi_options.max_nets = nativeRepairConfig.gobi.max_nets;
-        gobi_options.require_drv_reduction =
-            nativeRepairConfig.gobi.require_drv_reduction;
-        const auto result =
-            ecc::OpenDbGobiRepairer::repair(
-                block, sta, refresh, design->getResizer(), gobi_options);
-        if(!result.ok)
-            throw std::runtime_error(result.message);
-        checked_tcl("check_placement");
-        cout << std::defaultfloat << std::setprecision(9)
-             << "Sizer GOBI repair: " << result.message
-             << " backend=" << gobi_options.backend
-             << " backend_used=" << result.backend_used
-             << " cuda_available="
-             << (ecc::gobi::gobiCudaAvailable() ? "true" : "false")
-             << " nets_collected=" << result.nets_collected
-             << " plans_collected=" << result.plans_collected
-             << " attempted_buffers=" << result.attempted_buffers
-             << " inserted_buffers=" << result.inserted_buffers
-             << " refreshes=" << result.refreshes
-             << " collect_ms=" << result.collect_ms
-             << " solve_ms=" << result.solve_ms
-             << " apply_ms=" << result.apply_ms
-             << " severity_before=" << result.before.severity
-             << " severity_after=" << result.after.severity
-             << " setup_wns_before_ns=" << result.before.setup_wns * 1e9
-             << " setup_wns_after_ns=" << result.after.setup_wns * 1e9
-             << " committed=" << result.committed << endl;
-    } catch(const std::exception& error) {
-        cerr << "Sizer GOBI repair failed: " << error.what() << endl;
-        exit(1);
-    }
-    writeRepairStageSnapshot("gobi");
-    if(!write_output)
-        return;
-    design->evalTclString("report_check_types -max_slew -max_capacitance -max_fanout -digits 6");
-    design->evalTclString("report_wns");
-    design->evalTclString("report_tns");
-    if(resultDefFile.empty())
-        resultDefFile = benchname + ".gobi.def";
-    if(resultVerilogFile.empty())
-        resultVerilogFile = benchname + ".gobi.v";
-    design->writeDef(resultDefFile);
-    design->evalTclString("write_verilog " + resultVerilogFile);
-}
-
-// Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
-// out. No sizing loop, no placement.
-void Sizer::runPreplace() {
-    // Cap pre-place repair fanout at 32 and preserve a stricter design-level
-    // SDC max_fanout when present.
-
-    // Detect an unplaced input DEF (the expected pre-place case): wire RC is
-    // then ~0, so slew/cap repair runs optimistic. Fanout repair is
-    // topological and unaffected.
-    {
-        int unplaced = 0, total = 0;
-        for(auto* inst : _ckt->_ord_design->getBlock()->getInsts()) {
-            ++total;
-            if(!inst->isPlaced()) {
-                ++unplaced;
-            }
-        }
-        if(total > 0 && unplaced * 2 > total) {
-            printf(
-                "WARNING: input design appears unplaced (%d/%d instances "
-                "unplaced); wire RC ~ 0, slew/capacitance repair will be "
-                "optimistic. Fanout repair is unaffected.\n",
-                unplaced, total);
-        }
-    }
-    sta::Network* network = _ckt->_sta->network();
-    sta::Cell* top_cell = network->cell(network->topInstance());
-    float sdc_max_fanout = 0.0f;
-    bool sdc_max_fanout_exists = false;
-    _ckt->_sta->cmdSdc()->fanoutLimit(top_cell, sta::MinMax::max(),
-                                      sdc_max_fanout, sdc_max_fanout_exists);
-    float max_fanout = 32.0f;
-    if(sdc_max_fanout_exists && sdc_max_fanout > 0) {
-        max_fanout = std::min(max_fanout, sdc_max_fanout);
-        printf("preplace: SDC max_fanout %g, effective max_fanout %g\n",
-               sdc_max_fanout, max_fanout);
-    }
-    else {
-        printf("preplace: no SDC max_fanout, fall back to 32\n");
-    }
-    _ckt->_sta->cmdSdc()->setFanoutLimit(top_cell, sta::MinMax::max(),
-                                      max_fanout);
-
-    _ckt->_ord_design->evalTclString(
-        "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
-    if(preplaceGain) {
-        // Gain-buffering round: rebuilds buffer trees electrically (fanout
-        // of 4 rule + max fanout), non-geometric, works on unplaced input.
-        _ckt->_ord_design->evalTclString("repair_design -pre_placement -verbose");
-    }
-    else {
-        _ckt->_ord_design->evalTclString("repair_design -verbose");
-    }
-    _ckt->_ord_design->evalTclString(
-        "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
-
-    _ckt->_ord_design->evalTclString(
-        "puts [format {preplace_after_repair resistance=%g capacitance=%g estimated=%d} "
-        "[est::wire_signal_resistance [sta::cmd_scene]] "
-        "[est::wire_signal_capacitance [sta::cmd_scene]] "
-        "[est::have_estimated_parasitics]]");
-    if(resultDefFile == "") {
-        resultDefFile = benchname + ".size.def";
-    }
-    if(resultVerilogFile == "") {
-        resultVerilogFile = benchname + ".size.v";
-    }
-    const int connected_special_pins
-        = ecc::connectMissingWildcardSpecialNetPins(
-            _ckt->_ord_design->getBlock());
-    if(connected_special_pins > 0) {
-        cout << "Connected " << connected_special_pins
-             << " new instance pins to wildcard special nets." << endl;
-    }
-    _ckt->_ord_design->writeDef(resultDefFile);
-    _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
-}
-
-// Hold-only mode: repair_timing -hold, legalize, refresh, and repeat once.
-// Input must be placed (parasitics estimated during load). No sizing loop.
-void Sizer::runHoldOnly() {
-    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -digits 3");
-    _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
-        " -skip_pin_swap -verbose");
-    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -digits 3");
-    // guard: hold buffering must not have broken setup
-    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
-    {
-        const int connected_special_pins
-            = ecc::connectMissingWildcardSpecialNetPins(
-                _ckt->_ord_design->getBlock());
-        if(connected_special_pins > 0) {
-            cout << "Connected " << connected_special_pins
-                 << " new instance pins to wildcard special nets." << endl;
-        }
-    }
-    // Hold repair can insert new movable buffers. Re-legalize that updated
-    // placement before exporting it so downstream legalization sees a legal
-    // starting geometry rather than overlapping inserted instances.
-    legalizePlacement();
-    // Rebuild parasitics on the legalized geometry before a second hold pass.
-    refreshOpenStaParasitics(true);
-    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -digits 3");
-    _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
-        " -skip_pin_swap -verbose");
-    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -digits 3");
-    // guard: the second hold pass must not have broken setup
-    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
-    {
-        const int connected_special_pins
-            = ecc::connectMissingWildcardSpecialNetPins(
-                _ckt->_ord_design->getBlock());
-        if(connected_special_pins > 0) {
-            cout << "Connected " << connected_special_pins
-                 << " new instance pins to wildcard special nets." << endl;
-        }
-    }
-    // The second hold pass can insert another set of movable buffers; make
-    // the exported geometry legal once more before the final RC refresh.
-    legalizePlacement();
-    refreshOpenStaParasitics(true);
-    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -digits 3");
-    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
-    if(resultDefFile == "") {
-        resultDefFile = benchname + ".size.def";
-    }
-    if(resultVerilogFile == "") {
-        resultVerilogFile = benchname + ".size.v";
-    }
-    _ckt->_ord_design->writeDef(resultDefFile);
-    _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
-}
-
-// Legalize-only mode: load, legalizePlacement, write out. No repair, no
-// sizing loop. Fast legality verification for a design state.
-void Sizer::runLegalizeOnly() {
-    legalizePlacement();
-    if(resultDefFile == "") {
-        resultDefFile = benchname + ".size.def";
-    }
-    if(resultVerilogFile == "") {
-        resultVerilogFile = benchname + ".size.v";
-    }
-    _ckt->_ord_design->writeDef(resultDefFile);
-    _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
-}
-
 #include "legalize_core.h"
 
 // DreamPlace greedy+abacus legalization (vendored ops). Greedy distributes
@@ -6645,7 +5302,7 @@ int Sizer::legalizeDreamplace() {
         rows.push_back(row);
     }
     if(rows.empty()) {
-        printf("dp-legalize: no rows, fall back to detailed_placement\n");
+        ecc::logPrintf("dp-legalize: no rows, fall back to detailed_placement\n");
         return -1;
     }
     const int site_w = rows[0]->getSite()->getWidth();
@@ -6655,14 +5312,14 @@ int Sizer::legalizeDreamplace() {
     for(auto* row : rows) {
         if(row->getSite()->getWidth() != site_w ||
            row->getSite()->getHeight() != site_h) {
-            printf("dp-legalize: non-uniform rows, fall back\n");
+            ecc::logPrintf("dp-legalize: non-uniform rows, fall back\n");
             return -1;
         }
         segs.push_back({row->getOrigin().x(), row->getOrigin().y(),
                         row->getSiteCount()});
         int ry = row->getOrigin().y();
         if(orient_of_y.count(ry) && orient_of_y[ry] != row->getOrient()) {
-            printf("dp-legalize: inconsistent orient at y=%d, fall back\n",
+            ecc::logPrintf("dp-legalize: inconsistent orient at y=%d, fall back\n",
                    ry);
             return -1;
         }
@@ -6677,7 +5334,7 @@ int Sizer::legalizeDreamplace() {
             continue;
         }
         if((int)master->getHeight() != site_h) {
-            printf("dp-legalize: multi-row movable cell %s, fall back\n",
+            ecc::logPrintf("dp-legalize: multi-row movable cell %s, fall back\n",
                    master->getName().c_str());
             return -1;
         }
@@ -6731,11 +5388,10 @@ int Sizer::legalizeDreamplace() {
         max_disp = std::max(max_disp, fabs(out_x[i] - nodes[i].x) +
                                           fabs(ry - nodes[i].y));
     }
-    printf("dp-legalize: placed %d cells, max displacement %.0f dbu\n",
+    ecc::logPrintf("dp-legalize: placed %d cells, max displacement %.0f dbu\n",
            num_movable, max_disp);
     return num_movable;
 }
-
 
 void Sizer::legalizePlacement() {
     if(use_native_abacus && legalizeDreamplace() >= 0) {
@@ -6749,7 +5405,7 @@ void Sizer::runOrdTO() {
     _ckt->assertNoIllegalExternalPadBoundaryChain();
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
-    resizer->setBlockageAwareSteiner(blockageAwareSteiner);
+    resizer->setBlockageAwareSteiner(true);
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
     // _ckt->_ord_design->evalTclString("buffer_ports");
@@ -6772,14 +5428,14 @@ void Sizer::runOrdTO() {
         = ecc::connectMissingWildcardSpecialNetPins(
             _ckt->_ord_design->getBlock());
     if(connected_special_pins > 0) {
-        cout << "Connected " << connected_special_pins
+        ecc::logInfo() << "Connected " << connected_special_pins
              << " new instance pins to wildcard special nets." << endl;
     }
     const char *pre_final_legalization_def =
         std::getenv("SIZER_PRE_FINAL_LEGALIZATION_DEF");
     if(pre_final_legalization_def != nullptr &&
        pre_final_legalization_def[0] != '\0') {
-        cout << "Write DEF before final legalization: "
+        ecc::logInfo() << "Write DEF before final legalization: "
              << pre_final_legalization_def << endl;
         _ckt->_ord_design->writeDef(pre_final_legalization_def);
     }
@@ -6795,7 +5451,7 @@ void Sizer::runOrdTO() {
     // Rebuild parasitics after the final detailed placement so the reported
     // final slacks match the exported design state.
     if(use_gr_rc && (noSPEF || spefFile.empty())) {
-        printf("Run final global-routing RC refresh after runOrdTO...\n");
+        ecc::logPrintf("Run final global-routing RC refresh after runOrdTO...\n");
         refreshOpenStaParasitics(true);
     }
     else {
@@ -6831,15 +5487,15 @@ void Sizer::runOrdTO() {
     cap_tot = cap_max = 0.0;
     int cap_num = 0;
     T[view]->getCapVio(cap_tot, cap_max, cap_num);
-    cout << "[view " << view << "] Final WNS after runOrdTO  : " << wns << " ns"
+    ecc::logInfo() << "[view " << view << "] Final WNS after runOrdTO  : " << wns << " ns"
          << endl;
-    cout << "[view " << view << "] Final TNS after runOrdTO  : " << tns << " ns"
+    ecc::logInfo() << "[view " << view << "] Final TNS after runOrdTO  : " << tns << " ns"
          << endl;
-    // cout << "[view " << view << "] Initial Leakage Power    : " << leak
+    // ecc::logInfo() << "[view " << view << "] Initial Leakage Power    : " << leak
     //      << endl;
-    // cout << "[view " << view << "] Initial Total Power    : " << tot
+    // ecc::logInfo() << "[view " << view << "] Initial Total Power    : " << tot
     //      << endl;
-    cout << "[view " << view << "] Final Tran after runOrdTO : " << tran_tot
+    ecc::logInfo() << "[view " << view << "] Final Tran after runOrdTO : " << tran_tot
          << " ps " << tran_num << " " << tran_max << " ps" << endl;
 }
 void Sizer::Parallel_Sizer_Launcher() {
@@ -6865,7 +5521,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     for(int i = 0; i < MAX_THREAD; i++) {
         PTimer[i] = new designTiming *[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -6917,7 +5573,7 @@ void Sizer::Parallel_Sizer_Launcher() {
     }
 
     double temp_best_tns = DBL_MAX;
-    printf("Start get initial values\n");
+    ecc::logPrintf("Start get initial values\n");
     for(unsigned view = 0; view < numViews; ++view) {
         GetSwitchPowerCoef(view);
         GetMaxTranConst(view);
@@ -6944,17 +5600,17 @@ void Sizer::Parallel_Sizer_Launcher() {
         cap_tot = cap_max = 0.0;
         int cap_num = 0;
         T[view]->getCapVio(cap_tot, cap_max, cap_num);
-        cout << "[view " << view << "] Initial WNS from Timer    : " << wns
+        ecc::logInfo() << "[view " << view << "] Initial WNS from Timer    : " << wns
              << " ps" << endl;
-        cout << "[view " << view << "] Initial TNS            : " << tns
+        ecc::logInfo() << "[view " << view << "] Initial TNS            : " << tns
              << " ps" << endl;
-        cout << "[view " << view << "] Initial Leakage Power    : " << leak
+        ecc::logInfo() << "[view " << view << "] Initial Leakage Power    : " << leak
              << endl;
-        cout << "[view " << view << "] Initial Total Power    : " << tot
+        ecc::logInfo() << "[view " << view << "] Initial Total Power    : " << tot
              << endl;
-        cout << "[view " << view << "] Initial Tran           : " << tran_tot
+        ecc::logInfo() << "[view " << view << "] Initial Tran           : " << tran_tot
              << " ps " << tran_num << " " << tran_max << " ps" << endl;
-        cout << "[view " << view << "] Initial cap           : " << cap_tot
+        ecc::logInfo() << "[view " << view << "] Initial cap           : " << cap_tot
              << " ps " << cap_num << " " << cap_max << " fF" << endl;
         if(ISO_TIME) {
             if(viewSlackMargin[view] == 0.0) {
@@ -7047,9 +5703,9 @@ void Sizer::Parallel_Sizer_Launcher() {
             // multi_start_cells_poweropt_3[i] = g_cells[i];
         }
 
-        cout << "MAXIMUM ITERATION = " << GWTW_MAX << endl;
+        ecc::logInfo() << "MAXIMUM ITERATION = " << GWTW_MAX << endl;
         for(unsigned GWTWIter = 0; GWTWIter < GWTW_MAX; ++GWTWIter) {
-            cout << GWTWIter << "TH ITERATION !!!" << endl;
+            ecc::logInfo() << GWTWIter << "TH ITERATION !!!" << endl;
 
             // update sorted SF list and corresponding alpha list
             unsigned idx = 0;
@@ -7070,25 +5726,25 @@ void Sizer::Parallel_Sizer_Launcher() {
             nextSFlist.clear();
             nextAlphalist.clear();
 
-            cout << "Current SF list: ";
+            ecc::logInfo() << "Current SF list: ";
             for(unsigned j = 0; j < SFlist.size(); ++j) {
-                cout << SFlist[j] << " ";
+                ecc::logInfo() << SFlist[j] << " ";
             }
-            cout << endl;
+            ecc::logInfo() << endl;
 
-            cout << "Current Alpha list: ";
+            ecc::logInfo() << "Current Alpha list: ";
             for(unsigned j = 0; j < alphalist.size(); ++j) {
-                cout << alphalist[j] << " ";
+                ecc::logInfo() << alphalist[j] << " ";
             }
-            cout << endl;
+            ecc::logInfo() << endl;
 
             // if(feasible || PRFT_ONLY)
-            cout << "Start PRFT..." << GWTWIter << endl;
+            ecc::logInfo() << "Start PRFT..." << GWTWIter << endl;
 
             vector< THREAD_ARGS > thread_args;
 
             for(int j = 0; j < min(MAX_THREAD, PRFT_PTNUM); j++) {
-                cout << "PREPARING THREAD " << j << endl;
+                ecc::logInfo() << "PREPARING THREAD " << j << endl;
                 // j == thread_id == SF option
 
                 THREAD_ARGS tmp_thread_args;
@@ -7124,7 +5780,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                                 best_cells_poweropt[i].type.c_str());
                         if(inst->getMaster()->getName() !=
                            best_cells_poweropt[i].type) {
-                            printf("Change %s %s\n",
+                            ecc::logPrintf("Change %s %s\n",
                                    inst->getMaster()->getName().c_str(),
                                    best_cells_poweropt[i].type.c_str());
                             inst->swapMaster(new_master);
@@ -7146,7 +5802,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                                 .cap;  //* 1e-12 / _sizer->cap_unit
 
                         if(VERBOSE > 4)
-                            cout << "CORNER " << corner << " NETS --- " << i
+                            ecc::logInfo() << "CORNER " << corner << " NETS --- " << i
                                  << " " << g_nets[corner][i].name << endl;
                         int sink_num = 0;
                         for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
@@ -7169,20 +5825,20 @@ void Sizer::Parallel_Sizer_Launcher() {
                 }
                 // pthread_create(&threads[j], NULL, (),
                 //                ;
-                cout << "THREAD CREATE DONE!! " << j << endl;
+                ecc::logInfo() << "THREAD CREATE DONE!! " << j << endl;
             }
             for(int j = 0; j < min(MAX_THREAD, PRFT_PTNUM); j++) {
                 // pthread_join(threads[j], NULL);
-                cout << "THREAD JOIN DONE!! " << j << endl;
+                ecc::logInfo() << "THREAD JOIN DONE!! " << j << endl;
             }
             thread_args.clear();
 
             if(PRFT_ONLY) {
-                cout << "Best feasible score after POWEROPT on TOP = "
+                ecc::logInfo() << "Best feasible score after POWEROPT on TOP = "
                      << best_score << endl;
             }
             else {
-                cout << "Best feasible score after POWEROPT on TOP = "
+                ecc::logInfo() << "Best feasible score after POWEROPT on TOP = "
                      << best_score << endl;
             }
 
@@ -7191,7 +5847,7 @@ void Sizer::Parallel_Sizer_Launcher() {
             time_LeakOpt = cpuTime() - begin;
 
             if(VERBOSE >= 1) {
-                cout << "BEST score " << best_score << " " << second_best_power
+                ecc::logInfo() << "BEST score " << best_score << " " << second_best_power
                      << endl;
             }
 
@@ -7207,7 +5863,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                 all_cells.push_back(current_cells);
                 powerlist.push_back(best_score);
                 if(VERBOSE >= 1) {
-                    cout << "COPY SOL FROM BEST DONE " << endl;
+                    ecc::logInfo() << "COPY SOL FROM BEST DONE " << endl;
                 }
             }
 
@@ -7223,11 +5879,11 @@ void Sizer::Parallel_Sizer_Launcher() {
                 all_cells.push_back(current_cells2);
                 powerlist.push_back(second_best_power);
                 if(VERBOSE >= 1) {
-                    cout << "COPY SOL FROM SECOND BEST DONE " << endl;
+                    ecc::logInfo() << "COPY SOL FROM SECOND BEST DONE " << endl;
                 }
             }
             if(VERBOSE >= 1) {
-                cout << "GET NEXT START END" << endl;
+                ecc::logInfo() << "GET NEXT START END" << endl;
             }
         }
         SizeOut(outputDir, best_cells_poweropt);
@@ -7258,13 +5914,13 @@ void Sizer::FinalReport() {
                 best_cells_poweropt[i].type.c_str());
             if(inst->getMaster()->getName() != best_cells_poweropt[i].type) {
                 if(new_master) {
-                    printf("Change %s %s\n",
+                    ecc::logPrintf("Change %s %s\n",
                            inst->getMaster()->getName().c_str(),
                            best_cells_poweropt[i].type.c_str());
                     inst->swapMaster(new_master);
                 }
                 else {
-                    printf("Change %s %s not found\n",
+                    ecc::logPrintf("Change %s %s not found\n",
                            inst->getMaster()->getName().c_str(),
                            best_cells_poweropt[i].type.c_str());
                 }
@@ -7293,7 +5949,7 @@ void Sizer::FinalReport() {
 
     double begin = cpuTime();
     refreshOpenStaParasitics(true);
-    printf("Run Global Routing Time %f\n", cpuTime() - begin);
+    ecc::logPrintf("Run Global Routing Time %f\n", cpuTime() - begin);
     _ckt->readSpef_opensta(_sta);
     int corner = 0;
     ofstream ofs("net_changed.log");
@@ -7311,7 +5967,7 @@ void Sizer::FinalReport() {
             ofs << endl;
         }
         if(VERBOSE > 4)
-            cout << "CORNER " << corner << " NETS --- " << i << " "
+            ecc::logInfo() << "CORNER " << corner << " NETS --- " << i << " "
                  << g_nets[corner][i].name << endl;
         int sink_num = 0;
         for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
@@ -7395,7 +6051,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     double skew_violation_prev;
     while(skew_violation > clk_period[worst_corner] * 0.1) {
         skew_violation_prev = skew_violation;
-        cout << "[PostWNSOpt] without correlation # " << optCnt++ << endl;
+        ecc::logInfo() << "[PostWNSOpt] without correlation # " << optCnt++ << endl;
         if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
             BwdFixCapViolation();
@@ -7406,7 +6062,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
         CallTimer();
         CalcStats();
         if(skew_violation > 0) {
-            cout << "[PostWNSOpt] OptWNSPathCell # " << optCnt << endl;
+            ecc::logInfo() << "[PostWNSOpt] OptWNSPathCell # " << optCnt << endl;
             OptWNSPath(DNSIZE);
         }
         CallTimer();
@@ -7420,7 +6076,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
         }
     }
     oneTMR = (cpuTime() - oneTMR);
-    cout << "[PostWNSOpt] without correlation runtime ---" << oneTMR << endl;
+    ecc::logInfo() << "[PostWNSOpt] without correlation runtime ---" << oneTMR << endl;
     string size_str = input + "_aft_wns_opt";
     SizeOut(outputDir);
 
@@ -7432,7 +6088,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
 
     optCnt = 0;
     while(skew_violation > 0.) {
-        cout << "[PostWNSOpt] with correlation # " << optCnt++ << endl;
+        ecc::logInfo() << "[PostWNSOpt] with correlation # " << optCnt++ << endl;
         skew_violation_prev = skew_violation;
         if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
@@ -7445,18 +6101,18 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
         CorrelatePT();
         CalcStats();
         if(skew_violation > 0) {
-            cout << "[PostWNSOptCorr] OptWNSPath Upsize # " << optCnt << endl;
+            ecc::logInfo() << "[PostWNSOptCorr] OptWNSPath Upsize # " << optCnt << endl;
             OptWNSPath(UPSIZE);
         }
         // if ( skew_violation > 0 ) {
-        //    cout << "[PostWNSOptCorr] OptWNSPathGray # " << optCnt << endl;
+        //    ecc::logInfo() << "[PostWNSOptCorr] OptWNSPathGray # " << optCnt << endl;
         //    OptWNSPathGray(true,0, 3,3,2);
         //}
         CallTimer();
         CorrelatePT();
         CalcStats();
         if(skew_violation > 0 && skew_violation_prev <= skew_violation) {
-            cout << "Fail to find feasible solution :(" << endl;
+            ecc::logInfo() << "Fail to find feasible solution :(" << endl;
             break;
         }
     }
@@ -7467,7 +6123,7 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
         best_cells[i] = cells[i];
 
     oneTMR = (cpuTime() - oneTMR);
-    cout << "[PostWNSOpt] with correlation runtime: " << oneTMR << endl;
+    ecc::logInfo() << "[PostWNSOpt] with correlation runtime: " << oneTMR << endl;
 
     // size_str = input + "_wns_opt_final";
     SizeOut(outputDir);
@@ -7506,10 +6162,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
     }
 
     int start_index = (int)thread_id / GWTW_DIV;
-    cout << "THREAD " << thread_id << " -- START INDEX " << start_index << endl;
+    ecc::logInfo() << "THREAD " << thread_id << " -- START INDEX " << start_index << endl;
 
     if(start_index >= GWTW_NUM_START) {
-        cout << "WARNING: start index " << start_index << " is larger than "
+        ecc::logInfo() << "WARNING: start index " << start_index << " is larger than "
              << GWTW_NUM_START << endl;
     }
 
@@ -7520,25 +6176,25 @@ void Sizer::Post_PowerOpt(int thread_id) {
     }
 
     if(start_index == 0) {
-        cout << "(" << thread_id << ") COPY BEST SO FAR CELLS DONE" << endl;
+        ecc::logInfo() << "(" << thread_id << ") COPY BEST SO FAR CELLS DONE" << endl;
     }
     else if(start_index == 1) {
-        cout << "(" << thread_id << ") COPY MULTI START 1 CELLS DONE" << endl;
+        ecc::logInfo() << "(" << thread_id << ") COPY MULTI START 1 CELLS DONE" << endl;
     }
     else if(start_index == 2) {
-        cout << "(" << thread_id << ") COPY MULTI START 2 CELLS DONE" << endl;
+        ecc::logInfo() << "(" << thread_id << ") COPY MULTI START 2 CELLS DONE" << endl;
     }
     else if(start_index == 3) {
-        cout << "(" << thread_id << ") COPY MULTI START 3 CELLS DONE" << endl;
+        ecc::logInfo() << "(" << thread_id << ") COPY MULTI START 3 CELLS DONE" << endl;
     }
     else {
-        cout << "(" << thread_id << ") COPY BEST SO FAR CELLS DONE" << endl;
+        ecc::logInfo() << "(" << thread_id << ") COPY BEST SO FAR CELLS DONE" << endl;
     }
 
     // pthread_mutex_unlock(&mutex1);
 
     for(unsigned view = 0; view < numViews; ++view) {
-        // cout << "WORST SLACK (" << thread_id << "-" << view << ") "
+        // ecc::logInfo() << "WORST SLACK (" << thread_id << "-" << view << ") "
         //      << T[view]->getWorstSlack(clk_name[worst_corner]) << endl;
         // bool old_att = CORR_AAT;
         // CORR_AAT = true;
@@ -7556,24 +6212,24 @@ void Sizer::Post_PowerOpt(int thread_id) {
         // init_tot[view] = power;
         init_score[view] = score;
 
-        cout << "[view " << view
+        ecc::logInfo() << "[view " << view
              << "] Initial WNS from Timer    : " << init_wns[view] << " ps"
              << endl;
-        cout << "[view " << view
+        ecc::logInfo() << "[view " << view
              << "] Initial TNS            : " << init_tns[view] << " ps"
              << endl;
-        cout << "[view " << view
+        ecc::logInfo() << "[view " << view
              << "] Initial Leakage Power    : " << init_leak[view] << endl;
-        cout << "[view " << view
+        ecc::logInfo() << "[view " << view
              << "] Initial Tran           : " << slew_violation << endl;
-        cout << "[view " << view
+        ecc::logInfo() << "[view " << view
              << "] Initial Cap           : " << cap_violation << endl;
     }
 
-    cout << "THREAD " << thread_id << " BEFORE KICKOPT" << endl;
+    ecc::logInfo() << "THREAD " << thread_id << " BEFORE KICKOPT" << endl;
     // CalcStats((unsigned)thread_id, true, "OPT");
     if(VERBOSE >= 1) {
-        cout << "Initial TNS from Sizer     : " << skew_violation << " ns"
+        ecc::logInfo() << "Initial TNS from Sizer     : " << skew_violation << " ns"
              << endl;
     }
     // bool flag = false;
@@ -7585,13 +6241,13 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
     double kick_ratio = KICK_RATIO;
 
-    cout << "Worst slack among views : " << worst_slack_worst << endl;
+    ecc::logInfo() << "Worst slack among views : " << worst_slack_worst << endl;
 
     best_score_local =
         calcScore(power, skew_violation, slew_violation, cap_violation);
     best_score = best_score_local;
     SizeOut(outputDir);
-    printf("Initial Score: %f\n", best_score_local);
+    ecc::logPrintf("Initial Score: %f\n", best_score_local);
     // pthread_mutex_lock(&mutex1);
     if(localSFlist[thread_id] == PRFT_PTNUM) {
         localSFlist[thread_id] = SFlist[thread_id];
@@ -7630,7 +6286,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     if(TRIAL_MOVE) {
         kick_max_iteration = 1;
     }
-    cout << "KICK MAX ITER: " << kick_max_iteration << endl;
+    ecc::logInfo() << "KICK MAX ITER: " << kick_max_iteration << endl;
     double prev_best_score = best_score;
     bool g_updated_local = false;
     bool g_updated_failed_local = false;
@@ -7657,7 +6313,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             kick_ratio = MAX_KICK_RATIO;
         }
         if(i != 0 && leak_iter != 0) {
-            cout << "(" << thread_id << ") KICK iteration " << i + 1
+            ecc::logInfo() << "(" << thread_id << ") KICK iteration " << i + 1
                  << " with ratio = " << kick_ratio
                  << "  alpha = " << local_alpha << endl;
             unsigned kick_cnt = 0;
@@ -7740,14 +6396,14 @@ void Sizer::Post_PowerOpt(int thread_id) {
             //     CalcStats((unsigned)thread_id, true, "BEFORE_PWR_OPT", view);
             // }
 
-            cout << i << "-" << iter << "-" << leak_iter
+            ecc::logInfo() << i << "-" << iter << "-" << leak_iter
                  << "th iteration, tolerance = " << toler << "ns"
                  << "/" << worst_slack << "ns"
                  << " " << worst_slack_worst << endl;
 
             unsigned accept = 0;
 
-            cout << "TEST " << ISO_TNS << " " << ISO_TIME << " "
+            ecc::logInfo() << "TEST " << ISO_TNS << " " << ISO_TIME << " "
                  << skew_violation_worst << endl;
 
             all_feasible = false;
@@ -7822,13 +6478,13 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         CalcStats((unsigned)thread_id, true, "AFTER_FIX_CAP",
                                   view);
                     }
-                    printf(
+                    ecc::logPrintf(
                         "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
                         "score: %f\n",
                         skew_violation, slew_violation, cap_violation, power,
                         score);
                     if(score < best_score_local) {
-                        cout << "(" << thread_id
+                        ecc::logInfo() << "(" << thread_id
                              << ") Local best score is updated "
                                 "(inside of power opt loop) "
                              << best_score_local << "/" << score << endl;
@@ -7862,13 +6518,13 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                   view);
                     }
 
-                    printf(
+                    ecc::logPrintf(
                         "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
                         "score: %f\n",
                         skew_violation, slew_violation, cap_violation, power,
                         score);
                     if(score < best_score_local) {
-                        cout << "(" << thread_id
+                        ecc::logInfo() << "(" << thread_id
                              << ") Local best score is updated "
                                 "(inside of power opt loop) "
                              << best_score_local << "/" << score << endl;
@@ -7897,7 +6553,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             // for(int i = 0; i < numcells; i++) {
                             //     assert(change[i] == cells[i].isChanged);
                             // }
-                            // printf();
+                            // ecc::logPrintf();
                             CallTimer(view);
                             CorrelatePT((unsigned)thread_id, view);
                             CalcStats((unsigned)thread_id, true,
@@ -7919,7 +6575,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             // for(int i = 0; i < numcells; i++) {
                             //     assert(change[i] == cells[i].isChanged);
                             // }
-                            // printf();
+                            // ecc::logPrintf();
                             CallTimer(view);
                             CorrelatePT((unsigned)thread_id, view);
                             CalcStats((unsigned)thread_id, true,
@@ -7945,7 +6601,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                       "AFTER_FIX_CAP", view);
                         }
                         if(score < best_score_local) {
-                            cout << "(" << thread_id
+                            ecc::logInfo() << "(" << thread_id
                                  << ") Local best score is updated "
                                     "(inside of power opt loop) "
                                  << best_score_local << "/" << score << endl;
@@ -7976,14 +6632,14 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             change = 0;
                         }
                     }
-                    printf(
+                    ecc::logPrintf(
                         "CURRENT TNS: %f, slew: %f, cap: %f, power: %f, "
                         "score: %f\n",
                         skew_violation, slew_violation, cap_violation, power,
                         score);
 
                     if(score < best_score_local) {
-                        cout << "(" << thread_id
+                        ecc::logInfo() << "(" << thread_id
                              << ") Local best score is updated "
                                 "(inside of power opt loop) "
                              << best_score_local << "/" << score << endl;
@@ -8001,7 +6657,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     double wns;
                     wns = min(max_neg_rslk, max_neg_fslk);
 
-                    cout << "TIM_REC_LOOP " << thread_id
+                    ecc::logInfo() << "TIM_REC_LOOP " << thread_id
                          << " view/itr/wns/TNS/PWR/swap : " << view << " " << i
                          << " " << wns << " " << skew_violation << " " << power
                          << " " << all_change << " " << same_ss_count << endl;
@@ -8014,10 +6670,10 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             ? 0
                             : same_ss_count + 1;  // slack degradation
 
-                    cout << "CURRENT BEST TNS " << cur_best_tns << " "
+                    ecc::logInfo() << "CURRENT BEST TNS " << cur_best_tns << " "
                          << curr_ss << endl;
                     if(curr_ss != 0 && cur_best_tns > curr_ss) {
-                        cout << "UPDATE BEST TNS..." << endl;
+                        ecc::logInfo() << "UPDATE BEST TNS..." << endl;
                         cur_best_tns = curr_ss;
                         for(unsigned j = 0; j < numcells; j++)
                             int_best_cells[j] = cells[j];
@@ -8030,7 +6686,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     }
 
                     viewRuntime[view] += cpuTime() - begin;
-                    cout << "Runtime TimingRecovery so far for view " << view
+                    ecc::logInfo() << "Runtime TimingRecovery so far for view " << view
                          << " : " << viewRuntime[view] << " sec. ("
                          << viewRuntime[view] / 60 << " min. )" << endl;
                 }
@@ -8044,7 +6700,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 cells[j].touched = false;
             // POWER reduce loop
             if(false) {
-                cout << "REDUCE LEAK ITER " << init_wns_worst << " " << toler
+                ecc::logInfo() << "REDUCE LEAK ITER " << init_wns_worst << " " << toler
                      << " " << TOLERANCE << " " << TOLER_STOP << " "
                      << leak_iter << " " << worst_slack_worst << " "
                      << skew_violation_worst << endl;
@@ -8075,7 +6731,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                 }
 
                 if(score < best_score_local) {
-                    cout << "(" << thread_id
+                    ecc::logInfo() << "(" << thread_id
                          << ") Local best power is updated "
                             "(inside of power opt loop) "
                          << score << "/" << best_score_local << endl;
@@ -8129,15 +6785,15 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         double hvt_init_ratio =
                             (double)hvt_init_count / (double)numcells;
 
-                        cout << "[view " << view
+                        ecc::logInfo() << "[view " << view
                              << "] # Swap             : " << swap_count << "("
                              << uptype_swap_count << "/" << downtype_swap_count
                              << "/" << upsize_swap_count << "/"
                              << downsize_swap_count << ")" << endl;
-                        cout << "[view " << view
+                        ecc::logInfo() << "[view " << view
                              << "] % HVT cells        : " << hvt_ratio * 100.0
                              << endl;
-                        cout << "[view " << view << "] % HVT cells (init) : "
+                        ecc::logInfo() << "[view " << view << "] % HVT cells (init) : "
                              << hvt_init_ratio * 100.0 << endl;
                     }
                     Profile();
@@ -8149,7 +6805,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     // }
                     updated_local = true;
                 }
-                cout << "(" << thread_id
+                ecc::logInfo() << "(" << thread_id
                      << ") Power after power reduction iteration "
                      << leak_iter + 1 << " : " << power << endl;
             }
@@ -8170,7 +6826,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             CalcStats((unsigned)thread_id, true, "FINAL_PWR_OPT");
         }
         if(best_score_local < best_score) {
-            cout << "(" << thread_id
+            ecc::logInfo() << "(" << thread_id
                  << ") Local best score is updated -- final power opt. "
                  << best_score << "/" << best_score_local << endl;
             best_score = best_score_local;
@@ -8183,17 +6839,17 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
             updated_local = true;
         }
-        cout << "(" << thread_id << ") Power after KICK iteration " << i + 1
+        ecc::logInfo() << "(" << thread_id << ") Power after KICK iteration " << i + 1
              << " kick ratio " << kick_ratio << " : " << power << endl;
         // local parameters update
         if(updated_local) {
             if(all_feasible) {
-                cout << "(" << thread_id
+                ecc::logInfo() << "(" << thread_id
                      << ") Local best score is updated (in the kick loop) "
                      << power << "/" << best_score_local << endl;
             }
             else
-                cout << "(" << thread_id
+                ecc::logInfo() << "(" << thread_id
                      << ") Local best failed power is "
                         "updated (in the kick loop) "
                      << power << "/" << best_score_local << endl;
@@ -8207,7 +6863,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
             kick_slack = kick_slack * 3;
             kick_leak_exponent = kick_leak_exponent * 0.1;
             stuck_count++;
-            cout << "(" << thread_id
+            ecc::logInfo() << "(" << thread_id
                  << ") current best_score_local = " << best_score_local << endl;
         }
 
@@ -8215,11 +6871,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
         if(prev_best_score <= best_score) {
             kick_stuck_count++;
-            cout << "KICK STUCK " << prev_best_score << " " << best_score << " "
+            ecc::logInfo() << "KICK STUCK " << prev_best_score << " " << best_score << " "
                  << kick_stuck_count << endl;
         }
         else {
-            cout << "KICK NO STUCK " << prev_best_score << " " << best_score
+            ecc::logInfo() << "KICK NO STUCK " << prev_best_score << " " << best_score
                  << " " << kick_stuck_count << endl;
         }
 
@@ -8230,7 +6886,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
     }
 
     TMR = (cpuTime() - TMR);
-    cout << "(" << thread_id << ") Power after KICK: " << power
+    ecc::logInfo() << "(" << thread_id << ") Power after KICK: " << power
          << " kick: " << kick_ratio << " cpu time: " << TMR
          << " total time: " << cpuTime() - global_begin << endl;
 
@@ -8240,14 +6896,14 @@ void Sizer::Post_PowerOpt(int thread_id) {
     if(false) {
         // pthread_mutex_lock(&mutex1);
 
-        cout << "(" << thread_id << ") uses SF" << localSFlist[thread_id]
+        ecc::logInfo() << "(" << thread_id << ") uses SF" << localSFlist[thread_id]
              << endl;
 
         // localSollist stores best leakage power for SF, used for sorting SFs
         // (idx = SF, value = best leakage)
         localSollist[localSFlist[thread_id]] = best_score_local;
 
-        cout << "best_score/best_score_local: " << best_score << " "
+        ecc::logInfo() << "best_score/best_score_local: " << best_score << " "
              << best_score_local << endl;
 
         // insert SF into sorted list for next iteration
@@ -8257,8 +6913,8 @@ void Sizer::Post_PowerOpt(int thread_id) {
             it2 = nextAlphalist.begin();
             bool inserted = false;
             for(it = nextSFlist.begin(); it != nextSFlist.end(); ++it, ++it2) {
-                cout << "(" << thread_id << ") nextSFitem " << *it << endl;
-                cout << "(" << thread_id << ") solution " << localSollist[*it]
+                ecc::logInfo() << "(" << thread_id << ") nextSFitem " << *it << endl;
+                ecc::logInfo() << "(" << thread_id << ") solution " << localSollist[*it]
                      << endl;
                 if(best_score_local < localSollist[*it]) {
                     nextSFlist.insert(it, localSFlist[thread_id]);
@@ -8274,7 +6930,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
         }
         else {
             if(best_score_local >= best_score) {
-                cout << "Optimization got stuck with the current SF " << endl;
+                ecc::logInfo() << "Optimization got stuck with the current SF " << endl;
                 nextSFlist.push_back(sensFunc2);
                 nextAlphalist.push_back(best_alpha_local);
             }
@@ -8284,25 +6940,25 @@ void Sizer::Post_PowerOpt(int thread_id) {
             }
         }
 
-        cout << "(" << thread_id << ") Current SF next list: ";
+        ecc::logInfo() << "(" << thread_id << ") Current SF next list: ";
         for(unsigned i = 0; i < nextSFlist.size(); ++i) {
-            cout << nextSFlist[i] << " ";
+            ecc::logInfo() << nextSFlist[i] << " ";
         }
-        cout << endl;
+        ecc::logInfo() << endl;
 
-        cout << "(" << thread_id << ") Current Alpha next list: ";
+        ecc::logInfo() << "(" << thread_id << ") Current Alpha next list: ";
         for(unsigned i = 0; i < nextAlphalist.size(); ++i) {
-            cout << nextAlphalist[i] << " ";
+            ecc::logInfo() << nextAlphalist[i] << " ";
         }
-        cout << endl;
+        ecc::logInfo() << endl;
 
-        cout << "Current local value list: ";
+        ecc::logInfo() << "Current local value list: ";
         for(unsigned i = 0; i < localSollist.size(); ++i) {
-            cout << localSollist[i] << " ";
+            ecc::logInfo() << localSollist[i] << " ";
         }
-        cout << endl;
+        ecc::logInfo() << endl;
         if(score < best_score) {
-            cout << "From (" << thread_id << ") BEST FAILED POWER "
+            ecc::logInfo() << "From (" << thread_id << ") BEST FAILED POWER "
                  << best_score << endl;
             best_score = score;
             best_cells_poweropt.resize(numcells);
@@ -8316,41 +6972,41 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
         double ini_score = init_score[0];
 
-        cout << "best_score/init_score/best_tns/cur_best_tns : " << best_score
+        ecc::logInfo() << "best_score/init_score/best_tns/cur_best_tns : " << best_score
              << "/" << ini_score << "/" << best_tns << "/" << cur_best_tns
              << endl;
 
-        cout << "done" << endl;
+        ecc::logInfo() << "done" << endl;
         // pthread_mutex_unlock(&mutex1);
     }
     showAllSlew(0, "before_tran.csv");
-    cout << "start delete" << endl;
+    ecc::logInfo() << "start delete" << endl;
     delete[] cells;
-    cout << "delete cells done" << endl;
+    ecc::logInfo() << "delete cells done" << endl;
     // best_cells_local.clear();
-    // cout << "delete best_cells_local done" << endl;
+    // ecc::logInfo() << "delete best_cells_local done" << endl;
     // best_failed_cells_local.clear();
-    // cout << "delete best_failed_cells_local done" << endl;
+    // ecc::logInfo() << "delete best_failed_cells_local done" << endl;
     // if ( updated_int_best_cells )
     // int_best_cells.clear();
-    // cout << "delete int_best_cells done" << endl;
+    // ecc::logInfo() << "delete int_best_cells done" << endl;
     for(unsigned i = 0; i < numViews; ++i) {
         delete[] pins[i];
     }
     delete[] pins;
-    cout << "delete pins done" << endl;
+    ecc::logInfo() << "delete pins done" << endl;
     for(unsigned i = 0; i < numCorners; ++i) {
         delete[] nets[i];
     }
     delete[] nets;
-    cout << "delete nets done" << endl;
+    ecc::logInfo() << "delete nets done" << endl;
 
 #ifdef TIME_MON
     time_Fineswap += cpuTime() - begin;
 #endif
     TMR = (cpuTime() - TMR);
-    cout << "LEAKOPT_time : " << TMR << endl;
-    cout << "(" << thread_id << ") Score after PowerOpt: " << best_score_local
+    ecc::logInfo() << "LEAKOPT_time : " << TMR << endl;
+    ecc::logInfo() << "(" << thread_id << ") Score after PowerOpt: " << best_score_local
          << " option: " << thread_id << " cpu time: " << TMR << endl;
 }
 
@@ -8378,7 +7034,7 @@ CellSol Sizer::GetCommonCell(unsigned cell_index) {
         return solution;
     }
 
-    //    cout << lib_cell_table->name << " #VT = " <<
+    //    ecc::logInfo() << lib_cell_table->name << " #VT = " <<
     //    lib_cell_table->lib_vt_size_table[0].size() << " #SIZE = " <<
     //    lib_cell_table->lib_vt_size_table.size() << endl;
 
@@ -8403,7 +7059,7 @@ CellSol Sizer::GetCommonCell(unsigned cell_index) {
         prob_list.push_back(tmp2);
     }
 
-    // cout << "GET COMMON CELL " << cell_index << " " <<
+    // ecc::logInfo() << "GET COMMON CELL " << cell_index << " " <<
     // g_cells[cell_index].name << " " << g_cells[cell_index].type << "  #VT = "
     // << prob_list[0].size() << " #SIZES = " << prob_list.size() << endl;
 
@@ -8420,7 +7076,7 @@ CellSol Sizer::GetCommonCell(unsigned cell_index) {
                 continue;
             }
         }
-        // cout << i << "th solution -- (vt/size) " << vt_index << "/" <<
+        // ecc::logInfo() << i << "th solution -- (vt/size) " << vt_index << "/" <<
         // size_index << endl;
 
         prob_list[size_index][vt_index] += 1.0 / (double)size_all;
@@ -8451,7 +7107,7 @@ CellSol Sizer::GetCommonCell(unsigned cell_index) {
         solution.c_size = max_size;
     }
 
-    // cout << "GET COMMON CELL " << cell_index << " " <<
+    // ecc::logInfo() << "GET COMMON CELL " << cell_index << " " <<
     // g_cells[cell_index].name << " " << g_cells[cell_index].type << " : " <<
     // prob_list[max_size][max_vt] << "/" << score_list[max_size][max_vt] <<
     // "(size/vt)" << max_size <<"/" << max_vt<<  endl;
@@ -8466,7 +7122,7 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
     CalcStats((unsigned)thread_id);
     // T = PTimer[thread_id];
 
-    cout << endl << "Final power optimization .." << thread_id << endl;
+    ecc::logInfo() << endl << "Final power optimization .." << thread_id << endl;
 
     set< entry > targets;
     for(unsigned i = 0; i < numcells; i++) {
@@ -8507,7 +7163,7 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
             targets.insert(tmpEntry);
     }
 
-    cout << "# priority targets  : " << targets.size() << endl;
+    ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
     unsigned count = 0;
 
     for(set< entry >::iterator it = targets.begin(); it != targets.end();
@@ -8519,12 +7175,12 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
             continue;
         }
 
-        cout << "FINAL PWR OPT TARGET = UPTYPE (" << it->step
+        ecc::logInfo() << "FINAL PWR OPT TARGET = UPTYPE (" << it->step
              << "): " << cells[cur].name << " " << cells[cur].type;
 
         bool change = cell_retype(cells[cur], it->step, true);
 
-        cout << "( TRY " << cells[cur].type << ")";
+        ecc::logInfo() << "( TRY " << cells[cur].type << ")";
 
         bool restore = false;
 
@@ -8537,11 +7193,11 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
         if(restore && change) {  // restore
 
             cell_retype(cells[cur], -it->step, true);
-            cout << "-> " << cells[cur].type << " -- Restored" << endl;
+            ecc::logInfo() << "-> " << cells[cur].type << " -- Restored" << endl;
         }
         else {  // accept
 
-            cout << "-> " << cells[cur].type << " -- Accepted" << endl;
+            ecc::logInfo() << "-> " << cells[cur].type << " -- Accepted" << endl;
             OneTimer(cells[cur], STA_MARGIN);
             count++;
         }
@@ -8550,7 +7206,7 @@ void Sizer::FinalPowerOpt(double slk_th, unsigned thread_id) {
 }
 
 unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
-    cout << endl << "Increase total slack ... " << endl;
+    ecc::logInfo() << endl << "Increase total slack ... " << endl;
     for(unsigned view = 0; view < numViews; ++view) {
         CountPathsLesserThanSlack(view, kick_slack);
     }
@@ -8665,7 +7321,7 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
             targets.insert(tmpEntry);
     }
 
-    cout << "# priority targets  : " << targets.size() << endl;
+    ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
     unsigned count = 0;
 
     for(set< entry >::iterator it = targets.begin(); it != targets.end();
@@ -8682,7 +7338,7 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
 
         if(it->change == UPSIZE) {
             if(VERBOSE >= 1)
-                cout << "KICK TARGET = UPSIZE (" << it->step
+                ecc::logInfo() << "KICK TARGET = UPSIZE (" << it->step
                      << "): " << cells[cur].name << " " << cells[cur].type;
 
             if(HOLD_CHECK) {
@@ -8692,7 +7348,7 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
         }
         else {
             if(VERBOSE >= 1)
-                cout << "KICK TARGET = UPTYPE (" << it->step
+                ecc::logInfo() << "KICK TARGET = UPTYPE (" << it->step
                      << "): " << cells[cur].name << " " << cells[cur].type;
             if(HOLD_CHECK) {
                 delta_delay = EstDeltaDelay(cells[cur], 0, it->step);
@@ -8727,12 +7383,12 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
             }
             OneTimer(cells[cur], STA_MARGIN);
             if(VERBOSE >= 1)
-                cout << "-> " << cells[cur].type << " -- Restored" << endl;
+                ecc::logInfo() << "-> " << cells[cur].type << " -- Restored" << endl;
             count++;
         }
         else {  // accept
             if(VERBOSE >= 1)
-                cout << "-> " << cells[cur].type << " -- Accepted" << endl;
+                ecc::logInfo() << "-> " << cells[cur].type << " -- Accepted" << endl;
             count++;
         }
         if(count >= numcells * kick_ratio)
@@ -8742,7 +7398,7 @@ unsigned Sizer::IncrTNS(double kick_ratio, double kick_slack) {
 }
 
 unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
-    cout << endl << "Increase slack .." << leak_exponent << endl;
+    ecc::logInfo() << endl << "Increase slack .." << leak_exponent << endl;
     if(alpha == -1) {
         alpha = ALPHA;
     }
@@ -8863,7 +7519,7 @@ unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
             targets.insert(tmpEntry);
     }
 
-    cout << "# priority targets  : " << targets.size() << endl;
+    ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
     unsigned count = 0;
 
     for(set< entry >::iterator it = targets.begin(); it != targets.end();
@@ -8876,7 +7532,7 @@ unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
 
         if(it->change == UPSIZE) {
             if(VERBOSE >= 1)
-                cout << "KICK TARGET = UPSIZE (" << it->step
+                ecc::logInfo() << "KICK TARGET = UPSIZE (" << it->step
                      << "): " << cells[cur].name << " " << cells[cur].type;
 
             if(HOLD_CHECK) {
@@ -8886,7 +7542,7 @@ unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
         }
         else {
             if(VERBOSE >= 1)
-                cout << "KICK TARGET = UPTYPE (" << it->step
+                ecc::logInfo() << "KICK TARGET = UPTYPE (" << it->step
                      << "): " << cells[cur].name << " " << cells[cur].type;
             if(HOLD_CHECK) {
                 delta_delay = EstDeltaDelay(cells[cur], 0, it->step);
@@ -8921,18 +7577,18 @@ unsigned Sizer::IncrSlack(double leak_exponent, double alpha) {
             }
             OneTimer(cells[cur], STA_MARGIN);
             if(VERBOSE >= 1)
-                cout << "-> " << cells[cur].type << " -- Restored" << endl;
+                ecc::logInfo() << "-> " << cells[cur].type << " -- Restored" << endl;
             count++;
         }
         else {  // accept
             if(VERBOSE >= 1)
-                cout << "-> " << cells[cur].type << " -- Accepted" << endl;
+                ecc::logInfo() << "-> " << cells[cur].type << " -- Accepted" << endl;
             count++;
         }
         if(count >= (double)targets.size() * KICK_RATIO)
             break;
     }
-    cout << "#Swaps to increase slack: " << count << endl;
+    ecc::logInfo() << "#Swaps to increase slack: " << count << endl;
     targets.clear();
     return count;
 }
@@ -8941,7 +7597,7 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
     if(alpha == -1) {
         alpha = ALPHA;
     }
-    cout << endl << "Increase slack more .." << endl;
+    ecc::logInfo() << endl << "Increase slack more .." << endl;
 
     double prv_slk = 0.0, cur_slk = 0.0;
     set< entry > targets;
@@ -9029,7 +7685,7 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
             targets.insert(tmpEntry);
     }
 
-    cout << "# priority targets  : " << targets.size() << endl;
+    ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
     unsigned count = 0;
 
     for(set< entry >::iterator it = targets.begin(); it != targets.end();
@@ -9041,7 +7697,7 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
         bool change = false;
 
         if(it->change == UPSIZE) {
-            // cout << "KICK TARGET = UPSIZE (" << it->step << "): " <<
+            // ecc::logInfo() << "KICK TARGET = UPSIZE (" << it->step << "): " <<
             // cells[cur].name << " " << cells[cur].type;
 
             if(HOLD_CHECK) {
@@ -9051,7 +7707,7 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
             change = cell_resize(cells[cur], it->step);
         }
         else {
-            // cout << "KICK TARGET = UPTYPE (" << it->step << "): " <<
+            // ecc::logInfo() << "KICK TARGET = UPTYPE (" << it->step << "): " <<
             // cells[cur].name << " " << cells[cur].type;
             if(HOLD_CHECK) {
                 delta_delay = EstDeltaDelay(cells[cur], 0, it->step);
@@ -9085,23 +7741,23 @@ unsigned Sizer::IncrSlackMore(double kick_ratio, double alpha) {
             }
             OneTimer(cells[cur], STA_MARGIN);
             if(VERBOSE >= 1)
-                cout << "-> " << cells[cur].type << " -- Restored" << endl;
+                ecc::logInfo() << "-> " << cells[cur].type << " -- Restored" << endl;
         }
         else {  // accept
             if(VERBOSE >= 1)
-                cout << "-> " << cells[cur].type << " -- Accepted" << endl;
+                ecc::logInfo() << "-> " << cells[cur].type << " -- Accepted" << endl;
             count++;
         }
         if(count > (double)targets.size() * kick_ratio)
             break;
     }
-    cout << "#Swaps to increase slack: " << count << endl;
+    ecc::logInfo() << "#Swaps to increase slack: " << count << endl;
     targets.clear();
     return count;
 }
 
 unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
-    cout << endl << "Increase slack random .." << endl;
+    ecc::logInfo() << endl << "Increase slack random .." << endl;
 
     int cnt = 0;
 
@@ -9124,7 +7780,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
 
             // upgrading
             if(isSwappable(cells[i], KICK_STEP)) {
-                cout << "KICK TARGET = UPTYPE (" << KICK_STEP
+                ecc::logInfo() << "KICK TARGET = UPTYPE (" << KICK_STEP
                      << "): " << cells[i].name << " " << cells[i].type;
 
                 bool attack = true;
@@ -9141,7 +7797,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
 
                 if(attack) {
                     change = cell_retype(cells[i], KICK_STEP);
-                    cout << "-> " << cells[i].type << " -- Accepted" << endl;
+                    ecc::logInfo() << "-> " << cells[i].type << " -- Accepted" << endl;
 
                     cells[i].touched = true;
                     if(change) {
@@ -9152,7 +7808,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
                     }
                 }
                 else {
-                    cout << "-> " << cells[i].type << " -- Rejected" << endl;
+                    ecc::logInfo() << "-> " << cells[i].type << " -- Rejected" << endl;
                 }
             }
             else if(isSizable(cells[i], KICK_STEP)) {
@@ -9171,7 +7827,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
                 }
 
                 if(attack) {
-                    cout << "KICK TARGET = UPSIZE (" << KICK_STEP
+                    ecc::logInfo() << "KICK TARGET = UPSIZE (" << KICK_STEP
                          << "): " << cells[i].name << " " << cells[i].type;
 
                     change = cell_resize(cells[i], KICK_STEP);
@@ -9200,12 +7856,12 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
                     }
 
                     if(attack) {
-                        cout << "-> " << cells[i].type << " -- Accepted"
+                        ecc::logInfo() << "-> " << cells[i].type << " -- Accepted"
                              << endl;
                         cnt++;
                     }
                     else {
-                        cout << "-> " << cells[i].type << " -- Rejected"
+                        ecc::logInfo() << "-> " << cells[i].type << " -- Rejected"
                              << endl;
                         if(change) {
                             cell_resize(cells[i], -KICK_STEP);
@@ -9222,7 +7878,7 @@ unsigned Sizer::IncrSlackRandom(double kick_ratio, double kick_slack) {
         }
     }
 
-    cout << "KICK OPT # SWAP = " << cnt << endl;
+    ecc::logInfo() << "KICK OPT # SWAP = " << cnt << endl;
     return cnt;
 }
 
@@ -9238,22 +7894,22 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
     double init_time = cpuTime();
 
-    cout << "(" << thread_id
+    ecc::logInfo() << "(" << thread_id
          << ") Start Power Reduction .. with SF = " << option
          << " alpha = " << alpha;
 
     if(isPeephole) {
-        cout << " PEEPHOLE" << endl;
+        ecc::logInfo() << " PEEPHOLE" << endl;
     }
     else {
-        cout << " NO PEEPHOLE" << endl;
+        ecc::logInfo() << " NO PEEPHOLE" << endl;
     }
 
     set< entry > targets;
 
     for(unsigned i = 0; i < numcells; i++) {
         if(VERBOSE >= 100) {
-            cout << "START CAL SENS : " << option << " " << alpha << " "
+            ecc::logInfo() << "START CAL SENS : " << option << " " << alpha << " "
                  << cells[i].name << " " << cells[i].type << " "
                  << r_type(cells[i]) << " " << default_vtype << endl;
         }
@@ -9326,7 +7982,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
             }
 
             if(VERBOSE >= 1) {
-                cout << "CAL SENS : " << option << " " << alpha << " "
+                ecc::logInfo() << "CAL SENS : " << option << " " << alpha << " "
                      << cells[i].name << " " << cells[i].type << " "
                      << delta_impact_type << "/" << delta_impact_size << endl;
             }
@@ -9391,9 +8047,9 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
                 if(VERBOSE >= 300) {
                     for(unsigned k = 0; k < change_list.size(); k++) {
-                        cout << change_list[k];
+                        ecc::logInfo() << change_list[k];
                     }
-                    cout << endl;
+                    ecc::logInfo() << endl;
                 }
 
                 double score =
@@ -9409,7 +8065,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 targets.insert(tmpEntrySet);
         }
     }
-    cout << "# priority targets  : " << targets.size() << endl;
+    ecc::logInfo() << "# priority targets  : " << targets.size() << endl;
     unsigned target_size = targets.size();
     unsigned accept = 0;
     unsigned update_cnt = 0;
@@ -9463,23 +8119,23 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
             if(VERBOSE >= 1) {
                 if(it->change == DNSIZE) {
-                    cout << "(" << targets.size() << ") REDUCE = DNSIZE : ";
+                    ecc::logInfo() << "(" << targets.size() << ") REDUCE = DNSIZE : ";
                 }
                 else {
-                    cout << "(" << targets.size() << ") REDUCE = DNTYPE : ";
+                    ecc::logInfo() << "(" << targets.size() << ") REDUCE = DNTYPE : ";
                 }
 
-                cout << cells[cur].name << " " << cells[cur].type << " "
+                ecc::logInfo() << cells[cur].name << " " << cells[cur].type << " "
                      << it->delta_impact;
 
                 for(unsigned view1 = 0; view1 < numViews; ++view1) {
-                    cout << " (" << view1 << "/"
+                    ecc::logInfo() << " (" << view1 << "/"
                          << GetCellSlack(cells[cur], view1) << "/"
                          << GetCellDelay(cells[cur], view1) << "/"
                          << GetCellTranSlack(cells[cur], view1) << "/"
                          << GetCellLeak(cells[cur], view1) << ")";
                 }
-                cout << " --->";
+                ecc::logInfo() << " --->";
             }
 
             bool change = false;
@@ -9501,14 +8157,14 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
             }
 
             if(VERBOSE > 0 || VERBOSE >= 5)
-                cout << cells[cur].type << " ";
+                ecc::logInfo() << cells[cur].type << " ";
 
             // check slack, max cap constraints
             bool restore_flag = false;
 
             if(VERBOSE > 0 || VERBOSE >= 5) {
                 for(unsigned view1 = 0; view1 < numViews; ++view1) {
-                    cout << " (" << view1 << "/"
+                    ecc::logInfo() << " (" << view1 << "/"
                          << GetCellSlack(cells[cur], view1) << "/"
                          << GetCellDelay(cells[cur], view1) << "/"
                          << GetCellTranSlack(cells[cur], view1) << "/"
@@ -9525,7 +8181,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 if(GetCellSlack(cells[cur], view1) < toler) {
                     restore_flag = true;
                     if(VERBOSE >= 1)
-                        cout << "RESTORED DUE TO SLACK " << view << " "
+                        ecc::logInfo() << "RESTORED DUE TO SLACK " << view << " "
                              << " " << GetCellSlack(cells[cur], view1) << " "
                              << viewWNS[view1] << " " << toler << " ";
                     break;
@@ -9544,14 +8200,14 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     curCap = pins[view1][cells[cur].outpins[k]].totcap;
                     if(curCap > maxCap) {
                         if(VERBOSE >= 1)
-                            cout << "RESTORED DUE TO CAP " << curCap << " "
+                            ecc::logInfo() << "RESTORED DUE TO CAP " << curCap << " "
                                  << maxCap << " ";
                         restore_flag = true;
                         break;
                     }
                     if(IsTranVio(pins[view1][cells[cur].outpins[k]])) {
                         if(VERBOSE >= 1)
-                            cout << "RESTORED DUE TO TRAN "
+                            ecc::logInfo() << "RESTORED DUE TO TRAN "
                                  << pins[view1][cells[cur].outpins[k]].rtran
                                  << "/"
                                  << pins[view1][cells[cur].outpins[k]].ftran
@@ -9579,7 +8235,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         if(slack < 0 || slack < toler) {
                             restore_flag = true;
                             if(VERBOSE >= 1)
-                                cout << "RESTORED DUE TO SLACK " << slack << " "
+                                ecc::logInfo() << "RESTORED DUE TO SLACK " << slack << " "
                                      << toler << " ";
                             break;
                         }
@@ -9612,14 +8268,14 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
                 restore++;
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Restore" << endl;
+                    ecc::logInfo() << " Restore" << endl;
                 entry tmpEntry(*it);
                 targets.erase(it);
-                // cout << "x";
+                // ecc::logInfo() << "x";
             }
             else {
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept" << endl;
+                    ecc::logInfo() << " Accept" << endl;
                 changed[cur] = true;
                 cells[cur].downsized = true;
                 if(tabuNum > 0) {
@@ -9631,24 +8287,24 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         cells[cur].tabu.push_back(pre_sol);
                     }
 
-                    cout << cells[cur].name << "'s tabu list is";
+                    ecc::logInfo() << cells[cur].name << "'s tabu list is";
                     list< unsigned >::iterator iter;
                     for(iter = cells[cur].tabu.begin();
                         iter != cells[cur].tabu.end(); iter++) {
-                        cout << " " << *iter;
+                        ecc::logInfo() << " " << *iter;
                     }
-                    cout << endl;
+                    ecc::logInfo() << endl;
                 }
 
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept"
+                    ecc::logInfo() << " Accept"
                          << " " << cells[cur].type << endl;
                 accept++;
                 update_cnt++;
                 accum_update_cnt++;
                 entry tmpEntry(*it);
                 targets.erase(it);
-                // cout << "o";
+                // ecc::logInfo() << "o";
                 if(UPDATE_LIST) {
                     // UPDATE Sensitivity
                     //
@@ -9692,15 +8348,15 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     }
 
                     if(tmpEntry.delta_impact == 0.0) {
-                        // cout << endl;
+                        // ecc::logInfo() << endl;
                     }
                     else {
                         if(tmpEntry.change == DNTYPE) {
-                            cout << "-- Update Sensitivity DNTYPE -- "
+                            ecc::logInfo() << "-- Update Sensitivity DNTYPE -- "
                                  << tmpEntry.delta_impact << endl;
                         }
                         else {
-                            cout << "-- Update Sensitivity DNSIZE -- "
+                            ecc::logInfo() << "-- Update Sensitivity DNSIZE -- "
                                  << tmpEntry.delta_impact << endl;
                         }
                         targets.insert(tmpEntry);
@@ -9709,7 +8365,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 else {
                     if(VERBOSE > 0 || VERBOSE >= 5)
                         ;
-                    //    cout << endl;
+                    //    ecc::logInfo() << endl;
                 }
             }
 
@@ -9726,29 +8382,29 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
                 double wns = worst_slack_worst;
                 if(VERBOSE >= 1) {
-                    cout << "Current WNS : " << wns << endl;
+                    ecc::logInfo() << "Current WNS : " << wns << endl;
                 }
 
                 if(SAFE_LEAK_OPT) {
                     if(wns < SAFE_LEAK_OPT_GB) {
-                        cout << "BREAK DUE TO WNS " << wns << " "
+                        ecc::logInfo() << "BREAK DUE TO WNS " << wns << " "
                              << skew_violation << endl;
                         break;
                     }
                     if(skew_violation != 0.0) {
-                        cout << "BREAK DUE TO TNS " << wns << " "
+                        ecc::logInfo() << "BREAK DUE TO TNS " << wns << " "
                              << skew_violation << endl;
                         break;
                     }
                     if(worst_slew_vio > SLEW_GB) {
-                        cout << "BREAK DUE TO SLEW " << worst_slew_vio << endl;
+                        ecc::logInfo() << "BREAK DUE TO SLEW " << worst_slew_vio << endl;
                         break;
                     }
                 }
 
                 if(wns > 0) {
                     if(power < best_score_local) {
-                        cout << "(" << thread_id
+                        ecc::logInfo() << "(" << thread_id
                              << ") Local best power is updated (in reduce "
                                 "power function) "
                              << power << "/" << best_score_local << endl;
@@ -9778,23 +8434,23 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                             int tran_num = 0;
                             T[view]->getTranVio(tran_tot, tran_max, tran_num);
 
-                            cout << "[view " << view
+                            ecc::logInfo() << "[view " << view
                                  << "] Local best power  WNS from Timer    : "
                                  << wns << " ps (init: " << init_wns[view]
                                  << ")" << endl;
-                            cout << "[view " << view
+                            ecc::logInfo() << "[view " << view
                                  << "] Local best power  TNS            : "
                                  << tns << " ps (init: " << init_tns[view]
                                  << ")" << endl;
-                            cout << "[view " << view
+                            ecc::logInfo() << "[view " << view
                                  << "] Local best power Leakage Power    : "
                                  << leak << endl;
-                            cout
+                            ecc::logInfo()
                                 << "[view " << view
                                 << "] Local best power Total Power    : " << tot
                                 << endl;
 
-                            cout << "[view " << view
+                            ecc::logInfo() << "[view " << view
                                  << "] Local best power Tran           : "
                                  << tran_tot << " ps " << tran_num << " "
                                  << tran_max << " ps" << endl;
@@ -9841,16 +8497,16 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                             double hvt_init_ratio =
                                 (double)hvt_init_count / (double)numcells;
 
-                            cout << "[view " << view
+                            ecc::logInfo() << "[view " << view
                                  << "] # Swap             : " << swap_count
                                  << "(" << uptype_swap_count << "/"
                                  << downtype_swap_count << "/"
                                  << upsize_swap_count << "/"
                                  << downsize_swap_count << ")" << endl;
-                            cout << "[view " << view
+                            ecc::logInfo() << "[view " << view
                                  << "] % HVT cells        : "
                                  << hvt_ratio * 100.0 << endl;
-                            cout << "[view " << view
+                            ecc::logInfo() << "[view " << view
                                  << "] % HVT cells (init) : "
                                  << hvt_init_ratio * 100.0 << endl;
                         }
@@ -9865,7 +8521,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
             if(TEST_MODE == "SLK_CORR_TEST" && (accum_update_cnt) % 50 == 0 &&
                accum_update_cnt != 0) {
-                cout << "# Cell Swap : " << accum_update_cnt << endl;
+                ecc::logInfo() << "# Cell Swap : " << accum_update_cnt << endl;
                 ReportSlackErr();
             }
             if((double)accept / (double)(target_size) >= TRIAL_RATE) {
@@ -9886,10 +8542,10 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
             set< entry >::iterator it = targets.begin();
             bool change = false;
 
-            // cout << "TRY --- " ;
+            // ecc::logInfo() << "TRY --- " ;
             for(unsigned m = 0; m < it->ids.size(); ++m) {
                 unsigned cur = it->ids[m];
-                // cout << cells[cur].name << "/" << it->changes[m] << " ";
+                // ecc::logInfo() << cells[cur].name << "/" << it->changes[m] << " ";
 
                 if(changed[cur])
                     continue;
@@ -9911,7 +8567,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     OneTimer(cells[cur], STA_MARGIN, false, view1);
                 }
             }
-            // cout << endl;
+            // ecc::logInfo() << endl;
 
             bool restore_flag = false;
             for(unsigned m = 0; m < it->ids.size(); ++m) {
@@ -9931,7 +8587,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     if(GetCellSlack(cells[cur], view1) < toler) {
                         restore_flag = true;
                         if(VERBOSE >= 1)
-                            cout << "RESTORED DUE TO SLACK " << view << " "
+                            ecc::logInfo() << "RESTORED DUE TO SLACK " << view << " "
                                  << " " << GetCellSlack(cells[cur], view1)
                                  << " " << viewWNS[view1] << " " << toler
                                  << " ";
@@ -9944,7 +8600,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         // pins[view1][cells[cur].outpins[k]].fslk);
                         // if ( slack < toler ) {
                         //    if ( VERBOSE >= 1 )
-                        //    cout << "RESTORED DUE TO SLACK " << slack << " "
+                        //    ecc::logInfo() << "RESTORED DUE TO SLACK " << slack << " "
                         //    << toler << " ";
                         //    restore_flag = true;
                         //    break;
@@ -9960,14 +8616,14 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                         curCap = pins[view1][cells[cur].outpins[k]].totcap;
                         if(curCap > maxCap) {
                             if(VERBOSE >= 1)
-                                cout << "RESTORED DUE TO CAP " << curCap << " "
+                                ecc::logInfo() << "RESTORED DUE TO CAP " << curCap << " "
                                      << maxCap << " ";
                             restore_flag = true;
                             break;
                         }
                         if(IsTranVio(pins[view1][cells[cur].outpins[k]])) {
                             if(VERBOSE >= 1)
-                                cout << "RESTORED DUE TO TRAN "
+                                ecc::logInfo() << "RESTORED DUE TO TRAN "
                                      << pins[view1][cells[cur].outpins[k]].rtran
                                      << "/"
                                      << pins[view1][cells[cur].outpins[k]].ftran
@@ -9996,7 +8652,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
                             if(slack < 0 || slack < toler) {
                                 if(VERBOSE >= 1)
-                                    cout << "RESTORED DUE TO SLACK " << slack
+                                    ecc::logInfo() << "RESTORED DUE TO SLACK " << slack
                                          << " " << toler << " ";
                                 restore_flag = true;
                                 break;
@@ -10018,13 +8674,13 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     restore++;
                 }
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Restore" << endl;
+                    ecc::logInfo() << " Restore" << endl;
                 entry tmpEntry(*it);
                 targets.erase(it);
             }
             else {
                 if(VERBOSE > 0 || VERBOSE >= 5)
-                    cout << " Accept" << endl;
+                    ecc::logInfo() << " Accept" << endl;
 
                 for(unsigned m = 0; m < it->ids.size(); ++m) {
                     unsigned cur = it->ids[m];
@@ -10040,13 +8696,13 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                             cells[cur].tabu.push_back(pre_sol);
                         }
 
-                        // cout << cells[cur].name << "'s tabu list is";
+                        // ecc::logInfo() << cells[cur].name << "'s tabu list is";
                         list< unsigned >::iterator iter;
                         for(iter = cells[cur].tabu.begin();
                             iter != cells[cur].tabu.end(); iter++) {
-                            //    cout << " " << *iter ;
+                            //    ecc::logInfo() << " " << *iter ;
                         }
-                        cout << endl;
+                        ecc::logInfo() << endl;
                     }
                 }
                 accept += PEEPHOLE_NUMCELL;
@@ -10064,7 +8720,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                 }
                 double wns = worst_slack_worst;
                 if(VERBOSE >= 1) {
-                    cout << "Current WNS : " << wns << endl;
+                    ecc::logInfo() << "Current WNS : " << wns << endl;
                 }
 
                 if(SAFE_LEAK_OPT) {
@@ -10082,7 +8738,7 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
 
             if(TEST_MODE == "SLK_CORR_TEST" && (accum_update_cnt) % 50 == 0 &&
                accum_update_cnt != 0) {
-                cout << "# Cell Swap : " << accum_update_cnt << endl;
+                ecc::logInfo() << "# Cell Swap : " << accum_update_cnt << endl;
                 ReportSlackErr();
             }
             if((double)accept / (double)(target_size) >= TRIAL_RATE) {
@@ -10098,12 +8754,12 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
         }
     }
 
-    // cout << endl;
-    cout << "#Swaps for power reduction: " << accept << endl;
-    cout << "#Trials for power reduction: " << restore + accept << endl;
-    cout << "Accept rate: " << (double)accept / (double)(target_size) << endl;
+    // ecc::logInfo() << endl;
+    ecc::logInfo() << "#Swaps for power reduction: " << accept << endl;
+    ecc::logInfo() << "#Trials for power reduction: " << restore + accept << endl;
+    ecc::logInfo() << "Accept rate: " << (double)accept / (double)(target_size) << endl;
     targets.clear();
-    cout << "Reduce power time : " << cpuTime() - init_time << endl;
+    ecc::logInfo() << "Reduce power time : " << cpuTime() - init_time << endl;
     return accept;
 }
 
@@ -10157,1177 +8813,6 @@ void Sizer::initSingleMode() {
     init_tot.push_back(0.0);
     viewSlackMargin.push_back(slack_margin);
     viewTNSMargin.push_back(0.0);
-}
-void Sizer::readMMMCFile(string envFileStr) {
-    ifstream file;
-    file.open(envFileStr.c_str());
-    if(!file) {
-        cout << "Cannot open file:" << envFileStr << endl;
-        exit(0);
-    }
-
-    vector< string > mmmcLibs;
-    vector< string > mmmcMinLibs;
-    vector< string > mmmcWaiveTranList;
-    string mmmcSpef;
-    string mmmcSdc;
-    string mmmcScr = "";
-    double mmmcweight = 0.0;
-    double mmmc_slack_margin = 0.0;
-    double mmmc_iso_tns = 0.0;
-    double mmmc_max_tran_margin = 0.0;
-
-    string line;
-    while(std::getline(file, line)) {
-        if(line.find_first_of("#") == 0)
-            continue;
-        if(line.find("-minlib ") != string::npos)
-            mmmcMinLibs.push_back(getTokenS(line, "-minlib "));
-        if(line.find("-lib ") != string::npos)
-            mmmcLibs.push_back(getTokenS(line, "-lib "));
-        if(line.find("-spef ") != string::npos)
-            mmmcSpef = getTokenS(line, "-spef ");
-        if(line.find("-sdc ") != string::npos)
-            mmmcSdc = getTokenS(line, "-sdc ");
-        if(line.find("-staScr ") != string::npos)
-            mmmcScr = getTokenS(line, "-staScr ");
-        if(line.find("-weight ") != string::npos)
-            mmmcweight = getTokenF(line, "-weight ");
-        if(line.find("-slack_margin ") != string::npos)
-            mmmc_slack_margin = getTokenF(line, "-slack_margin ");
-        if(line.find("-iso_tns ") != string::npos)
-            mmmc_iso_tns = getTokenF(line, "-iso_tns ");
-        if(line.find("-max_tran_margin ") != string::npos)
-            mmmc_max_tran_margin = getTokenF(line, "-max_tran_margin ");
-        if(line.find("-waive_tran ") != string::npos)
-            mmmcWaiveTranList.push_back(getTokenS(line, "-waive_tran "));
-    }
-    file.close();
-
-    bool duplicate = true;
-    int index = -1;
-
-    mmmcMinLibLists.push_back(mmmcMinLibs);
-    mmmcLibLists.push_back(mmmcLibs);
-    mmmcSpefList.push_back(mmmcSpef);
-    mmmcWaiveTranLists.push_back(mmmcWaiveTranList);
-    index = mmmcLibLists.size() - 1;
-
-    view _view;
-    _view.corner = index;
-
-    index = -1;
-    duplicate = false;
-    for(unsigned i = 0; i < mmmcSdcList.size(); ++i) {
-        if(mmmcSdcList[i] == mmmcSdc) {
-            duplicate = true;
-            index = i;
-        }
-    }
-    if(!duplicate) {
-        mmmcSdcList.push_back(mmmcSdc);
-        index = mmmcSdcList.size() - 1;
-    }
-    _view.mode = index;
-
-    mmmcViewList.push_back(_view);
-    mmmcScrList.push_back(mmmcScr);
-    viewWeight.push_back(mmmcweight);
-    viewWeightTime.push_back(1.0);
-    viewTNS.push_back(0.0);
-    viewWNS.push_back(0.0);
-    viewVioCnt.push_back(0);
-    viewWorstSlack.push_back(0.0);
-    viewTNSHold.push_back(0.0);
-    viewWNSHold.push_back(0.0);
-    viewRuntime.push_back(0.0);
-    viewPower.push_back(0.0);
-    init_wns.push_back(0.0);
-    init_wns_worst = DBL_MAX;
-    init_tns.push_back(0.0);
-    init_leak.push_back(0.0);
-    init_tot.push_back(0.0);
-
-    if(mmmc_slack_margin != 0.0) {
-        viewSlackMargin.push_back(mmmc_slack_margin);
-    }
-    else {
-        viewSlackMargin.push_back(slack_margin);
-    }
-
-    if(mmmc_iso_tns != 0.0) {
-        viewTNSMargin.push_back(mmmc_iso_tns);
-    }
-    else {
-        viewTNSMargin.push_back(ISO_TNS);
-    }
-
-    viewMaxTranMargin.push_back(mmmc_max_tran_margin);
-
-    skew_violation_worst = 0.0;
-    worst_slack_worst = DBL_MAX;
-}
-
-void Sizer::readEnvFile(string envFileStr) {
-    ifstream file;
-    file.open(envFileStr.c_str());
-    if(!file) {
-        cout << "Cannot open file:" << envFileStr << endl;
-        exit(0);
-    }
-
-    // default environments
-    root = "";
-    dbLibPath = "";
-    libLibPath = "";
-
-    string line;
-    string tmp_str;
-
-    // TSMC 45
-    suffixHVT = "";
-    suffixLVT = "";
-    suffixNVT = "";
-    suffix = "";
-    numVt = 3;
-
-    dontTouchFile = "";
-    dontUseFile = "";
-    dontTouchCellFile = "";
-
-    numModes = 1;
-    numCorners = 1;
-
-    while(std::getline(file, line)) {
-        if(line.find_first_of("#") == 0)
-            continue;
-        if(line.find("-home ") != string::npos)
-            root = getTokenS(line, "-home ");
-        if(line.find("-srv ") != string::npos)
-            serverName = getTokenS(line, "-srv ");
-        if(line.find("-dbpath ") != string::npos)
-            dbLibPath = getTokenS(line, "-dbpath ");
-        if(line.find("-libpath ") != string::npos)
-            libLibPath = getTokenS(line, "-libpath ");
-        if(line.find("-db ") != string::npos)
-            dbLibs.push_back(getTokenS(line, "-db "));
-        if(line.find("-mindb ") != string::npos)
-            dbMinLibs.push_back(getTokenS(line, "-mindb "));
-        if(line.find("-lib ") != string::npos)
-            libLibs.push_back(getTokenS(line, "-lib "));
-        if(line.find("-envlib ") != string::npos)
-            envlibLibs.push_back(getTokenS(line, "-envlib "));
-        if(line.find("-minlib ") != string::npos)
-            libMinLibs.push_back(getTokenS(line, "-minlib "));
-        if(line.find("-suffix ") != string::npos) {
-            tmp_str = getTokenS(line, "-suffix ");
-            if(tmp_str.find("[") != string::npos)
-                tmp_str.erase(tmp_str.find_first_of("["), 1);
-            if(tmp_str.find("]") != string::npos)
-                tmp_str.erase(tmp_str.find_last_of("]"), 1);
-            libSuffix.push_back(tmp_str);
-        }
-        if(line.find("-num_vt ") != string::npos)
-            numVt = getTokenI(line, "-num_vt ");
-        if(line.find("-num_modes ") != string::npos)
-            numModes = getTokenI(line, "-num_modes ");
-        if(line.find("-num_corners ") != string::npos)
-            numCorners = getTokenI(line, "-num_corners ");
-        if(line.find("-lef ") != string::npos)
-            lefFiles.push_back(getTokenS(line, "-lef "));
-        if(line.find("-lefPath ") != string::npos)
-            lefPath = getTokenS(line, "-lefPath ");
-        if(line.find("-setRCFile ") != string::npos)
-            setRCFile = getTokenS(line, "-setRCFile ");
-        if(line.find("-spef ") != string::npos)
-            spefFile = getTokenS(line, "-spef ");
-        if(line.find("-postroute") != string::npos) {
-            postrouteMode = true;
-            if(line.find("-setup_margin ") == string::npos) {
-                setup_margin = 0.02;
-            }
-        }
-        if(line.find("-no_blockage_aware_steiner") != string::npos) {
-            blockageAwareSteiner = false;
-        }
-        else if(line.find("-blockage_aware_steiner ") != string::npos) {
-            blockageAwareSteiner = (getTokenI(line, "-blockage_aware_steiner ") != 0);
-        }
-        else if(line.find("-blockage_aware_steiner") != string::npos) {
-            blockageAwareSteiner = true;
-        }
-        if(line.find("-tclFile ") != string::npos)
-            util_tcl_file = getTokenS(line, "-tclFile ");
-        if(line.find("-suffix_nvt ") != string::npos) {
-            suffixNVT = getTokenS(line, "-suffix_nvt ");
-        }
-        if(line.find("-suffix_lvt ") != string::npos) {
-            suffixLVT = getTokenS(line, "-suffix_lvt ");
-        }
-        if(line.find("-suffix_hvt ") != string::npos) {
-            suffixHVT = getTokenS(line, "-suffix_hvt ");
-        }
-        if(line.find("-suffix_all ") != string::npos) {
-            suffix = getTokenS(line, "-suffix_all ");
-        }
-        if(line.find("-equiv_cell_sort ") != string::npos) {
-            setEquivCellSortMode(getTokenS(line, "-equiv_cell_sort "));
-        }
-    }
-    file.close();
-}
-
-void Sizer::readCmdFile(string cmdFileStr) {
-    ifstream file;
-    file.open(cmdFileStr.c_str());
-    if(!file) {
-        cout << "Cannot open file :" << cmdFileStr << endl;
-        exit(0);
-    }
-
-    string line, temp;
-
-    // defalt values
-    exeOp = 1;
-    swapOp = 1;
-    stopCond = 0;
-    maxTrCheck = false;
-    GUARD_BAND = 0.0;
-    swapstep = 10000;
-    sdcFile = "";
-    timerSdcFile = "";
-    defFile = "";
-    spefFile = "";
-    verilogFile = "";
-    clockName = "clk";
-    reportFile = "result.rpt";
-    verilogOutFile = "";
-    defOutFile = "";
-    spefOutFile = "";
-    ptCmd = "";
-    ptOption = "";
-    ptLogSave = true;
-    exePNRFlag = false;
-    chkWNSFlag = false;
-    totPWRFlag = false;
-    mmmcOn = false;
-    useETS = false;
-    useTempus = false;
-    useOpenSTA = true;
-    noDEF = false;
-    noSPEF = false;
-    saifFile = "";
-    swapFile = "";
-    optEffort = 1;
-    soceScriptFile = "";
-    etsScriptFile = "";
-    ptScriptFile = "";
-    ptLaunchScriptFile = "";
-    tcfFile = "";
-    soceBin = "";
-    sensFunc = 1;  // SF 6 is TNS, originally 0
-    sensFunc2 = 0;
-    sensFuncT = 5;  // SF 6 is TNS only, originally 5
-    falsePathFile = "";
-    timerTestCnt = 0;
-    timerTestCell = 0;
-    timerTestMove = 0;
-    use_gr_rc = false;
-    gr_rc_congestion_iterations = 10;
-    hold_margin = 0.02;
-    placement_wire_resistance = 0.0;
-    placement_wire_capacitance = 0.0;
-    placement_wire_rc_corner = "unspecified";
-    placement_wire_rc_explicit = false;
-
-    try {
-        ecc::loadRepairConfigFiles(nativeRepairConfig, cmdFileStr);
-    } catch(const std::exception& error) {
-        cerr << "Error: " << error.what() << endl;
-        exit(1);
-    }
-
-    bool set_margin = false;
-    bool GWTW_flag = false;
-    bool thread_flag = false;
-
-    while(std::getline(file, line)) {
-        try {
-            if(ecc::applyRepairConfigOverride(nativeRepairConfig, line))
-                continue;
-        } catch(const std::exception& error) {
-            cerr << "Error: " << error.what() << endl;
-            exit(1);
-        }
-        if(line.find_first_of("#") == 0)
-            continue;
-        if(line.find("-corr_aat") != string::npos)
-            CORR_AAT = true;
-        if(line.find("-corr_ratio ") != string::npos)
-            CORR_RATIO = getTokenF(line, "-corr_ratio ");
-        if(line.find("-pwr_corr_ratio ") != string::npos)
-            PWR_CORR_RATIO = getTokenF(line, "-pwr_corr_ratio ");
-        if(line.find("-mode ") != string::npos)
-            exeOp = getTokenI(line, "-mode ");
-        if(line.find("-op ") != string::npos)
-            swapOp = getTokenI(line, "-op ");
-        if(line.find("-top ") != string::npos) {
-            benchname = getTokenS(line, "-top ");
-        }
-        if(line.find("-minimum") != string::npos)
-            MINIMUM = true;
-        if(line.find("-def ") != string::npos)
-            defFile = getTokenS(line, "-def ");
-        if(line.find("-spef ") != string::npos)
-            spefFile = getTokenS(line, "-spef ");
-        if(line.find("-outputPath ") != string::npos)
-            outputDir = getTokenS(line, "-outputPath ");
-        if(line.find("-tcf ") != string::npos)
-            tcfFile = getTokenS(line, "-tcf ");
-        if(line.find("-false_path_file ") != string::npos)
-            falsePathFile = getTokenS(line, "-false_path_file ");
-        if(line.find("-v ") != string::npos)
-            verilogFile = getTokenS(line, "-v ");
-        if(line.find("-min_route_layer ") != string::npos)
-            min_route_layer = getTokenS(line, "-min_route_layer ");
-        if(line.find("-max_route_layer ") != string::npos)
-            max_route_layer = getTokenS(line, "-max_route_layer ");
-        if(line.find("-use_gr_rc ") != string::npos) {
-            const int use_gr_rc_value = getTokenI(line, "-use_gr_rc ");
-            if(use_gr_rc_value != 0 && use_gr_rc_value != 1) {
-                cout << "Error: -use_gr_rc must be 0 or 1." << endl;
-                exit(1);
-            }
-            use_gr_rc = use_gr_rc_value == 1;
-        }
-        if(line.find("-gr_rc_congestion_iterations ") != string::npos) {
-            const int value =
-                getTokenI(line, "-gr_rc_congestion_iterations ");
-            if(value != 10 && value != 50) {
-                cout << "Error: -gr_rc_congestion_iterations must be 10 or 50."
-                     << endl;
-                exit(1);
-            }
-            gr_rc_congestion_iterations = value;
-        }
-        if(line.find("-equiv_cell_sort ") != string::npos)
-            setEquivCellSortMode(getTokenS(line, "-equiv_cell_sort "));
-        if(line.find("-sdc ") != string::npos)
-            sdcFile = getTokenS(line, "-sdc ");
-        if(line.find("-timerSdc ") != string::npos)
-            timerSdcFile = getTokenS(line, "-timerSdc ");
-        if(line.find("-dp_padding ") != string::npos)
-            dp_padding = getTokenI(line, "-dp_padding ");
-        if(line.find("-ck ") != string::npos)
-            clockName = getTokenS(line, "-ck ");
-        if(line.find("-n ") != string::npos)
-            swapstep = getTokenI(line, "-n ");
-        if(line.find("-sf ") != string::npos)
-            sensFunc = getTokenI(line, "-sf ");
-        if(line.find("-sf2 ") != string::npos)
-            sensFunc2 = getTokenI(line, "-sf2 ");
-        if(line.find("-tabu ") != string::npos)
-            tabuNum = getTokenI(line, "-tabu ");
-        if(line.find("-tabu_mmmc") != string::npos)
-            TABU = true;
-        if(line.find("-compare_tns") != string::npos)
-            COMPARE_TNS = true;
-        if(line.find("-use_attack_new") != string::npos)
-            use_attack_new = true;
-        if(line.find("-sft ") != string::npos)
-            sensFuncT = getTokenI(line, "-sft ");
-        if(line.find("-sft_norm ") != string::npos)
-            NORM_SFT = getTokenI(line, "-sft_norm ");
-        if(line.find("-slk_th ") != string::npos)
-            SLK_TH = getTokenF(line, "-slk_th ");
-        if(line.find("-final_opt") != string::npos)
-            FINAL_PWR_OPT = true;
-        if(line.find("-kick_move_change") != string::npos)
-            KICK_MOVE_CHANGE = true;
-        if(line.find("-kick_ratio ") != string::npos)
-            KICK_RATIO = getTokenF(line, "-kick_ratio ");
-        if(line.find("-alpha_stuck ") != string::npos)
-            ALPHA_STUCK = getTokenF(line, "-alpha_stuck ");
-        if(line.find("-setup_margin ") != string::npos)
-            setup_margin = getTokenF(line, "-setup_margin ");
-        if(line.find("-hold_margin ") != string::npos) {
-            const double value = getTokenF(line, "-hold_margin ");
-            if(value < 0.0) {
-                cout << "Error: -hold_margin must be non-negative." << endl;
-                exit(1);
-            }
-            hold_margin = value;
-        }
-        if(line.find("-placement_wire_resistance_ohm_per_um ") !=
-           string::npos) {
-            const double value = getTokenF(
-                line, "-placement_wire_resistance_ohm_per_um ");
-            if(!std::isfinite(value) || value <= 0.0) {
-                cout << "Error: -placement_wire_resistance_ohm_per_um must "
-                        "be positive."
-                     << endl;
-                exit(1);
-            }
-            placement_wire_resistance = value;
-            placement_wire_rc_explicit = true;
-        }
-        if(line.find("-placement_wire_rc_corner ") != string::npos) {
-            placement_wire_rc_corner =
-                getTokenS(line, "-placement_wire_rc_corner ");
-        }
-        if(line.find("-placement_wire_capacitance_pf_per_um ") !=
-           string::npos) {
-            const double value = getTokenF(
-                line, "-placement_wire_capacitance_pf_per_um ");
-            if(!std::isfinite(value) || value <= 0.0) {
-                cout << "Error: -placement_wire_capacitance_pf_per_um must "
-                        "be positive."
-                     << endl;
-                exit(1);
-            }
-            placement_wire_capacitance = value;
-            placement_wire_rc_explicit = true;
-        }
-        if(line.find("-def_out_path ") != string::npos)
-            resultDefFile = getTokenS(line, "-def_out_path ");
-        if(line.find("-verilog_out_path ") != string::npos)
-            resultVerilogFile = getTokenS(line, "-verilog_out_path ");
-        if(line.find("-stuck_th ") != string::npos)
-            STUCK_THRES = getTokenF(line, "-stuck_th ");
-        if(line.find("-kick_step ") != string::npos)
-            KICK_STEP = getTokenI(line, "-kick_step ");
-        if(line.find("-kick_slack ") != string::npos)
-            KICK_SLACK = getTokenF(line, "-kick_slack ");
-        if(line.find("-kick_max_iter ") != string::npos)
-            KICK_MAX = getTokenI(line, "-kick_max_iter ");
-        if(line.find("-GWTW_max_iter ") != string::npos) {
-            GWTW_MAX = getTokenI(line, "-GWTW_max_iter ");
-        }
-        if(line.find("-GWTW_div ") != string::npos) {
-            GWTW_DIV = getTokenI(line, "-GWTW_div ");
-            if(GWTW_flag) {
-                if(thread_flag) {
-                    GWTW_DIV = (int)MAX_THREAD / GWTW_NUM_START;
-                }
-                else {
-                    MAX_THREAD = GWTW_DIV * GWTW_NUM_START;
-                }
-            }
-            else {
-                GWTW_NUM_START = (int)MAX_THREAD / GWTW_DIV;
-                GWTW_flag = true;
-            }
-        }
-        if(line.find("-GWTW_num_start ") != string::npos) {
-            GWTW_NUM_START = getTokenI(line, "-GWTW_num_start ");
-            if(GWTW_flag) {
-                if(thread_flag) {
-                    GWTW_NUM_START = (int)MAX_THREAD / GWTW_DIV;
-                }
-                else {
-                    MAX_THREAD = GWTW_DIV * GWTW_NUM_START;
-                }
-            }
-            else {
-                GWTW_DIV = (int)MAX_THREAD / GWTW_NUM_START;
-                GWTW_flag = true;
-            }
-        }
-        if(line.find("-max_tran_gb ") != string::npos)
-            SLEW_GB = getTokenF(line, "-max_tran_gb ");
-        if(line.find("-max_targets ") != string::npos)
-            MAX_TARGETS = getTokenI(line, "-max_targets ");
-        if(line.find("-max_trials ") != string::npos)
-            MAX_TRIALS = getTokenI(line, "-max_trials ");
-        if(line.find("-min_vt") != string::npos)
-            MIN_VT = getTokenI(line, "-min_vt");
-        if(line.find("-min_size") != string::npos)
-            MIN_SIZE = getTokenI(line, "-min_size");
-        if(line.find("-kick_method ") != string::npos)
-            KICK_METHOD = getTokenI(line, "-kick_method ");
-        if(line.find("-kick_sft ") != string::npos)
-            KICK_SFT = getTokenI(line, "-kick_sft ");
-        if(line.find("-multi_step ") != string::npos)
-            MULTI_STEP = getTokenI(line, "-multi_step ");
-        if(line.find("-attack_ratio ") != string::npos)
-            ATTACK_RATIO = getTokenI(line, "-attack_ratio ");
-        if(line.find("-multi_step_kick ") != string::npos)
-            MULTI_STEP_KICK = getTokenI(line, "-multi_step_kick ");
-        if(line.find("-update_list") != string::npos)
-            UPDATE_LIST = true;
-        if(line.find("-st ") != string::npos)
-            stopCond = getTokenI(line, "-st ");
-        if(line.find("-opt_effort ") != string::npos)
-            optEffort = getTokenI(line, "-opt_effort ");
-        if(line.find("-maxTr ") != string::npos)
-            MAX_TRAN_CONST = getTokenF(line, "-maxTr ");
-        if(line.find("-g ") != string::npos)
-            GUARD_BAND = getTokenF(line, "-g ");
-        if(line.find("-preplace_gain") != string::npos) {
-            preplaceMode = true;
-            preplaceGain = true;
-        }
-        else if(line.find("-preplace") != string::npos)
-            preplaceMode = true;
-        if(line.find("-sizer_fanout_repair ") != string::npos) {
-            const int max_fanout
-                = getTokenI(line, "-sizer_fanout_repair ");
-            if(max_fanout < 2) {
-                cout << "Error: -sizer_fanout_repair requires a maximum "
-                        "fanout of at least two."
-                     << endl;
-                exit(1);
-            }
-            sizerFanoutRepairMode = true;
-            sizerMaxFanout = static_cast< unsigned >(max_fanout);
-        }
-        if(line.find("-sizer_repair_design ") != string::npos) {
-            const int max_fanout = getTokenI(line, "-sizer_repair_design ");
-            if(max_fanout < 2) {
-                cout << "Error: -sizer_repair_design requires fanout >= 2." << endl;
-                exit(1);
-            }
-            sizerDesignRepairMode = true;
-            sizerMaxFanout = static_cast<unsigned>(max_fanout);
-            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
-        }
-        if(line.find("-sizer_repair_design_ord ") != string::npos) {
-            const int max_fanout = getTokenI(line, "-sizer_repair_design_ord ");
-            if(max_fanout < 2) {
-                cout << "Error: -sizer_repair_design_ord requires fanout >= 2." << endl;
-                exit(1);
-            }
-            sizerOrdDesignRepairMode = true;
-            sizerMaxFanout = static_cast<unsigned>(max_fanout);
-            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
-        }
-        if(line.find("-sizer_repair_pbbi ") != string::npos) {
-            const int max_fanout = getTokenI(line, "-sizer_repair_pbbi ");
-            if(max_fanout < 2) throw std::invalid_argument("-sizer_repair_pbbi requires fanout >= 2");
-            sizerDesignRepairMode = true;
-            sizerSetupRepairMode = true;
-            nativeRepairConfig.pbbi.enabled = true;
-            sizerMaxFanout = static_cast<unsigned>(max_fanout);
-            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
-        }
-        if(line.find("-sizer_repair_setup ") != string::npos) {
-            const int max_fanout = getTokenI(line, "-sizer_repair_setup ");
-            if(max_fanout < 2) {
-                cerr << "Error: -sizer_repair_setup requires fanout >= 2." << endl;
-                exit(1);
-            }
-            sizerDesignRepairMode = true;
-            sizerSetupRepairMode = true;
-            sizerMaxFanout = static_cast<unsigned>(max_fanout);
-            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
-        }
-        if(line.find("-sizer_repair_vg ") != string::npos) {
-            const int max_fanout = getTokenI(line, "-sizer_repair_vg ");
-            if(max_fanout < 2) {
-                cerr << "-sizer_repair_vg requires fanout >= 2." << endl;
-                exit(1);
-            }
-            sizerVgRepairMode = true;
-            sizerMaxFanout = static_cast<unsigned>(max_fanout);
-            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
-        }
-        if(line.find("-sizer_repair_gobi ") != string::npos) {
-            const int max_fanout = getTokenI(line, "-sizer_repair_gobi ");
-            if(max_fanout < 2) {
-                cerr << "-sizer_repair_gobi requires fanout >= 2." << endl;
-                exit(1);
-            }
-            sizerGobiRepairMode = true;
-            sizerMaxFanout = static_cast<unsigned>(max_fanout);
-            nativeRepairConfig.design.max_fanout = sizerMaxFanout;
-        }
-        if(line.find("-sizer_repair_stage_prefix ") != string::npos)
-            sizerRepairStagePrefix = getTokenS(line, "-sizer_repair_stage_prefix ");
-        if(line.find("-buffer_cell ") != string::npos)
-            sizerBufferCell = getTokenS(line, "-buffer_cell ");
-        if(line.find("-fanout_repair_clock_nets") != string::npos)
-            sizerRepairClockNets = true;
-        if(line.find("-hold_only") != string::npos)
-            holdOnlyMode = true;
-        if(line.find("-postroute") != string::npos) {
-            postrouteMode = true;
-            if(line.find("-setup_margin ") == string::npos) {
-                setup_margin = 0.02;
-            }
-        }
-        if(line.find("-no_blockage_aware_steiner") != string::npos) {
-            blockageAwareSteiner = false;
-        }
-        else if(line.find("-blockage_aware_steiner ") != string::npos) {
-            blockageAwareSteiner = (getTokenI(line, "-blockage_aware_steiner ") != 0);
-        }
-        else if(line.find("-blockage_aware_steiner") != string::npos) {
-            blockageAwareSteiner = true;
-        }
-        if(line.find("-ideal_clock") != string::npos)
-            idealClockMode = true;
-        if(line.find("-legalize_only") != string::npos)
-            legalizeOnlyMode = true;
-        if(line.find("-use_native_abacus ") != string::npos)
-            use_native_abacus = getTokenI(line, "-use_native_abacus ");
-        if(line.find("-vout ") != string::npos)
-            verilogOutFile = getTokenS(line, "-vout ");
-        if(line.find("-defout ") != string::npos)
-            defOutFile = getTokenS(line, "-defout ");
-        if(line.find("-spefout ") != string::npos)
-            spefOutFile = getTokenS(line, "-spefout ");
-        if(line.find("-ptOpt ") != string::npos)
-            ptOption = getTokenS(line, "-ptOpt ");
-        if(line.find("-ptCmd ") != string::npos)
-            ptCmd = getTokenS(line, "-ptCmd ");
-        if(line.find("-ptLog") != string::npos)
-            ptLogSave = true;
-        if(line.find("-mmmc") != string::npos)
-            mmmcOn = true;
-        if(line.find("-mmmcFile ") != string::npos) {
-            mmmcFiles.push_back(getTokenS(line, "-mmmcFile "));
-        }
-        if(line.find("-useETS") != string::npos)
-            useETS = true;
-        if(line.find("-useTempus") != string::npos) {
-            useTempus = true;
-            useETS = true;
-        }
-        if(line.find("-useOpenSTA") != string::npos) {
-            useOpenSTA = true;
-        }
-        if(line.find("-noSPEF") != string::npos)
-            noSPEF = true;
-        if(line.find("-noDEF") != string::npos)
-            noDEF = true;
-        if(line.find("-preplace") != string::npos)
-            preplaceMode = true;
-        if(line.find("-eco") != string::npos)
-            exePNRFlag = true;
-        if(line.find("-chkWNS") != string::npos)
-            chkWNSFlag = true;
-        if(line.find("-totPWR") != string::npos)
-            totPWRFlag = true;
-        if(line.find("-saif") != string::npos)
-            saifFile = getTokenS(line, "-saif ");
-        if(line.find("-swapList") != string::npos)
-            swapFile = getTokenS(line, "-swapList ");
-        if(line.find("-dont_touch_inst ") != string::npos)
-            dontTouchInst.push_back(getTokenS(line, "-dont_touch_inst "));
-        if(line.find("-dont_touch_cell ") != string::npos)
-            dontTouchCell.push_back(getTokenS(line, "-dont_touch_cell "));
-
-        if(line.find("-dont_touch_list ") != string::npos)
-            dontTouchFile = getTokenS(line, "-dont_touch_list ");
-
-        if(line.find("-dont_use_list ") != string::npos)
-            dontUseFile = getTokenS(line, "-dont_use_list ");
-
-        if(line.find("-dont_touch_cell_list ") != string::npos)
-            dontTouchCellFile = getTokenS(line, "-dont_touch_cell_list ");
-
-        if(line.find("-soceScr") != string::npos)
-            soceScriptFile = getTokenS(line, "-soceScr ");
-
-        if(line.find("-etsScr") != string::npos)
-            etsScriptFile = getTokenS(line, "-etsScr ");
-
-        if(line.find("-ptScr") != string::npos)
-            ptScriptFile = getTokenS(line, "-ptScr ");
-
-        if(line.find("-ptLaunchScr") != string::npos)
-            ptLaunchScriptFile = getTokenS(line, "-ptLaunchScr ");
-
-        if(line.find("-soceBin") != string::npos)
-            soceBin = getTokenS(line, "-soceBin ");
-
-        if(line.find("-ptport ") != string::npos) {
-            PTPORT = getTokenI(line, "-ptport ");
-            PTPORT = get_available_port(PTPORT);
-        }
-
-        if(line.find("-soceport ") != string::npos) {
-            PNRPORT = getTokenI(line, "-soceport ");
-        }
-
-        if(line.find("-ptnum ") != string::npos) {
-            PTNUM = getTokenI(line, "-ptnum ");
-        }
-
-        if(line.find("-prft_ptnum ") != string::npos) {
-            PRFT_PTNUM = getTokenI(line, "-prft_ptnum ");
-        }
-
-        if(line.find("-thread ") != string::npos) {
-            MAX_THREAD = getTokenI(line, "-thread ");
-            thread_flag = true;
-        }
-
-        if(line.find("-hold") != string::npos) {
-            HOLD_CHECK = true;
-        }
-
-        if(line.find("-timeout ") != string::npos) {
-            TIMEOUT = getTokenI(line, "-timeout ");
-        }
-
-        if(line.find("-verbose ") != string::npos) {
-            VERBOSE = getTokenI(line, "-verbose ");
-        }
-
-        if(line.find("-corr_dyn") != string::npos) {
-            CORR_DYN = true;
-        }
-
-        if(line.find("-dm ") != string::npos) {
-            string tmp = getTokenS(line, "-dm ");
-            WIRE_METRIC = str2DelayMetric(tmp.c_str());
-        }
-
-        if(line.find("-sm ") != string::npos) {
-            string tmp = getTokenS(line, "-sm ");
-            SLEW_METRIC = str2SlewMetric(tmp.c_str());
-        }
-
-        if(line.find("-cm ") != string::npos) {
-            string tmp = getTokenS(line, "-cm ");
-            CAP_METRIC = str2CapMetric(tmp.c_str());
-        }
-
-        if(line.find("-test ") != string::npos) {
-            TEST_MODE = getTokenS(line, "-test ");
-        }
-        if(line.find("-debug_net ") != string::npos) {
-            debug_net = getTokenS(line, "-debug_net ");
-        }
-        if(line.find("-ista_max_visit ") != string::npos) {
-            MAX_VISIT = getTokenI(line, "-ista_max_visit ");
-        }
-        if(line.find("-use_full_sta") != string::npos) {
-            USE_FULL_STA = true;
-        }
-
-        if(line.find("-use_full_sta2") != string::npos) {
-            USE_FULL_STA2 = true;
-        }
-        if(line.find("-ista_test_cnt ") != string::npos) {
-            timerTestCnt = getTokenI(line, "-ista_test_cnt ");
-        }
-        if(line.find("-ista_test_cell ") != string::npos) {
-            timerTestCell = getTokenI(line, "-ista_test_cell ");
-        }
-        if(line.find("-test_cell ") != string::npos) {
-            testCells.push_back(getTokenS(line, "-test_cell "));
-        }
-        if(line.find("-ista_test_move ") != string::npos) {
-            timerTestMove = getTokenI(line, "-ista_test_move ");
-        }
-
-        if(line.find("-gtr1 ") != string::npos) {
-            string tmp = getTokenS(line, "-gtr1 ");
-            GTR_METRIC1 = str2GTRMetric(tmp.c_str());
-        }
-
-        if(line.find("-gtr2 ") != string::npos) {
-            string tmp = getTokenS(line, "-gtr2 ");
-            GTR_METRIC2 = str2GTRMetric(tmp.c_str());
-        }
-        if(line.find("-use_pt") != string::npos) {
-            USE_PT = true;
-        }
-        if(line.find("-corr_pt") != string::npos) {
-            CORR_PT = true;
-        }
-        if(line.find("-no_corr_pt_file") != string::npos) {
-            CORR_PT_FILE = false;
-        }
-
-        if(line.find("-corr_pt_m ") != string::npos) {
-            string tmp = getTokenS(line, "-corr_pt_m ");
-            CORR_PT_METRIC = str2CorrPTMetric(tmp.c_str());
-        }
-
-        if(line.find("-max_cell_slack ") != string::npos) {
-            MAX_CELL_SLACK = getTokenF(line, "-max_cell_slack ");
-        }
-
-        if(line.find("-slack_margin ") != string::npos) {
-            slack_margin = getTokenF(line, "-slack_margin ");
-        }
-
-        if(line.find("-slack_margin2 ") != string::npos) {
-            slack_margin2 = getTokenF(line, "-slack_margin2 ");
-        }
-        if(line.find("-no_topo") != string::npos) {
-            NO_TOPO = true;
-        }
-
-        if(line.find("-trial_rate ") != string::npos) {
-            TRIAL_RATE = getTokenF(line, "-trial_rate ");
-        }
-        if(line.find("-trial_move_num ") != string::npos) {
-            TRIAL_MOVE = true;
-            TRIAL_MOVE_NUM = getTokenI(line, "-trial_move_num ");
-        }
-
-        if(line.find("-gbgtr ") != string::npos) {
-            GUARD_BAND_GTR = getTokenF(line, "-gbgtr ");
-        }
-
-        if(line.find("-gb2ndgtr ") != string::npos) {
-            GUARD_BAND_2ND_GTR = getTokenF(line, "-gb2ndgtr ");
-        }
-
-        if(line.find("-prft_only") != string::npos) {
-            PRFT_ONLY = true;
-            // PRFT_FI = getTokenS(line,"-prft_only");
-        }
-
-        if(line.find("-gtr_only") != string::npos) {
-            LEAKOPT = false;
-        }
-
-        if(line.find("-timing_recovery") != string::npos) {
-            TIMING_RECOVERY = true;
-        }
-
-        if(line.find("-gtr_w_pt_only") != string::npos) {
-            GTRWPT_ONLY = true;
-        }
-        if(line.find("-x") != string::npos) {
-            X_IN = getTokenF(line, "-x");
-        }
-        if(line.find("-exp") != string::npos) {
-            EXP_IN = getTokenF(line, "-exp");
-        }
-
-        if(line.find("-gtr_input") != string::npos) {
-            GTR_IN = true;
-            GTR_FI = getTokenS(line, "-gtr_input");
-        }
-
-        if(line.find("-clk_diff") != string::npos) {
-            DIFFICULTY = getTokenI(line, "-clk_diff");
-        }
-
-        if(line.find("-fast") != string::npos) {
-            FAST = true;
-            if(!set_margin)
-                STA_MARGIN = 0.003;
-        }
-        if(line.find("-sta_m ") != string::npos) {
-            STA_MARGIN = getTokenF(line, "-sta_m ");
-            set_margin = true;
-        }
-
-        if(line.find("-all_pin_chk") != string::npos) {
-            DATA_PIN_ONLY = false;
-        }
-
-        if(line.find("-var_gb") != string::npos) {
-            VAR_GB = true;
-        }
-
-        if(line.find("-var_gb_th ") != string::npos) {
-            VAR_GB_TH = getTokenF(line, "-var_gb_th ");
-        }
-
-        if(line.find("-var_gb_rate ") != string::npos) {
-            VAR_GB_RATE = getTokenF(line, "-var_gb_rate ");
-        }
-
-        if(line.find("-nobg") != string::npos) {
-            BACKGROUND = false;
-        }
-
-        if(line.find("-bg") != string::npos) {
-            BACKGROUND = true;
-        }
-
-        if(line.find("-size_file") != string::npos) {
-            UD_FI = getTokenS(line, "-size_file");
-        }
-
-        if(line.find("-log") != string::npos) {
-            NO_LOG = false;
-        }
-
-        if(line.find("-alpha ") != string::npos) {
-            ALPHA = getTokenF(line, "-alpha ");
-        }
-
-        if(line.find("-norm_factor ") != string::npos) {
-            NORMALIZE_FACTOR = getTokenF(line, "-norm_factor ");
-        }
-
-        if(line.find("-gamma ") != string::npos) {
-            GAMMA = getTokenF(line, "-gamma ");
-        }
-
-        if(line.find("-slew_th ") != string::npos) {
-            SLEW_TH = getTokenF(line, "-slew_th ");
-        }
-
-        if(line.find("-no_seq_opt") != string::npos) {
-            NO_SEQ_OPT = true;
-        }
-
-        if(line.find("-clkbuf_opt") != string::npos) {
-            NO_CLKBUF_OPT = false;
-        }
-
-        if(line.find("-threshold ") != string::npos) {
-            THRESHOLD = getTokenF(line, "-threshold ");
-        }
-
-        if(line.find("-offset ") != string::npos) {
-            OFFSET = getTokenF(line, "-offset ");
-        }
-
-        if(line.find("-same_ss_limit ") != string::npos) {
-            SAME_SS_LIMIT = getTokenI(line, "-same_ss_limit ");
-        }
-
-        if(line.find("-power_opt_gb ") != string::npos) {
-            POWER_OPT_GB = getTokenF(line, "-power_opt_gb ");
-        }
-
-        if(line.find("-timing_opt_gb ") != string::npos) {
-            TIMING_OPT_GB = getTokenF(line, "-timing_opt_gb ");
-        }
-
-        if(line.find("-crit_path_ratio ") != string::npos) {
-            CRIT_PATH_RATIO = getTokenF(line, "-crit_path_ratio ");
-        }
-
-        if(line.find("-release ") != string::npos) {
-            RELEASE = true;
-            RELEASE_MODE = getTokenI(line, "-release ");
-        }
-
-        if(line.find("-power_opt_wns") != string::npos) {
-            SAFE_LEAK_OPT = true;
-            SAFE_LEAK_OPT_GB = getTokenF(line, "-power_opt_wns ");
-        }
-
-        if(line.find("-toler_val ") != string::npos) {
-            TOLERANCE = getTokenF(line, "-toler_val ");
-        }
-
-        if(line.find("-toler_stop ") != string::npos) {
-            TOLER_STOP = getTokenF(line, "-toler_stop ");
-        }
-
-        if(line.find("-toler_step") != string::npos) {
-            TOLER_STEP = true;
-        }
-
-        if(line.find("-toler_num") != string::npos) {
-            TOLER_NUM = getTokenI(line, "-toler_num ");
-        }
-
-        if(line.find("-crislack") != string::npos) {
-            CRISLACK = getTokenF(line, "-crislack");
-        }
-
-        if(line.find("-beta") != string::npos) {
-            BETA = getTokenF(line, "-beta");
-        }
-
-        if(line.find("-vt_only") != string::npos) {
-            VT_ONLY = true;
-        }
-
-        if(line.find("-size_only") != string::npos) {
-            SIZE_ONLY = true;
-        }
-        if(line.find("-fix_cap ") != string::npos) {
-            const int value = getTokenI(line, "-fix_cap ");
-            if(value != 0 && value != 1) {
-                cout << "Error: -fix_cap must be 0 or 1." << endl;
-                exit(1);
-            }
-            FIX_CAP_REPAIR = value == 1;
-        }
-        else if(line.find("-fix_cap") != string::npos) {
-            FIX_CAP_REPAIR = true;
-        }
-        if(line.find("-fix_slew ") != string::npos) {
-            const int value = getTokenI(line, "-fix_slew ");
-            if(value != 0 && value != 1) {
-                cout << "Error: -fix_slew must be 0 or 1." << endl;
-                exit(1);
-            }
-            FIX_SLEW_REPAIR = value == 1;
-        }
-        else if(line.find("-fix_slew") != string::npos) {
-            FIX_SLEW_REPAIR = true;
-        }
-        if(line.find("-fix_global ") != string::npos) {
-            const int value = getTokenI(line, "-fix_global ");
-            if(value != 0 && value != 1) {
-                cout << "Error: -fix_global must be 0 or 1." << endl;
-                exit(1);
-            }
-            FIX_GLOBAL = value == 1;
-        }
-        else if(line.find("-fix_global") != string::npos) {
-            FIX_GLOBAL = true;
-        }
-        // Sizing-only legacy experiments can disable the historical fixdrv
-        // cleanup, whose exhaustive slew loop is prohibitively slow on the
-        // large JPEG benchmark.
-        if(line.find("-no_fixdrv") != string::npos) {
-            FIX_CAP_REPAIR = false;
-            FIX_SLEW_REPAIR = false;
-            FIX_SLEW = false;
-            FIX_GLOBAL = false;
-            FIX_SLEW_POST = false;
-        }
-
-        if(line.find("-common_thresh ") != string::npos) {
-            COMMON_THRESH = getTokenF(line, "-common_thresh ");
-        }
-
-        if(line.find("-init_worst_path") != string::npos) {
-            INIT_WORST_PATH = true;
-        }
-        if(line.find("-dont_touch_crit_cell") != string::npos) {
-            CRIT_CELL_NO_TOUCH = true;
-        }
-
-        if(line.find("-iso_tns") != string::npos)
-            ISO_TNS = getTokenF(line, "-iso_tns ");
-
-        if(line.find("-iso_time") != string::npos)
-            ISO_TIME = true;
-
-        if(line.find("-peephole ") != string::npos) {
-            PEEPHOLE = true;
-            PEEPHOLE_NUMCELL = getTokenI(line, "-peephole ");
-        }
-
-        if(line.find("-all_move") != string::npos) {
-            ALL_MOVE = true;
-        }
-
-        if(line.find("-peephole_iter") != string::npos) {
-            PEEPHOLE_ITER = getTokenI(line, "-peephole_iter ");
-        }
-        if(line.find("-old_version") != string::npos) {
-            OLD_SIZER = true;
-            ALPHA = 0.0;
-        }
-        if(line.find("-preserve_placement") != string::npos)
-            PRESERVE_PLACEMENT = true;
-        if(line.find("-stm28") != string::npos) {
-            NO_FOOTPRINT = true;
-            STM28 = true;
-        }
-        if(line.find("-asap7") != string::npos) {
-            NO_FOOTPRINT = true;
-            ASAP7 = true;
-        }
-        if(line.find("-tsmc16ff") != string::npos) {
-            NO_FOOTPRINT = true;
-        }
-        if(line.find("-check_all_view") != string::npos) {
-            CHECK_ALL_VIEW = true;
-        }
-        if(line.find("-c40") != string::npos) {
-            NO_FOOTPRINT = true;
-            C40 = true;
-        }
-
-        if(line.find("-power_worst_view ") != string::npos) {
-            PWR_WORST_VIEW = getTokenI(line, "-power_worst_view ");
-        }
-    }
-
-    if(swapstep == 0)
-        swapstep = 10000;
-    if(!mmmcOn)
-        mmmcFiles.clear();
-
-    if(benchname == "") {
-        cout << "Error: design name (-top design) should be specified!!"
-             << endl;
-        exit(0);
-    }
-    if(defFile == "")
-        defFile = benchname + ".def";
-    // if(spefFile == "")
-    //     spefFile = benchname + ".spef";
-    if(verilogFile == "")
-        verilogFile = benchname + ".v";
-    if(sdcFile == "")
-        sdcFile = benchname + ".sdc";
-    if(verilogOutFile == "")
-        verilogOutFile = benchname + "_eco.v";
-    if(defOutFile == "")
-        defOutFile = benchname + "_eco.def";
-    if(spefOutFile == "")
-        spefOutFile = benchname + "_eco.spef";
-    file.close();
-
-    if(dontTouchFile != "") {
-        file.open(dontTouchFile.c_str());
-        if(!file) {
-            cout << "Cannot open file :" << dontTouchFile << endl;
-            exit(0);
-        }
-        while(std::getline(file, line)) {
-            if(line != "")
-                dontTouchInst.push_back(line);
-        }
-        file.close();
-    }
-
-    if(dontUseFile != "") {
-        file.open(dontUseFile.c_str());
-        if(!file) {
-            cout << "Cannot open file :" << dontUseFile << endl;
-            exit(0);
-        }
-        while(std::getline(file, line)) {
-            if(line != "")
-                dontUseCell.push_back(line);
-        }
-        file.close();
-    }
-
-    if(dontTouchCellFile != "") {
-        file.open(dontTouchCellFile.c_str());
-        if(!file) {
-            cout << "Cannot open file :" << dontTouchCellFile << endl;
-            exit(0);
-        }
-        while(std::getline(file, line)) {
-            if(line != "")
-                dontTouchCell.push_back(line);
-        }
-        file.close();
-    }
-
-    if(noSPEF) {
-        WIRE_METRIC = ND;
-    }
-    if(placement_wire_rc_explicit &&
-       (placement_wire_resistance <= 0.0 || placement_wire_capacitance <= 0.0)) {
-        cout << "Error: -placement_wire_resistance_ohm_per_um and "
-                "-placement_wire_capacitance_pf_per_um must be specified "
-                "together."
-             << endl;
-        exit(1);
-    }
-    if(postrouteMode || (!noSPEF && !spefFile.empty())) {
-        cout << "Parasitics mode: postroute_spef (fallback: "
-             << (use_gr_rc ? "global_routing" : "placement") << ")" << endl;
-    }
-    else {
-        cout << "Parasitics mode: "
-             << (use_gr_rc ? "global_routing" : "placement") << endl;
-    }
 }
 
 void Sizer::main(unsigned thread_id, bool postGTR) {
@@ -11384,7 +8869,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         // bool worse_than_second_best=false;
 
         // make a thread-local copy of netlist
-        cout << "Generating thread local instance of circuit .. thread "
+        ecc::logInfo() << "Generating thread local instance of circuit .. thread "
              << thread_id << " ratio : " << ratio
              << " leakage exponent : " << exponent
              << " guardband: " << guardband[worst_corner] << endl;
@@ -11392,19 +8877,19 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         // if (postGTR) SetGB(guardband[worst_corner]);
 
         if(postGTR && TOPX == ratio && TOPEXP == exponent && gtr1_feasible) {
-            cout << "thread" << thread_id << " post gtr - best solution"
+            ecc::logInfo() << "thread" << thread_id << " post gtr - best solution"
                  << endl;
             for(unsigned i = 0; i < numcells; i++)
                 cells[i] = best_cells[i];
         }
         else if(postGTR && !GTRWPT_ONLY) {
             if(gtr1_feasible) {
-                cout << "thread" << thread_id << " post gtr - feasible" << endl;
+                ecc::logInfo() << "thread" << thread_id << " post gtr - feasible" << endl;
                 for(unsigned i = 0; i < numcells; i++)
                     cells[i] = best_cells[i];
             }
             else {
-                cout << "thread" << thread_id << " post gtr - infeasible"
+                ecc::logInfo() << "thread" << thread_id << " post gtr - infeasible"
                      << endl;
                 // for(unsigned i = 0; i < numcells; i++)
                 // cells[i] = best_failed_cells[i]; //FIXME:
@@ -11416,10 +8901,10 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
 
             if(GTRWPT_ONLY) {
                 SizeIn(outputDir);
-                cout << "2nd gtr only -- size in" << endl;
+                ecc::logInfo() << "2nd gtr only -- size in" << endl;
             }
             else {
-                cout << "thread" << thread_id << " other" << endl;
+                ecc::logInfo() << "thread" << thread_id << " other" << endl;
             }
         }
 
@@ -11438,8 +8923,8 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         CalcStats(thread_id);
         // pthread_mutex_unlock(&mutex1);
 
-        cout << "Single timing simulation runtime = " << oneTMR << endl;
-        cout << "Violations with minimum sizes = " << tot_violations << endl;
+        ecc::logInfo() << "Single timing simulation runtime = " << oneTMR << endl;
+        ecc::logInfo() << "Violations with minimum sizes = " << tot_violations << endl;
         oneTMR *= 1.1;  // can vary up to 10%
 
         double prev_ss = slew_violation + skew_violation;
@@ -11468,7 +8953,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
             int round = 0;
             int worse_ss_count = 0;
             while(i < maxSimulN) {
-                cout << "gtr(i/same/worse/release/wns/tns) -- " << i << " "
+                ecc::logInfo() << "gtr(i/same/worse/release/wns/tns) -- " << i << " "
                      << same_ss_count << " " << worse_ss_count << " "
                      << release_cnt << " " << min(max_neg_rslk, max_neg_fslk)
                      << " " << skew_violation << " " << tot_violations << endl;
@@ -11515,7 +9000,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                     FwdFixSlewViolation(1.0);
                 }
                 CallTimer();
-                cout << "from our timer ";
+                ecc::logInfo() << "from our timer ";
                 CalcStats(i, thread_id);
                 pprev_ss = prev_ss;
                 prev_ss = curr_ss;
@@ -11523,19 +9008,19 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
 
                 if(postGTR) {
                     CorrelatePT(thread_id);
-                    cout << "after correlation ";
+                    ecc::logInfo() << "after correlation ";
                     CalcStats(thread_id);
                 }
 
                 wns = min(max_neg_rslk, max_neg_fslk);
                 if(postGTR)
-                    cout << "2ndOPT" << thread_id
+                    ecc::logInfo() << "2ndOPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
                          << " "
                          << " " << skew_violation << " " << power << " "
                          << swap_cnt << " " << GetGB() << endl;
                 else
-                    cout << "OPT" << thread_id
+                    ecc::logInfo() << "OPT" << thread_id
                          << " itr/wns/TNS/PWR/swap/GB : " << i << " " << wns
                          << " "
                          << " " << skew_violation << " " << power << " "
@@ -11544,7 +9029,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                 curr_wns = wns;
 
                 if(curr_ss == 0) {
-                    cout << endl
+                    ecc::logInfo() << endl
                          << "A feasible solution has been found. Global OPT is "
                             "done. "
                          << endl;
@@ -11553,7 +9038,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
 
                 if(prev_ss < curr_ss) {
                     swap_cnt += OptWNSPath(DNSIZE);
-                    cout << "OPT" << thread_id << " OptWNSPath" << endl;
+                    ecc::logInfo() << "OPT" << thread_id << " OptWNSPath" << endl;
                 }
                 same_ss_count = (prev_ss > curr_ss) && swap_cnt > 0
                                     ? 0
@@ -11565,14 +9050,14 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                     worse_ss_count++;
                 }
 
-                cout << "Delta TNS = " << curr_ss - prev_ss;
-                cout << " Delta WNS = " << -(curr_wns - prev_wns) << endl;
+                ecc::logInfo() << "Delta TNS = " << curr_ss - prev_ss;
+                ecc::logInfo() << " Delta WNS = " << -(curr_wns - prev_wns) << endl;
 
                 if(postGTR && same_ss_count > SAME_SS_LIMIT && curr_ss != 0 &&
                    release_cnt < 5) {
                     break;
 
-                    cout << "Stuck -- Releasing cells. Downsizing every cell "
+                    ecc::logInfo() << "Stuck -- Releasing cells. Downsizing every cell "
                             "on critical paths by one step..."
                          << endl;
                     Release(false, CRIT_LEGALIZE);
@@ -11587,7 +9072,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                     // revert the solution
                     for(unsigned j = 0; j < numcells; j++)
                         cells[j] = int_best_cells[j];
-                    cout << "Stuck -- going back to the best and downsizing "
+                    ecc::logInfo() << "Stuck -- going back to the best and downsizing "
                             "every cell by one step..."
                          << endl;
                     Release(false, LEGALIZE);
@@ -11613,7 +9098,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         // if the final solution is worse than the local optimal
         if(skew_violation > 0) {
             if(cur_best_tns < skew_violation) {
-                cout << "Revert to the best solution.. " << endl;
+                ecc::logInfo() << "Revert to the best solution.. " << endl;
                 for(unsigned i = 0; i < numcells; i++)
                     cells[i] = int_best_cells[i];
             }
@@ -11690,10 +9175,10 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         // pthread_mutex_unlock(&mutex1);
 
         if(skew_violation == 0.)
-            cout << "Feasible power = " << power << " uW ( @ X = " << ratio
+            ecc::logInfo() << "Feasible power = " << power << " uW ( @ X = " << ratio
                  << " EXP = " << exponent << ")" << endl;
         else
-            cout << "Infeasible violations = " << tot_violations
+            ecc::logInfo() << "Infeasible violations = " << tot_violations
                  << " ( @ X = " << ratio << " EXP = " << exponent << ")"
                  << endl;
 
@@ -11708,14 +9193,14 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
         delete[] nets;
     }
     // pthread_mutex_lock(&mutex1);
-    // cout << "\nthread " << thread_id << " leaving main with PT " << postGTR
+    // ecc::logInfo() << "\nthread " << thread_id << " leaving main with PT " << postGTR
     // << "\n";
     // pthread_mutex_unlock(&mutex1);
     return;
 }
 
 void Sizer::Profile() {
-    cout << "Profiling ----" << endl;
+    ecc::logInfo() << "Profiling ----" << endl;
     double tot_time = cpuTime() - global_begin;
 
     double timer_time = 0;
@@ -11725,426 +9210,82 @@ void Sizer::Profile() {
         }
     }
 
-    cout << "Total runtime      : " << tot_time << " sec. (" << tot_time / 60
+    ecc::logInfo() << "Total runtime      : " << tot_time << " sec. (" << tot_time / 60
          << " min.)" << endl;
-    cout << "Timer runtime      : " << timer_time << " sec. ("
+    ecc::logInfo() << "Timer runtime      : " << timer_time << " sec. ("
          << timer_time / 60 << " min.)" << endl;
 }
 
-int runLegacySizer(int argc, char **argv) {
-    int agc = 0;
-    char **arv = nullptr;
-    // omp_set_num_threads(8);
-    ord::flow_OpenROAD(agc, arv);
-    // cout << "------------------------------------------------------" << endl;
-    // cout << "  TrionSizer ver 1.0                                " << endl;
-    // cout << "  coded by Hyein Lee and Jiajia Li                    " << endl;
-    // cout << "------------------------------------------------------" << endl;
+void ecc::runCellSizing(ord::Design& design, const RepairConfig& config,
+                        const std::function<void()>& refresh,
+                        bool extracted_parasitics) {
+    // The original sizing search retains its analysis arrays; the only mutable
+    // physical design and all input parsing belong to the OpenROAD session.
+    Sizer sizer(0, nullptr);
+    sizer.exeOp = 1;
+    sizer.swapOp = 1;
+    sizer.stopCond = 0;
+    sizer.maxTrCheck = false;
+    GUARD_BAND = 0.0;
+    sizer.swapstep = 10000;
+    sizer.sdcFile = "";
+    sizer.timerSdcFile = "";
+    sizer.defFile = "";
+    sizer.spefFile = "";
+    sizer.verilogFile = "";
+    sizer.clockName = "clk";
+    sizer.reportFile = "result.rpt";
+    sizer.verilogOutFile = "";
+    sizer.defOutFile = "";
+    sizer.spefOutFile = "";
+    sizer.ptCmd = "";
+    sizer.ptOption = "";
+    sizer.ptLogSave = true;
+    sizer.exePNRFlag = false;
+    sizer.chkWNSFlag = false;
+    sizer.totPWRFlag = false;
+    sizer.mmmcOn = false;
+    sizer.useETS = false;
+    sizer.useTempus = false;
+    sizer.useOpenSTA = true;
+    sizer.noDEF = false;
+    sizer.noSPEF = false;
+    sizer.saifFile = "";
+    sizer.swapFile = "";
+    sizer.optEffort = 1;
+    sizer.soceScriptFile = "";
+    sizer.etsScriptFile = "";
+    sizer.ptScriptFile = "";
+    sizer.ptLaunchScriptFile = "";
+    sizer.tcfFile = "";
+    sizer.soceBin = "";
+    sizer.sensFunc = 1;  // SF 6 is TNS, originally 0
+    sizer.sensFunc2 = 0;
+    sizer.sensFuncT = 5;  // SF 6 is TNS only, originally 5
+    sizer.falsePathFile = "";
+    sizer.timerTestCnt = 0;
+    sizer.timerTestCell = 0;
+    sizer.timerTestMove = 0;
+    sizer.use_gr_rc = design.getResizer()->getEstimateParasitics()->getParasiticsSrc()
+                      == est::ParasiticsSrc::kGlobalRouting;
 
-    if(argc < 3) {
-        cout << "Usage : sizer -env <env_file> -f <cmd_file>" << endl;
-        exit(1);
-    }
-
-    for(int i = 1; i < argc; i++) {
-        string input_option = string(argv[i]);
-        if(input_option == "-env") {
-            ENV_FI = string(argv[++i]);
-        }
-        else if(input_option == "-f") {
-            CMD_FI = string(argv[++i]);
-        }
-        else if(input_option == "-profile") {
-            // Enable CPU profiling, optionally followed by an output file name.
-            PROF_ON = true;
-            if(i + 1 < argc) {
-                std::string next = std::string(argv[i + 1]);
-                if(!next.empty() && next[0] != '-') {
-                    PROF_FILE = next;
-                    ++i;
-                }
-            }
-        }
-        else if(input_option == "-h") {
-            cout << "Usage : sizer -env <env_file> -f <cmd_file>" << endl;
-            exit(1);
-        }
-        else {
-            cout << "Invalid option " << input_option << endl;
-            exit(1);
-        }
-    }
-
-    if(VERBOSE != 0)
-        cout << "VERBOSE" << endl;
-
-    Sizer _sizer(argc, argv);
-    _sizer.global_begin = cpuTime();
-
-    // #ifdef TIME_MON
-    _sizer.time_OneTimer = .0;
-    _sizer.time_CallTimer = .0;
-    _sizer.time_Fineswap = .0;
-    _sizer.count_OneTimer = 0;
-    _sizer.count_CallTimer = 0;
-    // #endif
-
-#ifndef TIMER_RUNS_BACKGROUND
-    LaunchPTBackground(_sizer.root, _sizer.benchname);
-#endif
-
-    // _sizer.Clean();
-    _sizer.readCmdFile(CMD_FI);
-    _sizer.readEnvFile(ENV_FI);
-
-    // Start CPU profiling if enabled.
-    std::string profile_name = PROF_FILE.empty() ? (_sizer.benchname + ".prof") : PROF_FILE;
-    if(PROF_ON) {
-#ifdef HAVE_GPERFTOOLS_PROFILER
-        std::cerr << "CPU profiling to: " << profile_name << "\n";
-        ProfilerStart(profile_name.c_str());
-#else
-        std::cerr << "CPU profiling requested but gperftools profiler support is not available.\n";
-#endif
-    }
-
-    if(_sizer.mmmcOn) {
-        for(unsigned i = 0; i < _sizer.mmmcFiles.size(); ++i) {
-            cout << "READ " << _sizer.mmmcFiles[i] << endl;
-            _sizer.readMMMCFile(_sizer.mmmcFiles[i]);
-        }
-
-        _sizer.numCorners = _sizer.mmmcSpefList.size();
-        _sizer.numModes = _sizer.mmmcSdcList.size();
-        _sizer.numViews = _sizer.mmmcViewList.size();
-        if(_sizer.spefFile.empty() && !_sizer.mmmcSpefList.empty()) {
-            _sizer.spefFile = _sizer.mmmcSpefList[0];
-        }
-
-        bool temp = false;
-        for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
-            if(_sizer.viewWeight[i] != 0.0) {
-                temp = true;
-                break;
-            }
-        }
-
-        if(!temp) {
-            for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
-                _sizer.viewWeight[i] = 1.0;
-            }
-        }
-
-        cout << "#Corners " << _sizer.numCorners << " "
-             << "#Modes " << _sizer.numModes << endl;
-        for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
-            unsigned corner = _sizer.mmmcViewList[i].corner;
-            unsigned mode = _sizer.mmmcViewList[i].mode;
-
-            cout << "MMMC VIEW CORNER/MODE : " << corner << "/" << mode << endl;
-
-            for(unsigned j = 0; j < _sizer.mmmcLibLists[corner].size(); ++j) {
-                cout << _sizer.mmmcLibLists[corner][j] << endl;
-            }
-
-            cout << _sizer.mmmcSpefList[corner] << endl;
-            cout << _sizer.mmmcSdcList[mode] << endl;
-        }
-    }
-    else {
-        _sizer.initSingleMode();
-    }
-    if(_sizer.postrouteMode) {
-        if(_sizer.preplaceMode) {
-            cout << "Error: -postroute cannot be combined with -preplace."
-                 << endl;
-            exit(1);
-        }
-        if(_sizer.legalizeOnlyMode) {
-            cout << "Error: -postroute cannot be combined with -legalize_only."
-                 << endl;
-            exit(1);
-        }
-        if(_sizer.noSPEF) {
-            cout << "Error: -postroute cannot be combined with -noSPEF."
-                 << endl;
-            exit(1);
-        }
-        if(_sizer.spefFile.empty()) {
-            string candidate = _sizer.benchname + ".spef";
-            ifstream f_local(candidate.c_str());
-            if(f_local.good()) {
-                _sizer.spefFile = candidate;
-            }
-            else {
-                size_t slash_pos = _sizer.defFile.find_last_of("/\\");
-                if(slash_pos != string::npos) {
-                    string def_dir = _sizer.defFile.substr(0, slash_pos + 1);
-                    string def_dir_candidate = def_dir + _sizer.benchname + ".spef";
-                    ifstream f_def_dir(def_dir_candidate.c_str());
-                    if(f_def_dir.good()) {
-                        _sizer.spefFile = def_dir_candidate;
-                    }
-                    else {
-                        _sizer.spefFile = candidate;
-                    }
-                }
-                else {
-                    _sizer.spefFile = candidate;
-                }
-            }
-        }
-        ifstream spef_check(_sizer.spefFile.c_str());
-        if(!spef_check.good()) {
-            cout << "Error: -postroute requires a valid SPEF file (-spef <file> "
-                    "or <top>.spef), cannot open: "
-                 << _sizer.spefFile << endl;
-            exit(1);
-        }
-    }
-    _sizer.ReportOptions();
-
-    if(_sizer.sizerGobiRepairMode) {
-        if(_sizer.sizerVgRepairMode || _sizer.sizerDesignRepairMode ||
-           _sizer.sizerOrdDesignRepairMode ||
-           _sizer.sizerFanoutRepairMode ||
-           _sizer.preplaceMode || _sizer.holdOnlyMode ||
-           _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
-           _sizer.use_gr_rc) {
-            cerr << "Error: -sizer_repair_gobi requires placement RC and "
-                    "cannot be combined with other repair modes." << endl;
-            return 1;
-        }
-        _sizer.loadOpenRoadDesignForFanoutRepair();
-        _sizer.runSizerGobiRepair(true);
-        return 0;
-    }
-    if(_sizer.sizerVgRepairMode) {
-        if(_sizer.sizerFanoutRepairMode ||
-           _sizer.sizerOrdDesignRepairMode ||
-           _sizer.preplaceMode || _sizer.holdOnlyMode ||
-           _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
-           _sizer.use_gr_rc) {
-            cerr << "Error: -sizer_repair_vg can only be combined with native "
-                    "design/setup repair and requires placement RC."
-                 << endl;
-            return 1;
-        }
-        _sizer.loadOpenRoadDesignForFanoutRepair();
-        // Each stage reconstructs candidates from the current OpenDB/STA.
-        // Do not reload the original input between topology-changing stages.
-        _sizer.runSizerVgRepair(!_sizer.sizerDesignRepairMode);
-        if(_sizer.sizerDesignRepairMode)
-            _sizer.runSizerDesignRepair();
-        return 0;
-    }
-    if(_sizer.sizerOrdDesignRepairMode) {
-        if(_sizer.sizerFanoutRepairMode || _sizer.sizerDesignRepairMode ||
-           _sizer.sizerVgRepairMode || _sizer.sizerGobiRepairMode ||
-           _sizer.preplaceMode || _sizer.holdOnlyMode ||
-           _sizer.legalizeOnlyMode || _sizer.sizerRepairClockNets ||
-           _sizer.use_gr_rc) {
-            cerr << "Error: -sizer_repair_design_ord is an independent "
-                    "placement-RC repair mode." << endl;
-            return 1;
-        }
-        _sizer.loadOpenRoadDesignForFanoutRepair();
-        _sizer.runSizerOrdDesignRepair();
-        return 0;
-    }
-    if(_sizer.sizerDesignRepairMode) {
-        if(_sizer.sizerFanoutRepairMode || _sizer.preplaceMode ||
-           _sizer.holdOnlyMode || _sizer.legalizeOnlyMode ||
-           _sizer.sizerRepairClockNets || _sizer.use_gr_rc) {
-            cerr << "Error: -sizer_repair_design requires placement RC and "
-                    "cannot be combined with other repair modes or clock repair."
-                 << endl;
-            return 1;
-        }
-        _sizer.loadOpenRoadDesignForFanoutRepair();
-        _sizer.runSizerDesignRepair();
-        return 0;
-    }
-    if(_sizer.sizerFanoutRepairMode) {
-        _sizer.loadOpenRoadDesignForFanoutRepair();
-        _sizer.runSizerFanoutRepair();
-        return 0;
-    }
-
-    _sizer.Parser();
-
-    if(_sizer.preplaceMode) {
-        _sizer.runPreplace();
-        return 0;
-    }
-
-    if(_sizer.holdOnlyMode) {
-        _sizer.runHoldOnly();
-        return 0;
-    }
-
-    if(_sizer.legalizeOnlyMode) {
-        _sizer.runLegalizeOnly();
-        return 0;
-    }
-
-    if(GTR_IN) {
-        _sizer.SizeInit(GTR_FI);
-    }
-#ifdef ALPHA_BIN
-    _sizer.TimerTest();  // for alpha bianary
-#endif
-
-    if(TEST_MODE != "NO_TEST") {
-        cout << "Test Mode.." << endl;
-        if(TEST_MODE == "HL_TEST") {
-            _sizer.HLTest();
-            exit(0);
-        }
-        else if(TEST_MODE == "TRAN_TEST") {
-            _sizer.TranCorrTest();
-            exit(0);
-        }
-        else if(TEST_MODE == "ALL_TEST") {
-            // _sizer.WireDelayTest();
-            _sizer.AllCorrTest();
-            exit(0);
-        }
-        else if(TEST_MODE == "ALL_STA_TEST") {
-            _sizer.AllCorrSTATest();
-            exit(0);
-        }
-        else if(TEST_MODE == "ZERO_TEST") {
-            _sizer.ZeroDelayTest();
-            exit(0);
-        }
-        else if(TEST_MODE == "STA_TEST") {
-            if(_sizer.timerTestCnt != 0) {
-                _sizer.TimerTest(_sizer.timerTestCnt);
-            }
-            else {
-                _sizer.TimerTest();
-            }
-
-            exit(0);
-        }
-    }
-
-    _sizer.Parallel_Sizer_Launcher();
-    // rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
-    // resizer->repairSetup(0, 5, 10, true, true, true, false);
-
-    // exit(0);
-    /*
-    vector<double>::iterator iter;
-
-    double tot_err = 0.0;
-    double l2_norm = 0.0;
-
-
-    iter = _sizer.max_errs.begin();
-    _sizer.max_errs.erase(iter);
-
-    iter = _sizer.errs_vec.begin();
-    _sizer.errs_vec.erase(iter);
-
-    std::sort(_sizer.errs_vec.begin(), _sizer.errs_vec.end(), sort_func);
-    std::sort(_sizer.max_errs.begin(), _sizer.max_errs.end(), sort_func);
-
-
-    for (iter = _sizer.errs_vec.begin(); iter != _sizer.errs_vec.end(); ++iter)
-    {
-        tot_err += *iter;
-        l2_norm += pow(*iter, 2);
-    }
-
-    double max_err = *(_sizer.max_errs.begin());
-    l2_norm = sqrt(l2_norm);
-    double avg_err = tot_err / _sizer.errs_vec.size();
-    */
-
-    cout << "Profiling ----" << endl;
-    double io_time = _sizer.time_IO + _sizer.time_SizeOut;
-    double gtr_time = _sizer.time_WNSOpt;
-    double gtr1_time = _sizer.time_Coarse;
-    double gtr2_time = _sizer.time_Zoomin - _sizer.time_Coarse;
-    double wns_opt_time = _sizer.time_WNSOpt - _sizer.time_Zoomin;
-    double prft_time =
-        _sizer.time_KickOpt - _sizer.time_WNSOpt - _sizer.time_SizeOut;
-    double prft1_time = _sizer.time_LeakOpt - _sizer.time_WNSOpt;
-    double prft2_time =
-        _sizer.time_KickOpt - _sizer.time_LeakOpt - _sizer.time_SizeOut;
-    double tot_time = cpuTime() - _sizer.global_begin;
-    double tot_timer_time = _sizer.tot_timer_time;
-
-    if(io_time < 0.0001) {
-        io_time = 0.0;
-    }
-    if(gtr_time < 0.0001) {
-        gtr_time = 0.0;
-    }
-    if(gtr1_time < 0.0001) {
-        gtr1_time = 0.0;
-    }
-    if(gtr2_time < 0.0001) {
-        gtr2_time = 0.0;
-    }
-    if(wns_opt_time < 0.0001) {
-        wns_opt_time = 0.0;
-    }
-    if(prft_time < 0.0001) {
-        prft_time = 0.0;
-    }
-    if(prft1_time < 0.0001) {
-        prft1_time = 0.0;
-    }
-    if(prft2_time < 0.0001) {
-        prft2_time = 0.0;
-    }
-    if(tot_time < 0.0001) {
-        tot_time = 0.0;
-    }
-
-    cout << "IO time           : " << io_time << " sec." << endl;
-    for(unsigned view = 0; view < _sizer.numViews; ++view) {
-        cout << "TimingRecovery for view " << view << "   : "
-             << _sizer.viewRuntime[view] << " sec. ("
-             << _sizer.viewRuntime[view] / 60 << " min. )" << endl;
-    }
-    cout << "PowerReduction     : " << prft_time << " sec." << endl;
-    cout << "PowerOpt           : " << prft1_time << " sec." << endl;
-    cout << "KickOpt            : " << prft2_time << " sec." << endl;
-    cout << "Total runtime      : " << tot_time << " sec. (" << tot_time / 60
-         << " min.)" << endl;
-    cout << "Timer runtime      : " << tot_timer_time << " sec. ("
-         << tot_timer_time / 60 << " min.)" << endl;
-    cout << "Inc-STA (time/count)  : " << _sizer.time_OneTimer << " sec."
-         << " / " << _sizer.count_OneTimer << endl;
-    if(PROF_ON) {
-#ifdef HAVE_GPERFTOOLS_PROFILER
-        ProfilerStop();
-#endif
-    }
-#ifdef TIME_MON
-    cout << "Full-STA (time/count) : " << _sizer.time_CallTimer << " sec."
-         << " / " << _sizer.count_CallTimer << endl;
-#endif
-    printMemoryUsage();
-    _sizer.FinalReport();
-    if(!PRESERVE_PLACEMENT)
-        _sizer.runOrdTO();
-    if(_sizer.resultDefFile == "") {
-        _sizer.resultDefFile = _sizer.benchname + ".size.def";
-    }
-    if(_sizer.resultVerilogFile == "") {
-        _sizer.resultVerilogFile = _sizer.benchname + ".size.v";
-    }
-    _sizer._ckt->_ord_design->writeDef(_sizer.resultDefFile);
-    _sizer._ckt->_ord_design->evalTclString("write_verilog " +
-                                            _sizer.resultVerilogFile);
-    // Tcl_Main(1, argv, ord::tclAppInit);
-    if(NO_LOG)
-        _sizer.CleanIntFiles();
-
-    return 0;
+    sizer.benchname = design.getBlock()->getName();
+    sizer.numVt = 1;
+    sizer.numCorners = sizer.numModes = sizer.numViews = 1;
+    sizer.RuntimeLimit = 3600;
+    sizer.global_begin = cpuTime();
+    sizer.time_IO = sizer.time_SizeOut = sizer.time_WNSOpt = 0;
+    sizer.time_Coarse = sizer.time_Zoomin = sizer.time_KickOpt = sizer.time_LeakOpt = 0;
+    sizer.time_OneTimer = sizer.time_CallTimer = sizer.time_Fineswap = 0;
+    sizer.count_OneTimer = sizer.count_CallTimer = 0;
+    sizer.nativeRepairConfig = config;
+    sizer.refresh_design = refresh;
+    sizer.noSPEF = false;  // Both estimated and extracted RC come from STA.
+    sizer.spefFile = extracted_parasitics ? "loaded" : "";
+    sizer.initSingleMode();
+    NO_FOOTPRINT = true;
+    PRESERVE_PLACEMENT = extracted_parasitics;
+    sizer.Parser(design);
+    sizer.Parallel_Sizer_Launcher();
+    sizer.FinalReport();
 }

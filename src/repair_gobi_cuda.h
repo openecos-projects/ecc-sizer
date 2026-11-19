@@ -5,9 +5,10 @@
 // CUDA module so the kernel pipeline can be tested independently.
 
 #include <stdexcept>
+#include <string>
 #include <cstddef>
 #include <cstdlib>
-#include <iostream>
+
 #include <memory>
 #include <vector>
 
@@ -30,9 +31,7 @@ constexpr bool DEBUG = false;
   do {                                                                      \
     cudaError_t err = call;                                                 \
     if (err != cudaSuccess) {                                               \
-      std::cerr << "CUDA Error at " << __FILE__ << ":" << __LINE__ << " - " \
-                << cudaGetErrorString(err) << "\n";                         \
-      exit(EXIT_FAILURE);                                                   \
+      throw std::runtime_error(std::string("CUDA: ") + cudaGetErrorString(err)); \
     }                                                                       \
   } while (0)
 

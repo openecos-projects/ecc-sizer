@@ -43,7 +43,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
-#include "sizer.h"
+#include "cell_sizing.h"
 #include "db_sta/dbNetwork.hh"
 #include "utils.h"
 
@@ -61,14 +61,14 @@
 #define SAME_SS_LIMIT 2
 
 void Sizer::TimerTest(int timerTestCnt, unsigned view) {
-    cout << "[TimerTest] Evalulate STA..." << endl;
+    ecc::logInfo() << "[TimerTest] Evalulate STA..." << endl;
     if(slack_margin != 0.0)
         SetGB(slack_margin);
     bool ifDelete = true;
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++) {
         cells[i] = g_cells[i];
-        cout << i << " " << cells[i].name << endl;
+        ecc::logInfo() << i << " " << cells[i].name << endl;
     }
     pins = new PIN*[numViews];
 
@@ -90,13 +90,13 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
     T = PTimer[0];
 
-    cout << "Verify Timer..." << endl;
+    ecc::logInfo() << "Verify Timer..." << endl;
 
     // SizeIn("gtr");
     UpdateCapsFromCells();
@@ -111,7 +111,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
     double TMR = cpuTime();
     CallTimer(view);
     TMR = (cpuTime() - TMR);
-    cout << "full_STA_time : " << TMR << endl;
+    ecc::logInfo() << "full_STA_time : " << TMR << endl;
     count = 0;
     unsigned false_count = 0;
     double max_rslk_diff = 0.;
@@ -129,7 +129,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
     unsigned cellidx_max = 0;
 
     if(true) {
-        cout << "=====BEFORE=================================================="
+        ecc::logInfo() << "=====BEFORE=================================================="
              << endl;
         unsigned l = 0;
         unsigned k = 0;
@@ -137,45 +137,45 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         for(unsigned i = 0; i < topolist.size(); ++i) {
             for(unsigned j = 0; j < cells[topolist[i]].inpins.size(); ++j) {
                 l = cells[topolist[i]].inpins[j];
-                cout << getFullPinName(pins[view][l]) << " rslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rslk\t"
                      << pins[view][l].rslk << endl;
-                cout << getFullPinName(pins[view][l]) << " fslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fslk\t"
                      << pins[view][l].fslk << endl;
-                cout << getFullPinName(pins[view][l]) << " rtran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rtran\t"
                      << pins[view][l].rtran << endl;
-                cout << getFullPinName(pins[view][l]) << " ftran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " ftran\t"
                      << pins[view][l].ftran << endl;
-                cout << getFullPinName(pins[view][l]) << " rAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rAAT\t"
                      << pins[view][l].rAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fAAT\t"
                      << pins[view][l].fAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " rRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rRAT\t"
                      << pins[view][l].rRAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fRAT\t"
                      << pins[view][l].fRAT << endl;
             }
             for(unsigned j = 0; j < cells[topolist[i]].outpins.size(); ++j) {
                 l = cells[topolist[i]].outpins[j];
-                cout << getFullPinName(pins[view][l]) << " rslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rslk\t"
                      << pins[view][l].rslk << endl;
-                cout << getFullPinName(pins[view][l]) << " fslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fslk\t"
                      << pins[view][l].fslk << endl;
-                cout << getFullPinName(pins[view][l]) << " rtran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rtran\t"
                      << pins[view][l].rtran << endl;
-                cout << getFullPinName(pins[view][l]) << " ftran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " ftran\t"
                      << pins[view][l].ftran << endl;
-                cout << getFullPinName(pins[view][l]) << " rAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rAAT\t"
                      << pins[view][l].rAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fAAT\t"
                      << pins[view][l].fAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " rRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rRAT\t"
                      << pins[view][l].rRAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fRAT\t"
                      << pins[view][l].fRAT << endl;
                 k++;
             }
         }
-        cout << "======================================================="
+        ecc::logInfo() << "======================================================="
              << endl;
     }
 
@@ -183,28 +183,28 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         unsigned k = timerTestCell;
         unsigned i = timerTestMove;
         PIN& pin = pins[view][cells[k].outpins[0]];
-        cout << "PREV TIMING - ORIG " << getFullPinName(pin) << " (" << pin.rslk
+        ecc::logInfo() << "PREV TIMING - ORIG " << getFullPinName(pin) << " (" << pin.rslk
              << "/" << pin.fslk << ")" << " (" << pin.rRAT << "/" << pin.fRAT
              << ")" << " (" << pin.rAAT << "/" << pin.fAAT << ")" << " ("
              << pin.rslk_ofs << "/" << pin.fslk_ofs << ")" << " (" << pin.totcap
              << "," << pin.slk_gb << ")" << endl;
         if(i == 0) {
             cell_resize(cells[k], 1, true);
-            cout << cells[k].type << " upsized " << endl;
+            ecc::logInfo() << cells[k].type << " upsized " << endl;
             OneTimer(cells[k], STA_MARGIN);
-            cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
                  << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
                  << pin.slk_gb << ")" << endl;
 
-            cout << cells[k].name << " " << cells[k].type << " --> ";
+            ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
             cell_resize(cells[k], -1, true);
-            cout << cells[k].type << " downsized " << endl;
+            ecc::logInfo() << cells[k].type << " downsized " << endl;
             OneTimer(cells[k], STA_MARGIN);
 
-            cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
@@ -213,21 +213,21 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         }
         else if(i == 1) {
             cell_resize(cells[k], -1, true);
-            cout << cells[k].type << " downsized " << endl;
+            ecc::logInfo() << cells[k].type << " downsized " << endl;
             OneTimer(cells[k], STA_MARGIN);
-            cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
                  << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
                  << pin.slk_gb << ")" << endl;
 
-            cout << cells[k].name << " " << cells[k].type << " --> ";
+            ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
             cell_resize(cells[k], 1, true);
-            cout << cells[k].type << " upsized " << endl;
+            ecc::logInfo() << cells[k].type << " upsized " << endl;
             OneTimer(cells[k], STA_MARGIN);
 
-            cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
@@ -236,21 +236,21 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         }
         else if(i == 2) {
             cell_retype(cells[k], 1, true);
-            cout << cells[k].type << " uptyped " << endl;
+            ecc::logInfo() << cells[k].type << " uptyped " << endl;
             OneTimer(cells[k], STA_MARGIN);
-            cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
                  << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
                  << pin.slk_gb << ")" << endl;
 
-            cout << cells[k].name << " " << cells[k].type << " --> ";
+            ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
             cell_retype(cells[k], -1, true);
-            cout << cells[k].type << " downtyped " << endl;
+            ecc::logInfo() << cells[k].type << " downtyped " << endl;
             OneTimer(cells[k], STA_MARGIN);
 
-            cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
@@ -259,21 +259,21 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         }
         else {
             cell_retype(cells[k], -1, true);
-            cout << cells[k].type << " downtyped " << endl;
+            ecc::logInfo() << cells[k].type << " downtyped " << endl;
             OneTimer(cells[k], STA_MARGIN, true);
-            cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
                  << pin.fslk_ofs << ")" << " (" << pin.totcap << ","
                  << pin.slk_gb << ")" << endl;
 
-            cout << cells[k].name << " " << cells[k].type << " --> ";
+            ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
             cell_retype(cells[k], 1, true);
-            cout << cells[k].type << " uptyped " << endl;
+            ecc::logInfo() << cells[k].type << " uptyped " << endl;
             OneTimer(cells[k], STA_MARGIN);
 
-            cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
+            ecc::logInfo() << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin) << " ("
                  << pin.rslk << "/" << pin.fslk << ")" << " (" << pin.rRAT
                  << "/" << pin.fRAT << ")" << " (" << pin.rAAT << "/"
                  << pin.fAAT << ")" << " (" << pin.rslk_ofs << "/"
@@ -294,35 +294,35 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
             if(i == 0) {
                 if(isMax(cells[k]))
                     continue;
-                cout << cells[k].name << " " << cells[k].type << " --> ";
+                ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
                 cell_resize(cells[k], 1);
-                cout << cells[k].type << " upsized " << endl;
+                ecc::logInfo() << cells[k].type << " upsized " << endl;
             }
             else if(i == 1) {
                 if(cells[k].c_size == 0)
                     continue;
-                cout << cells[k].name << " " << cells[k].type << " --> ";
+                ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
                 cell_resize(cells[k], -1);
-                cout << cells[k].type << " downsized " << endl;
+                ecc::logInfo() << cells[k].type << " downsized " << endl;
             }
             else if(i == 2) {
                 if(r_type(cells[k]) == f)
                     continue;
-                cout << cells[k].name << " " << cells[k].type << " --> ";
+                ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
                 cell_retype(cells[k], 1);
-                cout << cells[k].type << " uptyped " << endl;
+                ecc::logInfo() << cells[k].type << " uptyped " << endl;
             }
             else {
                 if(r_type(cells[k]) == s)
                     continue;
-                cout << cells[k].name << " " << cells[k].type << " --> ";
+                ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
                 cell_retype(cells[k], -1);
-                cout << cells[k].type << " downtyped " << endl;
+                ecc::logInfo() << cells[k].type << " downtyped " << endl;
             }
             TMR = cpuTime();
 
             OneTimer(cells[k], STA_MARGIN, view);
-            cout << "TIMER " << k << " " << cells[k].name << " "
+            ecc::logInfo() << "TIMER " << k << " " << cells[k].name << " "
                  << cells[k].type << endl;
 
             // UpdatePTSizes();
@@ -337,7 +337,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         }
     }
     CalcStats(view);
-    //    cout << count << " cells changed" << endl;
+    //    ecc::logInfo() << count << " cells changed" << endl;
     double time_avg = time_total / (double)count;
 
     for(unsigned i = 0; i < topolist.size(); ++i) {
@@ -369,7 +369,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
     CallTimer(view);
     CalcStats(view);
     if(true) {
-        cout << "======================================================="
+        ecc::logInfo() << "======================================================="
              << endl;
         unsigned l = 0;
         unsigned k = 0;
@@ -377,50 +377,50 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         for(unsigned i = 0; i < topolist.size(); ++i) {
             for(unsigned j = 0; j < cells[topolist[i]].inpins.size(); ++j) {
                 l = cells[topolist[i]].inpins[j];
-                cout << getFullPinName(pins[view][l]) << " rslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rslk\t"
                      << one_rslk[k] << "\t" << pins[view][l].rslk << "\t"
                      << T[view]->getRiseSlack(getFullPinName(pins[view][l]))
                      << endl;
-                cout << getFullPinName(pins[view][l]) << " fslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fslk\t"
                      << one_fslk[k] << "\t" << pins[view][l].fslk << "\t"
                      << T[view]->getFallSlack(getFullPinName(pins[view][l]))
                      << endl;
-                cout << getFullPinName(pins[view][l]) << " rtran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rtran\t"
                      << one_rtran[k] << "\t" << pins[view][l].rtran << endl;
-                cout << getFullPinName(pins[view][l]) << " ftran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " ftran\t"
                      << one_ftran[k] << "\t" << pins[view][l].ftran << endl;
-                cout << getFullPinName(pins[view][l]) << " rAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rAAT\t"
                      << one_rAAT[k] << "\t" << pins[view][l].rAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fAAT\t"
                      << one_fAAT[k] << "\t" << pins[view][l].fAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " rRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rRAT\t"
                      << one_rRAT[k] << "\t" << pins[view][l].rRAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fRAT\t"
                      << one_fRAT[k] << "\t" << pins[view][l].fRAT << endl;
                 k++;
             }
             for(unsigned j = 0; j < cells[topolist[i]].outpins.size(); ++j) {
                 l = cells[topolist[i]].outpins[j];
-                cout << getFullPinName(pins[view][l]) << " rslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rslk\t"
                      << one_rslk[k] << "\t" << pins[view][l].rslk << endl;
-                cout << getFullPinName(pins[view][l]) << " fslk\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fslk\t"
                      << one_fslk[k] << "\t" << pins[view][l].fslk << endl;
-                cout << getFullPinName(pins[view][l]) << " rtran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rtran\t"
                      << one_rtran[k] << "\t" << pins[view][l].rtran << endl;
-                cout << getFullPinName(pins[view][l]) << " ftran\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " ftran\t"
                      << one_ftran[k] << "\t" << pins[view][l].ftran << endl;
-                cout << getFullPinName(pins[view][l]) << " rAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rAAT\t"
                      << one_rAAT[k] << "\t" << pins[view][l].rAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fAAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fAAT\t"
                      << one_fAAT[k] << "\t" << pins[view][l].fAAT << endl;
-                cout << getFullPinName(pins[view][l]) << " rRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " rRAT\t"
                      << one_rRAT[k] << "\t" << pins[view][l].rRAT << endl;
-                cout << getFullPinName(pins[view][l]) << " fRAT\t"
+                ecc::logInfo() << getFullPinName(pins[view][l]) << " fRAT\t"
                      << one_fRAT[k] << "\t" << pins[view][l].fRAT << endl;
                 k++;
             }
         }
-        cout << "======================================================="
+        ecc::logInfo() << "======================================================="
              << endl;
     }
 
@@ -431,7 +431,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         for(unsigned j = 0; j < cells[topolist[i]].inpins.size(); ++j) {
             l = cells[topolist[i]].inpins[j];
             if(one_rslk[k] != pins[view][cells[topolist[i]].inpins[j]].rslk) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rslk\t" << one_rslk[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rslk << "\t"
                      << T[view]->getRiseSlack(getFullPinName(pins[view][l]))
@@ -439,7 +439,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_fslk[k] != pins[view][cells[topolist[i]].inpins[j]].fslk) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " fslk\t" << one_fslk[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].fslk << "\t"
                      << T[view]->getFallSlack(getFullPinName(pins[view][l]))
@@ -447,7 +447,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_rtran[k] != pins[view][cells[topolist[i]].inpins[j]].rtran) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rtran\t" << one_rtran[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rtran << "\t"
                      << T[view]->getRiseTran(getFullPinName(pins[view][l]))
@@ -455,7 +455,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_ftran[k] != pins[view][cells[topolist[i]].inpins[j]].ftran) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " ftran\t" << one_ftran[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].ftran << "\t"
                      << T[view]->getFallTran(getFullPinName(pins[view][l]))
@@ -463,7 +463,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_rAAT[k] != pins[view][cells[topolist[i]].inpins[j]].rAAT) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rAAT\t" << one_rAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rAAT << "\t"
                      << T[view]->getRiseArrival(getFullPinName(pins[view][l]))
@@ -471,7 +471,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_fAAT[k] != pins[view][cells[topolist[i]].inpins[j]].fAAT) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " fAAT\t" << one_fAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].fAAT << "\t"
                      << T[view]->getFallArrival(getFullPinName(pins[view][l]))
@@ -479,7 +479,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_rRAT[k] != pins[view][cells[topolist[i]].inpins[j]].rRAT) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rRAT\t" << one_rRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rRAT << "\t"
                      << T[view]->getRiseArrival(getFullPinName(pins[view][l])) +
@@ -488,7 +488,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_fRAT[k] != pins[view][cells[topolist[i]].inpins[j]].fRAT) {
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " fRAT\t" << one_fRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].fRAT << "\t"
                      << T[view]->getFallArrival(getFullPinName(pins[view][l])) +
@@ -501,7 +501,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         for(unsigned j = 0; j < cells[topolist[i]].outpins.size(); ++j) {
             l = cells[topolist[i]].outpins[j];
             if(one_rslk[k] != pins[view][cells[topolist[i]].outpins[j]].rslk) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rslk\t" << one_rslk[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rslk << "\t"
@@ -510,7 +510,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_fslk[k] != pins[view][cells[topolist[i]].outpins[j]].fslk) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " fslk\t" << one_fslk[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].fslk << "\t"
@@ -520,7 +520,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
             }
             if(one_rtran[k] !=
                pins[view][cells[topolist[i]].outpins[j]].rtran) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rtran\t" << one_rtran[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rtran << "\t"
@@ -530,7 +530,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
             }
             if(one_ftran[k] !=
                pins[view][cells[topolist[i]].outpins[j]].ftran) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " ftran\t" << one_ftran[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].ftran << "\t"
@@ -539,7 +539,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_rAAT[k] != pins[view][cells[topolist[i]].outpins[j]].rAAT) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rAAT\t" << one_rAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rAAT << "\t"
@@ -548,7 +548,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_fAAT[k] != pins[view][cells[topolist[i]].outpins[j]].fAAT) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " fAAT\t" << one_fAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].fAAT << "\t"
@@ -557,7 +557,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_rRAT[k] != pins[view][cells[topolist[i]].outpins[j]].rRAT) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rRAT\t" << one_rRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rRAT << "\t"
@@ -567,7 +567,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                 ++false_count;
             }
             if(one_fRAT[k] != pins[view][cells[topolist[i]].outpins[j]].fRAT) {
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " fRAT\t" << one_fRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].fRAT << "\t"
@@ -580,7 +580,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
         }
     }
 
-    cout << "-------------------------------------------------" << endl;
+    ecc::logInfo() << "-------------------------------------------------" << endl;
     k = 0;
     unsigned false_count2 = 0;
     for(unsigned i = 0; i < topolist.size(); ++i) {
@@ -599,7 +599,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                    pins[view][cells[topolist[i]].inpins[j]].fAAT) > 0.001) {
                 ++false_count2;
 
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rslk\t" << one_rslk[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rslk << "\t"
                      << T[view]->getRiseSlack(getFullPinName(
@@ -607,7 +607,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rslk_ofs
                      << endl;
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " fslk\t" << one_fslk[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].fslk << "\t"
                      << T[view]->getFallSlack(getFullPinName(
@@ -616,7 +616,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].inpins[j]].fslk_ofs
                      << endl;
 
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rtran\t" << one_rtran[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rtran << "\t"
                      << T[view]->getRiseSlack(getFullPinName(
@@ -624,7 +624,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rtran_ofs
                      << endl;
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " ftran\t" << one_ftran[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].ftran << "\t"
                      << T[view]->getFallSlack(getFullPinName(
@@ -633,7 +633,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].inpins[j]].ftran_ofs
                      << endl;
 
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rAAT\t" << one_rAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rAAT << "\t"
                      << T[view]->getRiseArrival(getFullPinName(
@@ -641,7 +641,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rAAT_ofs
                      << endl;
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " fAAT\t" << one_fAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].fAAT << "\t"
                      << T[view]->getFallArrival(getFullPinName(
@@ -650,7 +650,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].inpins[j]].fAAT_ofs
                      << endl;
 
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " rRAT\t" << one_rRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rRAT << "\t"
                      << T[view]->getRiseArrival(getFullPinName(
@@ -660,7 +660,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].rRAT_ofs
                      << endl;
-                cout << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
+                ecc::logInfo() << getFullPinName(pins[view][cells[topolist[i]].inpins[j]])
                      << " fRAT\t" << one_fRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].inpins[j]].fRAT << "\t"
                      << T[view]->getFallArrival(getFullPinName(
@@ -671,7 +671,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].inpins[j]].fRAT_ofs
                      << endl;
 
-                cout << "-------------------------------------------------"
+                ecc::logInfo() << "-------------------------------------------------"
                      << endl;
             }
             ++k;
@@ -691,7 +691,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                abs(one_fAAT[k] -
                    pins[view][cells[topolist[i]].outpins[j]].fAAT) > 0.001) {
                 ++false_count2;
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rslk\t" << one_rslk[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rslk << "\t"
@@ -700,7 +700,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rslk_ofs
                      << endl;
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " fslk\t" << one_fslk[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].fslk << "\t"
@@ -710,7 +710,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].outpins[j]].fslk_ofs
                      << endl;
 
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rtran\t" << one_rtran[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rtran << "\t"
@@ -719,7 +719,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rtran_ofs
                      << endl;
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " ftran\t" << one_ftran[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].ftran << "\t"
@@ -729,7 +729,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].outpins[j]].ftran_ofs
                      << endl;
 
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rAAT\t" << one_rAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rAAT << "\t"
@@ -738,7 +738,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rAAT_ofs
                      << endl;
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " fAAT\t" << one_fAAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].fAAT << "\t"
@@ -748,7 +748,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].outpins[j]].fAAT_ofs
                      << endl;
 
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " rRAT\t" << one_rRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rRAT << "\t"
@@ -759,7 +759,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].rRAT_ofs
                      << endl;
-                cout << getFullPinName(
+                ecc::logInfo() << getFullPinName(
                             pins[view][cells[topolist[i]].outpins[j]])
                      << " fRAT\t" << one_fRAT[k] << "\t"
                      << pins[view][cells[topolist[i]].outpins[j]].fRAT << "\t"
@@ -771,7 +771,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
                      << pins[view][cells[topolist[i]].outpins[j]].fRAT_ofs
                      << endl;
 
-                cout << "-------------------------------------------------"
+                ecc::logInfo() << "-------------------------------------------------"
                      << endl;
             }
             ++k;
@@ -786,14 +786,14 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
     one_ftran.clear();
     one_rAAT.clear();
     one_rRAT.clear();
-    cout << "Timer Evalulation 1---------------" << endl;
-    cout << "False Count : " << false_count << "/" << false_count2 << "  ( "
+    ecc::logInfo() << "Timer Evalulation 1---------------" << endl;
+    ecc::logInfo() << "False Count : " << false_count << "/" << false_count2 << "  ( "
          << count << " )" << endl;
-    cout << "Max Rslk Diff : " << max_rslk_diff << endl;
-    cout << "Max Fslk Diff : " << max_fslk_diff << endl;
-    cout << "ISTA Avg. time : " << time_avg << endl;
-    cout << "ISTA Max. time : " << time_max << endl;
-    cout << "ISTA Max. cell : " << cells[cellidx_max].name << endl;
+    ecc::logInfo() << "Max Rslk Diff : " << max_rslk_diff << endl;
+    ecc::logInfo() << "Max Fslk Diff : " << max_fslk_diff << endl;
+    ecc::logInfo() << "ISTA Avg. time : " << time_avg << endl;
+    ecc::logInfo() << "ISTA Max. time : " << time_max << endl;
+    ecc::logInfo() << "ISTA Max. cell : " << cells[cellidx_max].name << endl;
 
     /*
     SizeOut(false,"test");
@@ -821,7 +821,7 @@ void Sizer::TimerTest(int timerTestCnt, unsigned view) {
 
 // PT correlation test. report slack error at every cell changes.
 void Sizer::PTCorrTest(unsigned view) {
-    cout << "[PTCorrTest] ..." << endl;
+    ecc::logInfo() << "[PTCorrTest] ..." << endl;
     bool ifDelete = true;
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++) {
@@ -844,14 +844,14 @@ void Sizer::PTCorrTest(unsigned view) {
     }
     ifDelete = true;
 
-    cout << "Verify Timer..." << endl;
+    ecc::logInfo() << "Verify Timer..." << endl;
 
     // SizeIn("gtr");
     PTimer = new designTiming**[1];
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -867,7 +867,7 @@ void Sizer::PTCorrTest(unsigned view) {
     double TMR = cpuTime();
     CallTimer();
     TMR = (cpuTime() - TMR);
-    cout << "full_STA_time : " << TMR << endl;
+    ecc::logInfo() << "full_STA_time : " << TMR << endl;
     CalcStats();
     count = 0;
     unsigned count_tmp = 0;
@@ -898,7 +898,7 @@ void Sizer::PTCorrTest(unsigned view) {
     CompareWithPT();
     */
 
-    cout << "# changed cells: " << count << "\t";
+    ecc::logInfo() << "# changed cells: " << count << "\t";
     ReportSlackErr();
 
     for(unsigned j = 0; j < numcells * 10; j++) {
@@ -910,25 +910,25 @@ void Sizer::PTCorrTest(unsigned view) {
             if(r_size(cells[k]) == 128)
                 continue;
             cell_resize(cells[k], 1, true);
-            // cout << cells[k].name << " upsized " << endl ;
+            // ecc::logInfo() << cells[k].name << " upsized " << endl ;
         }
         else if(i == 1) {
             if(r_size(cells[k]) == 1)
                 continue;
             cell_resize(cells[k], -1, true);
-            // cout << cells[k].name << " downsized " << endl;
+            // ecc::logInfo() << cells[k].name << " downsized " << endl;
         }
         else if(i == 2) {
             if(r_type(cells[k]) == f)
                 continue;
             cell_retype(cells[k], 1, true);
-            // cout << cells[k].name << " uptyped " << endl;
+            // ecc::logInfo() << cells[k].name << " uptyped " << endl;
         }
         else {
             if(r_type(cells[k]) == s)
                 continue;
             cell_retype(cells[k], -1, true);
-            // cout << cells[k].name << " downtyped " << endl;
+            // ecc::logInfo() << cells[k].name << " downtyped " << endl;
         }
         TMR = cpuTime();
 
@@ -947,13 +947,13 @@ void Sizer::PTCorrTest(unsigned view) {
         if(count++ > numcells * 0.1)
             break;
         if(count_tmp++ > numcells * 0.01) {
-            cout << "# changed cells: " << count << "\t";
+            ecc::logInfo() << "# changed cells: " << count << "\t";
             // UpdatePTSizes();
             ReportSlackErr();
             count_tmp = 0;
         }
     }
-    cout << "# changed cells: " << count << "\t";
+    ecc::logInfo() << "# changed cells: " << count << "\t";
     // UpdatePTSizes();
     ReportSlackErr();
 
@@ -978,7 +978,7 @@ void Sizer::PTCorrTest(unsigned view) {
 }
 
 void Sizer::TimerOffsetTest(unsigned view) {
-    cout << "[TimerOffsetTest] Evalulate STA..." << endl;
+    ecc::logInfo() << "[TimerOffsetTest] Evalulate STA..." << endl;
     bool ifDelete = true;
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++)
@@ -1000,7 +1000,7 @@ void Sizer::TimerOffsetTest(unsigned view) {
     }
     ifDelete = true;
 
-    cout << "Verify Timer..." << endl;
+    ecc::logInfo() << "Verify Timer..." << endl;
 
     SizeIn("gtr");
     UpdateCapsFromCells();
@@ -1015,7 +1015,7 @@ void Sizer::TimerOffsetTest(unsigned view) {
 
     // initial correlation with PT
     TMR = (cpuTime() - TMR);
-    cout << "full_STA_time : " << TMR << endl;
+    ecc::logInfo() << "full_STA_time : " << TMR << endl;
     count = 0;
     // unsigned false_count=0;
     // double max_rslk_diff=0.;
@@ -1025,7 +1025,7 @@ void Sizer::TimerOffsetTest(unsigned view) {
 
     unsigned step = 1;
 
-    cout << "== Cell Change Test ==" << endl;
+    ecc::logInfo() << "== Cell Change Test ==" << endl;
     ReportTimingErr();
     for(unsigned j = 0; j < numChange; j++) {
         unsigned i = (unsigned)(rand() % 4);
@@ -1036,25 +1036,25 @@ void Sizer::TimerOffsetTest(unsigned view) {
             if(r_size(cells[k]) == 128)
                 continue;
             cell_resize(cells[k], 1);
-            // cout << cells[k].name << " upsized " << endl ;
+            // ecc::logInfo() << cells[k].name << " upsized " << endl ;
         }
         else if(i == 1) {
             if(r_size(cells[k]) == 1)
                 continue;
             cell_resize(cells[k], -1);
-            // cout << cells[k].name << " downsized " << endl;
+            // ecc::logInfo() << cells[k].name << " downsized " << endl;
         }
         else if(i == 2) {
             if(r_type(cells[k]) == f)
                 continue;
             cell_retype(cells[k], 1);
-            // cout << cells[k].name << " uptyped " << endl;
+            // ecc::logInfo() << cells[k].name << " uptyped " << endl;
         }
         else {
             if(r_type(cells[k]) == s)
                 continue;
             cell_retype(cells[k], -1);
-            // cout << cells[k].name << " downtyped " << endl;
+            // ecc::logInfo() << cells[k].name << " downtyped " << endl;
         }
         count++;
 
@@ -1070,7 +1070,7 @@ void Sizer::TimerOffsetTest(unsigned view) {
         ReportTimingErr();
 
         //        if ( (unsigned)count*100/numcells==step ) {
-        //            cout << fixed << step << "(%) ";
+        //            ecc::logInfo() << fixed << step << "(%) ";
         //            step++;
         //        }
         if(step > 10)
@@ -1097,7 +1097,7 @@ void Sizer::TimerOffsetTest(unsigned view) {
 
 void Sizer::WireDelayTest(unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
-    cout << "[Test] Wire delay test..." << endl;
+    ecc::logInfo() << "[Test] Wire delay test..." << endl;
 
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++) {
@@ -1123,7 +1123,7 @@ void Sizer::WireDelayTest(unsigned view) {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -1219,7 +1219,7 @@ void Sizer::WireDelayTest(unsigned view) {
                 maxErr = triDelay.rise - ptDelayR;
         }
     }
-    cout << setw(8) << "MaxErr" << "," << setw(8) << "" << "," << setw(8) << ""
+    ecc::logInfo() << setw(8) << "MaxErr" << "," << setw(8) << "" << "," << setw(8) << ""
          << "," << setw(8) << fixed << "" << "," << setw(8) << fixed << ""
          << "," << setw(8) << fixed << "" << "," << setw(8) << fixed << ""
          << "," << setw(8) << fixed << maxErr << "," << setw(8) << fixed << ""
@@ -1245,7 +1245,7 @@ void Sizer::WireDelayTest(unsigned view) {
             // include wire delay
             if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
                !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
-                std::cout << "Error: PI aat not equal"
+                ecc::logInfo() << "Error: PI aat not equal"
                           << getFullPinName(pins[view][fopin]) << "/" << fopin
                           << " " << pins[view][fopin].rAAT << "/"
                           << aat_list[fopin].rise << " "
@@ -1268,7 +1268,7 @@ void Sizer::WireDelayTest(unsigned view) {
             if(isff(cells[cur])) {
                 if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
                    !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
-                    std::cout << "Error: FF QN aat not equal"
+                    ecc::logInfo() << "Error: FF QN aat not equal"
                               << getFullPinName(pins[view][fopin]) << "/"
                               << fopin << " " << pins[view][fopin].rAAT << "/"
                               << aat_list[fopin].rise << " "
@@ -1282,7 +1282,7 @@ void Sizer::WireDelayTest(unsigned view) {
 
                     if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
                        !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
-                        std::cout << "Error: Comb not equal"
+                        ecc::logInfo() << "Error: Comb not equal"
                                   << getFullPinName(pins[view][fopin]) << "/"
                                   << fopin << " " << pins[view][fopin].rAAT
                                   << "/" << aat_list[fopin].rise << " "
@@ -1300,24 +1300,24 @@ void Sizer::WireDelayTest(unsigned view) {
                                 pins[view][cells[cur].inpins[k]].rdelay[j]) ||
                        !isEqual(f_delay,
                                 pins[view][cells[cur].inpins[k]].fdelay[j])) {
-                        std::cout << "From pin "
+                        ecc::logInfo() << "From pin "
                                   << pins[view][cells[cur].inpins[k]].name
                                   << " " << "Out pin " << pins[view][fopin].name
                                   << " " << std::endl;
-                        std::cout
+                        ecc::logInfo()
                             << "Error: Comb delay not equal " << cells[cur].name
                             << "/" << cells[cur].type << " " << r_delay << "/"
                             << pins[view][cells[cur].inpins[k]].rdelay[j] << " "
                             << f_delay << "/"
                             << pins[view][cells[cur].inpins[k]].fdelay[j]
                             << " ";
-                        std::cout << "Input Tran "
+                        ecc::logInfo() << "Input Tran "
                                   << tran_list[cells[cur].inpins[k]].rise << "/"
                                   << pins[view][cells[cur].inpins[k]].rtran
                                   << " " << tran_list[cells[cur].inpins[k]].fall
                                   << "/"
                                   << pins[view][cells[cur].inpins[k]].ftran;
-                        std::cout << " Load Cap "
+                        ecc::logInfo() << " Load Cap "
                                   << T[view]->getCeff(
                                          getFullPinName(pins[view][fopin]))
                                   << "/" << pins[view][fopin].totcap
@@ -1334,7 +1334,7 @@ void Sizer::WireDelayTest(unsigned view) {
                                  view);
                     }
                     if(VERBOSE >= 4) {
-                        cout
+                        ecc::logInfo()
                             << "CALC_SLACK: UPDATE PIN AAT INPIN " << view
                             << " "
                             << getFullPinName(pins[view][cells[cur].inpins[k]])
@@ -1355,7 +1355,7 @@ void Sizer::WireDelayTest(unsigned view) {
                 // one inpin is driven by one net
                 if(!isEqual(pins[view][fopin].rAAT, aat_list[fopin].rise) ||
                    !isEqual(pins[view][fopin].fAAT, aat_list[fopin].fall)) {
-                    std::cout << "Error: Comb not equal"
+                    ecc::logInfo() << "Error: Comb not equal"
                               << getFullPinName(pins[view][fopin]) << "/"
                               << fopin << " " << pins[view][fopin].rAAT << "/"
                               << aat_list[fopin].rise << " "
@@ -1374,13 +1374,13 @@ void Sizer::WireDelayTest(unsigned view) {
 void Sizer::ReportWireTiming(unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
 
-    cout << "------------------------------------------------------------"
+    ecc::logInfo() << "------------------------------------------------------------"
          << endl;
-    cout << "                   Wire Timing Report                       "
+    ecc::logInfo() << "                   Wire Timing Report                       "
          << endl;
-    cout << "------------------------------------------------------------"
+    ecc::logInfo() << "------------------------------------------------------------"
          << endl;
-    cout << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
+    ecc::logInfo() << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
          << "OutPin" << " " << setw(8) << fixed << "PtSlkR" << " " << setw(8)
          << fixed << "PtSlkF" << " " << setw(8) << fixed << "TriSlkR" << " "
          << setw(8) << fixed << "TriSlkF" << " " << setw(8) << fixed
@@ -1429,7 +1429,7 @@ void Sizer::ReportWireTiming(unsigned view) {
         ptTranF = T[view]->getFallTran(in_pin_name);
 
         cout.precision(4);
-        cout << nets[corner][i].name << "\t " << setw(8) << "*" + in_pin_name
+        ecc::logInfo() << nets[corner][i].name << "\t " << setw(8) << "*" + in_pin_name
              << " " << setw(8) << "" << " " << setw(8) << fixed << ptSlkR << " "
              << setw(8) << fixed << ptSlkF << " " << setw(8) << fixed << triSlkR
              << " " << setw(8) << fixed << triSlkF << " " << setw(8) << fixed
@@ -1499,7 +1499,7 @@ void Sizer::ReportWireTiming(unsigned view) {
             ptTranF = T[view]->getFallTran(out_pin_name);
 
             cout.precision(4);
-            cout << nets[corner][i].name << "\t " << setw(8) << in_pin_name
+            ecc::logInfo() << nets[corner][i].name << "\t " << setw(8) << in_pin_name
                  << " " << setw(8) << "*" + out_pin_name << " " << setw(8)
                  << fixed << ptSlkR << " " << setw(8) << fixed << ptSlkF << " "
                  << setw(8) << fixed << triSlkR << " " << setw(8) << fixed
@@ -1542,7 +1542,7 @@ void Sizer::ReportWireTiming(unsigned view) {
             count += 2;
         }
     }
-    cout << "Summary\t" << " " << setw(8) << "" << " " << setw(8) << "" << " "
+    ecc::logInfo() << "Summary\t" << " " << setw(8) << "" << " " << setw(8) << "" << " "
          << setw(8) << fixed << "MaxSlkErr" << " " << setw(8) << fixed
          << maxErrSlk << " " << setw(8) << fixed << "AvgSlkErr" << " "
          << setw(8) << fixed << avgErrSlk / (count + 2 * numnets) << " "
@@ -1657,14 +1657,14 @@ void Sizer::ReportTimingErr(unsigned view) {
     avgSlkErr = avgSlkErr / count;
     absavgSlkErr = absavgSlkErr / count;
     cout.precision(4);
-    cout << setw(8) << fixed << avgSlkErr << " " << setw(8) << fixed
+    ecc::logInfo() << setw(8) << fixed << avgSlkErr << " " << setw(8) << fixed
          << absavgSlkErr << " " << setw(8) << fixed << maxSlkErr << endl;
 }
 
 void Sizer::CompareWithPT(unsigned view) {
-    cout << endl << "# pin timing" << endl << endl;
+    ecc::logInfo() << endl << "# pin timing" << endl << endl;
     for(unsigned i = 0; i < numcells; i++) {
-        cout << "Trident   : " << cells[i].name << "/"
+        ecc::logInfo() << "Trident   : " << cells[i].name << "/"
              << pins[view][cells[i].outpin].name << " "
              << pins[view][cells[i].outpin].rslk << " "
              << pins[view][cells[i].outpin].fslk << " "
@@ -1675,7 +1675,7 @@ void Sizer::CompareWithPT(unsigned view) {
              << pins[view][cells[i].outpin].rRAT << " "
              << pins[view][cells[i].outpin].fRAT << " "
              << pins[view][cells[i].outpin].ceff << endl;
-        cout << "PrimeTime : " << cells[i].name << "/"
+        ecc::logInfo() << "PrimeTime : " << cells[i].name << "/"
              << pins[view][cells[i].outpin].name << " "
              << T[view]->getRiseSlack(cells[i].name + "/" +
                                       pins[view][cells[i].outpin].name)
@@ -1711,7 +1711,7 @@ void Sizer::CompareWithPT(unsigned view) {
         for(unsigned j = 0; j < cells[i].inpins.size(); j++) {
             // if(isff(cells[i]) && pins[view][cells[i].inpins[j]].name == "ck")
             // continue;
-            cout << "Trident   : " << cells[i].name << "/"
+            ecc::logInfo() << "Trident   : " << cells[i].name << "/"
                  << pins[view][cells[i].inpins[j]].name << " "
                  << pins[view][cells[i].inpins[j]].rslk << " "
                  << pins[view][cells[i].inpins[j]].fslk << " "
@@ -1721,7 +1721,7 @@ void Sizer::CompareWithPT(unsigned view) {
                  << pins[view][cells[i].inpins[j]].fAAT << " "
                  << pins[view][cells[i].inpins[j]].rRAT << " "
                  << pins[view][cells[i].inpins[j]].fRAT << endl;
-            cout << "PrimeTime : " << cells[i].name << "/"
+            ecc::logInfo() << "PrimeTime : " << cells[i].name << "/"
                  << pins[view][cells[i].inpins[j]].name << " "
                  << T[view]->getRiseSlack(cells[i].name + "/" +
                                           pins[view][cells[i].inpins[j]].name)
@@ -1758,15 +1758,15 @@ void Sizer::CompareWithPT(unsigned view) {
         }
     }
 
-    cout << endl << "# port timing" << endl << endl;
+    ecc::logInfo() << endl << "# port timing" << endl << endl;
     for(unsigned i = 0; i < PIs.size(); i++) {
         // if ( pins[view][PIs[i]].name == "ispd_clk" ) continue;
-        cout << "Trident   : " << pins[view][PIs[i]].name << " "
+        ecc::logInfo() << "Trident   : " << pins[view][PIs[i]].name << " "
              << pins[view][PIs[i]].rslk << " " << pins[view][PIs[i]].fslk << " "
              << pins[view][PIs[i]].rtran << " " << pins[view][PIs[i]].ftran
              << " " << pins[view][PIs[i]].rAAT << " " << pins[view][PIs[i]].fAAT
              << " " << pins[view][PIs[i]].ceff << endl;
-        cout << "PrimeTime : " << pins[view][PIs[i]].name << " "
+        ecc::logInfo() << "PrimeTime : " << pins[view][PIs[i]].name << " "
              << T[view]->getRiseSlack(pins[view][PIs[i]].name) << " "
              << T[view]->getFallSlack(pins[view][PIs[i]].name) << " "
              << T[view]->getRiseTran(pins[view][PIs[i]].name) << " "
@@ -1776,12 +1776,12 @@ void Sizer::CompareWithPT(unsigned view) {
              << T[view]->getCeff(pins[view][PIs[i]].name) << endl;
     }
     for(unsigned i = 0; i < POs.size(); i++) {
-        cout << "Trident   : " << pins[view][POs[i]].name << " "
+        ecc::logInfo() << "Trident   : " << pins[view][POs[i]].name << " "
              << pins[view][POs[i]].rslk << " " << pins[view][POs[i]].fslk << " "
              << pins[view][POs[i]].rtran << " " << pins[view][POs[i]].ftran
              << " " << pins[view][POs[i]].rAAT << " " << pins[view][POs[i]].fAAT
              << endl;
-        cout << "PrimeTime : " << pins[view][POs[i]].name << " "
+        ecc::logInfo() << "PrimeTime : " << pins[view][POs[i]].name << " "
              << T[view]->getRiseSlack(pins[view][POs[i]].name) << " "
              << T[view]->getFallSlack(pins[view][POs[i]].name) << " "
              << T[view]->getRiseTran(pins[view][POs[i]].name) << " "
@@ -1792,9 +1792,9 @@ void Sizer::CompareWithPT(unsigned view) {
 }
 
 void Sizer::ReportTiming(unsigned view) {
-    cout << endl << "# pin timing" << endl << endl;
+    ecc::logInfo() << endl << "# pin timing" << endl << endl;
     for(unsigned i = 0; i < numcells; i++) {
-        cout << "Trident   : " << cells[i].name << "/"
+        ecc::logInfo() << "Trident   : " << cells[i].name << "/"
              << pins[view][cells[i].outpin].name << " "
              << pins[view][cells[i].outpin].rslk << " "
              << pins[view][cells[i].outpin].fslk << " "
@@ -1806,7 +1806,7 @@ void Sizer::ReportTiming(unsigned view) {
         for(unsigned j = 0; j < cells[i].inpins.size(); j++) {
             // if(isff(cells[i]) && pins[view][cells[i].inpins[j]].name == "ck")
             // continue;
-            cout << "Trident   : " << cells[i].name << "/"
+            ecc::logInfo() << "Trident   : " << cells[i].name << "/"
                  << pins[view][cells[i].inpins[j]].name << " "
                  << pins[view][cells[i].inpins[j]].rslk << " "
                  << pins[view][cells[i].inpins[j]].fslk << " "
@@ -1817,17 +1817,17 @@ void Sizer::ReportTiming(unsigned view) {
         }
     }
 
-    cout << endl << "# port timing" << endl << endl;
+    ecc::logInfo() << endl << "# port timing" << endl << endl;
     for(unsigned i = 0; i < PIs.size(); i++) {
         // if ( pins[view][PIs[i]].name == "ispd_clk" ) continue;
-        cout << "Trident   : " << pins[view][PIs[i]].name << " "
+        ecc::logInfo() << "Trident   : " << pins[view][PIs[i]].name << " "
              << pins[view][PIs[i]].rslk << " " << pins[view][PIs[i]].fslk << " "
              << pins[view][PIs[i]].rtran << " " << pins[view][PIs[i]].ftran
              << " " << pins[view][PIs[i]].rAAT << " " << pins[view][PIs[i]].fAAT
              << " " << pins[view][PIs[i]].ceff << endl;
     }
     for(unsigned i = 0; i < POs.size(); i++) {
-        cout << "Trident   : " << pins[view][POs[i]].name << " "
+        ecc::logInfo() << "Trident   : " << pins[view][POs[i]].name << " "
              << pins[view][POs[i]].rslk << " " << pins[view][POs[i]].fslk << " "
              << pins[view][POs[i]].rtran << " " << pins[view][POs[i]].ftran
              << " " << pins[view][POs[i]].rAAT << " " << pins[view][POs[i]].fAAT
@@ -1846,7 +1846,7 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
     string pin;
     ifstream infile(filename.c_str());
     if(!infile) {
-        cout << "-E-: Could not open '" << filename << "'" << endl;
+        ecc::logInfo() << "-E-: Could not open '" << filename << "'" << endl;
         ExitPTimer();
         exit(1);
     }
@@ -1860,13 +1860,13 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
 
 #endif
 
-    cout << "------------------------------" << endl;
-    cout << "|   Timing Error Statistics  |" << endl;
-    cout << "------------------------------" << endl;
-    cout << endl;
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << "|   Timing Error Statistics  |" << endl;
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << endl;
 
     if(verbose) {
-        cout << setw(4) << "R/F"  //<< " " << setw(8) << "CellName" \
+        ecc::logInfo() << setw(4) << "R/F"  //<< " " << setw(8) << "CellName" \
             //
              << " " << setw(8) << "CellDPt" << " " << setw(8) << "CellDTri"
              << " " << setw(8) << "CellDErr" << " " << setw(8) << "CellTrPt"
@@ -1877,7 +1877,7 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
              << " " << setw(8) << "CeffErr" << endl;
     }
     else {
-        cout << setw(8) << "CellDAvg" << " " << setw(8) << "CellDAAvg" << " "
+        ecc::logInfo() << setw(8) << "CellDAvg" << " " << setw(8) << "CellDAAvg" << " "
              << setw(8) << "CellDMax" << " " << setw(8) << "CellTrAvg" << " "
              << setw(8) << "CellTrAAvg" << " " << setw(8) << "CellTrMax" << " "
              << setw(8) << "WireDAvg" << " " << setw(8) << "WireDAAvg" << " "
@@ -2000,7 +2000,7 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
             for(unsigned k = 0; k < triCellDelay.size(); k++) {
                 if(verbose) {
                     cout.precision(4);
-                    cout
+                    ecc::logInfo()
                         << setw(4)
                         << "R"  //<< " " << setw(8) << fixed << triCellName[k] \
                 //
@@ -2023,7 +2023,7 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
                         << pins[view][nets[corner][i].inpin].totcap / ptCeff
                         << endl;
 
-                    cout
+                    ecc::logInfo()
                         << setw(4)
                         << "F"  //<< " " << setw(8) << fixed << triCellName[k] \
                 //
@@ -2113,7 +2113,7 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
         }  // each arc
     }  // each net
     cout.precision(4);
-    cout << "Summary\t" << " " << setw(8) << fixed << maxErrCellDelay << " "
+    ecc::logInfo() << "Summary\t" << " " << setw(8) << fixed << maxErrCellDelay << " "
          << setw(8) << fixed << avgErrCellDelay / (double)(cell_count) << " "
          << setw(8) << fixed << absAvgErrCellDelay / (double)(cell_count) << " "
          << setw(8) << fixed << maxErrCellTran << " " << setw(8) << fixed
@@ -2129,7 +2129,7 @@ void Sizer::ReportTimingStat(bool verbose, unsigned max_num_test,
 }
 
 void Sizer::ReportTimingStat(unsigned view) {
-    cout << "[Test] report timing statistics ..." << endl;
+    ecc::logInfo() << "[Test] report timing statistics ..." << endl;
 
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++)
@@ -2158,14 +2158,14 @@ void Sizer::ReportTimingStat(unsigned view) {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
     T = PTimer[0];
     int count = 0;
     UpdatePTSizes(view, count);
-    cout << "WNS(PT): " << T[view]->getWorstSlack("mclk") << endl;
+    ecc::logInfo() << "WNS(PT): " << T[view]->getWorstSlack("mclk") << endl;
     // CallTimerTest();
     /*
     unsigned clock_index = 0;
@@ -2189,7 +2189,7 @@ void Sizer::ReportTimingStat(unsigned view) {
             pins[view][cells[i].inpins[clock_index]].rtran = rtran_PT;
             pins[view][cells[i].inpins[clock_index]].ftran = ftran_PT;
             PIN & pin = pins[view][cells[i].inpins[clock_index]];
-            cout << "CP PIN TRAN UPDATE " << getFullPinName(pin) << " " <<
+            ecc::logInfo() << "CP PIN TRAN UPDATE " << getFullPinName(pin) << " " <<
     pin.rtran << "/" << pin.ftran  << "--" <<
     T[view]->getRiseTran(getFullPinName(pins[view][cells[i].inpins[clock_index]]))
     <<"/" <<
@@ -2219,7 +2219,7 @@ void Sizer::ReportTimingStat(unsigned view) {
 
 // TEST5
 void Sizer::ReportDeltaTimingStat(unsigned view) {
-    cout << "[Test] report timing statistics ..." << endl;
+    ecc::logInfo() << "[Test] report timing statistics ..." << endl;
     double begin = cpuTime();
 
     cells = new CELL[numcells];
@@ -2250,7 +2250,7 @@ void Sizer::ReportDeltaTimingStat(unsigned view) {
     int count = 0;
     UpdatePTSizes(view, count);
 
-    // cout << "WNS(PT): " << T[view]->getWorstSlack("mclk") << endl;
+    // ecc::logInfo() << "WNS(PT): " << T[view]->getWorstSlack("mclk") << endl;
 
     // cell move starts
     //
@@ -2265,25 +2265,25 @@ void Sizer::ReportDeltaTimingStat(unsigned view) {
             if(r_size(cells[k]) == 128)
                 continue;
             cell_resize(cells[k], 1);
-            // cout << cells[k].name << " upsized " << endl ;
+            // ecc::logInfo() << cells[k].name << " upsized " << endl ;
         }
         else if(i == 1) {
             if(r_size(cells[k]) == 1)
                 continue;
             cell_resize(cells[k], -1);
-            // cout << cells[k].name << " downsized " << endl;
+            // ecc::logInfo() << cells[k].name << " downsized " << endl;
         }
         else if(i == 2) {
             if(r_type(cells[k]) == f)
                 continue;
             cell_retype(cells[k], 1);
-            // cout << cells[k].name << " uptyped " << endl;
+            // ecc::logInfo() << cells[k].name << " uptyped " << endl;
         }
         else {
             if(r_type(cells[k]) == s)
                 continue;
             cell_retype(cells[k], -1);
-            // cout << cells[k].name << " downtyped " << endl;
+            // ecc::logInfo() << cells[k].name << " downtyped " << endl;
         }
 
 #ifdef USE_CEFF
@@ -2297,12 +2297,12 @@ void Sizer::ReportDeltaTimingStat(unsigned view) {
     }
 
     double cpu_time = cpuTime() - begin;
-    cout << count << " cells changed" << endl;
+    ecc::logInfo() << count << " cells changed" << endl;
     // CompareWithPT();
     // ReportTimingStat(false);
     ReportTimingStat(true, 1000);
 
-    cout << "cpu time : " << cpu_time << endl;
+    ecc::logInfo() << "cpu time : " << cpu_time << endl;
 
     ExitPTimer();
     for(unsigned i = 0; i < numViews; ++i) {
@@ -2347,7 +2347,7 @@ void Sizer::Test2(unsigned view) {
     CallTimer();
     CalcStats();
     WNS = T[view]->getWorstSlack("mclk");
-    cout << "w/o file: wns/TNS/PWR : " << WNS << " " << skew_violation << " "
+    ecc::logInfo() << "w/o file: wns/TNS/PWR : " << WNS << " " << skew_violation << " "
          << power << endl;
     ExitPTimer();
 
@@ -2360,7 +2360,7 @@ void Sizer::Test2(unsigned view) {
     CallTimer();
     CalcStats();
     WNS = T[view]->getWorstSlack("mclk");
-    cout << "w/ file: wns/TNS/PWR : " << WNS << " " << skew_violation << " "
+    ecc::logInfo() << "w/ file: wns/TNS/PWR : " << WNS << " " << skew_violation << " "
          << power << endl;
 
     double begin, cpu_time1, cpu_time2;
@@ -2398,7 +2398,7 @@ void Sizer::Test2(unsigned view) {
     }
     ofp.close();
     begin = cpuTime();
-    cout << "Reading slack timing... " << endl;
+    ecc::logInfo() << "Reading slack timing... " << endl;
     T[view]->writePinSlack(pin_file, pt_out_file);
     ifstream infile(pt_out_file.c_str());
 
@@ -2434,21 +2434,21 @@ void Sizer::Test2(unsigned view) {
     for(unsigned i = 0; i < numpins; i++) {
         if(slack_org_list[i].rise != slack_list[i].rise) {
             err++;
-            cout << "rise error " << slack_org_list[i].rise << " "
+            ecc::logInfo() << "rise error " << slack_org_list[i].rise << " "
                  << slack_list[i].rise << endl;
         }
         if(slack_org_list[i].fall != slack_list[i].fall) {
             err++;
-            cout << "fall error " << slack_org_list[i].fall << " "
+            ecc::logInfo() << "fall error " << slack_org_list[i].fall << " "
                  << slack_list[i].fall << endl;
         }
     }
     if(err > 0)
-        cout << "Error " << err << endl;
+        ecc::logInfo() << "Error " << err << endl;
     else
-        cout << "All timings are matched. :-)" << endl;
+        ecc::logInfo() << "All timings are matched. :-)" << endl;
 
-    cout << "Pin update timing " << cpu_time1 << " " << cpu_time2 << endl;
+    ecc::logInfo() << "Pin update timing " << cpu_time1 << " " << cpu_time2 << endl;
 
     ExitPTimer();
 
@@ -2478,7 +2478,7 @@ void Sizer::ReportSlackErr(unsigned view) {
         avgSlkErr += diff;
         absavgSlkErr += abs(diff);
         count++;
-        //     cout << pins[view][POs[i]].name << "R\t" << diff << endl;
+        //     ecc::logInfo() << pins[view][POs[i]].name << "R\t" << diff << endl;
 
         if(abs(maxSlkErr) < abs(diff))
             maxSlkErr = diff;
@@ -2489,7 +2489,7 @@ void Sizer::ReportSlackErr(unsigned view) {
         avgSlkErr += diff;
         absavgSlkErr += abs(diff);
         count++;
-        //      cout << pins[view][POs[i]].name << "F\t" << diff << endl;
+        //      ecc::logInfo() << pins[view][POs[i]].name << "F\t" << diff << endl;
 
         if(abs(maxSlkErr) < abs(diff))
             maxSlkErr = diff;
@@ -2503,7 +2503,7 @@ void Sizer::ReportSlackErr(unsigned view) {
         avgSlkErr += diff;
         absavgSlkErr += abs(diff);
         count++;
-        //       cout << cells[FFs[i]].name << "R\t" << diff << endl;
+        //       ecc::logInfo() << cells[FFs[i]].name << "R\t" << diff << endl;
 
         if(abs(maxSlkErr) < abs(diff))
             maxSlkErr = diff;
@@ -2514,16 +2514,16 @@ void Sizer::ReportSlackErr(unsigned view) {
         avgSlkErr += diff;
         absavgSlkErr += abs(diff);
         count++;
-        //        cout << cells[FFs[i]].name << "F\t" << diff << endl;
+        //        ecc::logInfo() << cells[FFs[i]].name << "F\t" << diff << endl;
 
         if(abs(maxSlkErr) < abs(diff))
             maxSlkErr = diff;
     }
     avgSlkErr = avgSlkErr / (double)count;
     absavgSlkErr = absavgSlkErr / (double)count;
-    cout << "MAX: " << maxSlkErr << "\t";
-    cout << "AVG: " << avgSlkErr << "\t";
-    cout << "AAVG: " << absavgSlkErr << endl;
+    ecc::logInfo() << "MAX: " << maxSlkErr << "\t";
+    ecc::logInfo() << "AVG: " << avgSlkErr << "\t";
+    ecc::logInfo() << "AAVG: " << absavgSlkErr << endl;
 }
 
 void Sizer::getCellDelaySlew(CELL& cell, vector< timing_lookup >& cell_delays,
@@ -2586,12 +2586,12 @@ void Sizer::getCellDelaySlew(CELL& cell, vector< timing_lookup >& cell_delays,
             cell_delay.rise = pins[view][cell.inpins[j]].rdelay[0];
             cell_delay.fall = pins[view][cell.inpins[j]].fdelay[0];
             if(_rise_delay != DBL_MAX) {
-                // cout << "rise " << cell_delay.rise << " " << cell_delay.fall
+                // ecc::logInfo() << "rise " << cell_delay.rise << " " << cell_delay.fall
                 // << endl;
                 cell_delay.rise = _rise_delay;
             }
             else if(_fall_delay != DBL_MAX) {
-                // cout << "fall " << cell_delay.rise << " " << cell_delay.fall
+                // ecc::logInfo() << "fall " << cell_delay.rise << " " << cell_delay.fall
                 // << endl;
                 cell_delay.fall = _fall_delay;
             }
@@ -2616,7 +2616,7 @@ void Sizer::getCellDelaySlew(CELL& cell, vector< timing_lookup >& cell_delays,
             master = T[view]->getLibCell(cell.name);
         else
             master = cell.type;
-        //        cout <<isPT << master <<" "<< inPinName << "->" << outPinName
+        //        ecc::logInfo() <<isPT << master <<" "<< inPinName << "->" << outPinName
         //        << ":" << cell_delay.rise <<" "  <<cell_itran.rise <<" "<<
         //        ceff<< endl;
 
@@ -2630,7 +2630,7 @@ void Sizer::ReportDelayAllParam(unsigned view) {
     unsigned corner = 0;  // mmmcViewList[view].corner;
     unsigned mode = mmmcViewList[view].mode;
     double begin = cpuTime();
-    cout << "[Test] report all parameters ..." << endl;
+    ecc::logInfo() << "[Test] report all parameters ..." << endl;
 
     cells = new CELL[numcells];
     for(unsigned i = 0; i < numcells; i++)
@@ -2657,7 +2657,7 @@ void Sizer::ReportDelayAllParam(unsigned view) {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -2674,7 +2674,7 @@ void Sizer::ReportDelayAllParam(unsigned view) {
     string filename = benchname + "." + "wst_wire_delay" + ".list";
     ifstream infile(filename.c_str());
     if(!infile) {
-        cout << "-E-: Could not open '" << filename << "'" << endl;
+        ecc::logInfo() << "-E-: Could not open '" << filename << "'" << endl;
         exit(1);
     }
     vector< string > wst_pin_list;
@@ -2689,7 +2689,7 @@ void Sizer::ReportDelayAllParam(unsigned view) {
 
 #endif
 
-    cout << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
+    ecc::logInfo() << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
          << "OutPin" << " " << setw(3) << "R/F" << " " << setw(8) << fixed
          << "PtDelay" << " " << setw(8) << fixed << "EMDelay" << " " << setw(8)
          << fixed << "D2M" << " " << setw(8) << fixed << "DM1" << " " << setw(8)
@@ -2734,7 +2734,7 @@ void Sizer::ReportDelayAllParam(unsigned view) {
     delete[] nets;
     printMemoryUsage();
     double cpu_time = cpuTime() - begin;
-    cout << "cpu time : " << cpu_time << endl;
+    ecc::logInfo() << "cpu time : " << cpu_time << endl;
 }
 
 void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
@@ -2816,7 +2816,7 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
 
     for(unsigned i = 0; i < triCellDelay.size(); i++) {
         cout.precision(4);
-        cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
+        ecc::logInfo() << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
              << "R" << " " << setw(8) << fixed << ptDelayR << " " << setw(8)
              << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
@@ -2839,7 +2839,7 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
              << T[view]->getRiseTran(out_pin_name) << endl;
 
         cout.precision(4);
-        cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
+        ecc::logInfo() << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
              << "F" << " " << setw(8) << fixed << ptDelayF << " " << setw(8)
              << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
@@ -2863,7 +2863,7 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
     }
     if(triCellDelay.size() == 0) {
         cout.precision(4);
-        cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
+        ecc::logInfo() << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
              << "R" << " " << setw(8) << fixed << ptDelayR << " " << setw(8)
              << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
@@ -2884,7 +2884,7 @@ void Sizer::DelayAllParam(unsigned netID, unsigned sinkPinID, string prefix,
              << T[view]->getRiseTran(out_pin_name) << endl;
 
         cout.precision(4);
-        cout << prefix << " " << nets[corner][netID].name << " " << setw(8)
+        ecc::logInfo() << prefix << " " << nets[corner][netID].name << " " << setw(8)
              << in_pin_name << " " << setw(8) << out_pin_name << " " << setw(3)
              << "F" << " " << setw(8) << fixed << ptDelayF << " " << setw(8)
              << fixed << DelayEM << " " << setw(8) << fixed << DelayDM0 << " "
@@ -2947,7 +2947,7 @@ void Sizer::ReportDeltaTimingAll(unsigned view) {
     string pin;
     ifstream infile(filename.c_str());
     if(!infile) {
-        cout << "-E-: Could not open '" << filename << "'" << endl;
+        ecc::logInfo() << "-E-: Could not open '" << filename << "'" << endl;
         ExitPTimer();
         exit(1);
     }
@@ -2961,11 +2961,11 @@ void Sizer::ReportDeltaTimingAll(unsigned view) {
 
 #endif
 
-    cout << "------------------------------" << endl;
-    cout << "|     Delta Timing Report    |" << endl;
-    cout << "------------------------------" << endl;
-    cout << endl;
-    cout << "move" << " " << "NetName\t" << " " << setw(8) << "InPin" << " "
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << "|     Delta Timing Report    |" << endl;
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << endl;
+    ecc::logInfo() << "move" << " " << "NetName\t" << " " << setw(8) << "InPin" << " "
          << setw(8) << "OutPin" << " " << setw(3) << "R/F" << " " << setw(8)
          << fixed << "PtDelay" << " " << setw(8) << fixed << "EMDelay" << " "
          << setw(8) << fixed << "D2M" << " " << setw(8) << fixed << "DM1" << " "
@@ -3072,7 +3072,7 @@ void Sizer::ReportDeltaCellTranTimingAll(unsigned view) {
     string pin;
     ifstream infile(filename.c_str());
     if(!infile) {
-        cout << "-E-: Could not open '" << filename << "'" << endl;
+        ecc::logInfo() << "-E-: Could not open '" << filename << "'" << endl;
         ExitPTimer();
         exit(1);
     }
@@ -3086,11 +3086,11 @@ void Sizer::ReportDeltaCellTranTimingAll(unsigned view) {
 
 #endif
 
-    cout << "------------------------------" << endl;
-    cout << "|     Delta Timing Report    |" << endl;
-    cout << "------------------------------" << endl;
-    cout << endl;
-    cout << "move" << " " << "Cell" << " " << "InPin" << " " << "R" << " "
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << "|     Delta Timing Report    |" << endl;
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << endl;
+    ecc::logInfo() << "move" << " " << "Cell" << " " << "InPin" << " " << "R" << " "
          << setw(8) << fixed << "LE" << " " << setw(8) << fixed << "InTran"
          << " " << setw(8) << fixed << "Ceff" << " " << setw(8) << fixed
          << "Ctot" << " " << setw(8) << fixed << "PtOutTran" << " " << setw(8)
@@ -3393,7 +3393,7 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
     string pin;
     ifstream infile(filename.c_str());
     if(!infile) {
-        cout << "-E-: Could not open '" << filename << "'" << endl;
+        ecc::logInfo() << "-E-: Could not open '" << filename << "'" << endl;
         ExitPTimer();
         exit(1);
     }
@@ -3407,11 +3407,11 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
 
 #endif
 
-    cout << "------------------------------" << endl;
-    cout << "|     Delta Timing Report    |" << endl;
-    cout << "------------------------------" << endl;
-    cout << endl;
-    cout << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << "|     Delta Timing Report    |" << endl;
+    ecc::logInfo() << "------------------------------" << endl;
+    ecc::logInfo() << endl;
+    ecc::logInfo() << "NetName\t" << " " << setw(8) << "InPin" << " " << setw(8)
          << "OutPin" << " " << setw(4) << "R/F" << " " << setw(8) << fixed
          << "OrgCellType" << " " << setw(8) << fixed << "NewCellType" << " "
          << setw(8) << fixed << "PtCDly" << " " << setw(8) << fixed << "TriCD"
@@ -3650,7 +3650,7 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
                         cell_retype(
                             cells[pins[view][nets[corner][i].inpin].owner],
                             step);
-                        cout << cells[pins[view][nets[corner][i].inpin].owner]
+                        ecc::logInfo() << cells[pins[view][nets[corner][i].inpin].owner]
                                     .type
                              << endl;
                         changed_net_list.push_back(arc_index);
@@ -3746,7 +3746,7 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
                 triDeltaWireTran.fall = triWireTran.fall - triWireTranOrg.fall;
 
                 cout.precision(4);
-                cout << nets[corner][i].name << "\t " << setw(8) << in_pin_name
+                ecc::logInfo() << nets[corner][i].name << "\t " << setw(8) << in_pin_name
                      << " " << setw(8) << out_pin_name << " " << setw(4) << "R"
                      << " " << setw(8) << org_cell_type << " " << setw(8)
                      << cells[changed_cell_id].type << " " << setw(8) << fixed
@@ -3766,7 +3766,7 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
                      << setw(8) << fixed
                      << triDeltaWireTran.rise - ptDeltaWireTran.rise << endl;
 
-                cout << nets[corner][i].name << "\t " << setw(8) << in_pin_name
+                ecc::logInfo() << nets[corner][i].name << "\t " << setw(8) << in_pin_name
                      << " " << setw(8) << out_pin_name << " " << setw(4) << "F"
                      << " " << setw(8) << org_cell_type << " " << setw(8)
                      << cells[changed_cell_id].type << " " << setw(8) << fixed
@@ -3916,7 +3916,7 @@ void Sizer::DeltaCellTestSum(int step, bool isSize, bool isDrv, unsigned view) {
         }  // each arc
     }  // each net
 
-    cout << "Summary\t" << " " << setw(8) << "" << " " << setw(8) << fixed
+    ecc::logInfo() << "Summary\t" << " " << setw(8) << "" << " " << setw(8) << fixed
          << maxPtDeltaCellDelay << " " << setw(8) << fixed
          << maxTriDeltaCellDelay << " " << setw(8) << fixed << maxErrCellDelay
          << " " << setw(8) << fixed << avgPtDeltaCellDelay / count << " "
@@ -3983,27 +3983,27 @@ void Sizer::ReportDeltaTiming(unsigned view) {
     UpdatePTSizes(view, count);
     CallTimer();
 
-    cout << "=== DRIVER SIZE UP ===" << endl;
+    ecc::logInfo() << "=== DRIVER SIZE UP ===" << endl;
     // driver size up
     DeltaCellTestSum(1, true, true);
 
-    cout << "=== DRIVER SIZE DOWN ===" << endl;
+    ecc::logInfo() << "=== DRIVER SIZE DOWN ===" << endl;
     // driver size down
     DeltaCellTestSum(-1, true, true);
 
-    cout << "=== DRIVER VTH UP ===" << endl;
+    ecc::logInfo() << "=== DRIVER VTH UP ===" << endl;
     // driver vth up
     DeltaCellTestSum(1, false, true);
 
-    cout << "=== DRIVER VTH DOWN ===" << endl;
+    ecc::logInfo() << "=== DRIVER VTH DOWN ===" << endl;
     // driver vth down
     DeltaCellTestSum(-1, false, true);
 
-    cout << "=== SINK SIZE UP ===" << endl;
+    ecc::logInfo() << "=== SINK SIZE UP ===" << endl;
     // load size up
     DeltaCellTestSum(1, true, false);
 
-    cout << "=== SINK SIZE DOWN ===" << endl;
+    ecc::logInfo() << "=== SINK SIZE DOWN ===" << endl;
     // load size down
     DeltaCellTestSum(-1, true, false);
 
@@ -4044,7 +4044,7 @@ void Sizer::DelaySearchTest(unsigned view) {
     else {
         pi = 0;
     }
-    cout << "***" << pins[view][pi].name << endl;
+    ecc::logInfo() << "***" << pins[view][pi].name << endl;
 
     cell_retype(cells[0], 1);
     cell_retype(cells[1], 1);
@@ -4081,13 +4081,13 @@ void Sizer::DelaySearchTest(unsigned view) {
 
                         if(min_delay > delay) {
                             min_delay = delay;
-                            cout << "Min Delay: " << min_delay << endl;
-                            cout << "Solution: " << i << " " << j << " " << k
+                            ecc::logInfo() << "Min Delay: " << min_delay << endl;
+                            ecc::logInfo() << "Solution: " << i << " " << j << " " << k
                                  << " " << l << " " << m << endl;
                         }
-                        cout << delay << " : " << i << " " << j << " " << k
+                        ecc::logInfo() << delay << " : " << i << " " << j << " " << k
                              << " " << l << " " << m << endl;
-                        cout << delay << " : " << r_size(cells[0]) << ":"
+                        ecc::logInfo() << delay << " : " << r_size(cells[0]) << ":"
                              << r_type(cells[0]) << " " << r_size(cells[1])
                              << ":" << r_type(cells[1]) << " "
                              << r_size(cells[2]) << ":" << r_type(cells[2])
@@ -4095,7 +4095,7 @@ void Sizer::DelaySearchTest(unsigned view) {
                              << r_type(cells[3]) << " " << r_size(cells[4])
                              << ":" << r_type(cells[4]) << endl;
 
-                        cout << delay << " : "
+                        ecc::logInfo() << delay << " : "
                              << pins[view][cells[0].outpin].rAAT << " "
                              << pins[view][cells[1].outpin].rAAT << " "
                              << pins[view][cells[2].outpin].rAAT << " "
@@ -4155,7 +4155,7 @@ void Sizer::ZeroDelayTest() {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -4199,7 +4199,7 @@ void Sizer::ZeroDelayTest() {
             OneTimer(cells[i], STA_MARGIN, view);
 
             if(change_step) {
-                cout << cells[i].name << " " << old_type << " --> "
+                ecc::logInfo() << cells[i].name << " " << old_type << " --> "
                      << cells[i].type << endl;
                 for(unsigned j = 0; j < cells[i].inpins.size(); ++j) {
                     new_in_tran1.push_back(
@@ -4226,12 +4226,12 @@ void Sizer::ZeroDelayTest() {
                     new_out_tran2.push_back(r_ftran);
                 }
                 for(unsigned j = 0; j < cells[i].inpins.size(); ++j) {
-                    cout << "IN TRAN " << old_in_tran1[j] << " "
+                    ecc::logInfo() << "IN TRAN " << old_in_tran1[j] << " "
                          << new_in_tran1[j] << " " << old_in_tran2[j] << " "
                          << new_in_tran2[j] << endl;
                 }
                 for(unsigned j = 0; j < cells[i].outpins.size(); ++j) {
-                    cout << "OUT TRAN " << old_out_tran1[j] << " "
+                    ecc::logInfo() << "OUT TRAN " << old_out_tran1[j] << " "
                          << new_out_tran1[j] << " " << old_out_tran2[j] << " "
                          << new_out_tran2[j] << endl;
                 }
@@ -4280,7 +4280,7 @@ void Sizer::AllCorrSTATest() {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -4343,7 +4343,7 @@ void Sizer::AllCorrSTATest() {
     CallTimer(view);
 
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "before corr " << getFullPinName(pins[view][i]) << " "
+        ecc::logInfo() << "before corr " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
              << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
              << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
@@ -4360,7 +4360,7 @@ void Sizer::AllCorrSTATest() {
            //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
            !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-            cout << "before corr mismatch " << getFullPinName(pins[view][i])
+            ecc::logInfo() << "before corr mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
                  << " " << " " << pins[view][i].ftran << "/"
                  << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
@@ -4377,7 +4377,7 @@ void Sizer::AllCorrSTATest() {
 
     CorrelatePT(view);
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "after corr " << getFullPinName(pins[view][i]) << " "
+        ecc::logInfo() << "after corr " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
              << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
              << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
@@ -4394,7 +4394,7 @@ void Sizer::AllCorrSTATest() {
            //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
            !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-            cout << "after corr mismatch " << getFullPinName(pins[view][i])
+            ecc::logInfo() << "after corr mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
                  << " " << " " << pins[view][i].ftran << "/"
                  << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
@@ -4412,7 +4412,7 @@ void Sizer::AllCorrSTATest() {
     CallTimer(view);
 
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "after timer " << getFullPinName(pins[view][i]) << " "
+        ecc::logInfo() << "after timer " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
              << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
              << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
@@ -4429,7 +4429,7 @@ void Sizer::AllCorrSTATest() {
            //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
            !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-            cout << "after timer mismatch " << getFullPinName(pins[view][i])
+            ecc::logInfo() << "after timer mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
                  << " " << " " << pins[view][i].ftran << "/"
                  << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
@@ -4453,7 +4453,7 @@ void Sizer::AllCorrSTATest() {
         string old_type = cells[i].type;
         bool change = cell_retype(cells[i], -1, true);
         if(change) {
-            cout << "CHANGE " << cells[i].name << " " << old_type << " --> "
+            ecc::logInfo() << "CHANGE " << cells[i].name << " " << old_type << " --> "
                  << cells[i].type << endl;
             OneTimer(cells[i], STA_MARGIN);
             ++cnt;
@@ -4461,7 +4461,7 @@ void Sizer::AllCorrSTATest() {
         else {
             bool change1 = cell_resize(cells[i], -1, true);
             if(change1) {
-                cout << "CHANGE " << cells[i].name << " " << old_type << " --> "
+                ecc::logInfo() << "CHANGE " << cells[i].name << " " << old_type << " --> "
                      << cells[i].type << endl;
                 OneTimer(cells[i], STA_MARGIN);
                 ++cnt;
@@ -4518,7 +4518,7 @@ void Sizer::AllCorrSTATest() {
     infile.close();
 
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "after one timer " << getFullPinName(pins[view][i]) << " "
+        ecc::logInfo() << "after one timer " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
              << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
              << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
@@ -4535,7 +4535,7 @@ void Sizer::AllCorrSTATest() {
            //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
            !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-            cout << "after one timer mismatch " << getFullPinName(pins[view][i])
+            ecc::logInfo() << "after one timer mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
                  << " " << " " << pins[view][i].ftran << "/"
                  << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
@@ -4568,7 +4568,7 @@ void Sizer::AllCorrTest() {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -4597,7 +4597,7 @@ void Sizer::AllCorrTest() {
     UpdatePTSizes(view, count);
     UpdateCapsFromCells();
     double initial_tns = T[view]->getTNS();
-    printf("Initial TNS %f\n", initial_tns);
+    ecc::logPrintf("Initial TNS %f\n", initial_tns);
 
     string pt_in_file = benchname + ".pin_list";
     string pt_out_file = benchname + "_0.pt.tran";
@@ -4663,7 +4663,7 @@ void Sizer::AllCorrTest() {
 
         for(unsigned j = 0; j < cells[FFs[i]].inpins.size(); ++j) {
             unsigned curpin = cells[FFs[i]].inpins[j];
-            // cout << "CALC SLACK -- " << cells[FFs[i]].name << endl;
+            // ecc::logInfo() << "CALC SLACK -- " << cells[FFs[i]].name << endl;
 
             if(curpin == UINT_MAX) {
                 continue;
@@ -4686,7 +4686,7 @@ void Sizer::AllCorrTest() {
             }
             if(pins[view][curpin].rRAT > 8000 ||
                pins[view][curpin].fRAT > 8000) {
-                printf("Error, calc RAT Error\n");
+                ecc::logPrintf("Error, calc RAT Error\n");
             }
             double slack =
                 min(pins[view][curpin].rslk, pins[view][curpin].fslk);
@@ -4728,11 +4728,11 @@ void Sizer::AllCorrTest() {
     outfile << "Slack diff sum " << slack_diff_sum << endl;
     outfile << "Slack not equal num " << 1. * neq_num / numpins << " , "
             << neq_num << " / " << numpins << endl;
-    printf("Slack not equal num %f , %d / %d\n", 1. * neq_num / numpins,
+    ecc::logPrintf("Slack not equal num %f , %d / %d\n", 1. * neq_num / numpins,
            neq_num, numpins);
     exit(0);
     for(unsigned i = 0; i < numpins; ++i) {
-        // cout << "before corr " << getFullPinName(pins[view][i])
+        // ecc::logInfo() << "before corr " << getFullPinName(pins[view][i])
         //     << " " << pins[view][i].rtran << "/" << tran_list[i].rise << ""
         //     << " " << pins[view][i].ftran << "/" << tran_list[i].fall << ""
         //     << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
@@ -4750,7 +4750,7 @@ void Sizer::AllCorrTest() {
             continue;
         }
         // if(pins[view][i].rRAT > 8000 || pins[view][i].fRAT > 8000) {
-        //     printf("Error, pin %s calc RAT Error\n", pin_name.c_str());
+        //     ecc::logPrintf("Error, pin %s calc RAT Error\n", pin_name.c_str());
         // }
         // for(unsigned i = 0; i < _ckt->POs.size(); ++i) {
         //     string po_name = getFullPinName(g_pins[0][POs[i]]);
@@ -4781,7 +4781,7 @@ void Sizer::AllCorrTest() {
             neq_num++;
         }
     }
-    printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
+    ecc::logPrintf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
            numpins);
     // exit(0);
 
@@ -4803,13 +4803,13 @@ void Sizer::AllCorrTest() {
                               wire_cap2);
             wire_cap2 /= cap_unit;
             if(!isEqual(nets[i][j].cap, wire_cap2)) {
-                printf("Net %s, cap not equal %f, %f\n", netNameStr.c_str(),
+                ecc::logPrintf("Net %s, cap not equal %f, %f\n", netNameStr.c_str(),
                        nets[i][j].cap, wire_cap2);
                 diff_cap++;
             }
         }
     }
-    printf("Num diff cap %d\n", diff_cap);
+    ecc::logPrintf("Num diff cap %d\n", diff_cap);
     int num_dif_pin = 0;
     for(auto inst : design->getBlock()->getInsts()) {
         for(auto pin_ : inst->getITerms()) {
@@ -4831,7 +4831,7 @@ void Sizer::AllCorrTest() {
                 double slew_diff =
                     std::max((now_slew - slew_limit) / time_unit, 0.0);
                 if(!isEqual(p_slew, now_slew)) {
-                    printf("Pin %s, Net %s, slew not equal %f, %f\n",
+                    ecc::logPrintf("Pin %s, Net %s, slew not equal %f, %f\n",
                            pin_str.c_str(), pin_->getNet()->getName().c_str(),
                            p_slew, now_slew);
                     num_dif_pin++;
@@ -4839,11 +4839,11 @@ void Sizer::AllCorrTest() {
             }
         }
     }
-    printf("Num diff slew pins %d / %d \n", num_dif_pin, numpins);
+    ecc::logPrintf("Num diff slew pins %d / %d \n", num_dif_pin, numpins);
 
     CalcStats(0);
     for(unsigned i = 0; i < numpins; ++i) {
-        // cout << "after corr " << getFullPinName(pins[view][i]) << " "
+        // ecc::logInfo() << "after corr " << getFullPinName(pins[view][i]) << " "
         //      << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
         //      << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
         //      << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
@@ -4883,13 +4883,13 @@ void Sizer::AllCorrTest() {
             neq_num++;
         }
     }
-    printf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
+    ecc::logPrintf("not equal num %f , %d / %d\n", 1. * neq_num / numpins, neq_num,
            numpins);
     // exit(0);
     CallTimer(view);
 
     for(unsigned i = 0; i < numpins; ++i) {
-        // cout << "after timer " << getFullPinName(pins[view][i]) << " "
+        // ecc::logInfo() << "after timer " << getFullPinName(pins[view][i]) << " "
         //      << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
         //      << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
         //      << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
@@ -4907,7 +4907,7 @@ void Sizer::AllCorrTest() {
         //    //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
         //    !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
         //    !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-        //     cout << "after timer mismatch " << getFullPinName(pins[view][i])
+        //     ecc::logInfo() << "after timer mismatch " << getFullPinName(pins[view][i])
         //          << " " << pins[view][i].rtran << "/" << tran_list[i].rise
         //          << " "
         //          << " " << pins[view][i].ftran << "/" << tran_list[i].fall
@@ -4932,7 +4932,7 @@ void Sizer::AllCorrTest() {
             string old_type = cells[i].type;
             bool change = cell_resize(cells[i], 1, false);
             if(change) {
-                // cout << "CHANGE " << cells[i].name << " " << old_type << "
+                // ecc::logInfo() << "CHANGE " << cells[i].name << " " << old_type << "
                 // --> "
                 //      << cells[i].type << endl;
                 OneTimer(cells[i], STA_MARGIN);
@@ -4948,7 +4948,7 @@ void Sizer::AllCorrTest() {
     }
     num_dif_pin = 0;
     for(unsigned i = 0; i < numpins; ++i) {
-        // cout << "after one timer " << getFullPinName(pins[view][i]) << " "
+        // ecc::logInfo() << "after one timer " << getFullPinName(pins[view][i]) << " "
         //      << pins[view][i].rtran << "/" << tran_list[i].rise << " "
         //      << " " << pins[view][i].ftran << "/" << tran_list[i].fall << " "
         //      << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << " "
@@ -4969,7 +4969,7 @@ void Sizer::AllCorrTest() {
            //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
            !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
            !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-            cout << "after one timer mismatch " << getFullPinName(pins[view][i])
+            ecc::logInfo() << "after one timer mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << "/" << tran_list[i].rise
                  << " " << " " << pins[view][i].ftran << "/"
                  << tran_list[i].fall << " " << " " << pins[view][i].rAAT << "/"
@@ -4985,7 +4985,7 @@ void Sizer::AllCorrTest() {
             num_dif_pin++;
         }
     }
-    printf("Num diff pins after one timer %d / %d \n", num_dif_pin, numpins);
+    ecc::logPrintf("Num diff pins after one timer %d / %d \n", num_dif_pin, numpins);
     ExitPTimer();
 
     for(unsigned i = 0; i < numViews; ++i) {
@@ -5024,7 +5024,7 @@ void Sizer::TranCorrTest() {
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -5052,7 +5052,7 @@ void Sizer::TranCorrTest() {
         else
             tran.fall = atof(fall.c_str());
         tran_list.push_back(tran);
-        cout << "tran list" << getFullPinName(pins[view][num]) << " "
+        ecc::logInfo() << "tran list" << getFullPinName(pins[view][num]) << " "
              << tran_list[num].rise << " " << tran_list[num].fall << endl;
         ++num;
     }
@@ -5061,12 +5061,12 @@ void Sizer::TranCorrTest() {
     CallTimer(view);
 
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "slew before corr " << getFullPinName(pins[view][i]) << " "
+        ecc::logInfo() << "slew before corr " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << " " << tran_list[i].rise << " " << " "
              << pins[view][i].ftran << " " << tran_list[i].fall << " " << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall)) {
-            cout << "slew before corr mismatch "
+            ecc::logInfo() << "slew before corr mismatch "
                  << getFullPinName(pins[view][i]) << " " << pins[view][i].rtran
                  << " " << tran_list[i].rise << " " << " "
                  << pins[view][i].ftran << " " << tran_list[i].fall << " "
@@ -5077,14 +5077,14 @@ void Sizer::TranCorrTest() {
     CorrelatePT(view);
 
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "slew after corr " << getFullPinName(pins[view][i]) << " "
+        ecc::logInfo() << "slew after corr " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << " " << pins[view][i].rtran_ofs << " "
              << tran_list[i].rise << " " << " " << pins[view][i].ftran << " "
              << pins[view][i].ftran_ofs << " " << tran_list[i].fall << " "
              << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall)) {
-            cout << "slew after corr mismatch " << getFullPinName(pins[view][i])
+            ecc::logInfo() << "slew after corr mismatch " << getFullPinName(pins[view][i])
                  << " " << pins[view][i].rtran << " " << pins[view][i].rtran_ofs
                  << " " << tran_list[i].rise << " " << " "
                  << pins[view][i].ftran << " " << pins[view][i].ftran_ofs << " "
@@ -5094,14 +5094,14 @@ void Sizer::TranCorrTest() {
 
     CallTimer(view);
     for(unsigned i = 0; i < numpins; ++i) {
-        cout << "slew after timer " << getFullPinName(pins[view][i]) << " "
+        ecc::logInfo() << "slew after timer " << getFullPinName(pins[view][i]) << " "
              << pins[view][i].rtran << " " << pins[view][i].rtran_ofs << " "
              << tran_list[i].rise << " " << " " << pins[view][i].ftran << " "
              << pins[view][i].ftran_ofs << " " << tran_list[i].fall << " "
              << endl;
         if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
            !isEqual(pins[view][i].ftran, tran_list[i].fall)) {
-            cout << "slew after timer mismatch "
+            ecc::logInfo() << "slew after timer mismatch "
                  << getFullPinName(pins[view][i]) << " " << pins[view][i].rtran
                  << " " << pins[view][i].rtran_ofs << " " << tran_list[i].rise
                  << " " << " " << pins[view][i].ftran << " "
@@ -5144,32 +5144,32 @@ void Sizer::HLTest() {
         }
     }
     for(unsigned i = 0; i < _ckt->numnets; i++) {
-        cout << "--------- all sub node list (" << nets[0][i].name
+        ecc::logInfo() << "--------- all sub node list (" << nets[0][i].name
              << ")--------" << endl;
 
         vector< SUB_NODE >* subNodeVecPtr = &nets[0][i].subNodeVec;
         std::vector< SUB_NODE >::iterator subNodeIter;
         for(subNodeIter = subNodeVecPtr->begin();
             subNodeIter != subNodeVecPtr->end(); ++subNodeIter) {
-            cout << "Id: " << subNodeIter->id << ", Cap: " << subNodeIter->cap
+            ecc::logInfo() << "Id: " << subNodeIter->id << ", Cap: " << subNodeIter->cap
                  << " " << subNodeIter->isSink << endl;
 
             for(unsigned int i = 0; i < subNodeIter->adj.size(); ++i) {
-                cout << "Id: " << subNodeIter->id
+                ecc::logInfo() << "Id: " << subNodeIter->id
                      << ", Res: " << subNodeIter->res[i]
                      << " Adj :" << subNodeIter->adj[i] << endl;
             }
         }
 
-        cout << endl;
+        ecc::logInfo() << endl;
     }
 
-    cout << "HL Test ---- " << endl;
+    ecc::logInfo() << "HL Test ---- " << endl;
     PTimer = new designTiming**[1];
     for(int i = 0; i < 1; i++) {
         PTimer[i] = new designTiming*[numViews];
         for(int view = 0; view < numViews; view++) {
-            cout << "Launch " << i * numViews + view << "th PT" << endl;
+            ecc::logInfo() << "Launch " << i * numViews + view << "th PT" << endl;
             PTimer[i][view] = LaunchPTimer(i * numViews + view, view);
         }
     }
@@ -5180,15 +5180,15 @@ void Sizer::HLTest() {
     CalcStats();
     int count = 0;
     UpdatePTSizes(view, count);
-    cout << "WNS(PT): " << T[view]->getWorstSlack(clk_name[0]) << endl;
+    ecc::logInfo() << "WNS(PT): " << T[view]->getWorstSlack(clk_name[0]) << endl;
     CompareWithPT();
     for(unsigned i = 0; i < numcells; i++) {
         if(isff(cells[i]))
             continue;
         EstDeltaTNSNEW(cells[i], 0, 1);
-        // cout << "EST DELTA DELAY " << EstDeltaDelay(cells[i], 0, 1) << endl;
+        // ecc::logInfo() << "EST DELTA DELAY " << EstDeltaDelay(cells[i], 0, 1) << endl;
         EstDeltaTNSNEW(cells[i], 1, 0);
-        // cout << "EST DELTA DELAY " << EstDeltaDelay(cells[i], 1, 0) << endl;
+        // ecc::logInfo() << "EST DELTA DELAY " << EstDeltaDelay(cells[i], 1, 0) << endl;
     }
     // CorrelatePT();
     // CallTimer(view);
@@ -5199,7 +5199,7 @@ void Sizer::HLTest() {
     //
     //
     //    PIN &pin = pins[view][cells[k].outpins[0]];
-    //    cout << "PREV TIMING - ORIG " << getFullPinName(pin)
+    //    ecc::logInfo() << "PREV TIMING - ORIG " << getFullPinName(pin)
     //        << " (" << pin.rslk << "/" << pin.fslk << ")"
     //        << " (" << pin.rRAT << "/" << pin.fRAT << ")"
     //        << " (" << pin.rAAT << "/" << pin.fAAT << ")"
@@ -5207,10 +5207,10 @@ void Sizer::HLTest() {
     //        << " (" << pin.totcap << "," << pin.slk_gb << ")"
     //        << endl;
     //    cell_resize(cells[k], 1);
-    //    cout << cells[k].type << " upsized " << endl ;
+    //    ecc::logInfo() << cells[k].type << " upsized " << endl ;
     //    OneTimer(cells[k], STA_MARGIN);
     //
-    //    cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin)
+    //    ecc::logInfo() << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin)
     //        << " (" << pin.rslk << "/" << pin.fslk << ")"
     //        << " (" << pin.rRAT << "/" << pin.fRAT << ")"
     //        << " (" << pin.rAAT << "/" << pin.fAAT << ")"
@@ -5218,12 +5218,12 @@ void Sizer::HLTest() {
     //        << " (" << pin.totcap << "," << pin.slk_gb << ")"
     //        << endl;
     //
-    //    cout << cells[k].name << " " << cells[k].type << " --> ";
+    //    ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
     //    cell_resize(cells[k], -1);
-    //    cout << cells[k].type << " downsized " << endl ;
+    //    ecc::logInfo() << cells[k].type << " downsized " << endl ;
     //    OneTimer(cells[k], STA_MARGIN);
     //
-    //    cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin)
+    //    ecc::logInfo() << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin)
     //        << " (" << pin.rslk << "/" << pin.fslk << ")"
     //        << " (" << pin.rRAT << "/" << pin.fRAT << ")"
     //        << " (" << pin.rAAT << "/" << pin.fAAT << ")"
@@ -5233,10 +5233,10 @@ void Sizer::HLTest() {
     //
     //
     //    cell_retype(cells[k], 1);
-    //    cout << cells[k].type << " uptyped " << endl ;
+    //    ecc::logInfo() << cells[k].type << " uptyped " << endl ;
     //    OneTimer(cells[k], STA_MARGIN);
     //
-    //    cout << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin)
+    //    ecc::logInfo() << "AFTER SIZING TIMING - ORIG " << getFullPinName(pin)
     //        << " (" << pin.rslk << "/" << pin.fslk << ")"
     //        << " (" << pin.rRAT << "/" << pin.fRAT << ")"
     //        << " (" << pin.rAAT << "/" << pin.fAAT << ")"
@@ -5244,12 +5244,12 @@ void Sizer::HLTest() {
     //        << " (" << pin.totcap << "," << pin.slk_gb << ")"
     //        << endl;
     //
-    //    cout << cells[k].name << " " << cells[k].type << " --> ";
+    //    ecc::logInfo() << cells[k].name << " " << cells[k].type << " --> ";
     //    cell_retype(cells[k], -1);
-    //    cout << cells[k].type << " downtyped " << endl ;
+    //    ecc::logInfo() << cells[k].type << " downtyped " << endl ;
     //    OneTimer(cells[k], STA_MARGIN);
     //
-    //    cout << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin)
+    //    ecc::logInfo() << "AFTER REVERT TIMING - ORIG " << getFullPinName(pin)
     //        << " (" << pin.rslk << "/" << pin.fslk << ")"
     //        << " (" << pin.rRAT << "/" << pin.fRAT << ")"
     //        << " (" << pin.rAAT << "/" << pin.fAAT << ")"
@@ -5258,7 +5258,7 @@ void Sizer::HLTest() {
     //        << endl;
     //
     //    CallTimer();
-    //    cout << "AFTER REVERT TIMING FULL STA - ORIG " << getFullPinName(pin)
+    //    ecc::logInfo() << "AFTER REVERT TIMING FULL STA - ORIG " << getFullPinName(pin)
     //        << " (" << pin.rslk << "/" << pin.fslk << ")"
     //        << " (" << pin.rRAT << "/" << pin.fRAT << ")"
     //        << " (" << pin.rAAT << "/" << pin.fAAT << ")"
@@ -5308,7 +5308,7 @@ void Sizer::ReportCellTran(unsigned view) {
     LaunchPTimer(0);
     int count = 0;
     UpdatePTSizes(view, count);
-    cout << "Cell" << " " << "InPin" << " " << "R" << " " << setw(8) << fixed
+    ecc::logInfo() << "Cell" << " " << "InPin" << " " << "R" << " " << setw(8) << fixed
          << "LE" << " " << setw(8) << fixed << "InTran" << " " << setw(8)
          << fixed << "Ceff" << " " << setw(8) << fixed << "Ctot" << " "
          << setw(8) << fixed << "PtOutTran" << " " << setw(8) << fixed
@@ -5355,14 +5355,14 @@ void Sizer::ReportCellTran(unsigned view) {
 
         LookupST(cells[i], 0, &tri_rise_tran, &tri_fall_tran, 0, 0.0);
         cout.precision(4);
-        cout << cells[i].type << " " << pins[view][max_fall_pin].name << " "
+        ecc::logInfo() << cells[i].type << " " << pins[view][max_fall_pin].name << " "
              << "R" << " " << setw(8) << fixed << G.fall << " " << setw(8)
              << fixed << max_fall_tran << " " << setw(8) << fixed << ceff << " "
              << setw(8) << fixed << pins[view][cells[i].outpin].totcap << " "
              << setw(8) << fixed << pt_rise_tran << " " << setw(8) << fixed
              << tri_rise_tran << endl;
 
-        cout << cells[i].type << " " << pins[view][max_rise_pin].name << " "
+        ecc::logInfo() << cells[i].type << " " << pins[view][max_rise_pin].name << " "
              << "F" << " " << setw(8) << fixed << G.rise << " " << setw(8)
              << fixed << max_rise_tran << " " << setw(8) << fixed << ceff << " "
              << setw(8) << fixed << pins[view][cells[i].outpin].totcap << " "
@@ -5418,14 +5418,14 @@ void Sizer::ReportCellTran(unsigned cellID, string prefix, unsigned view) {
 
     LookupST(cells[cellID], 0, &tri_rise_tran, &tri_fall_tran, 0, 0.0);
     cout.precision(4);
-    cout << prefix << " " << cells[cellID].type << " "
+    ecc::logInfo() << prefix << " " << cells[cellID].type << " "
          << pins[view][max_fall_pin].name << " " << "R" << " " << setw(8)
          << fixed << G.fall << " " << setw(8) << fixed << max_fall_tran << " "
          << setw(8) << fixed << ceff << " " << setw(8) << fixed
          << pins[view][cells[cellID].outpin].totcap << " " << setw(8) << fixed
          << pt_rise_tran << " " << setw(8) << fixed << tri_rise_tran << endl;
 
-    cout << prefix << " " << cells[cellID].type << " "
+    ecc::logInfo() << prefix << " " << cells[cellID].type << " "
          << pins[view][max_rise_pin].name << " " << "F" << " " << setw(8)
          << fixed << G.rise << " " << setw(8) << fixed << max_rise_tran << " "
          << setw(8) << fixed << ceff << " " << setw(8) << fixed

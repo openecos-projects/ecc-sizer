@@ -5,21 +5,18 @@
 #include <iostream>
 #include <map>
 #include <sstream>
-#include "ckt.h"
+#include "sizing_model.h"
 #include "ord/Timing.h"
-#include "sizer.h"
+#include "cell_sizing.h"
 #include <limits>
 #include <unordered_map>
 #include <vector>
 #include "float.h"
 #include "utils.h"
-#include <vector>
 #include <thread>
 #include <mutex>
 #include <deque>
 #include <unordered_set>
-#include <unordered_map>
-#include <iostream>
 
 #if 0
 void process_pin_range(vector< unsigned >& fwpins, int start, int end,
@@ -92,18 +89,18 @@ void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
     for(int iter = start; iter < end; ++iter) {
         unsigned fipin = fwpins[iter];
         if(VERBOSE >= 2)
-            cout << "--- UPDATE PIN TIMING START "
+            ecc::logInfo() << "--- UPDATE PIN TIMING START "
                  << getFullPinName(pins[view][fipin]) << endl;
 
         bool change = updatePinTiming(pins[view][fipin], margin, view);
 
         if(VERBOSE >= 2)
-            cout << "--- UPDATE PIN TIMING END "
+            ecc::logInfo() << "--- UPDATE PIN TIMING END "
                  << getFullPinName(pins[view][fipin]) << endl;
 
         unsigned curnet = pins[view][fipin].net;
         if(VERBOSE >= 2)
-            cout << "----- NET " << nets[corner][curnet].name << " "
+            ecc::logInfo() << "----- NET " << nets[corner][curnet].name << " "
                  << nets[corner][curnet].outpins.size() << endl;
 
         // Synchronize visit counts
@@ -121,12 +118,12 @@ void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
                 unsigned curpin = nets[corner][curnet].outpins[j];
                 unsigned curfo = pins[view][curpin].owner;
                 if(VERBOSE >= 2)
-                    cout << "------- CUR PIN "
+                    ecc::logInfo() << "------- CUR PIN "
                          << getFullPinName(pins[view][curpin]) << endl;
 
                 if(curfo == UINT_MAX) {  // PO
                     if(VERBOSE >= 2)
-                        cout << "REACH PO -- ADD BW PIN "
+                        ecc::logInfo() << "REACH PO -- ADD BW PIN "
                              << getFullPinName(pins[view][curpin]) << endl;
                     lock_guard< mutex > lock(bwpins_mutex);
                     if(bwpins_set.count(curpin) == 0) {
@@ -143,7 +140,7 @@ void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
                                 ->second.pins[pins[view][curpin].lib_pin]
                                 .isClock) {
                             if(VERBOSE >= 2)
-                                cout << "REACH FF -- ADD BW PIN "
+                                ecc::logInfo() << "REACH FF -- ADD BW PIN "
                                      << getFullPinName(pins[view][curpin])
                                      << endl;
                             lock_guard< mutex > lock(bwpins_mutex);
@@ -164,7 +161,7 @@ void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
                 for(unsigned k = 0; k < cells[curfo].outpins.size(); ++k) {
                     unsigned fopin = cells[curfo].outpins[k];
                     if(VERBOSE >= 2)
-                        cout << "ADD FW PIN FO "
+                        ecc::logInfo() << "ADD FW PIN FO "
                              << getFullPinName(pins[view][fopin]) << endl;
                     if(local_fwpins_set.count(fopin) == 0) {
                         local_fwpins.push_back(fopin);
@@ -178,7 +175,7 @@ void process_pin_range(PIN** pins, NET** nets, vector< unsigned >& fwpins,
                 unsigned curpin = nets[corner][curnet].outpins[j];
                 unsigned curfo = pins[view][curpin].owner;
                 if(VERBOSE >= 2)
-                    cout << "ADD BW PIN NO CHANGE "
+                    ecc::logInfo() << "ADD BW PIN NO CHANGE "
                          << getFullPinName(pins[view][curpin]) << endl;
 
                 lock_guard< mutex > lock(bwpins_mutex);

@@ -8,6 +8,7 @@
 #include <vector>
 
 namespace odb {
+class dbBlock;
 class dbInst;
 class dbITerm;
 class dbMaster;
@@ -15,6 +16,9 @@ class dbNet;
 class dbObject;
 }  // namespace odb
 
+namespace dpl {
+class Opendp;
+}
 namespace ecc {
 
 struct BufferLocation {
@@ -64,7 +68,7 @@ struct CellReplacement {
 
 struct BufferInsertion {
     odb::dbNet* net = nullptr;
-    std::vector<odb::dbObject*> loads;
+    std::vector< odb::dbObject* > loads;
     odb::dbMaster* master = nullptr;
     BufferInsertionOptions options;
 };
@@ -73,14 +77,16 @@ struct BufferInsertion {
 // that swap, use the planned buffers. The plan is tied to the current
 // design state and must be discarded after an intervening edit or rollback.
 struct NetRepairPlan {
-    std::optional<CellReplacement> replacement;
-    std::vector<BufferInsertion> buffers;
+    std::optional< CellReplacement > replacement;
+    std::vector< BufferInsertion > buffers;
 };
 
 struct NetRepairEdits {
     bool replaced = false;
     unsigned inserted_buffers = 0;
-    explicit operator bool() const { return replaced || inserted_buffers != 0; }
+    explicit operator bool() const {
+        return replaced || inserted_buffers != 0;
+    }
 };
 
 // Mutation only: no candidate ranking, placement or timing policy. The caller
@@ -105,4 +111,10 @@ class OpenDbBufferInserter {
         const BufferInsertionOptions& options = {});
 };
 
+// Legalize and validate; protect DNT/explicit exclusions without changing
+// their persistent placement status. Throws on failure. May run inside an ECO.
+void legalizeRepairPlacement(
+    odb::dbBlock* block, dpl::Opendp* placer,
+    const std::vector< odb::dbInst* >& protected_instances = {},
+    bool incremental = false);
 }  // namespace ecc

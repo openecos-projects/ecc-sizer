@@ -1,3 +1,4 @@
+#include "utils.h"
 #include "legalize_core.h"
 
 #include <algorithm>
@@ -17,7 +18,7 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
                    std::vector<double>& out_x, std::vector<int>& out_row,
                    int& base_x, int& base_y, int& num_rows_out) {
     if(segs.empty()) {
-        printf("dp-legalize: no rows, inapplicable\n");
+        ecc::logPrintf("dp-legalize: no rows, inapplicable\n");
         return -1;
     }
     base_x = segs[0].origin_x;
@@ -37,7 +38,7 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     for(auto& row : segs) {
         if((row.origin_x - base_x) % site_w != 0 ||
            (row.origin_y - base_y) % site_h != 0) {
-            printf("dp-legalize: row segment at (%d,%d) off site grid, "
+            ecc::logPrintf("dp-legalize: row segment at (%d,%d) off site grid, "
                    "inapplicable\n",
                    row.origin_x, row.origin_y);
             return -1;
@@ -53,7 +54,7 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         }
         for(int r = 0; r < num_rows; ++r) {
             if(!seen[r]) {
-                printf("dp-legalize: missing row at y=%d, inapplicable\n",
+                ecc::logPrintf("dp-legalize: missing row at y=%d, inapplicable\n",
                        base_y + r * site_h);
                 return -1;
             }
@@ -302,13 +303,13 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
             out_x[i] = nodes[i].x;
             out_row[i] = (int)llround((nodes[i].y - base_y) / site_h);
         }
-        printf("dp-legalize: input already legal, preserving placement "
+        ecc::logPrintf("dp-legalize: input already legal, preserving placement "
                "(padding %d/%d)\n",
                padding_pair_compliant, padding_pair_count);
         return 0;
     }
     if(input_legal) {
-        printf("dp-legalize: input padding compliance %d/%d is below %d%%\n",
+        ecc::logPrintf("dp-legalize: input padding compliance %d/%d is below %d%%\n",
                padding_pair_compliant, padding_pair_count,
                kPaddingComplianceNumerator * 100 /
                    kPaddingComplianceDenominator);
@@ -388,7 +389,7 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         const double row_cap = double(max_right);
         for(int r = 0; r < num_rows; ++r) {
             if(row_mov[r] + row_obstacle_width[r] > row_cap) {
-                printf("dp-legalize: row %d overfull (mov %.0f + fix %.0f > "
+                ecc::logPrintf("dp-legalize: row %d overfull (mov %.0f + fix %.0f > "
                        "%.0f), inapplicable\n",
                        r, row_mov[r], row_obstacle_width[r], row_cap);
                 return -1;
@@ -471,7 +472,7 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
             }
         }
         if(degraded_rows > 0) {
-            printf("dp-legalize: %d rows degraded to zero padding\n",
+            ecc::logPrintf("dp-legalize: %d rows degraded to zero padding\n",
                    degraded_rows);
         }
     }

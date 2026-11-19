@@ -3,7 +3,7 @@
 
 ECC Sizer repairs a placed design using OpenDB and OpenSTA. The primary
 baselines are **Native**, **VG** and **Path**. **GOBI** is retained as an
-additional CUDA algorithm. PBBI is outside the new application flow.
+additional CUDA algorithm. PBBI has been removed.
 
 ## Build
 
@@ -27,8 +27,7 @@ cmake -S . -B build -DENABLE_GOBI_CUDA=ON -DENABLE_VG_CUDA=ON
 
 GOBI requires a usable CUDA device; requesting it without one is an error.
 VG defaults to CPU and can use CUDA with `--set vg.backend=cuda`; its existing
-CPU fallback policy remains available. Profiling is optional via
-`ENABLE_PROFILER`, which requires gperftools.
+CPU fallback policy remains available.
 
 ## Run
 
@@ -72,10 +71,16 @@ current design; inputs are never reloaded between stages.
 | power | Native power recovery, including supported resizing/VT moves |
 | fanout | Standalone fanout buffer insertion |
 | legalize | Legalize the current placement and refresh timing |
+| hold | OpenROAD hold repair with legalization and a second repair pass |
+| preplace / preplace-gain | Independent zero-wire-RC repair of an unplaced design |
+| sizing | Retained cell-sizing search, using the loaded OpenROAD design |
 
-All new flows require placed-design data with core rows and one STA scene.
-They use placement parasitics. Existing wire RC is retained; if absent,
-physical RC is derived from the lowest usable routing layer in the LEF.
+Repair uses one STA scene. Placed flows require core rows; preplace does not.
+Native/ORD/VG/GOBI/Path use placement parasitics. Existing wire RC is retained;
+if absent, physical RC is derived from the lowest usable LEF routing layer.
+Sizing and hold also support `--spef FILE` (or `read_spef` in input Tcl) for
+extracted/postroute parasitics and `--global-routing` for routing estimates. Supply routing setup/tracks in
+input Tcl for global routing. Input Tcl controls propagated/ideal clocks.
 Use `--rc rc.tcl` when the technology needs an explicit wire model. An SDC
 fanout constraint is never relaxed by the application's default limit.
 Use OpenROAD's `set_dont_use` and `set_dont_touch` in input Tcl for exclusions.
@@ -85,7 +90,7 @@ sets their location. Input files must not be reused as the output prefix.
 
 ## Configuration and logging
 
-Ordinary runs need no env/cmd or tuning files. `--threads` defaults to the
+The env/cmd format and `legacy` entry have been removed. Ordinary runs need no tuning files. `--threads` defaults to the
 available hardware concurrency. Algorithm budgets, electrical margins,
 acceptance tolerances and experimental policies remain optional through
 `--config FILE` and `--set KEY=VALUE`. Configuration files are loaded first;
@@ -93,12 +98,12 @@ explicit overrides then win regardless of their position on the command line.
 Unknown keys and malformed values fail before design loading.
 
 For example, `--set common.max_fanout=32` overrides the default fanout fallback;
-`--set setup.path_buffer_max_trials=0` removes the optional Path trial budget.
+`--set path.max_trials=0` removes the optional Path trial budget.
 The C++ API uses seconds; text options ending in `_ns` use nanoseconds.
 VT moves still require explicitly configured library suffixes; cell naming
 conventions are not guessed.
 
-New application diagnostics use spdlog. `--log-level debug|info|warn|error|off`
+Application, repair and retained sizing diagnostics use spdlog. `--log-level debug|info|warn|error|off`
 controls them and `--log FILE` adds a file sink. OpenROAD/STA diagnostics use
 OpenROAD's logger and its own controls. Tcl failures are checked and stop the
 flow instead of allowing acceptance with stale timing.
@@ -108,25 +113,26 @@ flow instead of allowing acceptance with stale timing.
 - `application.cpp`: CLI, stage ordering, shared repair services and output.
 - `design_io.*`: OpenROAD input/output, checked Tcl calls, RC defaults and
   supply connectivity. There is no additional LEF/Liberty/DEF/SDC parser here.
-- `design_edit.*`: OpenDB buffer insertion and cell-replacement actions. This
-  layer has no Sizer, Resizer, timing, candidate-ranking or acceptance policy.
-- `repair_*.{h,cpp,cu}`: algorithms, derived analysis data, acceptance checks,
-  placement integration and optional CUDA solvers. Native planning produces
-  a `NetRepairPlan` before applying edits inside the caller's ECO transaction.
-- `sizer.cpp`, `ckt.cpp` and related files: retained sizing and other existing
-  flows. They build as `sizer_legacy`; algorithms build as `sizer_algorithms`
-  without a dependency on that library. The application links both.
+- `design_edit.*`: buffer insertion, master replacement and legalization actions.
+- `repair_drv.*`: Native and ORD electrical repair, standalone fanout repair,
+  load downsizing and power recovery. Their acceptance policies remain explicit.
+- `repair_timing.*`: native setup repair and timing interfaces. VG, GOBI and
+  Path retain their separate, substantial solver implementations; Path has
+  independent `path.*` settings and never runs implicitly inside setup repair.
+- `repair_backend.h`: shared electrical models, candidate planning and acceptance.
+- `cell_sizing.*`, `sizing_model.*`, `liberty_import.cpp`: retained cell-sizing
+  search and its derived analysis arrays. Liberty models come from loaded STA
+  objects. These build as `sizer_search`, separate from `sizer_algorithms`.
 
 OpenDB remains the authoritative topology/placement store, and OpenSTA owns
 constraints/timing. Algorithm graphs and caches are temporary views. Plans
 must be rebuilt after intervening topology changes or rollback.
 
-The original sizing, preplace, hold, postroute/SPEF, global-routing RC and
-other non-PBBI functionality has **not** been removed. Those implementations
-remain accessible via `Sizer legacy -env FILE -f FILE`, including the main
-branch's legalization changes. Their old parser/output conventions remain
-isolated there; they are not yet migrated to the new entry point. Existing
-experiment scripts are not a compatibility contract for the new CLI.
+Input and output now use the same entry for all retained stages, including
+sizing, preplace, hold and postroute. Old env/cmd experiment launchers and
+submission templates have been deleted. Existing result checkers and OpenROAD
+Tcl evaluators remain useful for stored data; historical experiment formats
+are not a compatibility contract.
 
 `tests/` contains algorithm, ECO/rollback, legalization and real application
 loading/composition tests. `benchmark/`, `results/` and build directories are

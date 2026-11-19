@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "design_edit.h"
+#include "dpl/Opendp.h"
+#include <stdexcept>
 
 #include <algorithm>
-#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 
@@ -252,7 +253,8 @@ NetRepairEdits applyRepairPlan(const NetRepairPlan& plan) {
     if(plan.replacement) {
         const auto& replacement = *plan.replacement;
         if(!replacement.instance || !replacement.master)
-            throw std::invalid_argument("cell replacement requires an instance and master");
+            throw std::invalid_argument(
+                "cell replacement requires an instance and master");
         if(replacement.instance->swapMaster(replacement.master)) {
             result.replaced = true;
             return result;
@@ -260,11 +262,45 @@ NetRepairEdits applyRepairPlan(const NetRepairPlan& plan) {
     }
     for(const auto& insertion : plan.buffers) {
         const auto inserted = OpenDbBufferInserter::insertBufferBeforeLoads(
-            insertion.net, insertion.loads, insertion.master, insertion.options);
-        if(!inserted) throw std::runtime_error(inserted.message);
+            insertion.net, insertion.loads, insertion.master,
+            insertion.options);
+        if(!inserted)
+            throw std::runtime_error(inserted.message);
         ++result.inserted_buffers;
     }
     return result;
 }
 
+void legalizeRepairPlacement(
+    odb::dbBlock* block, dpl::Opendp* placer,
+    const std::vector< odb::dbInst* >& protected_instances, bool incremental) {
+    if(!block || !placer || block->getRows().empty())
+        throw std::runtime_error(
+            "native repair legalization requires a placer and core rows");
+    const std::unordered_set< odb::dbInst* > protected_set(
+        protected_instances.begin(), protected_instances.end());
+    std::vector< std::pair< odb::dbInst*, odb::dbPlacementStatus > > statuses;
+    for(auto* inst : block->getInsts()) {
+        if(!inst->isFixed() &&
+           (inst->isDoNotTouch() || protected_set.count(inst))) {
+            statuses.emplace_back(inst, inst->getPlacementStatus());
+            inst->setPlacementStatus(odb::dbPlacementStatus::LOCKED);
+        }
+    }
+    const auto restore = [&]() {
+        for(const auto& [inst, status] : statuses)
+            inst->setPlacementStatus(status);
+    };
+    try {
+        // Default DPL minimizes movement better than the negotiation/abacus
+        // mode on the repair workloads. Never treat a placed flag as legality.
+        placer->detailedPlacement(0, 0, "", incremental);
+        placer->checkPlacement(false);
+    }
+    catch(...) {
+        restore();
+        throw;
+    }
+    restore();
+}
 }  // namespace ecc

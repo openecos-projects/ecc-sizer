@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_timing.h"
 #include "repair_backend.h"
-#include "repair_load.h"
-#include "repair_acceptance.h"
 #include "repair_path.h"
 
 #include <chrono>
@@ -17,17 +15,16 @@
 #include "sta/PathExpanded.hh"
 
 namespace ecc {
-namespace {
 using detail::Buffer;
 using detail::NetState;
 using detail::Repair;
 
 // Wall-clock phase accounting includes exceptions and excludes logging.
-struct PhaseTimer {
+struct SetupPhaseTimer {
     double& elapsed;
     std::chrono::steady_clock::time_point start =
         std::chrono::steady_clock::now();
-    ~PhaseTimer() {
+    ~SetupPhaseTimer() {
         elapsed += std::chrono::duration< double, std::milli >(
                        std::chrono::steady_clock::now() - start)
                        .count();
@@ -38,7 +35,7 @@ struct CriticalNet {
     float slack = 0;
     std::unordered_set< odb::dbObject* > loads;
 };
-struct Candidate {
+struct SetupCandidate {
     odb::dbNet* net;
     odb::dbInst* driver;
     odb::dbMaster* master;
@@ -50,8 +47,8 @@ struct Candidate {
     bool downsize_load = false;
 };
 
-std::vector< NetState > measure(Repair& backend, sta::dbSta* sta,
-                                SetupRepairMetrics& metrics) {
+static std::vector< NetState > measureSetup(Repair& backend, sta::dbSta* sta,
+                                            SetupRepairMetrics& metrics) {
     auto states = backend.analyze(metrics.design, true);
     metrics.setup_tns = metrics.design.setup_tns;
     metrics.hold_tns = metrics.design.hold_tns;
@@ -61,9 +58,9 @@ std::vector< NetState > measure(Repair& backend, sta::dbSta* sta,
     return states;
 }
 
-std::vector< Candidate > candidates(Repair& backend, sta::dbSta* sta,
-                                    const std::vector< NetState >& states,
-                                    const SetupRepairOptions& options) {
+static std::vector< SetupCandidate > setupCandidates(
+    Repair& backend, sta::dbSta* sta, const std::vector< NetState >& states,
+    const SetupRepairOptions& options) {
     auto* network = sta->getDbNetwork();
     sta::StringSeq groups;
     const auto ends = sta->findPathEnds(
@@ -106,7 +103,7 @@ std::vector< Candidate > candidates(Repair& backend, sta::dbSta* sta,
             entry.loads.insert(load);
         }
     }
-    std::vector< Candidate > result;
+    std::vector< SetupCandidate > result;
     detail::LoadDownsizePlanner load_planner(backend, sta, states,
                                              options.common);
     for(const auto& state : states) {
@@ -200,7 +197,7 @@ std::vector< Candidate > candidates(Repair& backend, sta::dbSta* sta,
         }
     }
     std::sort(result.begin(), result.end(),
-              [](const Candidate& a, const Candidate& b) {
+              [](const SetupCandidate& a, const SetupCandidate& b) {
                   if(a.slack != b.slack)
                       return a.slack < b.slack;
                   if(a.gain != b.gain)
@@ -218,9 +215,9 @@ std::vector< Candidate > candidates(Repair& backend, sta::dbSta* sta,
     return result;
 }
 
-bool acceptable(const SetupRepairMetrics& before,
-                const SetupRepairMetrics& after, double area_limit,
-                const SetupRepairOptions& options) {
+static bool acceptableSetup(const SetupRepairMetrics& before,
+                            const SetupRepairMetrics& after, double area_limit,
+                            const SetupRepairOptions& options) {
     const auto& tolerance = options.common.tolerances;
     const float improvement = options.min_improvement;
     const float tns_tolerance =
@@ -235,8 +232,6 @@ bool acceptable(const SetupRepairMetrics& before,
            after.design.severity <=
                before.design.severity + tolerance.drv_severity;
 }
-
-}  // namespace
 
 SetupRepairResult OpenDbSetupRepairer::repair(
     odb::dbBlock* block, sta::dbSta* sta,
@@ -257,7 +252,7 @@ SetupRepairResult OpenDbSetupRepairer::repair(
     Repair backend(block, sta, options.common);
     bool needs_refresh = false;
     const auto update = [&](bool restoring) {
-        PhaseTimer timer{result.refresh_ms};
+        SetupPhaseTimer timer{result.refresh_ms};
         ++result.refreshes;
         if(restoring)
             ++result.rollback_refreshes;
@@ -265,64 +260,21 @@ SetupRepairResult OpenDbSetupRepairer::repair(
         needs_refresh = false;
     };
     const auto inspect = [&](SetupRepairMetrics& metrics) {
-        PhaseTimer timer{result.measure_ms};
-        return measure(backend, sta, metrics);
+        SetupPhaseTimer timer{result.measure_ms};
+        return measureSetup(backend, sta, metrics);
     };
     auto states = inspect(result.before);
     result.after = result.before;
-    try {
-        if(options.path_buffer_enabled || options.path_buffer_only) {
-            auto& path_result = result.path;
-            path_result = OpenDbPathRepairer::repair(block, sta, refresh, options);
-            if(options.path_buffer_only) result.message = path_result.message;
-            result.refreshes += path_result.refreshes;
-            result.rollback_refreshes += path_result.rollback_refreshes;
-            result.candidate_ms += path_result.candidate_ms;
-            result.prepare_ms += path_result.prepare_ms;
-            result.refresh_ms += path_result.refresh_ms;
-            result.measure_ms += path_result.measure_ms;
-            result.inserted_buffers += path_result.inserted_buffers;
-            result.after.design = path_result.after;
-            result.after.setup_tns = path_result.after.setup_tns;
-            result.after.hold_tns = path_result.after.hold_tns;
-            result.after.slew_violations =
-                path_result.after.total_slew_violations;
-            result.after.cap_violations =
-                path_result.after.total_cap_violations;
-            result.after.fanout_violations =
-                path_result.after.total_fanout_violations;
-            if(!path_result.ok) {
-                result.message = path_result.message;
-                return result;
-            }
-            // Path edits change the OpenDB topology. Rebuild the normal
-            // candidate state from the committed design before continuing.
-            states = inspect(result.after);
-        }
-    }
-    catch(const std::exception& error) {
-        result.message = error.what();
-        return result;
-    }
-    if(options.path_buffer_only) {
-        result.ok = true;
-        result.converged = result.after.design.setup_wns >= 0;
-        if(result.message.empty())
-            result.message = result.converged
-                                 ? "path buffer setup timing met"
-                                 : "path buffer trial budget exhausted; violations remain";
-        return result;
-    }
     const double area_limit =
         result.before.design.area * (1 + options.max_area_growth);
     for(unsigned pass = 0;
         pass < options.max_passes && result.after.design.setup_wns < 0 &&
         result.attempted_batches < options.max_trials;
         ++pass) {
-        std::vector< Candidate > plans;
+        std::vector< SetupCandidate > plans;
         {
-            PhaseTimer timer{result.candidate_ms};
-            plans = candidates(backend, sta, states, options);
+            SetupPhaseTimer timer{result.candidate_ms};
+            plans = setupCandidates(backend, sta, states, options);
         }
         // A rejection applies only to this committed design. Clear on every
         // accepted pass, because loads/timing/placement may then have changed.
@@ -416,13 +368,13 @@ SetupRepairResult OpenDbSetupRepairer::repair(
                 }
                 ++result.attempted_batches;
                 if(options.common.prepare) {
-                    PhaseTimer timer{result.prepare_ms};
+                    SetupPhaseTimer timer{result.prepare_ms};
                     options.common.prepare();
                 }
                 update(false);
                 SetupRepairMetrics after;
                 auto next_states = inspect(after);
-                if(acceptable(result.after, after, area_limit, options)) {
+                if(acceptableSetup(result.after, after, area_limit, options)) {
                     odb::dbDatabase::commitEco(block);
                     active = false;
                     ++result.accepted_batches;

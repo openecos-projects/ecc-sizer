@@ -1,3 +1,4 @@
+#include "utils.h"
 //////////////////////////////////////////////////////////////////
 //
 //
@@ -201,7 +202,7 @@ TimerInterface::Status TimerInterface::runTimingAnalysisBlocking(
     const std::string &contest_root, const std::string &benchmark,
     const unsigned pollingTime) {
     if(!writeSizesForTimer(sizes, contest_root, benchmark)) {
-        std::cout << "-E- runTimingAnalysisBlocking: problem writing sizes"
+        ecc::logInfo() << "-E- runTimingAnalysisBlocking: problem writing sizes"
                   << std::endl;
         return TIMER_INTERFACEERROR;
     }
@@ -213,7 +214,7 @@ TimerInterface::Status TimerInterface::startTimingAnalysisNonBlocking(
     const std::vector< std::pair< std::string, std::string > > &sizes,
     const std::string &contest_root, const std::string &benchmark) {
     if(!writeSizesForTimer(sizes, contest_root, benchmark)) {
-        std::cout << "-E- startTimingAnalysisNonBlocking: problem writing sizes"
+        ecc::logInfo() << "-E- startTimingAnalysisNonBlocking: problem writing sizes"
                   << std::endl;
         return TIMER_INTERFACEERROR;
     }
@@ -239,14 +240,14 @@ std::string TimerInterface::getTimerStatusString(
            "__SIZERCMD_TIMERDONE_" == files[i] ||
            "__TCMD_RUNTIMER_" == files[i]) {
             if(cmd != "") {
-                std::cout
+                ecc::logInfo()
                     << "-Error- getTimerStatusString: multiple status found"
                     << std::endl;
                 for(unsigned j = 0; j < files.size(); ++j) {
                     if("__SIZERCMD_TIMERERROR_" == files[j] ||
                        "__SIZERCMD_TIMERDONE_" == files[j] ||
                        "__TCMD_RUNTIMER_" == files[j]) {
-                        std::cout << "   Status File: " << files[j]
+                        ecc::logInfo() << "   Status File: " << files[j]
                                   << std::endl;
                     }
                 }
@@ -275,7 +276,7 @@ bool TimerInterface::getFiles(std::vector< std::string > &files,
     files.clear();
     DIR *d = opendir(dir.c_str());
     if(NULL == d) {
-        std::cout << "-E- getFiles: could not list files in directory '" << dir
+        ecc::logInfo() << "-E- getFiles: could not list files in directory '" << dir
                   << "' to get timer status" << std::endl;
         return false;
     }
@@ -287,7 +288,7 @@ bool TimerInterface::getFiles(std::vector< std::string > &files,
     }
     closedir(d);
     // for (unsigned i=0; i<files.size(); ++i) {
-    //  std::cout << files[i] << std::endl;
+    //  ecc::logInfo() << files[i] << std::endl;
     //}
     return true;
 }
@@ -297,7 +298,7 @@ bool TimerInterface::getFiles(std::vector< std::string > &files,
 bool TimerInterface::removeFile(const std::string &dir,
                                 const std::string &file) {
     if(file != "__SIZERCMD_TIMERERROR_" && file != "__SIZERCMD_TIMERDONE_") {
-        std::cout << "-E-: removeFile: You can't use this to remove any files "
+        ecc::logInfo() << "-E-: removeFile: You can't use this to remove any files "
                      "other than __SIZERCMD_TIMERERROR_ and "
                      "__SIZERCMD_TIMERDONE_"
                   << std::endl;
@@ -319,7 +320,7 @@ bool TimerInterface::writeSizesForTimer(
         contest_root + "/" + benchmark + "/" + benchmark + ".int.sizes";
     std::ofstream ofile(filename.c_str());
     if(!ofile) {
-        std::cout << "-E- could not open file '" << filename << "' for output"
+        ecc::logInfo() << "-E- could not open file '" << filename << "' for output"
                   << std::endl;
         return false;
     }
@@ -345,7 +346,7 @@ bool TimerInterface::startTimingAnalysis(const std::string &contest_root,
     // Instruct the timer to start timing analysis
     std::ofstream ofile(filename.c_str());
     if(!ofile) {
-        std::cout << "-E- startTimingAnalysis: problem instructing timer to "
+        ecc::logInfo() << "-E- startTimingAnalysis: problem instructing timer to "
                      "run timing, could not write out '"
                   << filename << "'" << std::endl;
         assert(false);

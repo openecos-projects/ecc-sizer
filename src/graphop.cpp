@@ -38,7 +38,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #include <algorithm>
-#include "sizer.h"
+#include "cell_sizing.h"
 #include "utils.h"
 
 #define __DEBUG
@@ -87,7 +87,7 @@ void Sizer::SortTopo() {
             }
             if(ficell != UINT_MAX) {
                 g_cells[i].fis.push_back(ficell);
-                // cout << "FI " << g_cells[i].name << "--" <<
+                // ecc::logInfo() << "FI " << g_cells[i].name << "--" <<
                 // g_cells[ficell].name << endl;
             }
         }
@@ -107,7 +107,7 @@ void Sizer::SortTopo() {
                                   .owner;
                     if(focell != UINT_MAX) {
                         g_cells[i].fos.push_back(focell);
-                        // cout << "FO " << g_cells[i].name << "--" <<
+                        // ecc::logInfo() << "FO " << g_cells[i].name << "--" <<
                         // g_cells[focell].name << endl;
                     }
                 }
@@ -115,7 +115,7 @@ void Sizer::SortTopo() {
         }
     }
 
-    cout << endl << "Perform topological sort .. " << endl;
+    ecc::logInfo() << endl << "Perform topological sort .. " << endl;
 
     vector< int > net_cnt(numcells);
     vector< int > net_cnt2(numcells);
@@ -149,14 +149,14 @@ void Sizer::SortTopo() {
         if(net_cnt[i] == 0) {
             noincomes.push(i);
             check[i] = true;
-            // cout << "pi pushed " << g_cells[i].name << endl;
+            // ecc::logInfo() << "pi pushed " << g_cells[i].name << endl;
         }
     }
     for(unsigned i = 0; i < numcells; i++) {
         if(net_cnt[i] != 0 && isff(g_cells[i])) {
             noincomes.push(i);
             check[i] = true;
-            //  cout << "ff pushed " << g_cells[i].name << endl;
+            //  ecc::logInfo() << "ff pushed " << g_cells[i].name << endl;
         }
     }
 
@@ -189,19 +189,19 @@ void Sizer::SortTopo() {
 
     // for(unsigned i=0 ; i<numcells ; i++) {
     //    if ( !check[i] ) {
-    //        //cout << g_cells[i].name << " " << g_cells[i].type << endl;
-    //        cout << g_cells[i].name << " " << g_cells[i].type << " " <<
+    //        //ecc::logInfo() << g_cells[i].name << " " << g_cells[i].type << endl;
+    //        ecc::logInfo() << g_cells[i].name << " " << g_cells[i].type << " " <<
     //        static_cast<int>(level[i])  << " level -- " << net_cnt[i] << "/"
     //        << net_cnt2[i] << endl;
     //    }
     //}
     for(unsigned i = 0; i < numcells; i++) {
         if(!check[i]) {
-            // cout << g_cells[i].name << " " << g_cells[i].type << endl;
+            // ecc::logInfo() << g_cells[i].name << " " << g_cells[i].type << endl;
             topolist.push_back(i);
         }
     }
-    cout << "TOPO " << topolist.size() << " " << numcells << endl;
+    ecc::logInfo() << "TOPO " << topolist.size() << " " << numcells << endl;
     std::fill(check.begin(), check.end(), false);
     // assert(topolist.size() == numcells);
     // map2topoidx.resize(topolist.size());
@@ -254,16 +254,16 @@ void Sizer::SortTopo() {
     }
     for(unsigned i = 0; i < numcells; i++) {
         if(!check[i]) {
-            // cout << g_cells[i].name << " " << g_cells[i].type << endl;
+            // ecc::logInfo() << g_cells[i].name << " " << g_cells[i].type << endl;
             rtopolist.push_back(i);
         }
     }
-    cout << "RTOPO " << rtopolist.size() << " " << numcells << endl;
+    ecc::logInfo() << "RTOPO " << rtopolist.size() << " " << numcells << endl;
     // assert(rtopolist.size() == numcells);
 
-    // cout << endl<< "RTOPOLIST: ";
+    // ecc::logInfo() << endl<< "RTOPOLIST: ";
     // for(unsigned i=0 ; i<rtopolist.size() ; i++)
-    //    cout << g_cells[rtopolist[i]].name << endl;
+    //    ecc::logInfo() << g_cells[rtopolist[i]].name << endl;
 
     net_cnt.clear();
 }
@@ -349,7 +349,7 @@ void Sizer::CountNPaths(unsigned view) {
         // pins[view][i].NPaths = (NfromPI[i]) * (NtoPO[i]) + 1;
 #ifdef DEBUG
         if(pins[view][i].owner != UINT_MAX)
-            cout << cells[pins[view][i].owner].name << "/" << pins[view][i].name
+            ecc::logInfo() << cells[pins[view][i].owner].name << "/" << pins[view][i].name
                  << " " << NfromPI[i] << " " << NtoPO[i] << endl;
 #endif
     }
@@ -365,15 +365,15 @@ void Sizer::CountPathsLesserThanSlack(unsigned view, double slack) {
     for(unsigned i = 0; i < numpins; i++) {
         pins[view][i].NPathsLessThanSlack = 1;
     }
-    cout << "COUNT CRITICAL PATHS .... " << endl;
+    ecc::logInfo() << "COUNT CRITICAL PATHS .... " << endl;
     if(topolist.size() != numcells || rtopolist.size() != numcells) {
-        cout << "Warning: The graph is not complete." << endl;
+        ecc::logInfo() << "Warning: The graph is not complete." << endl;
         if(NO_TOPO) {
-            cout << "Return ... " << endl;
+            ecc::logInfo() << "Return ... " << endl;
             return;
         }
         else {
-            cout << "Proceed to count paths ... " << endl;
+            ecc::logInfo() << "Proceed to count paths ... " << endl;
         }
     }
 
@@ -439,7 +439,7 @@ void Sizer::CountPathsLesserThanSlack(unsigned view, double slack) {
                            .isData) {
                         NtoPO[curpin] = 1;
                         if(VERBOSE >= 2)
-                            cout << "COUNT PATH : FF " << cells[cur].type << " "
+                            ecc::logInfo() << "COUNT PATH : FF " << cells[cur].type << " "
                                  << pins[view][curpin].name << endl;
                     }
                 }
@@ -490,7 +490,7 @@ void Sizer::CountPathsLesserThanSlack(unsigned view, double slack) {
     FIfromPI.clear();
     FOtoPO.clear();
 
-    cout << "COUNT CRITICAL PATHS finished.... " << endl;
+    ecc::logInfo() << "COUNT CRITICAL PATHS finished.... " << endl;
 }
 
 void Sizer::CountPaths() {
@@ -501,15 +501,15 @@ void Sizer::CountPaths() {
     for(unsigned i = 0; i < numpins; i++) {
         g_pins[view][i].NPaths = 0;
     }
-    cout << "COUNT PATHS .... " << endl;
+    ecc::logInfo() << "COUNT PATHS .... " << endl;
     if(topolist.size() != numcells || rtopolist.size() != numcells) {
-        cout << "Warning: The graph is not complete." << endl;
+        ecc::logInfo() << "Warning: The graph is not complete." << endl;
         if(NO_TOPO) {
-            cout << "Return ... " << endl;
+            ecc::logInfo() << "Return ... " << endl;
             return;
         }
         else {
-            cout << "Proceed to count paths ... " << endl;
+            ecc::logInfo() << "Proceed to count paths ... " << endl;
         }
     }
 
@@ -625,7 +625,7 @@ void Sizer::CountPaths() {
                     NtoPO[curpin] = 1;
                     NCelltoPO[curpin] = 1;
                     if(VERBOSE >= 2)
-                        cout << "COUNT PATH : FF " << g_cells[cur].type << " "
+                        ecc::logInfo() << "COUNT PATH : FF " << g_cells[cur].type << " "
                              << g_pins[view][curpin].name << endl;
                 }
             }
@@ -677,7 +677,7 @@ void Sizer::CountPaths() {
         if(g_pins[view][i].NCellPaths == 0)
             g_pins[view][i].NCellPaths = 1;
 
-        //        cout << "NPATH " << getFullPinName(g_pins[view][i]) << " "
+        //        ecc::logInfo() << "NPATH " << getFullPinName(g_pins[view][i]) << " "
         //            << g_pins[view][i].NPaths << endl;
     }
 
@@ -687,7 +687,7 @@ void Sizer::CountPaths() {
             g_cells[i].FOtoPO = FOtoPO[i];
 
             if(VERBOSE >= 1) {
-                cout << g_cells[i].name
+                ecc::logInfo() << g_cells[i].name
                      << " #FIs: " << NfromPI[g_cells[i].outpin] << "-"
                      << FIfromPI[i].size() << "-"
                      << NCellfromPI[g_cells[i].outpin]
@@ -697,14 +697,14 @@ void Sizer::CountPaths() {
                 /*
                 for (unsigned j = 0; j < FIfromPI[g_cells[i].outpin].size();
                 j++) {
-                    cout << g_cells[FIfromPI[g_cells[i].outpin][j]].name << " ";
+                    ecc::logInfo() << g_cells[FIfromPI[g_cells[i].outpin][j]].name << " ";
                 }
-                cout << endl;
+                ecc::logInfo() << endl;
                 for (unsigned j = 0; j < FOtoPO[g_cells[i].outpin].size(); j++)
                 {
-                    cout << g_cells[FOtoPO[g_cells[i].outpin][j]].name << " ";
+                    ecc::logInfo() << g_cells[FOtoPO[g_cells[i].outpin][j]].name << " ";
                 }
-                cout << endl;
+                ecc::logInfo() << endl;
                 */
             }
         }
@@ -727,26 +727,26 @@ void Sizer::CountPaths() {
 
     if(sensFunc == 14 && VERBOSE >= 500) {
         for(unsigned i = 0; i < numcells; i++) {
-            cout << g_cells[i].name << " #FIs: " << g_cells[i].FIfromPI.size()
+            ecc::logInfo() << g_cells[i].name << " #FIs: " << g_cells[i].FIfromPI.size()
                  << " #FOs: " << g_cells[i].FOtoPO.size() << endl;
             for(unsigned j = 0; j < g_cells[i].FIfromPI.size(); j++) {
-                cout << g_cells[g_cells[i].FIfromPI[j]].name << " ";
+                ecc::logInfo() << g_cells[g_cells[i].FIfromPI[j]].name << " ";
             }
-            cout << endl;
+            ecc::logInfo() << endl;
             for(unsigned j = 0; j < g_cells[i].FOtoPO.size(); j++) {
-                cout << g_cells[g_cells[i].FOtoPO[j]].name << " ";
+                ecc::logInfo() << g_cells[g_cells[i].FOtoPO[j]].name << " ";
             }
-            cout << endl;
+            ecc::logInfo() << endl;
         }
     }
 
-    cout << "CountPath finished..." << endl;
+    ecc::logInfo() << "CountPath finished..." << endl;
 
     for(unsigned view1 = 1; view1 < numViews; ++view1) {
-        cout << "Copy NPaths to view " << view1 << endl;
+        ecc::logInfo() << "Copy NPaths to view " << view1 << endl;
         for(unsigned i = 0; i < numpins; i++) {
             g_pins[view1][i].NPaths = g_pins[view][i].NPaths;
         }
     }
-    cout << "Copy NPaths finished..." << endl;
+    ecc::logInfo() << "Copy NPaths finished..." << endl;
 }

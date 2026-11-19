@@ -1,3 +1,5 @@
+find_package(spdlog REQUIRED)
+
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -g -Wall -Wextra")
 set(CMAKE_C_FLAGS_DEBUG  "${CMAKE_C_FLAGS} -O0 -g -Wall -Wextra")
 
@@ -5,7 +7,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -DNDEBUG")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O3")
 
 set(OPENROAD_HOME ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/OpenROAD/src/)
-set(OPENROAD_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/OpenROAD/include/)  
+set(OPENROAD_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/OpenROAD/include/)
 set(OPENSTA_HOME ${OPENROAD_HOME}/sta)
 set(OPENSTA_HDEAR_HOME "${OPENSTA_HOME}/include/")
 set(OPENSTA_para_HDEAR_HOME "${OPENSTA_HOME}/parasitics/")
@@ -14,18 +16,6 @@ set(OPENDP_HDEAR_HOME "${OPENROAD_HOME}/dpl/include/")
 set(FASTROUTE_HDEAR_HOME "${OPENROAD_HOME}/grt/include/")
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
-
-option(ENABLE_PROFILER "Enable gperftools CPU profiler support" OFF)
-if(ENABLE_PROFILER)
-    find_package(PROFILER QUIET)
-    if(NOT LIBPROFILER_FOUND)
-        message(FATAL_ERROR "ENABLE_PROFILER=ON requires gperftools profiler headers and library")
-    endif()
-    message(STATUS "gperftools profiler support enabled")
-else()
-    set(LIBPROFILER_FOUND FALSE)
-    message(STATUS "gperftools profiler support disabled")
-endif()
 
 set(dbSTA_HDEAR_HOME "${OPENROAD_HOME}/dbSta/include/")
 include_directories(${OPENSTA_HDEAR_HOME}
@@ -41,18 +31,16 @@ include_directories(${OPENSTA_HDEAR_HOME}
                     )
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize)
 
-# Algorithms depend on OpenDB/STA and edit primitives, never on legacy Sizer.
+# Repair algorithms depend on OpenDB/STA and edit primitives, not cell sizing.
 set(SOURCES
     design_edit.cpp special_net.cpp lef_layer_rc.cpp
-    repair_config.cpp repair_design.cpp repair_design_ord.cpp repair_fanout.cpp
-    repair_load.cpp repair_placement.cpp repair_power.cpp repair_timing.cpp
+    repair_config.cpp repair_drv.cpp repair_timing.cpp
     repair_path.cpp repair_vg.cpp repair_vg_cuda.cpp
-    repair_gobi.cpp repair_gobi_cuda.cpp
-    repair_pbbi.cpp repair_pbbi_electrical.cpp repair_pbbi_solver.cpp repair_pbbi_timing.cpp)
+    repair_gobi.cpp repair_gobi_cuda.cpp)
 
-set(LEGACY_SOURCES
-    analyze_timing.cpp calc.cpp ckt.cpp fixdrv.cpp graphop.cpp legalize_core.cpp
-    lib_parser.cpp sizer.cpp test.cpp timer.cpp timing_propagating.cpp utils.cpp
+set(SIZING_SOURCES
+    analyze_timing.cpp calc.cpp sizing_model.cpp fixdrv.cpp graphop.cpp legalize_core.cpp
+    liberty_import.cpp cell_sizing.cpp test.cpp timer.cpp timing_propagating.cpp utils.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/greedy_legalize_cpu.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/legalize_bin_cpu.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/merge_bin_cpu.cpp
@@ -83,12 +71,14 @@ else()
 endif()
 
 add_library(sizer_algorithms STATIC ${SOURCES})
-add_library(sizer_legacy STATIC ${LEGACY_SOURCES})
+add_library(sizer_search STATIC ${SIZING_SOURCES})
 add_executable(Sizer application.cpp design_io.cpp)
 target_link_libraries(sizer_algorithms PUBLIC openroad)
-target_link_libraries(sizer_legacy PUBLIC sizer_algorithms)
-target_link_libraries(Sizer sizer_legacy)
-
+target_link_libraries(sizer_search PUBLIC sizer_algorithms)
+target_link_libraries(Sizer sizer_search)
+# GUI objects refer back to OpenROAD's Tcl entry symbols. Retain those symbols
+# without invoking the standalone entry (which would create a second session).
+set_property(TARGET Sizer PROPERTY LINK_LIBRARY_OVERRIDE "WHOLE_ARCHIVE,openroad")
 
 if(ENABLE_VG_CUDA OR ENABLE_GOBI_CUDA)
     set_target_properties(sizer_algorithms PROPERTIES CUDA_STANDARD 17
@@ -114,9 +104,6 @@ if(BUILD_TESTING)
         ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1" TIMEOUT 600)
     add_test(NAME ecc_sizer_repair_regression
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/repair_regression_test.py)
-    add_test(NAME ecc_sizer_ispd26_evaluation
-             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/evaluate_ispd26_test.py)
-    set_tests_properties(ecc_sizer_ispd26_evaluation PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
     add_executable(ecc_sizer_repair_buffer_budget_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_buffer_budget_test.cpp)
@@ -174,7 +161,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(ecc_sizer_repair_gobi_cuda_test PRIVATE
         GTest::gtest
-        GTest::gtest_main)
+        GTest::gtest_main spdlog::spdlog)
     if(ENABLE_GOBI_CUDA)
         set_target_properties(ecc_sizer_repair_gobi_cuda_test PROPERTIES
             CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON
@@ -194,50 +181,36 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${OPENROAD_HOME}/utl/include
     )
-    target_link_libraries(ecc_sizer_buffer_inserter_test odb)
+    target_link_libraries(ecc_sizer_buffer_inserter_test openroad)
     add_test(NAME ecc_sizer_buffer_inserter
              COMMAND ecc_sizer_buffer_inserter_test)
 
     add_executable(ecc_sizer_fanout_repair_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/fanout_repair_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/design_edit.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_fanout.cpp
     )
     target_include_directories(ecc_sizer_fanout_repair_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${OPENROAD_HOME}/utl/include
     )
-    target_link_libraries(ecc_sizer_fanout_repair_test odb)
+    target_link_libraries(ecc_sizer_fanout_repair_test sizer_algorithms)
     add_test(NAME ecc_sizer_fanout_repair
              COMMAND ecc_sizer_fanout_repair_test)
-
-    add_executable(ecc_sizer_repair_pbbi_solver_test
-        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_pbbi_solver_test.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_solver.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_timing.cpp)
-    target_include_directories(ecc_sizer_repair_pbbi_solver_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(ecc_sizer_repair_pbbi_solver_test PRIVATE GTest::gtest_main)
-    add_test(NAME ecc_sizer_repair_pbbi_solver COMMAND ecc_sizer_repair_pbbi_solver_test)
 
     add_executable(ecc_sizer_buffer_inserter_sta_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/design_edit.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_fanout.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_drv.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_design.cpp
+
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi_cuda.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_power.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_load.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_electrical.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_solver.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_pbbi_timing.cpp
+
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_path.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_timing.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_placement.cpp
+
     )
     target_include_directories(ecc_sizer_buffer_inserter_sta_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -289,10 +262,6 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize
     )
+    target_link_libraries(ecc_sizer_legalize_test PRIVATE spdlog::spdlog)
     add_test(NAME ecc_sizer_legalize COMMAND ecc_sizer_legalize_test)
-endif()
-
-if(LIBPROFILER_FOUND)
-    target_compile_definitions(sizer_legacy PRIVATE HAVE_GPERFTOOLS_PROFILER)
-    target_link_libraries(sizer_legacy PRIVATE gperftools::profiler)
 endif()

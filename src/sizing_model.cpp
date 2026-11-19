@@ -1,8 +1,8 @@
 #include "MinMax.hh"
 #include "NetworkClass.hh"
 #include "Transition.hh"
-#include "sizer.h"
-#include "ckt.h"
+#include "cell_sizing.h"
+#include "sizing_model.h"
 #include "special_net.h"
 #include <tcl8.6/tcl.h>
 #include <tcl8.6/tclDecls.h>
@@ -109,7 +109,7 @@ bool isBoundaryBuffer(odb::dbInst* inst)
         pad == nullptr || pad->getInst() == nullptr ? "" : pad->getInst()->getName();
     const string pad_pin_name =
         pad == nullptr || pad->getMTerm() == nullptr ? "" : pad->getMTerm()->getName();
-    std::cerr << "illegal IO boundary buffering: direction=" << direction
+    ecc::logError() << "illegal IO boundary buffering: direction=" << direction
               << " bterm=" << bterm_name
               << " upstream net=" << upstream_name
               << " buffer inst=" << buffer_name
@@ -237,9 +237,9 @@ void Circuit::InitData() {
     for(unsigned i = 0; i < _sizer->numModes; ++i) {
         string _clk_name;
         string _clk_port;
-        double _clk_period;
-        double _guardband;
-        double _power_clk_period;
+        double _clk_period = 0;
+        double _guardband = 0;
+        double _power_clk_period = 0;
 
         map< unsigned, double > _inrtran, _inftran;
         map< unsigned, unsigned > _driverInPins;
@@ -290,9 +290,10 @@ void Circuit::InitData() {
 
 void Circuit::Parser(string benchmark) {
     InitData();
-    cout << "Load design... " << _sizer->benchname << endl;
+    ecc::logInfo() << "Load design... " << _sizer->benchname << endl;
     // _sta = new sta::Sta;
-    init_opensta();
+    if(!_ord_design || !_ord_timing || !_sta)
+        throw std::logic_error("sizing requires a loaded OpenROAD design");
     ifstream infile;
     _ord_timing->makeEquivCells();
     int maxx = 0;
@@ -335,35 +336,9 @@ void Circuit::Parser(string benchmark) {
         }
     }
     infile.close();
-    if(!_sizer->mmmcOn) {
-        for(unsigned i = 0; i < _sizer->libLibs.size(); ++i) {
-            cout << "Parsing lib...     " << _sizer->libLibs[i] << endl;
-            if(_sizer->libLibPath != "") {
-                lib_parser(_sizer->libLibPath + "/" + _sizer->libLibs[i]);
-            }
-            else {
-                lib_parser(_sizer->libLibs[i]);
-            }
-        }
-    }
-    else {
-        for(unsigned corner = 0; corner < _sizer->mmmcLibLists.size();
-            ++corner) {
-            for(unsigned j = 0; j < _sizer->mmmcLibLists[corner].size(); ++j) {
-                cout << "Parsing lib...     " << _sizer->mmmcLibLists[corner][j]
-                     << endl;
-                if(_sizer->libLibPath != "") {
-                    lib_parser(_sizer->libLibPath + "/" +
-                                   _sizer->mmmcLibLists[corner][j],
-                               corner);
-                }
-                else {
-                    lib_parser(_sizer->mmmcLibLists[corner][j], corner);
-                }
-            }
-            _sizer->func2id.clear();
-        }
-    }
+    std::unique_ptr<sta::LibertyLibraryIterator> libraries(_sta->network()->libertyLibraryIterator());
+    while(libraries->hasNext())
+        importLiberty(libraries->next());
     // _sizer->runOrdTO();
     // find_resize_slacks();
     // exit(0);
@@ -373,7 +348,7 @@ void Circuit::Parser(string benchmark) {
     for(it = _sizer->func_lib_cell_list[t_corner].begin();
         it != _sizer->func_lib_cell_list[t_corner].end(); ++it) {
         vector< LibCellInfo* > cap_vec;
-        printf("Cell main type %s: \n", it->first.c_str());
+        ecc::logPrintf("Cell main type %s: \n", it->first.c_str());
         for(LibCellInfo* lib_cell_info : it->second) {
             double partial_order = 0;
             int partial_count = 0;
@@ -404,7 +379,7 @@ void Circuit::Parser(string benchmark) {
                     _sizer->time_unit;
                 pin.maxTran = slew_limit;
                 // if(fabs(slew_limit - 0.32) > 1e-3) {
-                //     cout << "not equal to 0.32, slew limit " << slew_limit
+                //     ecc::logInfo() << "not equal to 0.32, slew limit " << slew_limit
                 //          << endl;
                 //     // exit(0);
                 // }
@@ -425,9 +400,9 @@ void Circuit::Parser(string benchmark) {
                 }
             }
             lib_cell_info->partial_order = partial_order / partial_count;
-            printf("Cell type %s, sum cap %f, cap cnt %d, ",
+            ecc::logPrintf("Cell type %s, sum cap %f, cap cnt %d, ",
                    lib_cell_info->name.c_str(), partial_order, partial_count);
-            std::cout << "lekage " << lib_cell_info->leakagePower << std::endl;
+            ecc::logInfo() << "lekage " << lib_cell_info->leakagePower << std::endl;
         }
         auto& list = _sizer->func_lib_cell_list[t_corner][it->first];
         list.sort([&](LibCellInfo* c1, LibCellInfo* c2) {
@@ -443,16 +418,6 @@ void Circuit::Parser(string benchmark) {
         }
         _sizer->cap_lib_cell_vec[t_corner].insert({it->first, cap_vec});
     }
-    // if(!_sizer->mmmcOn) {
-    //     cout << "Parsing sdc...     " << _sizer->sdcFile << endl;
-    //     sdc_parser(_sizer->sdcFile);
-    // }
-    // else {
-    //     for(unsigned mode = 0; mode < _sizer->mmmcSdcList.size(); ++mode) {
-    //         cout << "Parsing sdc...     " << _sizer->mmmcSdcList[mode] <<
-    //         endl; sdc_parser(_sizer->mmmcSdcList[mode], mode);
-    //     }
-    // }
     assert(_sta);
     for(unsigned i = 0; i < g_pins.size(); ++i) {
         string cell_name = "NA";
@@ -461,23 +426,23 @@ void Circuit::Parser(string benchmark) {
         }
         assert(g_pins[i].cap < 1e31);
         if(VERBOSE > 4)
-            cout << "PINS --- " << i << " " << cell_name << "/"
+            ecc::logInfo() << "PINS --- " << i << " " << cell_name << "/"
                  << g_pins[i].name << " " << g_pins[i].lib_pin << endl;
     }
 
     if(VERBOSE > 4) {
-        cout << "PI TEST----" << endl;
+        ecc::logInfo() << "PI TEST----" << endl;
         for(unsigned mode = 0; mode < _sizer->numModes; ++mode) {
             for(unsigned i = 0; i < PIs.size(); ++i) {
                 assert(g_pins[PIs[i]].name != "");
                 // assert(_sizer->drivers[mode][PIs[i]] != "");
-                cout << PIs[i] << " " << g_pins[PIs[i]].name << " ";
+                ecc::logInfo() << PIs[i] << " " << g_pins[PIs[i]].name << " ";
 #ifdef DRIVER_CELL
                 << _sizer->drivers[mode][PIs[i]] << " "
                 << _sizer->driverInPins[mode][PIs[i]]
                 << " "
 #endif
-                    cout
+                    ecc::logInfo()
                 << _sizer->inrtran[mode][PIs[i]] << " "
                 << _sizer->inftran[mode][PIs[i]] << endl;
             }
@@ -493,10 +458,8 @@ void Circuit::Parser(string benchmark) {
     for(map< string, unsigned >::iterator it = check_map.begin();
         it != check_map.end(); ++it) {
         if(VERBOSE > 1)
-            cout << "CHECK MAP " << it->first << "---" << it->second << endl;
+            ecc::logInfo() << "CHECK MAP " << it->first << "---" << it->second << endl;
     }
-
-    _sizer->RuntimeLimit = 3600 * (3 + ceil(g_cells.size() / 40000.));
 
     for(unsigned i = 0; i < g_cells.size(); ++i) {
         _sizer->init_sizes.push_back(g_cells[i].type);
@@ -504,7 +467,7 @@ void Circuit::Parser(string benchmark) {
         list< string > pin_list;
         for(unsigned j = 0; j < g_cells[i].inpins.size(); ++j) {
             pin_list.push_back(getFullPinName(g_pins[g_cells[i].inpins[j]]));
-            // cout << g_pins[g_cells[i].inpins[j]].name << endl;
+            // ecc::logInfo() << g_pins[g_cells[i].inpins[j]].name << endl;
         }
         pin_list.sort();
 
@@ -512,7 +475,7 @@ void Circuit::Parser(string benchmark) {
 
         for(std::list< string >::iterator it = pin_list.begin();
             it != pin_list.end(); it++) {
-            // cout << "IN PIN LIST " <<   (*it) << endl;
+            // ecc::logInfo() << "IN PIN LIST " <<   (*it) << endl;
             assert(pin2id.count(*it));
             g_cells[i].inpins.push_back(pin2id[(*it)]);
         }
@@ -527,7 +490,7 @@ void Circuit::Parser(string benchmark) {
 
         for(std::list< string >::iterator it = pin_list2.begin();
             it != pin_list2.end(); it++) {
-            // cout << "OUT PIN LIST " <<   (*it) << endl;
+            // ecc::logInfo() << "OUT PIN LIST " <<   (*it) << endl;
             assert(pin2id.count(*it));
             g_cells[i].outpins.push_back(pin2id[(*it)]);
         }
@@ -535,7 +498,7 @@ void Circuit::Parser(string benchmark) {
 
     if(MINIMUM) {
         // reset to min size / vt
-        cout << "Reset to minimum size / vt ... " << endl;
+        ecc::logInfo() << "Reset to minimum size / vt ... " << endl;
         for(unsigned i = 0; i < g_cells.size(); ++i) {
             for(unsigned vt = 0; vt < _sizer->numVt; vt++) {
                 if(g_cells[i].isDontTouch) {
@@ -562,7 +525,7 @@ void Circuit::Parser(string benchmark) {
     }
     if(MAXIMUM) {
         // reset to min size / vt
-        cout << "Reset to MAXMUM size / vt ... " << endl;
+        ecc::logInfo() << "Reset to MAXMUM size / vt ... " << endl;
         for(unsigned i = 0; i < g_cells.size(); ++i) {
             if(g_cells[i].isDontTouch) {
                 continue;
@@ -591,9 +554,9 @@ void Circuit::Parser(string benchmark) {
         }
     }
     if(_sizer->mmmcOn && _sizer->numCorners > 1) {
-        cout << "copy nets to other corner" << endl;
+        ecc::logInfo() << "copy nets to other corner" << endl;
         for(unsigned corner = 1; corner < _sizer->numCorners; ++corner) {
-            cout << "copy to corner " << corner << endl;
+            ecc::logInfo() << "copy to corner " << corner << endl;
             for(unsigned i = 0; i < g_nets[0].size(); ++i) {
                 g_nets[corner][i] = g_nets[0][i];
             }
@@ -603,10 +566,10 @@ void Circuit::Parser(string benchmark) {
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
         if(!_sizer->noSPEF) {
             if(_sizer->mmmcOn)
-                cout << "Parsing spef...    " << _sizer->mmmcSpefList[corner]
+                ecc::logInfo() << "Parsing spef...    " << _sizer->mmmcSpefList[corner]
                      << " for corner " << corner << endl;
             else
-                cout << "Parsing spef...    " << endl;
+                ecc::logInfo() << "Parsing spef...    " << endl;
 
             readSpef_opensta(_sta);
 
@@ -618,7 +581,7 @@ void Circuit::Parser(string benchmark) {
             //     g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
 
             if(VERBOSE > 4)
-                cout << "CORNER " << corner << " NETS --- " << i << " "
+                ecc::logInfo() << "CORNER " << corner << " NETS --- " << i << " "
                      << g_nets[corner][i].name << endl;
 
             vector< SUB_NODE >* subNodeVecPtr = &g_nets[corner][i].subNodeVec;
@@ -639,7 +602,7 @@ void Circuit::Parser(string benchmark) {
             }
             pin_list2.sort();
             if(sink_num != g_nets[corner][i].outpins.size()) {
-                printf("Net %s has %d sinks, but %d outpins\n",
+                ecc::logPrintf("Net %s has %d sinks, but %d outpins\n",
                        g_nets[corner][i].name.c_str(), sink_num,
                        g_nets[corner][i].outpins.size());
             }
@@ -647,10 +610,10 @@ void Circuit::Parser(string benchmark) {
 
             for(std::list< string >::iterator it = pin_list2.begin();
                 it != pin_list2.end(); it++) {
-                // cout << "OUT PIN LIST " <<   (*it) << endl;
+                // ecc::logInfo() << "OUT PIN LIST " <<   (*it) << endl;
                 assert(pin2id.count(*it));
                 g_nets[corner][i].outpins.push_back(pin2id[(*it)]);
-                // cout << "NETS --- " << i << " " << g_nets[corner][i].name <<
+                // ecc::logInfo() << "NETS --- " << i << " " << g_nets[corner][i].name <<
                 // "OUT PIN LIST " <<   (*it) << endl;
             }
         }
@@ -670,7 +633,7 @@ void Circuit::assignLibPinId() {
         PIN* pin = &(*pin_iter);
         if(pin->owner != UINT_MAX) {
             CELL& cell = g_cells[pin->owner];
-            // cout << pin->name << " " << pin2id[cell.name+"/"+pin->name] << "
+            // ecc::logInfo() << pin->name << " " << pin2id[cell.name+"/"+pin->name] << "
             // " << pin->owner << endl;
             // Resize the rdelay/fdelay vector size
             pin->rdelay.resize(cell.outpins.size(), 0.0);
@@ -688,15 +651,15 @@ void Circuit::assignLibPinId() {
                 pin->lib_pin = temp_iter->second;
                 pin->cap = lib_cell_info->pins[pin->lib_pin].capacitance;
                 assert(pin->cap < 1e31);
-                // cout << "LIBPIN " << cell.name << "--" << pin->name <<"/" <<
+                // ecc::logInfo() << "LIBPIN " << cell.name << "--" << pin->name <<"/" <<
                 // pin->lib_pin << endl;
-                // cout << lib_cell_info->pins[pin->lib_pin] ;
+                // ecc::logInfo() << lib_cell_info->pins[pin->lib_pin] ;
             }
             else if(pin->name.find("]") != std::string::npos) {
                 string new_pin_name = pin->name.substr(0, pin->name.find("["));
                 temp_iter = lib_cell_info->lib_pin2id_map.find(new_pin_name);
                 if(temp_iter == lib_cell_info->lib_pin2id_map.end()) {
-                    cout << "Error: pin " << pin->name << " not found in cell "
+                    ecc::logInfo() << "Error: pin " << pin->name << " not found in cell "
                          << cell.type << endl;
                     assert(0);
                 }
@@ -705,18 +668,18 @@ void Circuit::assignLibPinId() {
                 // assert(pin->cap < 1e31);
             }
             else {
-                cout << "Error: pin " << pin->name << " not found in cell "
+                ecc::logInfo() << "Error: pin " << pin->name << " not found in cell "
                      << cell.type << endl;
                 assert(0);
             }
         }
         else {
-            // cout << pin->name << " " << pin2id[pin->name] << " " <<
+            // ecc::logInfo() << pin->name << " " << pin2id[pin->name] << " " <<
             // pin->owner << endl;
         }
     }
 
-    cout << "END OF PIN MAPPING" << endl;
+    ecc::logInfo() << "END OF PIN MAPPING" << endl;
 
     for(unsigned i = 0; i < g_cells.size(); ++i) {
         // LibCellInfo* lib_cell_info = _sizer->getLibCellInfo(g_cells[i]);
@@ -730,12 +693,12 @@ void Circuit::assignLibPinId() {
         master = g_cells[i].type;
         cellInst = g_cells[i].name;
         // if(VERBOSE >= 200)
-        //     cout << "INST " << i << " " << cellInst << " " << master << endl;
+        //     ecc::logInfo() << "INST " << i << " " << cellInst << " " << master << endl;
         for(int j = 0; j < _sizer->dontTouchCell.size(); j++) {
             if(_sizer->dontTouchCell[j] == master) {
                 g_cells[i].isDontTouch = true;
                 if(VERBOSE >= 4)
-                    cout << "LIST DONT TOUCH " << g_cells[i].name << " "
+                    ecc::logInfo() << "LIST DONT TOUCH " << g_cells[i].name << " "
                          << g_cells[i].type << endl;
             }
         }
@@ -744,7 +707,7 @@ void Circuit::assignLibPinId() {
             if(_sizer->dontTouchInst[j] == cellInst) {
                 g_cells[i].isDontTouch = true;
                 if(VERBOSE >= 4)
-                    cout << "LIST DONT TOUCH " << g_cells[i].name << " "
+                    ecc::logInfo() << "LIST DONT TOUCH " << g_cells[i].name << " "
                          << g_cells[i].type << endl;
             }
         }
@@ -779,7 +742,7 @@ void Circuit::assignLibPinId() {
                 }
 
                 if(g_cells[i].clock_pin == UINT_MAX) {
-                    cout << "WARNING: " << cell.type
+                    ecc::logInfo() << "WARNING: " << cell.type
                          << " is a sequential cell, but has no clock pin "
                          << endl;
                     cell.isDontTouch = true;
@@ -787,7 +750,7 @@ void Circuit::assignLibPinId() {
                 }
 
                 if(g_cells[i].data_pin == UINT_MAX) {
-                    cout << "WARNING: " << cell.type
+                    ecc::logInfo() << "WARNING: " << cell.type
                          << " is a sequential cell, but has no data pin "
                          << endl;
                     cell.isDontTouch = true;
@@ -801,7 +764,7 @@ void Circuit::assignLibPinId() {
                         g_nets[corner][g_pins[g_cells[i].clock_pin].net].inpin;
                 }
                 else {
-                    cout << "WARNING: no net for clock pin " << cell.type << " "
+                    ecc::logInfo() << "WARNING: no net for clock pin " << cell.type << " "
                          << cell.name << " "
                          << g_pins[g_cells[i].clock_pin].name << endl;
                 }
@@ -811,14 +774,14 @@ void Circuit::assignLibPinId() {
 
                     while(!g_pins[pin_index].isPI) {
                         if(visited.count(pin_index)) {
-                            // cout << "The pin is already visited!" << endl;
+                            // ecc::logInfo() << "The pin is already visited!" << endl;
                             break;
                         }
                         visited.insert(pin_index);
                         // visited[pin_index] = true;
 
                         if(g_cells[g_pins[pin_index].owner].isFF) {
-                            // cout << "Found a sequential cell!" << endl;
+                            // ecc::logInfo() << "Found a sequential cell!" << endl;
                             break;
                         }
                         g_cells[g_pins[pin_index].owner].isClockCell = true;
@@ -826,24 +789,24 @@ void Circuit::assignLibPinId() {
 
                         if(g_cells[g_pins[pin_index].owner].inpins.size() ==
                            0) {
-                            cout << "Input pin size is zero " << endl;
+                            ecc::logInfo() << "Input pin size is zero " << endl;
                             break;
                         }
                         else {
                             if(g_cells[g_pins[pin_index].owner].inpins[0] ==
                                UINT_MAX) {
-                                cout << "First input pin is invalid " << endl;
+                                ecc::logInfo() << "First input pin is invalid " << endl;
                                 break;
                             }
                             else if(g_pins[g_cells[g_pins[pin_index].owner]
                                                .inpins[0]]
                                         .net == UINT_MAX) {
-                                cout << "Input net is invalid" << endl;
+                                ecc::logInfo() << "Input net is invalid" << endl;
                                 break;
                             }
                         }
                         if(VERBOSE >= 4)
-                            cout << "CLOCK CELL DONT TOUCH "
+                            ecc::logInfo() << "CLOCK CELL DONT TOUCH "
                                  << g_cells[g_pins[pin_index].owner].name << " "
                                  << g_cells[g_pins[pin_index].owner].type << " "
                                  << g_nets
@@ -878,13 +841,13 @@ void Circuit::assignLibPinId() {
             //    lib_cell_info->footprint == "1") {
             //     g_cells[i].isDontTouch = true;
             //     if(VERBOSE >= 1)
-            //         cout << "TIE DONT TOUCH " << g_cells[i].name << " "
+            //         ecc::logInfo() << "TIE DONT TOUCH " << g_cells[i].name << " "
             //              << g_cells[i].type << endl;
             // }
         }
         else {
             if(VERBOSE >= 4)
-                cout << "BLACKBOX INST " << i << " " << cellInst << " "
+                ecc::logInfo() << "BLACKBOX INST " << i << " " << cellInst << " "
                      << master << endl;
             // treat blackboxes
             //
@@ -908,7 +871,7 @@ void Circuit::assignMaxTrans() {
 
         for(unsigned i = 0; i < _sizer->numCorners; ++i) {
             if(_sizer->libs[i].find(cell->type) == (_sizer->libs[i].end())) {
-                // printf("Error : cannot find lib cell info for %s\n",
+                // ecc::logPrintf("Error : cannot find lib cell info for %s\n",
                 //        cell->name.c_str());
                 cell->max_tran.push_back(_sizer->maxTran[i]);
                 continue;
@@ -917,7 +880,7 @@ void Circuit::assignMaxTrans() {
             // LibCellInfo* lib_cell = _sizer->getLibCellInfo(*cell, i);
 
             if(lib_cell == NULL) {
-                printf("Error : cannot find lib cell info for %s\n",
+                ecc::logPrintf("Error : cannot find lib cell info for %s\n",
                        cell->name.c_str());
                 cell->max_tran.push_back(_sizer->maxTran[i]);
             }
@@ -939,7 +902,7 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
     vector< CELL >::iterator iter;
     map< string, unsigned >::iterator temp_it;
     for(temp_it = check_map.begin(); temp_it != check_map.end(); ++temp_it) {
-        // cout << "CHECK MAP " << temp_it->first << " " << temp_it->second <<
+        // ecc::logInfo() << "CHECK MAP " << temp_it->first << " " << temp_it->second <<
         // endl;
     }
 
@@ -956,13 +919,13 @@ void Circuit::assignLibCellTables(map< string, unsigned > check_map) {
         string main_cell_type = lib_cell->footprint;
         cell->c_size = lib_cell->c_size;
         if(VERBOSE >= 4) {
-            printf("instance : %s, inital cell_name %s, inital size : %d\n",
+            ecc::logPrintf("instance : %s, inital cell_name %s, inital size : %d\n",
                    cell->name.c_str(), lib_cell->name.c_str(), cell->c_size);
         }
 
         if((temp_it = check_map.find(main_cell_type)) != check_map.end()) {
             cell->main_lib_cell_id = (int)temp_it->second;
-            // cout << "CELL TABLE " << cell->name << " " << cell->type << " "
+            // ecc::logInfo() << "CELL TABLE " << cell->name << " " << cell->type << " "
             // << main_cell_type << " " << cell->main_lib_cell_id << " " <<
             // cell->c_vtype << " " << cell->c_size << endl;
         }
@@ -989,11 +952,11 @@ map< string, unsigned > Circuit::generateLibCellTable() {
                 report_cell(iter->second);
             // int m = 0;
             // if(main_cell_type == "151" || main_cell_type == "152") {
-            //     printf("tetetete");
+            //     ecc::logPrintf("tetetete");
             //     m = 1;
             //     // continue;
             // }
-            // printf("main_cell_type %s m %d\n", main_cell_type.c_str(), m);
+            // ecc::logPrintf("main_cell_type %s m %d\n", main_cell_type.c_str(), m);
             if(check_map.find(main_cell_type) == check_map.end()) {
                 LibCellTable* main_lib_cell_table = new LibCellTable;
                 main_lib_cell_table->name = main_cell_type;
@@ -1019,21 +982,21 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
         _sizer->func_lib_cell_list[corner][type];
 
     if(candidate_list.size() == 0) {
-        printf("Warning: Cell %s has no candidate cell!\n", type.c_str());
+        ecc::logPrintf("Warning: Cell %s has no candidate cell!\n", type.c_str());
         return;
         // exit(0);
     }
     // If multiple equivalent cells exist, use the configured candidate order.
     // list size first
     std::unordered_map< string, int > lib_cell_size_index;
-    printf("sort by %s candidate_cell_info->name list: ",
+    ecc::logPrintf("sort by %s candidate_cell_info->name list: ",
            _sizer->equivCellSortModeName().c_str());
     for(auto candidate_cell_info : candidate_list) {
         // slowest vt first
         // if((*it)->c_vtype != 0) {
         //     continue;
         // }
-        cout << candidate_cell_info->name << "/"
+        ecc::logInfo() << candidate_cell_info->name << "/"
              << candidate_cell_info->leakagePower << " ";
         int vt = 0;
         string newCellName = candidate_cell_info->name;
@@ -1059,7 +1022,7 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
             else {
                 // SMIC 110 RVT NOT HAVE SUFIX
                 vt = 1;
-                printf("Warning: Cell %s has only 1 vt!\n",
+                ecc::logPrintf("Warning: Cell %s has only 1 vt!\n",
                        newCellName.c_str());
                 // exit(0);
             }
@@ -1079,7 +1042,7 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
             }
             else {
                 vt = 0;
-                printf("Warning: Cell %s has only 1 vt!\n",
+                ecc::logPrintf("Warning: Cell %s has only 1 vt!\n",
                        newCellName.c_str());
             }
         }
@@ -1099,26 +1062,26 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
         lib_cell_table.lib_vt_size_table[size_iter->second][vt] =
             candidate_cell_info;
     }
-    printf("\n");
-    // cout << "-------------------" << endl;
+    ecc::logPrintf("\n");
+    // ecc::logInfo() << "-------------------" << endl;
 
     // test
     if(VERBOSE >= 1) {
-        cout << "LIB CELL TABLE " << type
+        ecc::logInfo() << "LIB CELL TABLE " << type
              << " #SIZE = " << lib_cell_table.lib_vt_size_table.size()
              << " #VT = ";
         if(lib_cell_table.lib_vt_size_table.size() != 0) {
-            cout << lib_cell_table.lib_vt_size_table[0].size() << endl;
+            ecc::logInfo() << lib_cell_table.lib_vt_size_table[0].size() << endl;
         }
         else {
-            cout << " 0 " << endl;
+            ecc::logInfo() << " 0 " << endl;
         }
 
         for(unsigned i = 0; i < lib_cell_table.lib_vt_size_table.size(); ++i) {
             for(unsigned j = 0; j < lib_cell_table.lib_vt_size_table[i].size();
                 ++j) {
                 if(lib_cell_table.lib_vt_size_table[i][j] != NULL) {
-                    cout << "SIZE/VT " << i << "/" << j << " : "
+                    ecc::logInfo() << "SIZE/VT " << i << "/" << j << " : "
                          << lib_cell_table.lib_vt_size_table[i][j]->name
                          << endl;
                 }
@@ -1129,31 +1092,31 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
 
 void Circuit::Print_Stats() {
     unsigned corner = 0;
-    cout << endl << "--------------------------------------------" << endl;
-    cout << "NumCells  : " << setw(7) << g_cells.size() << "\t";
-    cout << "NumFFs    : " << setw(7) << FFs.size() << endl;
-    cout << "NumNets   : " << setw(7) << g_nets[corner].size() << "\t";
-    cout << "NumPins   : " << setw(7) << g_pins.size() << endl;
-    cout << "NumPIs    : " << setw(7) << PIs.size() << "\t";
-    cout << "NumPOs    : " << setw(7) << POs.size() << endl;
-    cout << "NumPCells : " << setw(7) << g_phy_cells.size() << endl;
-    cout << "--------------------------------------------" << endl << endl;
-    cout << "Sanity check..." << endl;
+    ecc::logInfo() << endl << "--------------------------------------------" << endl;
+    ecc::logInfo() << "NumCells  : " << setw(7) << g_cells.size() << "\t";
+    ecc::logInfo() << "NumFFs    : " << setw(7) << FFs.size() << endl;
+    ecc::logInfo() << "NumNets   : " << setw(7) << g_nets[corner].size() << "\t";
+    ecc::logInfo() << "NumPins   : " << setw(7) << g_pins.size() << endl;
+    ecc::logInfo() << "NumPIs    : " << setw(7) << PIs.size() << "\t";
+    ecc::logInfo() << "NumPOs    : " << setw(7) << POs.size() << endl;
+    ecc::logInfo() << "NumPCells : " << setw(7) << g_phy_cells.size() << endl;
+    ecc::logInfo() << "--------------------------------------------" << endl << endl;
+    ecc::logInfo() << "Sanity check..." << endl;
 
     for(unsigned i = 0; i < g_nets[corner].size(); i++) {
         if(g_nets[corner][i].inpin == UINT_MAX) {
-            cout << "ERROR: floating input in net " << g_nets[corner][i].name
+            ecc::logInfo() << "ERROR: floating input in net " << g_nets[corner][i].name
                  << endl;
         }
         for(unsigned j = 0; j < g_nets[corner][i].outpins.size(); j++) {
             if(g_nets[corner][i].outpins[j] == UINT_MAX) {
-                cout << "ERROR: floating output in net "
+                ecc::logInfo() << "ERROR: floating output in net "
                      << g_nets[corner][i].name << endl;
             }
         }
     }
 
-    cout << " done." << endl;
+    ecc::logInfo() << " done." << endl;
 
     for(unsigned mode = 0; mode < _sizer->numModes; ++mode) {
         if(_sizer->power_clk_period[mode] == 0.0) {
@@ -1166,7 +1129,7 @@ void Circuit::Print_Stats() {
         else {
             _sizer->clk_period[mode] *= (100 - DIFFICULTY) * 0.01;
         }
-        cout << "At mode " << mode << ", clock " << _sizer->clk_name[mode]
+        ecc::logInfo() << "At mode " << mode << ", clock " << _sizer->clk_name[mode]
              << " connected to port " << _sizer->clk_port[mode]
              << " has period " << _sizer->clk_period[mode] << endl;
     }
@@ -1174,96 +1137,44 @@ void Circuit::Print_Stats() {
         if(MAX_TRAN_CONST != 0) {
             _sizer->maxTran[corner] = MAX_TRAN_CONST;
         }
-        cout << "At corner " << corner
+        ecc::logInfo() << "At corner " << corner
              << ", the default max transition defined is "
              << _sizer->maxTran[corner] << endl;
     }
 }
 
-void Circuit::sdc_converter(string filename) {
-    char Commands[250];
-    sprintf(Commands, "%s %s", SDC_CONVERT_TCL, filename.c_str());
-    cout << Commands << endl;
-    ;
-    system(Commands);
-}
-
 // Example function that uses Circuit class to parse the given ISPD-12 sdc
 // file. The extracted data is simply printed out in this example.
-void Circuit::sdc_parser(string filename, unsigned mode) {
-    char sdc_filename[250];
-
-    sprintf(sdc_filename, "%s", filename.c_str());
-    cout << "SDC " << sdc_filename << endl;
-
-    // sdc_converter(filename);
-    is.open(filename);
-    bool valid = read_clock(_sizer->clk_name[mode], _sizer->clk_port[mode],
-                            _sizer->clk_period[mode]);
-    // assert(valid);
-
-    // TODO:
-    //  _sizer->indelays[mode][portName] = delay;
-
-    // cout << "Driver Info " << portName << " " << driverSize << " "
-    //         << inputTransitionRise << " " << inputTransitionFall
-    //         << endl;
-
-    // unsigned corner = 0;
-    // LibCellInfo& lib_cell =
-    //     _sizer->libs[corner].find(driverSize)->second;
-
-    // //         // JLTimingArc: add driverOutPin info
-    // std::map< unsigned, LibPinInfo >::iterator it;
-    // for(it = lib_cell.pins.begin(); it != lib_cell.pins.end(); ++it)
-    // {
-    //     if((it->second).isInput == true) {
-    //         driverInPin = lib_cell.lib_pin2id_map[(it->second).name];
-    //     }
-    //     if((it->second).isOutput == true) {
-    //         driverOutPin =
-    //         lib_cell.lib_pin2id_map[(it->second).name];
-    //     }
-    // }
-
-    // _sizer->inrtran[mode].insert(std::pair< unsigned, double >(
-    //     pin2id[portName], inputTransitionRise));
-    // _sizer->inftran[mode].insert(std::pair< unsigned, double >(
-    //     pin2id[portName], inputTransitionFall));
-    // _sizer->outdelays[mode][portName] = delay;
-    // g_pins[pin2id[portName]].cap = load;
-    is.close();
-}
 
 void Circuit::report_cell(LibCellInfo cell) {
-    cout << "Library cell " << cell.name << ": " << endl;
+    ecc::logInfo() << "Library cell " << cell.name << ": " << endl;
 
-    cout << "Vt: " << cell.c_vtype << endl;
-    cout << "Footprint: " << cell.footprint << endl;
-    cout << "Leakage power: " << cell.leakagePower << endl;
-    cout << "Area: " << cell.area << endl;
-    cout << "Sequential? " << (cell.isSequential ? "yes" : "no") << endl;
-    cout << "Dont-touch? " << (cell.dontTouch ? "yes" : "no") << endl;
+    ecc::logInfo() << "Vt: " << cell.c_vtype << endl;
+    ecc::logInfo() << "Footprint: " << cell.footprint << endl;
+    ecc::logInfo() << "Leakage power: " << cell.leakagePower << endl;
+    ecc::logInfo() << "Area: " << cell.area << endl;
+    ecc::logInfo() << "Sequential? " << (cell.isSequential ? "yes" : "no") << endl;
+    ecc::logInfo() << "Dont-touch? " << (cell.dontTouch ? "yes" : "no") << endl;
 
-    cout << "Cell has " << cell.pins.size() << " pins: " << endl;
+    ecc::logInfo() << "Cell has " << cell.pins.size() << " pins: " << endl;
     std::map< unsigned, LibPinInfo >::iterator it;
     for(it = cell.pins.begin(); it != cell.pins.end(); ++it) {
-        cout << it->second << endl;
+        ecc::logInfo() << it->second << endl;
     }
 
-    cout << "Cell has " << cell.timingArcs.size() << " timing arcs: " << endl;
+    ecc::logInfo() << "Cell has " << cell.timingArcs.size() << " timing arcs: " << endl;
     std::map< unsigned, LibTimingInfo >::iterator ite;
     for(ite = cell.timingArcs.begin(); ite != cell.timingArcs.end(); ++ite) {
-        cout << ite->second << endl;
+        ecc::logInfo() << ite->second << endl;
     }
-    cout << "Cell has " << cell.powerTables.size() << " power tables: " << endl;
+    ecc::logInfo() << "Cell has " << cell.powerTables.size() << " power tables: " << endl;
     std::map< unsigned, LibPowerInfo >::iterator iter;
     for(iter = cell.powerTables.begin(); iter != cell.powerTables.end();
         ++iter) {
-        cout << iter->second << endl;
+        ecc::logInfo() << iter->second << endl;
     }
 
-    cout << "End of cell " << cell.name << endl << endl;
+    ecc::logInfo() << "End of cell " << cell.name << endl << endl;
 }
 
 bool is_special_char(char c) {
@@ -1284,338 +1195,20 @@ bool is_special_char(char c) {
 // special characters
 // The return value indicates success/failure.
 
-bool Circuit::read_module(string& moduleName) {
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    while(valid) {
-        if(tokens.size() == 2 && tokens[0] == "module") {
-            moduleName = tokens[1];
-            break;
-        }
-        valid = read_line_as_tokens(is, tokens);
-    }
-
-    // Read and skip the port names in the module definition
-    // until we encounter the tokens {"Start", "PIs"}
-    while(valid &&
-          !(tokens.size() == 2 && tokens[0] == "Start" && tokens[1] == "PIs")) {
-        valid = read_line_as_tokens(is, tokens);
-        assert(valid);
-    }
-
-    return valid;
-}
-
-bool Circuit::read_primary_input(string& primaryInput) {
-    primaryInput = "";
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-    assert(tokens.size() == 2);
-
-    if(valid && tokens[0] == "input") {
-        primaryInput = tokens[1];
-    }
-    else {
-        assert(tokens[0] == "Start" && tokens[1] == "POs");
-        return false;
-    }
-
-    return valid;
-}
-
-bool Circuit::read_primary_output(string& primaryOutput) {
-    primaryOutput = "";
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-    assert(tokens.size() == 2);
-
-    if(valid && tokens[0] == "output") {
-        primaryOutput = tokens[1];
-    }
-    else {
-        assert(tokens[0] == "Start" && tokens[1] == "wires");
-        return false;
-    }
-
-    return valid;
-}
-
-bool Circuit::read_wire(string& wire) {
-    wire = "";
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-    assert(tokens.size() == 2);
-
-    if(valid && tokens[0] == "wire") {
-        wire = tokens[1];
-    }
-    else {
-        assert(tokens[0] == "Start" && tokens[1] == "cells");
-        return false;
-    }
-
-    return valid;
-}
-
-bool Circuit::read_cell_inst(
-    string& cellType, string& cellInstName,
-    vector< std::pair< string, string > >& pinNetPairs) {
-    cellType = "";
-    cellInstName = "";
-    pinNetPairs.clear();
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-
-    if(tokens.size() == 1) {
-        assert(tokens[0] == "endmodule");
-        return false;
-    }
-
-    assert(
-        tokens.size() >=
-        4);  // We should have cellType, instName, and at least one pin-net pair
-
-    cellType = tokens[0];
-    cellInstName = tokens[1];
-
-    for(unsigned i = 2; i < tokens.size() - 1; i += 2) {
-        assert(tokens[i][0] == '.');  // pin names start with '.'
-        string pinName =
-            tokens[i].substr(1);  // skip the first character of tokens[i]
-
-        pinNetPairs.push_back(std::make_pair(pinName, tokens[i + 1]));
-    }
-
-    return valid;
-}
-
 // Read clock definition
 // Return value indicates if the last read was successful or not.
-bool Circuit::read_clock(string& clockName, string& clockPort, double& period) {
-    clockName = "";
-    clockPort = "";
-    period = 0.0;
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    double uncertainty = 0.0;
-
-    while(valid) {
-        if(tokens.size() == 10 && tokens[0] == "create_clock" &&
-           tokens[3] == "-name") {
-            clockName = tokens[4];
-
-            assert(tokens[5] == "-period");
-            period = std::atof(tokens[6].c_str());
-            assert(tokens[7] == "-waveform");
-            // FIXME:
-
-            assert(tokens[1] == "get_ports");
-            clockPort = tokens[2];
-        }
-
-        if(tokens.size() == 5 && tokens[0] == "set_clock_uncertainty") {
-            uncertainty = std::atof(tokens[2].c_str());
-        }
-
-        if(tokens.size() == 2 && tokens[0] == "input" &&
-           tokens[1] == "delays") {
-            // period = period - uncertainty;
-        }
-        if(tokens.size() == 3 && tokens[0] == "set_ideal_network" &&
-           tokens[1] == "get_ports") {
-            // period = period - uncertainty;
-        }
-        if(tokens.size() == 3 && tokens[0] == "set_input_transition" &&
-           tokens[2] == "all_inputs") {
-            // period = period - uncertainty;
-        }
-        valid = read_line_as_tokens(is, tokens);
-    }
-
-    // Skip the next comment line to prepare for the next stage
-    // bool valid2 = read_line_as_tokens (is, tokens) ;
-    // assert (valid2) ;
-    // assert(tokens.size() == 2);
-    // assert(tokens[0] == "input" && tokens[1] == "delays");
-
-    return valid;
-}
 
 // Read input delay
 // Return value indicates if the last read was successful or not.
-bool Circuit::read_input_delay(string& portName, double& delay) {
-    portName = "";
-    delay = 0.0;
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-    assert(tokens.size() >= 2);
-
-    if(valid && tokens[0] == "set_input_delay") {
-        assert(tokens.size() == 6 || tokens.size() == 7);
-
-        delay = std::atof(tokens[1].c_str());
-
-        assert(tokens[2] == "get_ports");
-
-        portName = tokens[3];
-
-        if(tokens.size() == 6) {
-            assert(tokens[4] == "-clock");
-        }
-        else {
-            portName = portName + "[" + tokens[4] + "]";
-            assert(tokens[5] == "-clock");
-        }
-    }
-    else {
-        assert(tokens.size() == 2);
-        assert(tokens[0] == "input" && tokens[1] == "drivers");
-
-        return false;
-    }
-
-    return valid;
-}
 
 // Read output delay
 // Return value indicates if the last read was successful or not.
-bool Circuit::read_output_delay(string& portName, double& delay) {
-    portName = "";
-    delay = 0.0;
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-    assert(tokens.size() >= 2);
-
-    if(valid && tokens[0] == "set_output_delay") {
-        assert(tokens.size() == 6 || tokens.size() == 7);
-
-        delay = std::atof(tokens[1].c_str());
-
-        assert(tokens[2] == "get_ports");
-
-        portName = tokens[3];
-
-        if(tokens.size() == 6) {
-            assert(tokens[4] == "-clock");
-        }
-        else {
-            portName = portName + "[" + tokens[4] + "]";
-            assert(tokens[5] == "-clock");
-        }
-    }
-    else {
-        assert(tokens.size() == 2);
-        assert(tokens[0] == "output" && tokens[1] == "loads");
-        return false;
-    }
-
-    return valid;
-}
 
 // Read driver info for the input port
 // Return value indicates if the last read was successful or not.
-bool Circuit::read_driver_info(string& inPortName, string& driverSize,
-                               string& driverPin, double& inputTransitionFall,
-                               double& inputTransitionRise) {
-    inPortName = "";
-    driverSize = "";
-    driverPin = "";
-    inputTransitionFall = 0.0;
-    inputTransitionRise = 0.0;
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-    assert(tokens.size() >= 2);
-
-    if(valid && tokens[0] == "set_driving_cell") {
-        assert(tokens.size() == 11 || tokens.size() == 12);
-        assert(tokens[1] == "-lib_cell");
-
-        driverSize = tokens[2];
-
-        assert(tokens[3] == "-pin");
-        driverPin = tokens[4];
-
-        assert(tokens[5] == "get_ports");
-        inPortName = tokens[6];
-
-        if(tokens.size() == 11) {
-            assert(tokens[7] == "-input_transition_fall");
-            inputTransitionFall = std::atof(tokens[8].c_str());
-
-            assert(tokens[9] == "-input_transition_rise");
-            inputTransitionRise = std::atof(tokens[10].c_str());
-        }
-        else {
-            inPortName = inPortName + "[" + tokens[7] + "]";
-            assert(tokens[8] == "-input_transition_fall");
-            inputTransitionFall = std::atof(tokens[9].c_str());
-
-            assert(tokens[10] == "-input_transition_rise");
-            inputTransitionRise = std::atof(tokens[11].c_str());
-        }
-    }
-    else {
-        assert(tokens.size() == 2);
-        assert(tokens[0] == "output" && tokens[1] == "delays");
-
-        return false;
-    }
-
-    return valid;
-}
 
 // Read output load
 // Return value indicates if the last read was successful or not.
-bool Circuit::read_output_load(string& outPortName, double& load) {
-    outPortName = "";
-    load = 0.0;
-
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    if(valid && tokens[0] == "set_load") {
-        assert(tokens.size() == 5 || tokens.size() == 6);
-
-        assert(tokens[1] == "-pin_load");
-        load = std::atof(tokens[2].c_str());
-
-        assert(tokens[3] == "get_ports");
-        outPortName = tokens[4];
-        if(tokens.size() == 6) {
-            outPortName = outPortName + "[" + tokens[5] + "]";
-        }
-    }
-    else {
-        assert(!valid);
-        return false;
-    }
-
-    return valid;
-}
 
 // Read timing info for the next pin
 // Return value indicates if the last read was successful or not.
@@ -1635,9 +1228,9 @@ bool Circuit::read_pin_timing(string& cellInst, string& pin, double& riseSlack,
     }
     else {
         if(tokens.size() != 6) {
-            // cout << "token size : "<< tokens.size() <<endl;
+            // ecc::logInfo() << "token size : "<< tokens.size() <<endl;
             // for(unsigned i=0 ; i<tokens.size() ; i++)
-            //    cout << tokens[i] << " ";
+            //    ecc::logInfo() << tokens[i] << " ";
         }
 
         assert(tokens.size() == 6);
@@ -1709,14 +1302,14 @@ void Circuit::_skip_lut_3D() {
 }
 
 ostream& operator<<(ostream& os, const LibPowerInfo& power) {
-    cout << "Power related to " << power.relatedPin << " to " << power.toPin
+    ecc::logInfo() << "Power related to " << power.relatedPin << " to " << power.toPin
          << ": " << endl;
 
-    cout << "Fall power LUT: " << endl;
-    cout << power.fallPower;
+    ecc::logInfo() << "Fall power LUT: " << endl;
+    ecc::logInfo() << power.fallPower;
 
-    cout << "Rise power LUT: " << endl;
-    cout << power.risePower;
+    ecc::logInfo() << "Rise power LUT: " << endl;
+    ecc::logInfo() << power.risePower;
 
     return os;
 }
@@ -1726,456 +1319,102 @@ ostream& operator<<(ostream& os, const LibLUT& lut) {
        lut.tableVals.empty())
         return os;
 
-    cout << "template: " << lut.templ << endl;
+    ecc::logInfo() << "template: " << lut.templ << endl;
 
-    cout << "\t";
+    ecc::logInfo() << "\t";
     for(unsigned i = 0; i < lut.transitionIndices.size(); ++i) {
-        cout << lut.transitionIndices[i] << "\t";
+        ecc::logInfo() << lut.transitionIndices[i] << "\t";
     }
-    cout << endl;
+    ecc::logInfo() << endl;
 
     for(unsigned i = 0; i < lut.loadIndices.size(); ++i) {
-        cout << lut.loadIndices[i] << "\t";
+        ecc::logInfo() << lut.loadIndices[i] << "\t";
 
         for(unsigned j = 0; j < lut.transitionIndices.size(); ++j)
-            cout << lut.tableVals[i][j] << "\t";
+            ecc::logInfo() << lut.tableVals[i][j] << "\t";
 
-        cout << endl;
+        ecc::logInfo() << endl;
     }
 
     return os;
 }
 
 ostream& operator<<(ostream& os, const LibTimingInfo& timing) {
-    cout << "Timing info from " << timing.fromPin << " to " << timing.toPin
+    ecc::logInfo() << "Timing info from " << timing.fromPin << " to " << timing.toPin
          << ": " << endl;
-    cout << "Timing sense: " << timing.timingSense << endl;
+    ecc::logInfo() << "Timing sense: " << timing.timingSense << endl;
 
-    cout << "Fall delay LUT: " << endl;
-    cout << timing.fallDelay;
+    ecc::logInfo() << "Fall delay LUT: " << endl;
+    ecc::logInfo() << timing.fallDelay;
 
-    cout << "Rise delay LUT: " << endl;
-    cout << timing.riseDelay;
+    ecc::logInfo() << "Rise delay LUT: " << endl;
+    ecc::logInfo() << timing.riseDelay;
 
-    cout << "Fall transition LUT: " << endl;
-    cout << timing.fallTransition;
+    ecc::logInfo() << "Fall transition LUT: " << endl;
+    ecc::logInfo() << timing.fallTransition;
 
-    cout << "Rise transition LUT: " << endl;
-    cout << timing.riseTransition;
+    ecc::logInfo() << "Rise transition LUT: " << endl;
+    ecc::logInfo() << timing.riseTransition;
 
     return os;
 }
 
 ostream& operator<<(ostream& os, const LibPinInfo& pin) {
-    cout << "Pin " << pin.name << ":" << endl;
-    // cout << "PinID: " << pin.lib_pin_id << endl ;
-    cout << "capacitance: " << pin.capacitance << endl;
-    cout << "maxCapacitance: " << pin.maxCapacitance << endl;
-    cout << "isInput? " << (pin.isInput ? "true" : "false") << endl;
-    cout << "isClock? " << (pin.isClock ? "true" : "false") << endl;
-    cout << "isData? " << (pin.isData ? "true" : "false") << endl;
-    cout << "End pin" << endl;
+    ecc::logInfo() << "Pin " << pin.name << ":" << endl;
+    // ecc::logInfo() << "PinID: " << pin.lib_pin_id << endl ;
+    ecc::logInfo() << "capacitance: " << pin.capacitance << endl;
+    ecc::logInfo() << "maxCapacitance: " << pin.maxCapacitance << endl;
+    ecc::logInfo() << "isInput? " << (pin.isInput ? "true" : "false") << endl;
+    ecc::logInfo() << "isClock? " << (pin.isClock ? "true" : "false") << endl;
+    ecc::logInfo() << "isData? " << (pin.isData ? "true" : "false") << endl;
+    ecc::logInfo() << "End pin" << endl;
 
     return os;
 }
 
 ostream& operator<<(ostream& os, const LibCellInfo& cell) {
-    cout << "Library cell " << cell.name << ": " << endl;
+    ecc::logInfo() << "Library cell " << cell.name << ": " << endl;
 
-    cout << "Footprint: " << cell.footprint << endl;
-    cout << "Leakage power: " << cell.leakagePower << endl;
-    cout << "Area: " << cell.area << endl;
-    cout << "Sequential? " << (cell.isSequential ? "yes" : "no") << endl;
-    cout << "Dont-touch? " << (cell.dontTouch ? "yes" : "no") << endl;
+    ecc::logInfo() << "Footprint: " << cell.footprint << endl;
+    ecc::logInfo() << "Leakage power: " << cell.leakagePower << endl;
+    ecc::logInfo() << "Area: " << cell.area << endl;
+    ecc::logInfo() << "Sequential? " << (cell.isSequential ? "yes" : "no") << endl;
+    ecc::logInfo() << "Dont-touch? " << (cell.dontTouch ? "yes" : "no") << endl;
 
-    cout << "Cell has " << cell.pins.size() << " pins: " << endl;
+    ecc::logInfo() << "Cell has " << cell.pins.size() << " pins: " << endl;
     for(const auto& it : cell.pins) {
-        cout << it.second << endl;
+        ecc::logInfo() << it.second << endl;
     }
-    cout << "Cell has " << cell.timingArcs.size() << " timing arcs: " << endl;
+    ecc::logInfo() << "Cell has " << cell.timingArcs.size() << " timing arcs: " << endl;
     for(const auto& it : cell.timingArcs) {
-        cout << it.second << endl;
+        ecc::logInfo() << it.second << endl;
     }
-    cout << "Cell has " << cell.powerTables.size() << " power tables: " << endl;
+    ecc::logInfo() << "Cell has " << cell.powerTables.size() << " power tables: " << endl;
     for(const auto& it : cell.powerTables) {
-        cout << it.second << endl;
+        ecc::logInfo() << it.second << endl;
     }
 
-    cout << "End of cell " << cell.name << endl << endl;
+    ecc::logInfo() << "End of cell " << cell.name << endl << endl;
 
     return os;
 }
 
 ostream& operator<<(ostream& os, SOL& sol) {
-    cout << "Cost: Cell " << sol.cell_name;
-    cout << "/Inst " << sol.inst_name;
-    cout << "/x " << sol.x;
-    cout << "/width " << sol.width;
-    cout << "/vt " << sol.vt;
-    cout << "/delta x " << sol.delta_x;
-    cout << "/best leak " << sol.cost_leak;
-    cout << "/best move " << sol.cost_move;
-    cout << "/best leak prev" << sol.best_leak_prev;
-    cout << "/best move prev" << sol.best_move_prev << endl;
+    ecc::logInfo() << "Cost: Cell " << sol.cell_name;
+    ecc::logInfo() << "/Inst " << sol.inst_name;
+    ecc::logInfo() << "/x " << sol.x;
+    ecc::logInfo() << "/width " << sol.width;
+    ecc::logInfo() << "/vt " << sol.vt;
+    ecc::logInfo() << "/delta x " << sol.delta_x;
+    ecc::logInfo() << "/best leak " << sol.cost_leak;
+    ecc::logInfo() << "/best move " << sol.cost_move;
+    ecc::logInfo() << "/best leak prev" << sol.best_leak_prev;
+    ecc::logInfo() << "/best move prev" << sol.best_move_prev << endl;
     return os;
 }
 
-void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
-    auto corner = _ord_timing->getCorners()[0];
-    bool use_gr_correlation = false;
-    int cor_step = 0;
-    int numcells = g_cells.size();
-    // Global connect
-    auto VDDNet = _ord_design->getBlock()->findNet("VDD");
-    VDDNet->setSpecial();
-    VDDNet->setSigType("POWER");
-    auto VSSNet = _ord_design->getBlock()->findNet("VSS");
-    VSSNet->setSpecial();
-    VSSNet->setSigType("GROUND");
-    _ord_design->getBlock()->addGlobalConnect(nullptr, ".*", "VDD", VDDNet,
-                                              true);
-    _ord_design->getBlock()->addGlobalConnect(nullptr, ".*", "VSS", VSSNet,
-                                              true);
-    _ord_design->getBlock()->globalConnect(false, false);
-
-    // _sta->networkChanged();
-    // Legalization
-    auto site = _ord_design->getBlock()
-                    ->getRows()
-                    .begin()
-                    ->getSite();  //->getBlock()->getRows()[0].getSite()
-    auto max_disp_x = int(_ord_design->micronToDBU(5) / site->getWidth());
-    auto max_disp_y = int(_ord_design->micronToDBU(5) / site->getHeight());
-    printf("Legalizing...\n");
-    char padding_str[100];
-    sprintf(padding_str, "set_placement_padding -global -left %d -right %d",
-            _sizer->dp_padding, _sizer->dp_padding);
-    _ord_design->evalTclString(string(padding_str));
-    _sizer->legalizePlacement();
-    double begin = cpuTime();
-    if(_sizer->use_gr_rc) {
-        // Global Route and estimate global-route RC.
-        // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
-        // Keep the input IO-pin geometry and placement; do not synthesize
-        // top-level BPin geometry with place_pins during the RC refresh.
-        auto db_tech = _ord_design->getTech()->getDB()->getTech();
-        auto* low_layer = db_tech->findLayer(_sizer->min_route_layer.c_str());
-        auto* high_layer = db_tech->findLayer(_sizer->max_route_layer.c_str());
-        if(low_layer == nullptr || high_layer == nullptr) {
-            printf("Error: invalid routing layer(s): min=%s max=%s\n",
-                   _sizer->min_route_layer.c_str(),
-                   _sizer->max_route_layer.c_str());
-            exit(1);
-        }
-        auto signal_low_layer = low_layer->getRoutingLevel();
-        auto signal_high_layer = high_layer->getRoutingLevel();
-        auto clk_low_layer = signal_low_layer;
-        auto clk_high_layer = signal_high_layer;
-        auto grt = _ord_design->getGlobalRouter();
-        grt->clear();
-        grt->setAllowCongestion(true);
-        grt->setMinRoutingLayer(signal_low_layer);
-        grt->setMaxRoutingLayer(signal_high_layer);
-        grt->setMinLayerForClock(clk_low_layer);
-        grt->setMaxLayerForClock(clk_high_layer);
-        grt->setAdjustment(0.0);
-        grt->setResistanceAware(false);
-        grt->setVerbose(true);
-        grt->setCongestionIterations(gr_overflow_iterations);
-        printf("Run Global Routing...\n");
-        _ord_design->evalTclString(
-            "global_route -congestion_iterations " +
-            to_string(gr_overflow_iterations) +
-            " -allow_congestion -verbose");
-        int iter = 0;
-        printf("Run Global Routing Time %f\n", cpuTime() - begin);
-        _ord_design->evalTclString("estimate_parasitics -global_routing");
-    }
-    else {
-        _ord_design->evalTclString("estimate_parasitics -placement");
-    }
-    _sta->findRequireds();
-    _ord_design->evalTclString("report_tns");
-    printf("Estimate Global Route RC Time %f\n", cpuTime() - begin);
-}
-
-void Circuit::init_opensta() {
-    string netlistFileName = _sizer->verilogFile;
-    string sdcFileName = _sizer->sdcFile;
-    string spefFileName = _sizer->spefFile;
-    vector< string > libs = _sizer->libLibs;
-    string libPath = _sizer->libLibPath;
-
-    string top_cell_name = _sizer->benchname;
-    string clk_name = _sizer->clockName;
-
-    // vector <LibertyLibrary*> libLibs;
-
-    StringSet corner_names;
-    corner_names.insert("0");
-    string cornerName = "0";
-
-    // Tcl Interpreter settings
-    _ord_tech = new ord::Tech();
-    for(auto lib_file : _sizer->libLibs) {
-        string lib_file_name = libPath + "/" + lib_file;
-        _ord_tech->readLiberty(lib_file_name);
-    }
-    if(_sizer->lefPath != "") {
-        for(auto lef_file :
-            std::filesystem::directory_iterator(_sizer->lefPath)) {
-            if(std::string(lef_file.path()).find("asap7_tech") !=
-               string::npos) {
-                _ord_tech->readLef(lef_file.path());
-            }
-        }
-        for(auto lef_file :
-            std::filesystem::directory_iterator(_sizer->lefPath)) {
-            if(std::string(lef_file.path()).find("asap7_tech") ==
-               string::npos) {
-                _ord_tech->readLef(lef_file.path());
-            }
-        }
-        _ord_design = new ord::Design(_ord_tech);
-    }
-    else {
-        for(auto lef_file : _sizer->lefFiles) {
-            _ord_tech->readLef(lef_file);
-        }
-        _ord_design = new ord::Design(_ord_tech);
-    }
-    // _ord_design->readVerilog(_sizer->verilogFile);
-    // _ord_design->link(_sizer->);
-    _ord_design->readDef(_sizer->defFile, true);
-    assertNoIllegalExternalPadBoundaryChain();
-    const int marked_external_pad_nets
-        = ecc::markExternalPadOnlyNetsDontTouch(_ord_design->getBlock());
-    if(marked_external_pad_nets > 0) {
-        cout << "Marked " << marked_external_pad_nets
-             << " external PAD-only nets as dont-touch before timing repair."
-             << endl;
-    }
-    // std::string spefFile = design_dir + design_name + ".spef";
-    _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
-    if(_sizer->setRCFile != "") {
-        std::string setrc_file = _sizer->setRCFile;
-        _ord_design->evalTclString("source " + setrc_file);
-        printf("sdc file %s,  setRC file %s \n", _sizer->sdcFile.c_str(),
-               (setrc_file).c_str());
-    }
-    _ord_timing = new ord::Timing(_ord_design);
-    _sta = ord::OpenRoad::openRoad()->getSta();
-    _ord_design->evalTclString("set_thread_count " + std::to_string(
-        (_sizer->sizerDesignRepairMode || _sizer->sizerOrdDesignRepairMode ||
-         _sizer->sizerVgRepairMode || _sizer->sizerGobiRepairMode)
-            ? _sizer->nativeRepairConfig.sta_threads : 32));
-    if(_sizer->preplaceMode) {
-        _ord_design->evalTclString("unset_propagated_clock [all_clocks]");
-        // No -layer/-resistance/-capacitance means zero signal and clock RC.
-        // repair_design also consumes wire RC without estimate_parasitics.
-        _ord_design->evalTclString("set_wire_rc");
-        _ord_design->evalTclString(
-            "puts [format {preplace_wire_rc resistance=%g capacitance=%g estimated=%d} "
-            "[est::wire_signal_resistance [sta::cmd_scene]] "
-            "[est::wire_signal_capacitance [sta::cmd_scene]] "
-            "[est::have_estimated_parasitics]]");
-        if(!_sizer->noSPEF && _sizer->spefFile != "") {
-            _ord_design->evalTclString("read_spef " + _sizer->spefFile);
-            ord::OpenRoad::openRoad()->getEstimateParasitics()->initSpefParasitics();
-        }
-    }
-    else {
-        _ord_design->evalTclString(_sizer->idealClockMode
-            ? "unset_propagated_clock [all_clocks]"
-            : "set_propagated_clock [all_clocks]");
-        if(_sizer->holdOnlyMode) {
-            std::cout << "Hold-only clock mode: "
-                      << (_sizer->idealClockMode ? "ideal" : "propagated")
-                      << '\n';
-        }
-        if(_sizer->use_gr_rc || (!_sizer->noSPEF && !_sizer->spefFile.empty())) {
-            auto* tech = _ord_tech->getDB()->getTech();
-            auto* estimate_parasitics =
-                ord::OpenRoad::openRoad()->getEstimateParasitics();
-            const double dbu_per_micron = tech->getDbUnitsPerMicron();
-            auto* min_layer = tech->findLayer(_sizer->min_route_layer.c_str());
-            auto* max_layer = tech->findLayer(_sizer->max_route_layer.c_str());
-            if(!min_layer || !max_layer ||
-               min_layer->getRoutingLevel() == 0 ||
-               max_layer->getRoutingLevel() < min_layer->getRoutingLevel()) {
-                std::cerr << "Error: invalid GR routing-layer range: "
-                          << _sizer->min_route_layer << ".."
-                          << _sizer->max_route_layer << '\n';
-                exit(1);
-            }
-
-            int initialized_routing_layers = 0;
-            int initialized_cut_layers = 0;
-            for(auto* layer : tech->getLayers()) {
-                const bool routing = layer->getType() == odb::dbTechLayerType::ROUTING;
-                const bool cut = layer->getType() == odb::dbTechLayerType::CUT;
-                if(!routing && !cut) {
-                    continue;
-                }
-
-                std::optional<ecc::LefLayerRC> lef_rc;
-                if(routing && dbu_per_micron > 0.0) {
-                    lef_rc = ecc::lefLayerRC(
-                        layer->getWidth() / dbu_per_micron,
-                        layer->getResistance(),
-                        layer->getCapacitance(),
-                        layer->getEdgeCapacitance());
-                }
-                std::optional<double> lef_via_resistance;
-                bool conflicting_vias = false;
-                if(cut && layer->getResistance() <= 0.0) {
-                    for(auto* via : tech->getVias()) {
-                        auto* bottom = via->getBottomLayer();
-                        if(!via->isDefault() || !bottom ||
-                           bottom->getUpperLayer() != layer ||
-                           via->getTopLayer() != layer->getUpperLayer() ||
-                           via->getResistance() <= 0.0) {
-                            continue;
-                        }
-                        const double resistance = via->getResistance();
-                        if(lef_via_resistance &&
-                           std::abs(*lef_via_resistance - resistance) >
-                               1e-9 * std::max(1.0, *lef_via_resistance)) {
-                            conflicting_vias = true;
-                            break;
-                        }
-                        lef_via_resistance = resistance;
-                    }
-                }
-                for(auto* scene : _sta->scenes()) {
-                    double resistance = 0.0;
-                    double capacitance = 0.0;
-                    estimate_parasitics->layerRC(
-                        layer, scene, resistance, capacitance);
-                    if(routing && lef_rc) {
-                        const auto filled = ecc::fillMissingLayerRC(
-                            {resistance, capacitance}, *lef_rc);
-                        if(filled.resistance_per_meter != resistance ||
-                           filled.capacitance_per_meter != capacitance) {
-                            estimate_parasitics->setLayerRC(
-                                layer, scene, filled.resistance_per_meter,
-                                filled.capacitance_per_meter);
-                            ++initialized_routing_layers;
-                        }
-                    }
-                    else if(cut && resistance == 0.0) {
-                        const double lef_cut_resistance =
-                            layer->getResistance() > 0.0
-                                ? layer->getResistance()
-                                : (!conflicting_vias && lef_via_resistance
-                                       ? *lef_via_resistance : 0.0);
-                        if(lef_cut_resistance > 0.0) {
-                            estimate_parasitics->setLayerRC(
-                                layer, scene, lef_cut_resistance, capacitance);
-                            ++initialized_cut_layers;
-                        }
-                    }
-
-                    if(cut) {
-                        estimate_parasitics->layerRC(
-                            layer, scene, resistance, capacitance);
-                        if(resistance <= 0.0) {
-                            std::cerr << "Warning: cut layer " << layer->getName()
-                                      << " has no layer resistance in corner "
-                                      << scene->name() << "; no unambiguous "
-                                      << "default LEF via RC; configure "
-                                      << "-setRCFile if needed\n";
-                        }
-                    }
-                    if(routing &&
-                       layer->getRoutingLevel() >= min_layer->getRoutingLevel() &&
-                       layer->getRoutingLevel() <= max_layer->getRoutingLevel()) {
-                        estimate_parasitics->layerRC(
-                            layer, scene, resistance, capacitance);
-                        if(!std::isfinite(resistance) ||
-                           !std::isfinite(capacitance) ||
-                           resistance <= 0.0 || capacitance <= 0.0) {
-                            std::cerr << "Error: GR layer " << layer->getName()
-                                      << " has missing RC in corner "
-                                      << scene->name() << "; check tech LEF or "
-                                      << "-setRCFile\n";
-                            exit(1);
-                        }
-                        std::cout << "GR layer RC " << layer->getName()
-                                  << " corner=" << scene->name()
-                                  << " R=" << resistance << " ohm/m C="
-                                  << capacitance << " F/m\n";
-                    }
-                }
-            }
-            std::cout << "Initialized " << initialized_routing_layers
-                      << " routing and " << initialized_cut_layers
-                      << " cut layer/corner RC entries from tech LEF.\n";
-        }
-        const bool repair_mode = _sizer->sizerDesignRepairMode ||
-                                 _sizer->sizerOrdDesignRepairMode ||
-                                 _sizer->sizerVgRepairMode ||
-                                 _sizer->sizerGobiRepairMode;
-        if(!repair_mode || _sizer->setRCFile.empty()) {
-            _ord_design->evalTclString("set_wire_rc -signal -layer " +
-                                       _sizer->min_route_layer);
-            _ord_design->evalTclString("set_wire_rc -clock -layer " +
-                                       _sizer->min_route_layer);
-        }
-        if(_sizer->hasPlacementWireRCOverride() && !_sizer->use_gr_rc) {
-            // The ECC config stores physical CX55 values (ohm/um and pF/um).
-            // This Liberty uses 1kohm resistance and 1pf capacitance UI units;
-            // set_wire_rc performs the distance conversion after these values
-            // are converted to the Liberty command units.
-            std::ostringstream wire_rc_stream;
-            wire_rc_stream << std::setprecision(12)
-                           << " -resistance "
-                           << _sizer->placementWireResistance() / 1000.0
-                           << " -capacitance "
-                           << _sizer->placementWireCapacitance();
-            const std::string wire_rc = wire_rc_stream.str();
-            _ord_design->evalTclString("set_wire_rc -signal" + wire_rc);
-            _ord_design->evalTclString("set_wire_rc -clock" + wire_rc);
-            std::cout << "placement_wire_rc override resistance="
-                      << _sizer->placementWireResistance() << " ohm/um "
-                      << "capacitance=" << _sizer->placementWireCapacitance()
-                      << " pF/um source=" << _sizer->placementWireRCCorner()
-                      << std::endl;
-        }
-        if(!_sizer->noSPEF && _sizer->spefFile != "") {
-            _ord_design->evalTclString("read_spef " + _sizer->spefFile);
-            ord::OpenRoad::openRoad()->getEstimateParasitics()->initSpefParasitics();
-        }
-        else {
-            _ord_design->evalTclString("estimate_parasitics -placement");
-        }
-        _ord_design->evalTclString("puts \"=== OpenSTA Initial Timing Summary ===\"");
-        _ord_design->evalTclString("report_worst_slack -max -digits 3");
-        _ord_design->evalTclString("report_tns -max -digits 3");
-        _ord_design->evalTclString("report_worst_slack -min -digits 3");
-        _ord_design->evalTclString("report_tns -min -digits 3");
-        _ord_design->evalTclString(
-            "puts \"max_slew_violations [sta::max_slew_violation_count] "
-            "worst_slew_slack [format %.3f [sta::max_slew_check_slack]]\"");
-        _ord_design->evalTclString(
-            "puts \"max_cap_violations [sta::max_capacitance_violation_count] "
-            "worst_cap_slack [format %.3f [sta::max_capacitance_check_slack]]\"");
-    }
-
-    // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
-    // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +
-    //                                         _sizer->resultVerilogFile);
-    // exit(0);
-    constexpr int slack_max_iter = 3;
-    if(_sizer->use_gr_rc && _sizer->spefFile == "" && !_sizer->preplaceMode) {
-        runGR(_sizer->gr_rc_congestion_iterations, false, slack_max_iter);
-    }
-
-    // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
-
-    // _ord_design->evalTclString("sta::set_delay_calculator lumped_cap");
-    // _ord_timing->makeEquivCells();
-    // _ord_design->evalTclString("report_wns");
+void Circuit::runGR(int, bool, int) {
+    _sizer->refresh_design();
 }
 
 // Slowest path
@@ -2209,7 +1448,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     int iter_i = 0;
     for(auto* db_inst : block->getInsts()) {
         if(iter_i % 1000 == 0) {
-            printf("Read %d / %d Instances\n", iter_i, gateNum);
+            ecc::logPrintf("Read %d / %d Instances\n", iter_i, gateNum);
             fflush(stdout);
         }
         iter_i++;
@@ -2266,7 +1505,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         _sizer->_ckt->cell2id.insert(
             pair< string, unsigned >(tmpCell.name, tmpCellId));
 
-        //       cout << "Name and ID: " << network->pathName(inst) << " : " <<
+        //       ecc::logInfo() << "Name and ID: " << network->pathName(inst) << " : " <<
         //       tmpCellId << endl;
 
         _sizer->_ckt->g_cells.push_back(tmpCell);
@@ -2286,7 +1525,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     iter_i = 0;
     for(auto net : _ord_design->getBlock()->getNets()) {
         if(iter_i % 1000 == 0) {
-            printf("Read %d / %d Nets\n", iter_i, netsNum);
+            ecc::logPrintf("Read %d / %d Nets\n", iter_i, netsNum);
         }
         iter_i++;
 
@@ -2305,7 +1544,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
            //    strcmp(netName.c_str(), string("SET").c_str()) == 0 ||
            strcmp(netName.c_str(), string("HRESETn").c_str()) == 0)
             continue;
-        // cout << "Net Name: " << network->pathName(net) << endl;
+        // ecc::logInfo() << "Net Name: " << network->pathName(net) << endl;
 
         if(net->getSigType() == "POWER" || net->getSigType() == "GROUND") {
             // logFile << "power / ground net " << endl;
@@ -2337,12 +1576,12 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 
             if(gate_iter == _sizer->_ckt->cell2id.end() ||
                gate_iter->second >= _sizer->_ckt->g_cells.size()) {
-                printf("unmapped iterm: net=%s inst=%s pin=%s\n",
+                ecc::logPrintf("unmapped iterm: net=%s inst=%s pin=%s\n",
                        netName.c_str(), instGateName.c_str(),
                        instTerms_iter->getName().c_str());
                 if(db_inst != nullptr && db_inst->getMaster() != nullptr) {
                     auto* master = db_inst->getMaster();
-                    printf("unmapped master: name=%s is_block=%d\n",
+                    ecc::logPrintf("unmapped master: name=%s is_block=%d\n",
                            master->getName().c_str(), master->isBlock());
                 }
                 fflush(stdout);
@@ -2356,7 +1595,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 
             string termName = instTerms_iter->getMTerm()->getName();
             // if(pin_name.find("RESET") != string::npos) {
-            //     printf("Find RESET pin!!! %s\n", pin_name.c_str());
+            //     ecc::logPrintf("Find RESET pin!!! %s\n", pin_name.c_str());
             // }
             // NEW PIN
             PIN tmpPin;
@@ -2386,7 +1625,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 
         }  // NET -- INST PINS
 
-        // printf("Net %s has %d pins\n", netName.c_str(), net_pin_num);
+        // ecc::logPrintf("Net %s has %d pins\n", netName.c_str(), net_pin_num);
         // PI/PO
         // InstancePinIterator
         // *top_level_pins_iter=network->pinIterator(network->topInstance());
@@ -2432,11 +1671,14 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     // TODO:
     int mode = 0;
     auto* sdc = _sta->cmdSdc();
+    if(sdc->clocks().empty())
+        throw std::invalid_argument("cell sizing requires a clock constraint");
     auto* clock = sdc->clocks().at(mode);
     _sizer->clk_name[mode] = clock->name();
     _sizer->clk_period[mode] = clock->period() / _sizer->time_unit;  // ?
-    auto* clk_pin = *(clock->pins().begin());
-    std::string clock_port_name = this->_sta->network()->portName(clk_pin);
+    std::string clock_port_name;
+    if(!clock->pins().empty())
+        clock_port_name = this->_sta->network()->portName(*clock->pins().begin());
     _sizer->clk_port[mode] = clock_port_name;
 
     float slew = 0.0;
@@ -2556,7 +1798,7 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
 }
 
 void Circuit::readSpef_opensta(sta::dbSta* _sta) {
-    cout << "[opensta] reading spef..." << endl;
+    ecc::logInfo() << "[opensta] reading spef..." << endl;
     node2id.clear();
     Scene* _corner = _sta->scenes()[0];
     const MinMax* cnst_min_max;
@@ -2590,7 +1832,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         // double t_cap = wire_cap / _sizer->cap_unit;
         // g_nets[corner][i].cap = t_cap;
         if(ord_net->getSigType() == "CLOCK") {
-            // printf("net %s is clock\n", netNameStr.c_str());
+            // ecc::logPrintf("net %s is clock\n", netNameStr.c_str());
             g_nets[corner][i].is_clock = true;
             // continue;
         }
@@ -2601,7 +1843,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
         double t_cap = wire_cap / _sizer->cap_unit;
         if(t_cap >= 10000) {
-            printf("net %s cap %f\n", netNameStr.c_str(), t_cap);
+            ecc::logPrintf("net %s cap %f\n", netNameStr.c_str(), t_cap);
         }
         // if(_sizer->use_margin) {
         //     t_cap *= 1.05;
@@ -2609,10 +1851,10 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
         g_nets[corner][i].cap = t_cap;
         if(net_parasitic == nullptr) {  //||
             // ord_net->getName().find("tile_id_i") != string::npos ||
-            printf("net %s don't have parasitic\n", netNameStr.c_str());
+            ecc::logPrintf("net %s don't have parasitic\n", netNameStr.c_str());
             continue;
         }
-        // printf("net %s has parasitic\n", netNameStr.c_str());
+        // ecc::logPrintf("net %s has parasitic\n", netNameStr.c_str());
         assert(net_parasitic);
         NetConnectedPinIterator* connPinIter =
             _sta->network()->connectedPinIterator(net);
@@ -2645,7 +1887,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             SUB_NODE sn;
             // readSpefChangePinName(pin_name);
             if(pin_name == "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y") {
-                std::cout << __LINE__ << "zero para"
+                ecc::logInfo() << __LINE__ << "zero para"
                           << "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y"
                           << std::endl;
             }
@@ -2667,7 +1909,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 sn.pin_name = pin_name;
                 subNodeVecPtr->push_back(sn);
             }
-            // printf("node str %s\n", pin_name.c_str());
+            // ecc::logPrintf("node str %s\n", pin_name.c_str());
         }
         for(auto pin : ord_net->getBTerms()) {
             string pin_name = pin->getName();
@@ -2684,7 +1926,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             SUB_NODE sn;
             // readSpefChangePinName(pin_name);
             if(pin_name == "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y") {
-                std::cout << __LINE__ << "zero para"
+                ecc::logInfo() << __LINE__ << "zero para"
                           << "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y"
                           << std::endl;
             }
@@ -2709,7 +1951,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
                 subNodeVecPtr->push_back(sn);
             }
-            // printf("node str %s\n", pin_name.c_str());
+            // ecc::logPrintf("node str %s\n", pin_name.c_str());
         }
         // CAP (both pin nodes and internal sub-nodes)
         for(sta::ParasiticNode* para_node : conc_net_para->nodes()) {
@@ -2808,7 +2050,7 @@ void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]) {
     int line = 0;
     char* u = unencoded;
     for(const char** e = inits; *e; e++) {
-        // printf("%d\n", line);
+        // ecc::logPrintf("%d\n", line);
         const char* init = *e;
         size_t init_length = strlen(init);
         for(const char* s = init; s < &init[init_length]; s += 3) {
@@ -2820,8 +2062,8 @@ void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]) {
     }
     *u = '\0';
     if(Tcl_Eval(interp, unencoded) != TCL_OK) {
-        printf("%s\n", unencoded);
-        printf("TCL init script: %s.\n", Tcl_GetStringResult(interp));
+        ecc::logPrintf("%s\n", unencoded);
+        ecc::logPrintf("TCL init script: %s.\n", Tcl_GetStringResult(interp));
     };
     delete[] unencoded;
 }

@@ -39,8 +39,8 @@
 
 #include "utils.h"
 #include <fstream>
-#include "sizer.h"
-#include "ckt.h"
+#include "cell_sizing.h"
+#include "sizing_model.h"
 using namespace std;
 
 bool isff(const CELL &cell) {
@@ -97,7 +97,7 @@ void printMemoryUsage(void) {
 
         // vmPeak
         getline(status, data);
-        cout << "### VmPeak\t\t: " << data << endl;
+        ecc::logInfo() << "### VmPeak\t\t: " << data << endl;
     }
     status.close();
 
@@ -109,7 +109,7 @@ void printMemoryUsage(void) {
         }
         status >> vmsize;
 
-        cout << "### Memory Usage\t: " << vmsize / 1048576. << " MB" << endl;
+        ecc::logInfo() << "### Memory Usage\t: " << vmsize / 1048576. << " MB" << endl;
     }
     status.close();
 }
@@ -118,7 +118,7 @@ void LaunchPTBackground(string root, string benchname) {
     // Launch timer/Shutdown timer
     // assume $PTSHELL, ISPD_CONTEST_ROOT
     if(getenv("PTSHELL") == NULL) {
-        cout << "$PTSHELL is not set" << endl;
+        ecc::logInfo() << "$PTSHELL is not set" << endl;
         exit(1);
     }
 

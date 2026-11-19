@@ -26,7 +26,8 @@
 #include <cub/thread/thread_operators.cuh>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
+#include "spdlog/spdlog.h"
+#include <stdexcept>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -300,8 +301,7 @@ __constant__ int c_buffer_size;  // Actual number of buffer types
 void upload_buffer_library(const std::vector<Buffer>& buffers)
 {
   if (buffers.size() > MAX_BUFFER_TYPES) {
-    std::cout << "Error: Buffer library size exceeds MAX_BUFFER_TYPES ("
-              << MAX_BUFFER_TYPES << ")\n";
+    throw std::invalid_argument("GOBI buffer library exceeds MAX_BUFFER_TYPES");
   }
   size_t size = std::min(buffers.size(), MAX_BUFFER_TYPES);
   cudaMemcpyToSymbol(c_buffers, buffers.data(), size * sizeof(Buffer));
@@ -1753,7 +1753,7 @@ namespace gobi {
 
 void print_gpu_memory(const char* label)
 {
-  if (!DEBUG) {
+  if (!spdlog::should_log(spdlog::level::debug)) {
     return;
   }
   size_t free_byte;
@@ -1761,8 +1761,7 @@ void print_gpu_memory(const char* label)
   cudaError_t cuda_status = cudaMemGetInfo(&free_byte, &total_byte);
 
   if (cuda_status != cudaSuccess) {
-    std::cout << "[MEM] " << label << " | Error getting memory info : "
-              << cudaGetErrorString(cuda_status) << '\n';
+    spdlog::debug("GOBI {}: {}", label, cudaGetErrorString(cuda_status));
     return;
   }
 
@@ -1770,11 +1769,7 @@ void print_gpu_memory(const char* label)
   double used_mb
       = static_cast<double>(total_byte - free_byte) / (1024.0 * 1024.0);
 
-  std::cout << "[MEM] " << std::left << std::setw(20) << label
-            << " | Used: " << std::right << std::setw(8) << std::fixed
-            << std::setprecision(2) << used_mb << " MB | Free: " << std::right
-            << std::setw(8) << std::fixed << std::setprecision(2) << free_mb
-            << " MB" << '\n';
+  spdlog::debug("GOBI {}: used {:.2f} MB, free {:.2f} MB", label, used_mb, free_mb);
 }
 
 struct SortedRoots
@@ -1998,23 +1993,10 @@ void gobiCudaSolve(const CudaContext& ctx)
               : static_cast<double>(frontier_saved_bytes)
                 / static_cast<double>(frontier_baseline_bytes);
 
-  std::cout << "[MEM] Frontier whole-solve"
-            << " | Active levels: " << frontier_active_levels
-    << " | Total solutions: " << frontier_total_solutions
-    << " | Peak layer total: " << frontier_peak_layer_total
-    << " | Peak reserved: " << std::fixed << std::setprecision(2)
-    << static_cast<double>(frontier_peak_bytes) / (1024.0 * 1024.0)
-    << " MB"
-    << " | Baseline(all layers): " << std::fixed << std::setprecision(2)
-    << static_cast<double>(frontier_baseline_bytes)
-       / (1024.0 * 1024.0)
-    << " MB"
-    << " | Saved: " << std::fixed << std::setprecision(2)
-    << static_cast<double>(frontier_saved_bytes) / (1024.0 * 1024.0)
-    << " MB"
-    << " | Saved ratio: " << std::fixed << std::setprecision(2)
-    << frontier_saved_ratio * 100.0 << "%"
-    << '\n';
+  spdlog::debug("GOBI frontier: levels={} solutions={} peak={:.2f} MB saved={:.2f}%",
+                frontier_active_levels, frontier_total_solutions,
+                double(frontier_peak_bytes) / (1024 * 1024), frontier_saved_ratio * 100);
+
   //  exit(0);
   // std::cout << "Total offset: " << history.current_offset << "\n";
   // int total_count = 0;

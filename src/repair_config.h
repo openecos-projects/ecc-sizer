@@ -68,79 +68,87 @@ struct SetupRepairSettings {
     unsigned min_side_loads = 2;
     double max_area_growth = 0.02;
     float min_improvement = 1e-13f;
-    // Experimental path-level buffer repair.  Each accepted edit is
-    // re-extracted from STA and verified with a global timing update.
-    bool path_buffer_enabled = false;
-    bool path_buffer_only = false;
+    void validate() const;
+};
+struct SetupRepairOptions : SetupRepairSettings {
+    RepairCommonOptions common;
+    void validate() const;
+};
+
+struct PathRepairSettings {
+    unsigned paths_per_endpoint = 1;
+    float min_improvement = 1e-13f;
+    bool defer_rollback_refresh = true;
     // Sequential is the measured reference; path_gain ranks multi-path ECOs.
-    std::string path_buffer_strategy = "path_gain";
+    std::string strategy = "path_gain";
     // Feedback ablations; none changes the global STA acceptance tolerances.
-    bool path_buffer_failure_cache = true;
-    bool path_buffer_calibrate = true;
-    bool path_buffer_diversify = true;
+    bool failure_cache = true;
+    bool calibrate = true;
+    bool diversify = true;
     // Opt-in scheduling ablations; acceptance still uses global STA.
-    bool path_buffer_endpoint_coverage = false;
-    bool path_buffer_group_schedule = false;
+    bool endpoint_coverage = false;
+    bool group_schedule = false;
     // Opt-in empirical family exhaustion, audited on each committed design.
-    bool path_buffer_adaptive_search = false;
+    bool adaptive_search = false;
     // Reject with global timing first; collect full electrical states only
     // for survivors. Does not change acceptance thresholds or allow commits.
-    bool path_buffer_timing_precheck = true;
+    bool timing_precheck = true;
     // Placement RC only; global STA acceptance is unchanged.
-    bool path_buffer_incremental_parasitics = false;
-    // Reuse electrical checks outside edited timing cones in final verification mode.
-    bool path_buffer_incremental_analysis = false;
+    bool incremental_parasitics = false;
+    // Reuse electrical checks outside edited timing cones in final verification
+    // mode.
+    bool incremental_analysis = false;
     // Single-scene failure reuse: TNS cone or a WNS endpoint fanin witness.
-    bool path_buffer_reuse_rejections = false;
+    bool reuse_rejections = false;
     // "trial": legalize every trial; "final": search at proposed locations,
     // then legalize and verify the whole phase, restoring its input on failure.
-    std::string path_buffer_placement = "trial";
+    std::string placement = "trial";
     // "trial": full RC before each acceptance. "final": incremental RC/STA
     // and full electrical checks during search, with authoritative full RC
     // after final placement. Requires the phase-wide rollback journal.
-    std::string path_buffer_verification = "trial";
+    std::string verification = "trial";
     // Complete high-fanout candidates inside one ECO before RC/STA.
-    bool path_buffer_fanout_repair = true;
+    bool fanout_repair = true;
     // Search setup and recovery separately so one check type cannot starve
     // the other. max_paths is a per-check-type sampling limit.
-    bool path_buffer_recovery = true;
+    bool recovery = true;
     // Plan whole-net trees with cap/fanout limits before candidate screening.
-    bool path_buffer_tree_candidates = true;
+    bool tree_candidates = true;
     // Relative gain is measured on fixed affected sampled endpoints for each
     // ECO. "global" uses initial full-design scaling; "current_global"
     // uses the committed remaining full-design violation, recomputed after
     // each acceptance. Neither changes global hold/DRV/non-regression guards.
-    std::string path_buffer_gain_scope = "endpoints";
+    std::string gain_scope = "endpoints";
     // Relative to the selected gain scope.
     // Zero preserves the existing absolute improvement requirement.
     // Default search only screens with the zero-negative-slack upper bound.
     // Optional adaptive search additionally uses audited empirical evidence;
     // its stopping condition is heuristic, not a proof of global optimality.
-    double path_buffer_min_relative_improvement = 0;
+    double min_relative_improvement = 0;
     // Optional wall time / actual refresh limits. Zero means unlimited.
     // An in-flight STA/rollback always completes before returning.
-    double path_buffer_max_seconds = 0;
-    unsigned path_buffer_max_refreshes = 0;
-    unsigned path_buffer_max_paths = 16;
-    unsigned path_buffer_max_candidates = 8;
+    double max_seconds = 0;
+    unsigned max_refreshes = 0;
+    unsigned max_paths = 16;
+    unsigned max_candidates = 8;
     // Counts STA-verified ECO batches, including a batch that is rolled back.
     // Zero means unlimited; stop at timing closure or no acceptable candidate.
-    unsigned path_buffer_max_trials = 8;
+    unsigned max_trials = 8;
     // Optional early exit after this many rejected single-candidate STA
     // trials (including reused rejection verdicts) without an acceptance.
     // Zero disables it. Batch failures and
     // cheap prechecks do not count; final legalization/STA still runs.
-    unsigned path_buffer_max_consecutive_rejections = 0;
+    unsigned max_consecutive_rejections = 0;
     // Default one preserves sequential greedy behavior; larger values enable
     // buffer-only ECO batching for throughput experiments.
-    unsigned path_buffer_batch_size = 1;
+    unsigned batch_size = 1;
     // Zero means unlimited, subject to the area/trial budgets.
-    unsigned path_buffer_max_inserted_buffers = 0;
+    unsigned max_inserted_buffers = 0;
     // -1 disables the area budget; zero permits no area growth.
-    double path_buffer_max_area_growth = 0.02;
+    double max_area_growth = 0.02;
     void validate() const;
 };
-struct SetupRepairOptions : SetupRepairSettings {
+struct PathRepairOptions : PathRepairSettings {
     RepairCommonOptions common;
     // Called after commit/rollback; rejected trials can have deferred STA.
     std::function< void(unsigned, const PathBufferTrial&) > path_trial_observer;
@@ -156,7 +164,6 @@ struct SetupRepairOptions : SetupRepairSettings {
 };
 
 struct PowerRepairSettings {
-    bool enabled = false;
     // "leakage" or "total"; both measured by OpenSTA in watts.
     std::string objective = "leakage";
     unsigned max_passes = 6;
@@ -198,67 +205,20 @@ struct PowerRepairOptions : PowerRepairSettings {
     void validate() const;
 };
 
-struct PbbiRepairSettings {
-    // net is a same-model ablation: solve the selected paths one net at a
-    // time, retaining driver/sink sizing and the full STA acceptance policy.
-    std::string scope = "path";
-    // area first reaches explicit setup targets, then reduces area while
-    // retaining those targets and the input timing floor. Times are seconds.
-    std::string objective = "timing";
-    double target_wns = 0;
-    std::optional< double > target_tns;
-    bool incremental_placement = false;
-    bool placement_feedback = false;
-    // adaptive admits one path on demand and rotates after rejected trials.
-    std::string scheduler = "sequential";
-    unsigned scheduler_window = 2; // paths admitted before first global trial
-    bool forecast_cache = true;
-    bool path_cache = true;
-    bool pin_diagnostics = true;
-    bool candidate_electrical_check = true;
-    bool operating_point_pruning = true;
-    bool failure_feedback = true;
-    bool buffer_aware_timing = true;
-    bool slew_propagation = true;
-    unsigned slew_samples = 12;
-    unsigned slew_cache_entries = 262144; // zero disables memoization
-    unsigned timing_max_frontier_states = 16;
-    unsigned timing_max_expansions = 0;
-    bool enabled = false;
-    bool gate_sizing = true;
-    bool sink_sizing = true;
-    unsigned max_paths = 16;
-    unsigned paths_per_endpoint = 1;
-    unsigned max_trials = 8;
-    unsigned max_frontier_states = 128; // zero: exact, potentially expensive
-    unsigned max_expansions = 0;  // zero: unlimited per path solve
-    unsigned max_inserted_buffers = 0;
-    unsigned max_refreshes = 0;
-    double max_seconds = 0;
-    double max_area_growth = 0.02;
-    float min_improvement = 1e-13f;
-    bool defer_rollback_refresh = true;
-    void validate() const;
-};
-struct PbbiRepairOptions : PbbiRepairSettings {
-    RepairCommonOptions common;
-    void validate() const;
-};
-
 // A single source of effective policy for the native DRV -> setup pipeline.
 // Algorithms also accept their own default-initialized options independently.
 struct RepairConfig {
     DesignRepairOptions design;
     SetupRepairSettings setup;
+    PathRepairSettings path;
     PowerRepairSettings power;
     VgRepairSettings vg;
     GobiRepairSettings gobi;
-    PbbiRepairSettings pbbi;
     unsigned sta_threads = 32;
 
     SetupRepairOptions setupOptions() const;
+    PathRepairOptions pathOptions() const;
     PowerRepairOptions powerOptions() const;
-    PbbiRepairOptions pbbiOptions() const;
     void validate() const;
     // Strict key/value parsing. Unknown keys, malformed values and NaN fail.
     void set(const std::string& key, const std::string& value);
@@ -268,9 +228,4 @@ struct RepairConfig {
     void write(std::ostream& output) const;
 };
 
-// Load -sizer_repair_config files first; explicit CLI overrides win regardless
-// of their position relative to a config-file option in the command file.
-void loadRepairConfigFiles(RepairConfig& config,
-                           const std::string& command_file);
-bool applyRepairConfigOverride(RepairConfig& config, const std::string& line);
 }  // namespace ecc

@@ -66,7 +66,7 @@
 #include <unordered_set>
 #include <vector>
 #include "design_edit.h"
-#include "repair_fanout.h"
+#include "repair_drv.h"
 #include "repair_vg.h"
 #include "repair_gobi.h"
 #include "grt/GlobalRouter.h"
@@ -97,7 +97,7 @@
 // #include "config.h"
 
 #include "analyze_timing.h"
-#include "ckt.h"
+#include "sizing_model.h"
 #include "utils.h"
 
 #define DBL_MAX 1.7976931348623158e+308 /* max value */
@@ -256,8 +256,6 @@ extern bool GTR_IN;
 extern string PRFT_FI;
 extern string UD_FI;
 extern string GTR_FI;
-extern string CMD_FI;
-extern string ENV_FI;
 extern unsigned CELL_MOVE;
 extern bool FAST;
 extern int LEAKOPT_OPTION;
@@ -390,10 +388,6 @@ class Sizer {
     double hold_margin = 0.02;
     // Optional placement wire RC override in the Liberty distance unit
     // (CX55: ohm/um and pF/um). Both values must be supplied together.
-    double placement_wire_resistance = 0.0;
-    double placement_wire_capacitance = 0.0;
-    std::string placement_wire_rc_corner = "unspecified";
-    bool placement_wire_rc_explicit = false;
     vector< CELL > best_cells;
     vector< CELL > second_best_cells;
     vector< CELL > best_cells_poweropt;
@@ -444,16 +438,6 @@ class Sizer {
     std::map< string, int > cellName2EquivOrder;
     std::vector< std::vector< string > > EquaivaID2cellNames;
     void runOrdTO();
-    void loadOpenRoadDesignForFanoutRepair();
-    void runPreplace();
-    void runSizerFanoutRepair();
-    void runSizerDesignRepair();
-    void runSizerOrdDesignRepair();
-    void runSizerVgRepair(bool write_output = true);
-    void runSizerGobiRepair(bool write_output = true);
-    void writeRepairStageSnapshot(const std::string& stage);
-    void runHoldOnly();
-    void runLegalizeOnly();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
     void legalizePlacement();
     // DreamPlace greedy+abacus legalization (vendored ops).
@@ -473,54 +457,8 @@ class Sizer {
     ecc::FanoutRepairResult repairFanout(
         odb::dbMaster *buffer_master,
         const ecc::FanoutRepairOptions &options = {});
-    string min_route_layer = "METAL1";
-    string max_route_layer = "METAL7";
     bool use_gr_rc = false;
-    bool hasPlacementWireRCOverride() const {
-        return placement_wire_rc_explicit;
-    }
-    double placementWireResistance() const {
-        return placement_wire_resistance;
-    }
-    double placementWireCapacitance() const {
-        return placement_wire_capacitance;
-    }
-    const std::string& placementWireRCCorner() const {
-        return placement_wire_rc_corner;
-    }
-    // Congestion-iteration budget for in-process GR-based RC refreshes.
-    // The supported experiment modes are 10 (default) and 50.
-    int gr_rc_congestion_iterations = 10;
-    // Pre-place mode: repair DRV (fanout/slew/cap) once via OpenROAD
-    // repair_design and write out; no sizing loop, no placement.
-    bool preplaceMode = false;
-    // With preplaceMode, -preplace_gain selects the upstream-style
-    // gain-buffering round instead of plain violation repair.
-    bool preplaceGain = false;
-    bool sizerFanoutRepairMode = false;
-    bool sizerDesignRepairMode = false;
-    bool sizerOrdDesignRepairMode = false;
-    bool sizerVgRepairMode = false;
-    bool sizerGobiRepairMode = false;
-    bool sizerSetupRepairMode = false;
-    // Optional DEF checkpoints for independent per-stage evaluation.
-    string sizerRepairStagePrefix;
     ecc::RepairConfig nativeRepairConfig;
-    unsigned sizerMaxFanout = ecc::RepairCommonOptions{}.max_fanout;
-    string sizerBufferCell;
-    bool sizerRepairClockNets = false;
-
-    // Hold-only mode: propagated clocks, placement RC by default, repair_timing -hold.
-    // No sizing loop; -use_gr_rc 1 selects global-routing RC.
-    // Legalize-only mode: run legalizePlacement then write out.
-    bool legalizeOnlyMode = false;
-    bool holdOnlyMode = false;
-    // Post-route mode: requires SPEF parasitics, preserves SPEF on untouched/resized
-    // nets, and falls back to incremental RC estimation on topology-changed nets.
-    bool postrouteMode = false;
-    bool blockageAwareSteiner = true;
-    // Pre-CTS hold repair must not propagate an unbuffered clock network.
-    bool idealClockMode = false;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;
@@ -771,7 +709,7 @@ class Sizer {
     // library, constraint, circuit information
     //
 
-    Circuit *_ckt;
+    Circuit *_ckt = nullptr;
 
     string root, benchname, directory;
     string resultDefFile = "";
@@ -980,7 +918,7 @@ class Sizer {
     // JLPWR
     double sw_adj = 1e-6;
 
-    // sizer.cpp
+    // cell_sizing.cpp
     Sizer(int _argc, char **_argv) : argc(_argc), argv(_argv) {
         tot_timer_time = 0.0;
         pt_err = false;
@@ -1082,12 +1020,9 @@ class Sizer {
     void CleanIntFiles();
 
     // initialize, parser, launcher
-    void ReportOptions();
-    void readEnvFile(string envFileStr);
     void initSingleMode();
-    void readMMMCFile(string envFileStr);
-    void readCmdFile(string cmdFileStr);
-    void Parser();
+    void Parser(ord::Design& design);
+    std::function<void()> refresh_design;
     void Parallel_Sizer_Launcher();
     void Parallel_Sizer_Launcher(double ratio, double exponent, int option,
                                  int kick_option);

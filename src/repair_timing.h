@@ -2,8 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "repair_design.h"
+#include "repair_drv.h"
 #include "repair_path.h"
+#include "repair_vg.h"
+#include "repair_gobi.h"
+
+namespace ord {
+class Design;
+}
 
 namespace ecc {
 struct SetupRepairMetrics {
@@ -30,7 +36,6 @@ struct SetupRepairResult {
     double refresh_ms = 0;
     double measure_ms = 0;
     unsigned inserted_buffers = 0;
-    PathBufferRepairResult path;
     unsigned resized_cells = 0;
     unsigned downsized_loads = 0;
     unsigned vt_swaps = 0;
@@ -43,13 +48,15 @@ struct SetupRepairResult {
 // Failed trials restore topology and placement immediately. With deferred
 // refresh, STA is refreshed after the next edit or before returning; baseline
 // metrics/plans are reused only while the committed design stays unchanged.
-// No Resizer repair calls.  When path_buffer_enabled is set, a verified
-// path-level side-load buffer phase runs before the native candidate phase;
-// path_buffer_only selects that phase as the complete setup repair.
+// Path/VG/GOBI are independent timing strategies selected by the application.
 class OpenDbSetupRepairer {
    public:
     static SetupRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
                                     const std::function< void() >& refresh,
                                     const SetupRepairOptions& options = {});
 };
+// Existing cell-sizing search on the caller's loaded OpenROAD design.
+void runCellSizing(ord::Design& design, const RepairConfig& config,
+                   const std::function< void() >& refresh,
+                   bool extracted_parasitics = false);
 }  // namespace ecc

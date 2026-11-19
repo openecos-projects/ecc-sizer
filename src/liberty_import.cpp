@@ -1,3 +1,4 @@
+#include "utils.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -15,8 +16,8 @@
 #include "NetworkClass.hh"
 #include "Sequential.hh"
 #include "Transition.hh"
-#include "sizer.h"
-#include "ckt.h"
+#include "cell_sizing.h"
+#include "sizing_model.h"
 
 #include "sta/InternalPower.hh"
 #include "sta/Sta.hh"
@@ -174,17 +175,22 @@ static void extract_axis(const sta::TableAxis* axis, const sta::Units* units,
 
 static void extract_lut(sta::LibertyLibrary* sta_lib,
                         const sta::TableModel* sta_model, LibLUT& out_lut) {
-    out_lut.templ = sta_model->tblTemplate()->name();
+    if(!sta_model)
+        throw std::runtime_error("missing STA table model");
+    if(sta_model->tblTemplate())
+        out_lut.templ = sta_model->tblTemplate()->name();
 
     const auto* units = sta_lib->units();
     UnitScaler scale(units);
-    int order = sta_model->order();    // 1 or 2
-    assert(order == 1 || order == 2);  // Only 1D/2D tables are supported.
+    int order = sta_model->order();  // 1 or 2
+    if(order < 0 || order > 2)
+        throw std::runtime_error(
+            "cell sizing supports scalar, 1D and 2D Liberty tables");
 
     const auto* ax1 = sta_model->axis1();
     bool ax1_is_trans =
-        (std::string(ax1->variableString()).find("transition") !=
-         std::string::npos);
+        ax1 && (std::string(ax1->variableString()).find("transition") !=
+                std::string::npos);
 
     auto& load_vec = out_lut.loadIndices;
     auto& trans_vec = out_lut.transitionIndices;
@@ -198,7 +204,8 @@ static void extract_lut(sta::LibertyLibrary* sta_lib,
     }
 
     auto normalize_axis = [&](std::vector< double >& vec, double scale_factor) {
-        if(vec.empty()) {  // Missing dimension in a 1D table; synthesize axis [0, 100(scaled)].
+        if(vec.empty()) {  // Missing dimension in a 1D table; synthesize axis
+                           // [0, 100(scaled)].
             vec = {0.0, 100.0 * scale_factor};
             return;
         }
@@ -217,9 +224,9 @@ static void extract_lut(sta::LibertyLibrary* sta_lib,
     // work for now
     for(size_t i = 0; i < rows; ++i) {  // Always: index1 = load; index2 = tran
         for(size_t j = 0; j < cols; ++j) {
-            int idx1 = ax1_is_trans ? j : i;
+            int idx1 = order == 0 ? 0 : ax1_is_trans ? j : i;
             int idx2 = ax1_is_trans ? i : j;
-            idx2 = order == 1 ? 0 : idx2;
+            idx2 = order < 2 ? 0 : idx2;
             out_lut.tableVals[i][j] =
                 scale.to_ns(sta_model->value(idx1, idx2, 0));
         }
@@ -303,7 +310,8 @@ void Circuit::parse_pin(sta::LibertyLibrary* sta_lib,
     // Direction
     auto dir = sta_port->direction();
     out_pin.isInput = dir->isInput() || dir->isBidirect();
-    out_pin.isOutput = dir->isOutput() || dir->isBidirect() || dir->isTristate();
+    out_pin.isOutput =
+        dir->isOutput() || dir->isBidirect() || dir->isTristate();
     if(!out_pin.isInput && !out_pin.isOutput && !dir->isInternal()) {
         assert(false && "Unknown pin direction!");
     }
@@ -351,8 +359,8 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
 
     auto equiv_iter = _sizer->cellName2EquaivaID.find(out_cell.name);
     if(equiv_iter == _sizer->cellName2EquaivaID.end()) {
-        cout << "Error: OpenROAD equivalent-cell class not found for "
-             << out_cell.name << endl;
+        ecc::logInfo() << "Error: OpenROAD equivalent-cell class not found for "
+                       << out_cell.name << endl;
         exit(1);
     }
     out_cell.footprint = std::to_string(equiv_iter->second);
@@ -475,13 +483,7 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
     }
 }
 
-void Circuit::lib_parser(string filename, unsigned corner) {
-    cout << "Reading .lib file " << filename << " for corner " << corner
-         << endl;
-
-    sta::LibertyLibrary* sta_lib = _sta->readLiberty(
-        filename.c_str(), _sta->cmdScene(), sta::MinMaxAll::all(), true);
-
+void Circuit::importLiberty(sta::LibertyLibrary* sta_lib, unsigned corner) {
     LibInfo lib;
     lib.name = sta_lib->name();
 
@@ -543,9 +545,10 @@ void Circuit::lib_parser(string filename, unsigned corner) {
         _sizer->suffixHVT = "H7H";
         _sizer->suffixNVT = "H7R";
         _sizer->suffixLVT = "H7L";
-        printf("Auto-detected ics55 library '%s': forcing num_vt=3 "
-               "(VT suffixes H7H/H7R/H7L)\n",
-               sta_lib_name.c_str());
+        ecc::logPrintf(
+            "Auto-detected ics55 library '%s': forcing num_vt=3 "
+            "(VT suffixes H7H/H7R/H7L)\n",
+            sta_lib_name.c_str());
     }
 
     // Parse cells.
@@ -575,7 +578,7 @@ void Circuit::lib_parser(string filename, unsigned corner) {
         cur_cell = cells[i];
         map< string, unsigned >::iterator temp_iter;
         // if(cur_cell.footprint == "152"){
-        //     cout << "152" << endl;
+        //     ecc::logInfo() << "152" << endl;
         // }
         if((temp_iter = _sizer->func2id.find(cur_cell.footprint)) !=
            _sizer->func2id.end()) {
