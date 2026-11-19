@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -273,12 +274,48 @@ bool testValidationDoesNotMutate()
   return passed;
 }
 
+bool testTransactionOwnership()
+{
+  Fixture fixture;
+  auto* original = fixture.makeInst("original", 100, 100);
+  try {
+    ecc::EcoTransaction parent(fixture.block);
+    parent.suspend();
+    {
+      ecc::EcoTransaction child(fixture.block);
+      fixture.makeInst("temporary", 200, 100);
+      original->setLocation(300, 100);
+      child.commit();
+    }
+    throw std::runtime_error("injected failure after child commit");
+  } catch(const std::runtime_error&) {}
+  bool passed = expect(!fixture.block->findInst("temporary"),
+                       "parent unwinding restores committed child topology");
+  passed &= expect(original->getLocation() == odb::Point(100, 100),
+                   "parent unwinding restores existing placement");
+  {
+    ecc::EcoTransaction transaction(fixture.block);
+    fixture.makeInst("kept", 200, 100);
+    transaction.commit();
+  }
+  passed &= expect(fixture.block->findInst("kept"), "explicit commit survives destruction");
+  {
+    ecc::EcoTransaction transaction(fixture.block);
+    fixture.makeInst("discarded", 300, 100);
+    transaction.rollback();
+    transaction.rollback();
+  }
+  passed &= expect(!fixture.block->findInst("discarded"), "rollback is idempotent");
+  passed &= expect(odb::dbDatabase::ecoStackEmpty(fixture.block), "no journal remains");
+  return passed;
+}
+
 }  // namespace
 
 int main()
 {
   const bool passed = testAfterDriver() && testBeforeLoad() && testBeforeLoads()
                       && testLargeFanout() && testTopLevelPorts()
-                      && testValidationDoesNotMutate();
+                      && testValidationDoesNotMutate() && testTransactionOwnership();
   return passed ? 0 : 1;
 }

@@ -2167,37 +2167,6 @@ void Sizer::ReportTimingStat(unsigned view) {
     UpdatePTSizes(view, count);
     ecc::logInfo() << "WNS(PT): " << T[view]->getWorstSlack("mclk") << endl;
     // CallTimerTest();
-    /*
-    unsigned clock_index = 0;
-    for (unsigned i=0 ; i <numcells; ++i) {
-        if (isff(cells[i])) {
-
-
-            for(unsigned j=0 ; j<cells[i].inpins.size() ; j++)
-            {
-                clock_index = UINT_MAX;
-                if
-    (libs[cells[i].type].pins[view][pins[view][cells[i].inpins[j]].name].isClock)
-    { clock_index = j; break;
-                }
-
-            }
-
-            double rtran_PT, ftran_PT;
-            T[view]->getPinTran(rtran_PT, ftran_PT,
-    getFullPinName(pins[view][cells[i].inpins[clock_index]]));
-            pins[view][cells[i].inpins[clock_index]].rtran = rtran_PT;
-            pins[view][cells[i].inpins[clock_index]].ftran = ftran_PT;
-            PIN & pin = pins[view][cells[i].inpins[clock_index]];
-            ecc::logInfo() << "CP PIN TRAN UPDATE " << getFullPinName(pin) << " " <<
-    pin.rtran << "/" << pin.ftran  << "--" <<
-    T[view]->getRiseTran(getFullPinName(pins[view][cells[i].inpins[clock_index]]))
-    <<"/" <<
-    T[view]->getFallTran(getFullPinName(pins[view][cells[i].inpins[clock_index]]))<<
-    endl;
-        }
-    }
-    */
 
     CallTimer();
 
@@ -4889,42 +4858,6 @@ void Sizer::AllCorrTest() {
     CallTimer(view);
 
     for(unsigned i = 0; i < numpins; ++i) {
-        // ecc::logInfo() << "after timer " << getFullPinName(pins[view][i]) << " "
-        //      << pins[view][i].rtran << "/" << tran_list[i].rise << " " << " "
-        //      << pins[view][i].ftran << "/" << tran_list[i].fall << " " << " "
-        //      << pins[view][i].rAAT << "/" << aat_list[i].rise << " " << " "
-        //      << pins[view][i].fAAT << "/" << aat_list[i].fall << " " << " "
-        //      << pins[view][i].rRAT << "/"
-        //      << aat_list[i].rise + slack_list[i].rise << " " << " "
-        //      << pins[view][i].fRAT << "/"
-        //      << aat_list[i].fall + slack_list[i].fall << " " << " "
-        //      << pins[view][i].rslk << "/" << slack_list[i].rise << " " << " "
-        //      << pins[view][i].fslk << "/" << slack_list[i].fall << " " <<
-        //      endl;
-        // if(!isEqual(pins[view][i].rtran, tran_list[i].rise) ||
-        //    !isEqual(pins[view][i].ftran, tran_list[i].fall) ||
-        //    //! isEqual(pins[view][i].rAAT, aat_list[i].rise) ||
-        //    //! isEqual(pins[view][i].fAAT, aat_list[i].fall) ||
-        //    !isEqual(pins[view][i].rslk, slack_list[i].rise) ||
-        //    !isEqual(pins[view][i].fslk, slack_list[i].fall)) {
-        //     ecc::logInfo() << "after timer mismatch " << getFullPinName(pins[view][i])
-        //          << " " << pins[view][i].rtran << "/" << tran_list[i].rise
-        //          << " "
-        //          << " " << pins[view][i].ftran << "/" << tran_list[i].fall
-        //          << " "
-        //          << " " << pins[view][i].rAAT << "/" << aat_list[i].rise << "
-        //          "
-        //          << " " << pins[view][i].fAAT << "/" << aat_list[i].fall << "
-        //          "
-        //          << " " << pins[view][i].rRAT << "/"
-        //          << aat_list[i].rise + slack_list[i].rise << " "
-        //          << " " << pins[view][i].fRAT << "/"
-        //          << aat_list[i].fall + slack_list[i].fall << " "
-        //          << " " << pins[view][i].rslk << "/" << slack_list[i].rise
-        //          << " "
-        //          << " " << pins[view][i].fslk << "/" << slack_list[i].fall
-        //          << " " << endl;
-        // }
     }
 
     for(unsigned i = 0; i < numcells; ++i) {

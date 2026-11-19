@@ -113,16 +113,24 @@ flow instead of allowing acceptance with stale timing.
 - `application.cpp`: CLI, stage ordering, shared repair services and output.
 - `design_io.*`: OpenROAD input/output, checked Tcl calls, RC defaults and
   supply connectivity. There is no additional LEF/Liberty/DEF/SDC parser here.
-- `design_edit.*`: buffer insertion, master replacement and legalization actions.
+- `design_edit.*`: buffer insertion, master replacement, legalization and scoped
+  ECO transactions. Child commits merge into their parent; uncommitted edits
+  roll back on scope exit. Algorithms explicitly control timing refresh.
 - `repair_drv.*`: Native and ORD electrical repair, standalone fanout repair,
   load downsizing and power recovery. Their acceptance policies remain explicit.
 - `repair_timing.*`: native setup repair and timing interfaces. VG, GOBI and
   Path retain their separate, substantial solver implementations; Path has
   independent `path.*` settings and never runs implicitly inside setup repair.
-- `repair_backend.h`: shared electrical models, candidate planning and acceptance.
+- `repair_backend.*`: read-only electrical analysis, candidate planning and
+  acceptance helpers. Implementations are compiled once per backend library.
+- `repair_config.*`: typed algorithm policies and a single key/field registry
+  for strict parsing, unit conversion and serialization. `[path]` is supported;
+  `gobi.backend` has been removed because GOBI always uses CUDA.
 - `cell_sizing.*`, `sizing_model.*`, `liberty_import.cpp`: retained cell-sizing
   search and its derived analysis arrays. Liberty models come from loaded STA
   objects. These build as `sizer_search`, separate from `sizer_algorithms`.
+  Placement, global-routing and extracted RC use an explicit mode; the old
+  external timer launchers and their unused configuration have been removed.
 
 OpenDB remains the authoritative topology/placement store, and OpenSTA owns
 constraints/timing. Algorithm graphs and caches are temporary views. Plans

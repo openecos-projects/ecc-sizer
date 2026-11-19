@@ -34,7 +34,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legaliz
 # Repair algorithms depend on OpenDB/STA and edit primitives, not cell sizing.
 set(SOURCES
     design_edit.cpp special_net.cpp lef_layer_rc.cpp
-    repair_config.cpp repair_drv.cpp repair_timing.cpp
+    repair_config.cpp repair_backend.cpp repair_drv.cpp repair_timing.cpp
     repair_path.cpp repair_vg.cpp repair_vg_cuda.cpp
     repair_gobi.cpp repair_gobi_cuda.cpp)
 
@@ -201,6 +201,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/design_edit.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_drv.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_backend.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
 
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg.cpp

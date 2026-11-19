@@ -18,6 +18,7 @@ class dbSta;
 }
 
 namespace ecc {
+enum class ParasiticsMode { Placement, GlobalRouting, Extracted };
 
 struct DesignInputs {
     std::string script;
@@ -50,6 +51,7 @@ class DesignSession {
     void initializePlacementRC();
     void initializeParasitics();
     bool hasExtractedParasitics() const;
+    ParasiticsMode parasiticsMode() const;
     void refresh();
     void reconnectSupplies();
     void write(const std::string& prefix) const;

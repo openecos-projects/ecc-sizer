@@ -384,9 +384,6 @@ unsigned Sizer::BwdFixCapViolation(unsigned view) {
 }
 
 // FIXME: need to update in the FWD fix slew violation
-#if 0
-
-#endif
 // FIXME: This function invoke calc_stats for each cell. This is not efficient.
 // It should be invoked only once for all cells.
 // FIXME: calcStats needs to be updated to handle one cell at a time.
@@ -427,19 +424,6 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
             //     continue;
             // }
             double cur_max_tran = pins[view][curpin].max_tran;
-            // for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k)
-            // {
-            //     unsigned fopin = nets[corner][outnet].outpins[k];
-            //     timing_lookup wire_delay = get_wire_delay(outnet, fopin,
-            //     view); cur_max_tran =
-            //         std::min(sqrt(pow(pins[view][fopin].max_tran, 2) -
-            //                       pow(log(9) * wire_delay.rise, 2)),
-            //                  cur_max_tran);
-            //     cur_max_tran =
-            //         std::min(sqrt(pow(pins[view][fopin].max_tran, 2) -
-            //                       pow(log(9) * wire_delay.fall, 2)),
-            //                  cur_max_tran);
-            // }
 
             if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
                 continue;
@@ -809,47 +793,6 @@ unsigned Sizer::FwdFixSlewViolation(double maxTranRatio, unsigned view) {
 
                 OneTimer(cells[ficell], STA_MARGIN, true);
             }
-#if 0
-            if(curnet == UINT_MAX) {
-                continue;
-            }
-            for(auto brother_pin : nets[corner][curnet].outpins) {
-                if(brother_pin == curpin) {
-                    continue;
-                }
-                unsigned brother_cell = pins[view][brother_pin].owner;
-                if(brother_cell == UINT_MAX) {
-                    continue;
-                }
-                if(getLibCellInfo(cells[brother_cell], corner) == NULL) {
-                    continue;
-                }
-                if(cells[brother_cell].isClockCell) {
-                    continue;
-                }
-                if(cells[brother_cell].isDontTouch) {
-                    continue;
-                }
-                // if(IsTranVio(pins[view][brother_pin])) {
-                //     continue;
-                // }
-                if(cell_resize(cells[brother_cell], -1)) {
-                    OneTimer(cells[brother_cell], STA_MARGIN, view);
-                    // CalcStats((unsigned)thread_id, false, "", view, false);
-                    cur_tns = viewTNS[view];
-                    change++;
-                    if(cur_tns > prev_tns) {
-                        cell_resize(cells[brother_cell], 1);
-                        cells[brother_cell].isChanged -= 2;
-                        change--;
-                        OneTimer(cells[brother_cell], STA_MARGIN, view);
-                    }
-                    else if(!IsTranVio(pins[view][curpin])) {
-                        break;
-                    }
-                }
-            }
-#endif
             // ecc::logInfo() << "AFTER MAX TRAN " << getFullPinName(pins[view][curpin])
             // << " "
             //    << max(pins[view][curpin].rtran, pins[view][curpin].ftran) <<
@@ -1170,30 +1113,6 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
                     // targets.insert(tmpEntry);
                 }
             }
-            // if(targets.size() == 0) {
-            //     break;
-            // }
-            // int ii = 0;
-            // for(int kk = 0; kk < 5; kk++) {
-            //     int iter = 0;
-            //     int max_iter = 10;
-            //     if(!IsTranVio(pins[view][curpin])) {
-            //         break;
-            //     }
-            //     for(auto &target : targets) {
-            //         unsigned focell = target.id;
-            //         if(iter++ > max_iter) {
-            //             break;
-            //         }
-            //         double prev_slack =
-            //             min(GetCellSlack(cells[focell], view),
-            //                 GetFICellSlack(cells[focell], view));
-            //         double prev_tran = GetCellTran(cells[focell], view) +
-            //                            GetFICellTran(cells[focell], view)
-            //                            + GetFOCellTran(cells[focell],
-            //                            view);
-            //         bool change_size = cell_resize(cells[focell],
-            //         target.step);
 
             //         if(change_size) {
             //             OneTimer(cells[focell], 1, true);
@@ -1213,16 +1132,6 @@ unsigned Sizer::FwdFixSlewViolationPost(double maxTranRatio, unsigned view) {
 
             //         double delta_slack = cur_slack - prev_slack;
 
-            //         if(-delta_slack + slew_gamma * delta_tran > -0.001) {
-            //             change_size =
-            //                 cell_resize(cells[target.id], -target.step);
-            //             OneTimer(cells[focell], 1, true);
-            //         }
-            //         else {
-            //             change++;
-            //         }
-            //     }
-            // }
         }
     }
     updatePinAcc = old_updatePinAcc;

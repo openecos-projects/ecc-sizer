@@ -361,25 +361,6 @@ double Sizer::CalcSlewViolation(unsigned view) {
         }
     }
     ofs.close();
-#if 0
-    for(unsigned i = 0; i < POs.size(); i++) {
-        unsigned curpin = POs[i];
-        if(curpin == UINT_MAX) {
-            continue;
-        }
-        double slew_max =
-            std::max(pins[view][curpin].rtran, pins[view][curpin].ftran);
-        if(slew_max > pins[view][curpin].max_tran) {
-            slew_viol += slew_max - pins[view][curpin].max_tran;
-            ofs << getFullPinName(pins[view][curpin])
-                << " max tran vio: " << slew_max << " "
-                << pins[view][curpin].max_tran << endl;
-            slew_violation_cnt++;
-        }
-        slew_violation_wst =
-            max(slew_violation_wst, slew_max - pins[view][curpin].max_tran);
-    }
-#endif
     ecc::logPrintf("SLEW VIOLATION cnt %d, slew_violation_wst %f\n", slew_violation_cnt,
            slew_violation_wst);
     ecc::logPrintf("Minimum slew_bound %f\n", slew_bound);
@@ -582,18 +563,6 @@ double Sizer::CalcSlackViolation(unsigned view) {
             tot_pslack += slack;
         }
 
-        // if(pins[view][curpin].rslk < 0.0) {
-        //    slack_viol+=pins[view][curpin].rslk;
-        //} else {
-        //    tot_pslack+=pins[view][curpin].rslk;
-        //}
-        // if(pins[view][curpin].fslk < 0.0) {
-        //    slack_viol+=pins[view][curpin].fslk;
-        //} else {
-        //    tot_pslack+=pins[view][curpin].fslk;
-        //}
-        // slack_viol+=min(pins[view][curpin].rslk, 0.0);
-        // slack_viol+=min(pins[view][curpin].fslk, 0.0);
         if(pins[view][curpin].rslk < 0.0)
             skew_violation_cnt++;
         if(pins[view][curpin].fslk < 0.0)

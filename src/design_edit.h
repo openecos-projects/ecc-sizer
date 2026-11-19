@@ -21,6 +21,29 @@ class Opendp;
 }
 namespace ecc {
 
+// Owns one OpenDB journal. Nested transactions must finish in LIFO order;
+// committing a child merges its edits into the suspended parent. Timing and
+// placement refresh remain explicit algorithm policy, including after rollback.
+class EcoTransaction {
+   public:
+    explicit EcoTransaction(odb::dbBlock* block);
+    ~EcoTransaction();
+    EcoTransaction(const EcoTransaction&) = delete;
+    EcoTransaction& operator=(const EcoTransaction&) = delete;
+    EcoTransaction(EcoTransaction&&) = delete;
+    EcoTransaction& operator=(EcoTransaction&&) = delete;
+
+    bool active() const { return active_; }
+    void suspend();
+    void commit();
+    void rollback();
+
+   private:
+    odb::dbBlock* block_;
+    bool active_ = true;
+    bool suspended_ = false;
+};
+
 struct BufferLocation {
     int x = 0;
     int y = 0;

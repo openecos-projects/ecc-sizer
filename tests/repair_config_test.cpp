@@ -17,6 +17,20 @@ std::string serialized(const ecc::RepairConfig& config)
   config.write(out);
   return out.str();
 }
+TEST(RepairConfig, PathSectionAndRemovedBackend) {
+  ecc::RepairConfig config;
+  std::istringstream input("[path]\nstrategy=feedback\nplacement=final\nverification=final\n");
+  config.read(input);
+  EXPECT_EQ(config.path.strategy, ecc::PathStrategy::Feedback);
+  EXPECT_EQ(config.path.placement, ecc::PathPlacement::Final);
+  EXPECT_EQ(config.path.verification, ecc::PathVerification::Final);
+  EXPECT_EQ(serialized(config).find("gobi.backend"), std::string::npos);
+  EXPECT_THROW(config.set("gobi.backend", "cuda"), std::invalid_argument);
+  EXPECT_THROW(config.set("path.min_improvement_ns", "1e100"), std::invalid_argument);
+  config.path.strategy = static_cast<ecc::PathStrategy>(99);
+  EXPECT_THROW(config.validate(), std::invalid_argument);
+}
+
 TEST(RepairConfig, PathUnlimitedBudgetsPreserveZeroAreaConstraint)
 {
   ecc::RepairConfig config;
@@ -41,9 +55,9 @@ TEST(RepairConfig, PathUnlimitedBudgetsPreserveZeroAreaConstraint)
 TEST(RepairConfig, PathPlacementModeRoundTripsAndRejectsUnknownModes)
 {
   ecc::RepairConfig config;
-  EXPECT_EQ(config.pathOptions().placement, "trial");
+  EXPECT_EQ(config.pathOptions().placement, ecc::PathPlacement::Trial);
   config.set("path.placement", "final");
-  EXPECT_EQ(config.pathOptions().placement, "final");
+  EXPECT_EQ(config.pathOptions().placement, ecc::PathPlacement::Final);
   EXPECT_NE(serialized(config).find("path.placement=final\n"), std::string::npos);
   EXPECT_THROW(config.set("path.placement", "off"), std::invalid_argument);
 }
@@ -53,7 +67,6 @@ TEST(RepairConfig, PathGainScopesRoundTrip)
   for(const auto* scope : {"global", "current_global", "endpoints"}) {
     ecc::RepairConfig config;
     config.set("path.gain_scope", scope);
-    EXPECT_EQ(config.pathOptions().gain_scope, scope);
     EXPECT_NE(serialized(config).find(std::string("path.gain_scope=") + scope + "\n"),
               std::string::npos);
   }
@@ -77,9 +90,9 @@ TEST(RepairConfig, PathRejectionStopIsOptionalAndRoundTrips)
 TEST(RepairConfig, PathVerificationModeRoundTrips)
 {
   ecc::RepairConfig config;
-  EXPECT_EQ(config.pathOptions().verification, "trial");
+  EXPECT_EQ(config.pathOptions().verification, ecc::PathVerification::Trial);
   config.set("path.verification", "final");
-  EXPECT_EQ(config.pathOptions().verification, "final");
+  EXPECT_EQ(config.pathOptions().verification, ecc::PathVerification::Final);
   EXPECT_NE(serialized(config).find("path.verification=final\n"), std::string::npos);
   EXPECT_THROW(config.set("path.verification", "off"), std::invalid_argument);
 }
@@ -163,7 +176,7 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.set("gobi.max_buffers", "9");
   config.set("gobi.max_nets", "3");
   auto power = config.powerOptions();
-  EXPECT_EQ(power.objective, "total");
+  EXPECT_EQ(power.objective, ecc::PowerObjective::Total);
   EXPECT_FLOAT_EQ(power.slack_margin, 2e-11f);
   EXPECT_EQ(power.common.vt_suffixes.size(), 3);
   config.design.max_passes = 2;
@@ -175,7 +188,7 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_FALSE(path.fanout_repair);
   EXPECT_FALSE(path.recovery);
   EXPECT_FALSE(path.tree_candidates);
-  EXPECT_EQ(path.gain_scope, "global");
+  EXPECT_EQ(path.gain_scope, ecc::PathGainScope::Global);
   EXPECT_FALSE(setup.common.allow_gate_resize);
   EXPECT_FALSE(setup.common.allow_load_downsize);
   EXPECT_FLOAT_EQ(setup.common.load_downsize_slack_margin, 1e-11f);
@@ -187,14 +200,14 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_EQ(path.max_candidates, 3u);
   EXPECT_EQ(path.max_trials, 4u);
   EXPECT_EQ(path.batch_size, 3u);
-  EXPECT_EQ(path.strategy, "sequential");
+  EXPECT_EQ(path.strategy, ecc::PathStrategy::Sequential);
   EXPECT_DOUBLE_EQ(path.max_seconds, 1.5);
   EXPECT_EQ(path.max_refreshes, 16u);
   EXPECT_EQ(path.max_inserted_buffers, 6u);
   EXPECT_DOUBLE_EQ(path.max_area_growth, 0.1);
   EXPECT_EQ(setup.max_passes, ecc::SetupRepairSettings{}.max_passes);
   EXPECT_EQ(config.vg.max_buffers, 7u);
-  EXPECT_EQ(config.vg.backend, "cuda");
+  EXPECT_EQ(config.vg.backend, ecc::VgBackend::Cuda);
   EXPECT_EQ(config.vg.cuda_max_memory_mb, 256u);
   EXPECT_EQ(config.vg.max_group_loads, 4u);
   EXPECT_FLOAT_EQ(config.vg.min_gain, 0.25f);
@@ -217,7 +230,7 @@ TEST(RepairConfig, SectionsUnitsAndRoundTrip)
   EXPECT_EQ(config.sta_threads, 2);
   config.set("vg.max_buffers", "3");
   config.set("vg.max_group_loads", "2");
-  EXPECT_EQ(config.power.objective, "total");
+  EXPECT_EQ(config.power.objective, ecc::PowerObjective::Total);
   EXPECT_EQ(config.design.vt_suffixes.size(), 3);
   auto text = serialized(config);
   ecc::RepairConfig restored;
@@ -303,10 +316,10 @@ TEST(RepairConfig, ZeroBudgetsAreValidButApiNaNIsNot)
 
 TEST(RepairConfig, VgSetupScopeRoundTripsAndRejectsUnknownScope) {
   ecc::RepairConfig c;
-  EXPECT_EQ(c.vg.scope,"drv");
+  EXPECT_EQ(c.vg.scope,ecc::VgScope::Drv);
   c.set("vg.scope","setup");
   std::ostringstream out;c.write(out);std::istringstream in(out.str());
   ecc::RepairConfig restored;restored.read(in);
-  EXPECT_EQ(restored.vg.scope,"setup");
+  EXPECT_EQ(restored.vg.scope,ecc::VgScope::Setup);
   EXPECT_THROW(c.set("vg.scope","invalid"),std::invalid_argument);
 }

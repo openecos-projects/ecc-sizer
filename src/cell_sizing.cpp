@@ -95,7 +95,6 @@ unsigned MAX_TARGETS = 40;
 unsigned PWR_WORST_VIEW = 0;
 double MAX_CELL_SLACK = 1.5;
 bool USE_FULL_STA = false;
-bool USE_FULL_STA2 = false;
 unsigned MAX_VISIT = 30;
 bool CRIT_CELL_NO_TOUCH = false;
 bool INIT_WORST_PATH = false;
@@ -106,22 +105,11 @@ bool COMPARE_TNS = false;
 bool TABU = false;
 bool CHECK_ALL_VIEW = false;
 string debug_net = "";
-bool NO_FOOTPRINT = false;
-bool STM28 = false;
-bool C40 = false;
-bool ASAP7 = true;
-bool TIMING_RECOVERY = false;
-bool OLD_SIZER = false;
 bool ALL_MOVE = false;
 bool PEEPHOLE = false;
 int PEEPHOLE_NUMCELL = 1;
 int PEEPHOLE_ITER = 3;
 bool NO_SEQ_OPT = false;
-// Keep the input placement fixed for sizing-only A/B experiments.  The
-// historical flow normally calls runOrdTO() before export, which can move
-// cells during legalization and makes a placement-controlled comparison
-// impossible.
-bool PRESERVE_PLACEMENT = false;
 bool NO_CLKBUF_OPT = true;
 double ISO_TNS = 0.0;
 bool VAR_GB = false;
@@ -131,8 +119,6 @@ bool HOLD_CHECK = false;
 bool SAFE_LEAK_OPT = true;
 double SAFE_LEAK_OPT_GB = 0.0;
 double CRIT_PATH_RATIO = 0.99;
-int RELEASE_MODE = 3;
-bool RELEASE = false;
 double POWER_OPT_GB = 0.0;
 double ATTACK_NEW_RATIO = 80;
 double TIMING_OPT_GB = 0.0;
@@ -143,17 +129,12 @@ double COMMON_THRESH = 0.6;
 double TIMEOUT = 864000;
 double SLK_TH = 0.02;
 int ALPHA_STUCK = 2;
-double STUCK_THRES = 0.005;
-bool MIN_VT = false;
 bool FINAL_PWR_OPT = false;
-bool MIN_SIZE = false;
 bool UPDATE_LIST = false;
 int MULTI_STEP = 3;
 int MULTI_STEP_KICK = 1;
-int MULTI_STEP_PWR = 1;
 double KICK_RATIO = 0.01;
 double MAX_KICK_RATIO = 0.01;
-bool KICK_MOVE_CHANGE = false;
 int KICK_METHOD = 4;
 int KICK_SFT = 16;  // SF 6 is TNS only, originally 16
 int NORM_SFT = 2;
@@ -176,28 +157,19 @@ int GWTW_DIV = 4;
 int GWTW_NUM_START = 4;
 
 bool DATA_PIN_ONLY = false;
-bool NO_LOG = false;
 bool CORR_DYN = false;
 int MAX_THREAD = 1;
-int PTPORT = 7474;
-int PNRPORT = 8020;
 int TOLER_NUM = 5;
 double TOLERANCE = 0.0;
 double TOLER_STOP = 0.0;
 bool TOLER_STEP = false;
 double ALPHA = 0.0;
 double NORMALIZE_FACTOR = 10.0;
-double GAMMA = 0.5;
-double SLEW_TH = 0.2;
 unsigned OFFSET = 50;
 double CRISLACK = 0.0;
 double BETA = 1.0;
-unsigned THRESHOLD = 50;
-double ratio_sweep = 5;
-int PTNUM = 1;
 int PRFT_PTNUM = 1;
 int VERBOSE = 1;
-bool USE_PT = true;
 // bool CORR_PT = true;
 bool CORR_PT = false;
 bool CORR_PT_FILE = true;
@@ -206,25 +178,13 @@ bool PT_FULL_UPDATE = false;
 bool FAST = false;
 bool PRFT_ONLY = true;
 bool GTR_IN = false;
-unsigned ML_WIRETRAN_MODEL = 2;
-unsigned ML_WIREDELAY_MODEL = 1;
-unsigned ML_CELLTRAN_MODEL = 1;
 double STA_MARGIN = 0.0005;
-double GUARD_BAND = 0.0;
-double GUARD_BAND_GTR = 10.0;
-double GUARD_BAND_2ND_GTR = 0.0;
-string PRFT_FI = "";
-string UD_FI = "";
-string GTR_FI = "";
 bool LEAKOPT = true;
 int DIFFICULTY = 0;
 int MAX_TRAN_CONST = 1;
 double CORR_RATIO = 0.1;
 double PWR_CORR_RATIO = 0.01;
 bool GTRWPT_ONLY = false;
-double X_IN = 0.0;
-double EXP_IN = 0.0;
-unsigned MIN_IA_MODE = 0;
 unsigned tabuNum = 0;
 int RATIO2 = 30;
 int ATTACK_RATIO = 30;
@@ -233,7 +193,6 @@ bool BACKGROUND = true;
 #else
 bool BACKGROUND = true;
 #endif
-int LEAKOPT_OPTION = 0;
 
 DelayMetric WIRE_METRIC = EM;
 SlewMetric SLEW_METRIC = PERI;
@@ -258,23 +217,6 @@ CorrPTMetric CORR_PT_METRIC = SLK;
 // double Sizer::min_neg_fslk;
 // double Sizer::max_pos_rslk;
 // double Sizer::max_pos_fslk;
-
-// double Sizer::tot_pslack;
-// double Sizer::tot_violations;
-// double Sizer::slew_violation;
-// double Sizer::skew_violation;
-// double Sizer::cap_violation;
-// unsigned Sizer::slew_violation_cnt;
-// unsigned Sizer::skew_violation_cnt;
-// unsigned Sizer::cap_violation_cnt;
-// double Sizer::slew_violation_wst;
-// double Sizer::cap_violation_wst;
-// double Sizer::power;
-// double Sizer::best_score_local;
-// double Sizer::best_alpha_local;
-// double Sizer::local_alpha;
-// double Sizer::toler;
-// double Sizer::best_failed_wns_local;
 
 // PIN **Sizer::pins;
 // NET **Sizer::nets;
@@ -1116,7 +1058,7 @@ void Sizer::CleanIntFiles() {
 void Sizer::Parser(ord::Design& design) {
     double begin = cpuTime();
     directory = "./";
-    _ckt = new Circuit(this);
+    _ckt = std::make_unique<Circuit>(this);
     _ckt->_ord_design = &design;
     _ckt->_ord_tech = design.getTech();
     _ckt->_ord_timing = new ord::Timing(&design);
@@ -1165,29 +1107,6 @@ void Sizer::Parser(ord::Design& design) {
         }
     }
 
-    /*
-    for(unsigned i=0 ; i<_ckt->numnets ; i++) {
-
-      ecc::logInfo() << "--------- all sub node list (" << g_nets[0][i].name <<
-    ")--------" << endl;
-
-        vector <SUB_NODE> *subNodeVecPtr = &g_nets[0][i].subNodeVec;
-            std::vector<SUB_NODE>::iterator subNodeIter;
-        for (subNodeIter = subNodeVecPtr->begin(); subNodeIter !=
-    subNodeVecPtr->end(); ++subNodeIter) {
-                ecc::logInfo() << "Id: " << subNodeIter->id << ", Cap: " <<
-    subNodeIter->cap << " " << subNodeIter->isSink << endl;
-
-                for (unsigned int i=0; i < subNodeIter->adj.size(); ++i) {
-                    iout << "Id: " << subNodeIter->id << ", Res: " <<
-    subNodeIter->res[i] << " Adj :" << subNodeIter->adj[i] << endl;
-                }
-            }
-
-        ecc::logInfo() << endl ;
-    }
-    */
-
     for(unsigned i = 0; i < _ckt->FFs.size(); ++i) {
         FFs.push_back(_ckt->FFs[i]);
     }
@@ -1221,7 +1140,7 @@ void Sizer::Parser(ord::Design& design) {
                infdelays[0].count(pin.id) == 0 && _pos_set.count(pin.id) == 0) {
                 // outdelays has bug
                 NET net = _ckt->g_nets[j][net_id];
-                if(!net.is_clock && spefFile != "" && spefFile != "None") {
+                if(!net.is_clock && hasExtractedParasitics()) {
                     ecc::logPrintf(
                         "Error: pin %s has no spef pin, pin's net name is %s\n",
                         getFullPinName(pin).c_str(), net.name.c_str());
@@ -1287,25 +1206,8 @@ void Sizer::ExitPTimer() {
     // delete[] PTimer;
 }
 
-designTiming *Sizer::LaunchPTimer(unsigned thread_id, unsigned view) {
-    char Commands[250];
-    char serverNameChar[100];
-    int port = PTPORT + thread_id * 5;
-    std::ostringstream ostr;
-
-    if(useOpenSTA) {
-        if(util_tcl_file != "") {
-            string exe_cmd = "source " + util_tcl_file;
-            _ckt->_ord_design->evalTclString(exe_cmd);
-        }
-        designTiming *PT = new designTiming(OS, this);
-        return PT;
-        // exeOSServer(serverName, port, view);
-    }
-    else {
-        ecc::logPrintf("Error: OpenSTA is not enabled\n");
-        exit(0);
-    }
+designTiming *Sizer::LaunchPTimer(unsigned, unsigned) {
+    return new designTiming(OS, this);
 }
 
 void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
@@ -1331,7 +1233,7 @@ void Sizer::applyOpenStaDbChanges(
     auto design = _ckt->_ord_design;
     auto sta = _ckt->_ord_timing->getSta();
 
-    if(!noSPEF && !spefFile.empty()) {
+    if(hasExtractedParasitics()) {
         auto resizer = design->getResizer();
         auto estimate_parasitics = resizer->getEstimateParasitics();
         if(estimate_parasitics->isIncrementalParasiticsEnabled()) {
@@ -1345,7 +1247,7 @@ void Sizer::applyOpenStaDbChanges(
         return;
     }
 
-    if(!use_gr_rc) {
+    if(!usesGlobalRouting()) {
         apply_changes();
         design->evalTclString("estimate_parasitics -placement");
         sta->findRequireds();
@@ -1384,7 +1286,7 @@ ecc::BufferInsertionResult Sizer::insertBufferAfterDriver(
         result = ecc::OpenDbBufferInserter::insertBufferAfterDriver(
             net, buffer_master, options);
         if(result) {
-            if(use_gr_rc) {
+            if(usesGlobalRouting()) {
                 _ckt->_ord_design->getOpendp()->legalCellPos(result.buffer);
             }
             ecc::connectMissingWildcardSpecialNetPins(net->getBlock());
@@ -1401,7 +1303,7 @@ ecc::BufferInsertionResult Sizer::insertBufferBeforeLoad(
         result = ecc::OpenDbBufferInserter::insertBufferBeforeLoad(
             load, buffer_master, options);
         if(result) {
-            if(use_gr_rc) {
+            if(usesGlobalRouting()) {
                 _ckt->_ord_design->getOpendp()->legalCellPos(result.buffer);
             }
             ecc::connectMissingWildcardSpecialNetPins(result.buffer->getBlock());
@@ -1419,7 +1321,7 @@ ecc::BufferInsertionResult Sizer::insertBufferBeforeLoads(
         result = ecc::OpenDbBufferInserter::insertBufferBeforeLoads(
             net, loads, buffer_master, options);
         if(result) {
-            if(use_gr_rc) {
+            if(usesGlobalRouting()) {
                 _ckt->_ord_design->getOpendp()->legalCellPos(result.buffer);
             }
             ecc::connectMissingWildcardSpecialNetPins(net->getBlock());
@@ -1437,7 +1339,7 @@ ecc::FanoutRepairResult Sizer::repairFanout(
         result = ecc::OpenDbFanoutRepairer::repair(block, buffer_master,
                                                    options);
         if(result) {
-            if(use_gr_rc) {
+            if(usesGlobalRouting()) {
                 auto *opendp = _ckt->_ord_design->getOpendp();
                 for(odb::dbInst *buffer : result.inserted_buffers) {
                     opendp->legalCellPos(buffer);
@@ -1558,38 +1460,6 @@ void Sizer::CheckPTSizes(unsigned option) {
     }
 }
 
-// void Sizer::InitPTSizes() {
-//     string filename = benchname + "_init_sizes.tcl";
-//     ofstream outsz(filename.c_str());
-//     int count = 0;
-//     for(unsigned i = 0; i < numcells; i++) {
-//         if(getLibCellInfo(g_cells[i]) == NULL)
-//             continue;
-//         if(!PT_FULL_UPDATE && !g_cells[i].isChanged)
-//             continue;
-//         LibCellInfo *lib_cell_info = getLibCellInfo(g_cells[i]);
-//         if(useOpenSTA) {
-//             outsz << "OSSizeCell " << g_cells[i].name << " "
-//                   << lib_cell_info->name << endl;
-//         }
-//         else if(!useETS) {
-//             outsz << "PtSizeCell " << g_cells[i].name << " "
-//                   << lib_cell_info->name << endl;
-//         }
-//         else {
-//             outsz << "EtsSizeCell " << g_cells[i].name << " "
-//                   << lib_cell_info->name << endl;
-//         }
-//         g_cells[i].isChanged = false;
-//         count++;
-//     }
-//     outsz.close();
-//     if(count > 0) {
-//         for(unsigned view = 0; view < numViews; ++view) {
-//             T[view]->updateSize(filename);
-//         }
-//     }
-// }
 bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
                         std::unordered_set< odb::dbNet * > &parasitics_invalid_) {
     using odb::dbInst;
@@ -1627,16 +1497,6 @@ bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
 }
 
 void Sizer::UpdatePTSizes(unsigned option, int &count) {
-    //    double begin=cpuTime();
-    //    for(unsigned i=0 ; i<numcells ; i++) {
-    //        if(isff(cells[i])) continue;
-    //        //ecc::logInfo() << "Update sizing: " << cells[i].name << "->" <<
-    //        cells[i].type << endl;
-    //        T[view]->sizeCell(cells[i].name, cells[i].type);
-    //    }
-    // std::ostringstream ostr;
-    // ostr.str("");
-    // ostr << option;
 
     ecc::logError() << "Update PT sizes... " << std::endl;
     ecc::logError() << "numcell = " << numcells << std::endl;
@@ -1684,892 +1544,6 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
         T[0]->pt_time += cpuTime() - begin;
     }
     // else ecc::logInfo() << "No cell has been changed." << endl;
-}
-
-void Sizer::wait(int seconds) {
-    clock_t endwait;
-    endwait = clock() + seconds * CLOCKS_PER_SEC;
-    while(clock() < endwait) {
-    }
-}
-
-void Sizer::exePTServerOne(int port, unsigned view) {
-    unsigned corner = 0;  // mmmcViewList[view].corner;
-    unsigned mode = mmmcViewList[view].mode;
-
-    if(numViews > 1) {
-        if(mmmcScrList[view] != "") {
-            ptScriptFile = mmmcScrList[view];
-        }
-    }
-    bool ptsiOn = false;
-    bool ptpxOff = true;
-    string ptOption = "";
-    std::ostringstream ostr;
-    ostr.str("");
-    ostr << port;
-    string serverTcl = "ptserver." + ostr.str() + ".tcl";
-    std::ostringstream ostr2;
-    ostr2.str("");
-    ostr2 << view;
-    string ptDesignTcl = "pt." + benchname + ostr2.str() + ".tcl";
-    string serverCmdTcl = "sizer.tbc";
-    ofstream fout;
-
-    string ptsiStr = ptsiOn ? "-keep_capacitive_coupling " : "";
-
-    // make ptserver tcl
-    fout.open(serverTcl.c_str());
-
-    fout << "package ifneeded tbcload 1.7 [list load [file join . "
-            "libtbcload1.7.so]]"
-         << endl;
-    fout << "source " << serverCmdTcl << endl;
-    fout << "source " << ptDesignTcl << endl;
-    fout << "set svcPort " << port << endl;
-    fout << "proc doService {sock msg} {" << endl;
-    fout << "    puts \"got command $msg on ptserver\"" << endl;
-    fout << "    puts $sock [eval \"$msg\"]" << endl;
-    fout << "    flush $sock" << endl;
-    fout << "}" << endl;
-    fout << "proc  svcHandler {sock} {" << endl;
-    fout << "  set l [gets $sock]" << endl;
-    fout << "  if {[eof $sock]} {" << endl;
-    fout << "     close $sock " << endl;
-    fout << "  } else {" << endl;
-    fout << "    doService $sock $l" << endl;
-    fout << "  }" << endl;
-    fout << "}" << endl;
-    fout << "proc accept {sock addr port} {" << endl;
-    fout << "  fileevent $sock readable [list svcHandler $sock]" << endl;
-    fout << "  fconfigure $sock -buffering line -blocking 0" << endl;
-    fout << "  puts $sock \"$addr:$port, You are connected to the pt server.\""
-         << endl;
-    fout << "  puts $sock \"It is now [exec date]\"" << endl;
-    // fout << "  puts! \"Accepted connection from $addr at [exec date]\"" <<
-    // endl;
-    fout << "}" << endl;
-    fout << "set hostname [info hostname]" << endl;
-    fout << "set outFp [open hostname-${svcPort}.tmp \"w\"]" << endl;
-    fout << "puts $outFp $hostname" << endl;
-    fout << "close $outFp" << endl;
-    fout << "catch { socket -server accept $svcPort } test" << endl;
-    fout << "set outFp [open socket-${svcPort}.tmp \"w\"]" << endl;
-    fout << "puts $outFp $test" << endl;
-    fout << "close $outFp" << endl;
-    fout << "if { [regexp {couldn't} $test] || [regexp {^Error} $test] } {"
-         << endl;
-    fout << "    [exit]" << endl;
-    fout << "}" << endl;
-    fout << "vwait events" << endl;
-
-    fout.close();
-
-    fout.open(ptDesignTcl.c_str());
-
-    ifstream fin;
-    if(ptScriptFile != "") {
-        fin.open(ptScriptFile.c_str());
-    }
-
-    if(ptScriptFile == "" || !fin.is_open()) {
-        fout << "package ifneeded tbcload 1.7 [list load [file join . "
-                "libtbcload1.7.so]]"
-             << endl;
-        fout << "source ./sizer.tbc" << endl;
-        fout << "set design  \"" << benchname << "\"" << endl;
-        fout << "set lib_path \". " << dbLibPath << "\"" << endl;
-        fout << "set lib_file_list \[\]" << endl;
-        string lib_file_name;
-        vector< string > lib_name_list;
-        for(int i = 0; i < envlibLibs.size(); i++) {
-            if(libLibPath == "") {
-                lib_file_name = envlibLibs[i];
-            }
-            else {
-                lib_file_name = libLibPath + "/" + envlibLibs[i];
-            }
-
-            fout << "lappend lib_file_list " << lib_file_name << endl;
-            ifstream temp_is(lib_file_name.c_str());
-            string lib_name = _ckt->read_lib_name(temp_is);
-            temp_is.close();
-            lib_name_list.push_back(lib_name);
-        }
-        if(!mmmcOn) {
-            for(int i = 0; i < libLibs.size(); i++) {
-                if(libLibPath == "") {
-                    lib_file_name = libLibs[i];
-                }
-                else {
-                    lib_file_name = libLibPath + "/" + libLibs[i];
-                }
-                fout << "lappend lib_file_list " << lib_file_name << endl;
-                ifstream temp_is(lib_file_name.c_str());
-                string lib_name = _ckt->read_lib_name(temp_is);
-                temp_is.close();
-                lib_name_list.push_back(lib_name);
-            }
-        }
-        else {
-            for(unsigned j = 0; j < mmmcLibLists[corner].size(); ++j) {
-                if(libLibPath != "") {
-                    lib_file_name = libLibPath + "/" + mmmcLibLists[corner][j];
-                }
-                else {
-                    lib_file_name = mmmcLibLists[corner][j];
-                }
-                fout << "lappend lib_file_list " << lib_file_name << endl;
-                ifstream temp_is(lib_file_name.c_str());
-                string lib_name = _ckt->read_lib_name(temp_is);
-                temp_is.close();
-                lib_name_list.push_back(lib_name);
-            }
-        }
-
-        fout << "set lib_list [list *";
-        for(unsigned i = 0; i < lib_name_list.size(); ++i) {
-            fout << " " << lib_name_list[i];
-        }
-        fout << "]" << endl;
-        fout << "set verilog_input " << verilogFile << endl;
-
-        if(timerSdcFile == "") {
-            timerSdcFile = sdcFile;
-        }
-
-        if(!mmmcOn)
-            fout << "set sdc " << timerSdcFile << endl;
-        else
-            fout << "set sdc " << mmmcSdcList[mode] << endl;
-
-        if(!noSPEF) {
-            if(!mmmcOn)
-                fout << "set spef " << ptsiStr << spefFile << endl;
-            else
-                fout << "set spef " << ptsiStr << mmmcSpefList[corner] << endl;
-        }
-        fout << "PtLoadDesign" << endl;
-    }
-    else {
-        string temp;
-        while(std::getline(fin, temp)) {
-            fout << temp << endl;
-        }
-        fin.close();
-    }
-    fout.close();
-
-    string var = "PRIMETIME_EXECUTABLE";
-    const char *val = ::getenv(var.c_str());
-    if(val != 0)
-        ecc::logInfo() << var << ": " << val << endl;
-    else
-        val = "pt_shell";
-
-    string launchFile = "launch_pt." + ostr.str() + ".cmd";
-    fout.open(launchFile.c_str());
-
-    if(ptLaunchScriptFile != "") {
-        fin.open(ptLaunchScriptFile.c_str());
-    }
-
-    if(ptLaunchScriptFile == "" || !fin.is_open()) {
-        if(ptLogSave) {
-            if(BACKGROUND)
-                fout << val << " " << ptOption << " -f " << serverTcl << " > pt"
-                     << port << ".log" << endl;
-            else
-                fout << val << " " << ptOption << " -f " << serverTcl
-                     << " |& tee pt" << port << ".log" << endl;
-        }
-        else
-            fout << val << " " << ptOption << " -f " << serverTcl << endl;
-    }
-    else {
-        string temp;
-        while(std::getline(fin, temp)) {
-            fout << temp << endl;
-        }
-        fin.close();
-    }
-    fout.close();
-
-    // Execute PrimeTime
-    char Commands[250];
-    sprintf(Commands, "chmod +x launch_pt.%d.cmd", port);
-    system(Commands);
-
-    if(!BACKGROUND) {
-        sprintf(Commands,
-                "xterm -T SizerPT%d -iconic -e csh -f launch_pt.%d.cmd &", port,
-                port);
-    }
-    else {
-        sprintf(Commands, "./launch_pt.%d.cmd &", port);
-    }
-    system(Commands);
-}
-
-void Sizer::exeETSServerOne(int port, unsigned view) {
-    unsigned corner = 0;  // mmmcViewList[view].corner;
-    unsigned mode = mmmcViewList[view].mode;
-    std::ostringstream ostr;
-    ostr.str("");
-    ostr << port;
-    string serverTcl = "etsserver." + ostr.str() + ".tcl";
-    std::ostringstream ostr2;
-    ostr2.str("");
-    ostr2 << view;
-    string ptDesignTcl = "ets." + benchname + ostr2.str() + ".tcl";
-    // string serverCmdTcl = "ptserver_cmds.tcl";
-    string serverCmdTcl = "sizer.tbc";
-    ofstream fout;
-
-    // make soceserver tcl
-    fout.open(serverTcl.c_str());
-
-    fout << "package ifneeded tbcload 1.7 [list load [file join . "
-            "libtbcload1.7.so]]"
-         << endl;
-    fout << "source " << serverCmdTcl << endl;
-    fout << "source " << ptDesignTcl << endl;
-    fout << "set svcPort " << port << endl;
-    fout << "proc doService {sock msg} {" << endl;
-    fout << "    puts \"got command $msg on ptserver\"" << endl;
-    fout << "    puts $sock [eval \"$msg\"]" << endl;
-    fout << "    flush $sock" << endl;
-    fout << "}" << endl;
-    fout << "proc  svcHandler {sock} {" << endl;
-    fout << "  set l [gets $sock]" << endl;
-    fout << "  if {[eof $sock]} {" << endl;
-    fout << "     close $sock " << endl;
-    fout << "  } else {" << endl;
-    fout << "    doService $sock $l" << endl;
-    fout << "  }" << endl;
-    fout << "}" << endl;
-    fout << "proc accept {sock addr port} {" << endl;
-    fout << "  fileevent $sock readable [list svcHandler $sock]" << endl;
-    fout << "  fconfigure $sock -buffering line -blocking 0" << endl;
-    fout << "  puts $sock \"$addr:$port, You are connected to the pt server.\""
-         << endl;
-    fout << "  puts $sock \"It is now [exec date]\"" << endl;
-    // fout << "  puts! \"Accepted connection from $addr at [exec date]\"" <<
-    // endl;
-    fout << "}" << endl;
-    fout << "set hostname [info hostname]" << endl;
-    fout << "set outFp [open hostname-${svcPort}.tmp \"w\"]" << endl;
-    fout << "puts $outFp $hostname" << endl;
-
-    fout << "close $outFp" << endl;
-    fout << "catch { socket -server accept $svcPort } test" << endl;
-    fout << "set outFp [open socket-${svcPort}.tmp \"w\"]" << endl;
-    fout << "puts $outFp $test" << endl;
-    fout << "close $outFp" << endl;
-    fout << "if { [regexp {couldn't} $test] || [regexp {^Error} $test] } {"
-         << endl;
-    fout << "    [exit]" << endl;
-    fout << "}" << endl;
-    fout << "vwait events" << endl;
-    fout.close();
-
-    fout.open(ptDesignTcl.c_str());
-
-    ifstream fin;
-    if(numViews > 1) {
-        if(mmmcScrList[view] != "") {
-            etsScriptFile = mmmcScrList[view];
-        }
-    }
-    if(etsScriptFile != "") {
-        fin.open(etsScriptFile.c_str());
-    }
-
-    if(etsScriptFile == "" || !fin.is_open()) {
-        string lib_file_name;
-        fout << "set design  \"" << benchname << "\"" << endl;
-        fout << "set lib_file_list \[\]" << endl;
-        for(int i = 0; i < envlibLibs.size(); i++) {
-            if(libLibPath == "") {
-                lib_file_name = envlibLibs[i];
-            }
-            else {
-                lib_file_name = libLibPath + "/" + envlibLibs[i];
-            }
-            fout << "lappend lib_file_list " << lib_file_name << endl;
-        }
-        if(!mmmcOn) {
-            for(int i = 0; i < libLibs.size(); i++) {
-                if(libLibPath == "") {
-                    lib_file_name = libLibs[i];
-                }
-                else {
-                    lib_file_name = libLibPath + "/" + libLibs[i];
-                }
-                fout << "lappend lib_file_list " << lib_file_name << endl;
-            }
-        }
-        else {
-            for(unsigned j = 0; j < mmmcLibLists[corner].size(); ++j) {
-                if(libLibPath != "") {
-                    lib_file_name = libLibPath + "/" + mmmcLibLists[corner][j];
-                }
-                else {
-                    lib_file_name = mmmcLibLists[corner][j];
-                }
-                fout << "lappend lib_file_list " << lib_file_name << endl;
-            }
-        }
-        fout << "set verilog_input " << verilogFile << endl;
-
-        if(timerSdcFile == "") {
-            timerSdcFile = sdcFile;
-        }
-
-        if(!mmmcOn) {
-            fout << "set sdc " << timerSdcFile << endl;
-        }
-        else {
-            fout << "set sdc " << mmmcSdcList[mode] << endl;
-        }
-
-        if(!noSPEF) {
-            if(!mmmcOn) {
-                fout << "set spef " << spefFile << endl;
-            }
-            else {
-                fout << "set spef " << mmmcSpefList[corner] << endl;
-            }
-        }
-        if(tcfFile != "") {
-            fout << "set tcf " << tcfFile << endl;
-        }
-        if(falsePathFile != "") {
-            fout << "set false_path_file " << falsePathFile << endl;
-        }
-        fout << "EtsLoadDesign" << endl;
-    }
-    else {
-        string temp;
-        while(std::getline(fin, temp)) {
-            fout << temp << endl;
-        }
-        fin.close();
-    }
-    fout.close();
-
-    // ofstream fout;
-    string launchFile = "launch_ets." + ostr.str() + ".cmd";
-    string var = "ETS_EXECUTABLE";
-    const char *etsCmd = ::getenv(var.c_str());
-    if(etsCmd != 0)
-        ecc::logInfo() << var << ": " << etsCmd << endl;
-    else
-        etsCmd = "ets";
-
-    if(useTempus)
-        etsCmd = "tempus";
-
-    ofstream fout2;
-    fout2.open(launchFile.c_str());
-    if(ptLogSave)
-        fout2 << etsCmd << " " << ptOption << " -nowin -init " << serverTcl
-              << " -log ets.log" << endl;
-    else
-        fout2 << etsCmd << " " << ptOption << " -nowin -init " << serverTcl
-              << endl;
-    if(VERBOSE >= 1)
-        ecc::logInfo() << "File write done" << endl;
-    fout2.close();
-    if(VERBOSE >= 1)
-        ecc::logInfo() << "Launch file generated" << endl;
-
-    //    if ( VERBOSE == 100 ) {
-    //        ecc::logInfo() << "Waiting" ;
-    //        while ( i++ < 30 ) {
-    //            ecc::logInfo() << ".";
-    //                wait (1);
-    //        }
-    //        ecc::logInfo() << endl;
-    //    }
-    //
-    if(system(NULL)) {
-        if(VERBOSE >= 1)
-            ecc::logInfo() << "Processor is OK" << endl;
-    }
-    else {
-        if(VERBOSE >= 1)
-            ecc::logInfo() << "Processor is not responding!!" << endl;
-    }
-
-    if(VERBOSE >= 1)
-        ecc::logInfo() << "System commands..." << endl;
-
-    // Execute ETS
-    char Commands[250];
-
-    sprintf(Commands, "chmod +x ./%s", launchFile.c_str());
-
-    if(VERBOSE >= 1)
-        ecc::logInfo() << "RUN COMMAND....chmod +x " << launchFile.c_str() << endl;
-
-    int ret;
-    if(!(ret = system(Commands))) {
-        if(VERBOSE >= 1)
-            ecc::logInfo() << "Command : " << Commands << " is done sucessfully" << endl;
-    }
-    else {
-        if(VERBOSE >= 1)
-            ecc::logInfo() << "Command : " << Commands << " exited with code " << ret
-                 << endl;
-    }
-
-    if(!BACKGROUND) {
-        sprintf(Commands, "xterm -T SizerETS%d -iconic -e csh -f ./%s &", port,
-                launchFile.c_str());
-    }
-    else {
-        sprintf(Commands, "./%s &", launchFile.c_str());
-    }
-
-    if(VERBOSE >= 1)
-        ecc::logInfo() << "RUN COMMAND.... xterm -T Sizer...." << endl;
-
-    if(!(ret = system(Commands))) {
-        if(VERBOSE >= 1)
-            ecc::logInfo() << "Command : " << Commands << " is done sucessfully" << endl;
-    }
-    else {
-        if(VERBOSE >= 1)
-            ecc::logInfo() << "Command : " << Commands << " exited with code " << ret
-                 << endl;
-    }
-
-    ecc::logInfo() << "Running ETS done" << endl;
-}
-
-void Sizer::exeOSServerOne(int port, unsigned view) {
-    unsigned corner = 0;  // mmmcViewList[view].corner;
-    unsigned mode = mmmcViewList[view].mode;
-
-    if(numViews > 1) {
-        if(mmmcScrList[view] != "") {
-            ptScriptFile = mmmcScrList[view];
-        }
-    }
-    bool ptsiOn = false;
-    bool ptpxOff = true;
-    string ptOption = "";
-    std::ostringstream ostr;
-    ostr.str("");
-    ostr << port;
-    string serverTcl = "osserver." + ostr.str() + ".tcl";
-    std::ostringstream ostr2;
-    ostr2.str("");
-    ostr2 << view;
-    string ptDesignTcl = "os." + benchname + ostr2.str() + ".tcl";
-    // string serverCmdTcl = "sizer.tbc";
-    string serverCmdTcl = "sizer_os.tcl";
-    ofstream fout;
-
-    string ptsiStr = ptsiOn ? "-keep_capacitive_coupling " : "";
-
-    // make ptserver tcl
-    fout.open(serverTcl.c_str());
-
-    // fout << "set ::env(TCL_INIT_DIR) /home/tool/tcl/tcl8.4.20/lib/tcl8.4" <<
-    // endl;
-
-    // fout << "package ifneeded tbcload 1.7 [list load [file join .
-    // libtbcload1.7.so]]" << endl;
-    fout << "source " << serverCmdTcl << endl;
-    fout << "source " << ptDesignTcl << endl;
-    fout << "set svcPort " << port << endl;
-    fout << "proc doService {sock msg} {" << endl;
-    fout << "    puts \"got command $msg on osserver\"" << endl;
-    fout << "    puts $sock [eval \"$msg\"]" << endl;
-    fout << "    flush $sock" << endl;
-    fout << "}" << endl;
-    fout << "proc  svcHandler {sock} {" << endl;
-    fout << "  set l [gets $sock]" << endl;
-    fout << "  if {[eof $sock]} {" << endl;
-    fout << "     close $sock " << endl;
-    fout << "  } else {" << endl;
-    fout << "    doService $sock $l" << endl;
-    fout << "  }" << endl;
-    fout << "}" << endl;
-    fout << "proc accept {sock addr port} {" << endl;
-    fout << "  fileevent $sock readable [list svcHandler $sock]" << endl;
-    fout << "  fconfigure $sock -buffering line -blocking 0" << endl;
-    fout << "  puts $sock \"$addr:$port, You are connected to the os server.\""
-         << endl;
-    fout << "  puts $sock \"It is now [exec date]\"" << endl;
-    // fout << "  puts! \"Accepted connection from $addr at [exec date]\"" <<
-    // endl;
-    fout << "}" << endl;
-    fout << "set hostname [info hostname]" << endl;
-    fout << "set outFp [open hostname-${svcPort}.tmp \"w\"]" << endl;
-    fout << "puts $outFp $hostname" << endl;
-    fout << "close $outFp" << endl;
-    fout << "catch { socket -server accept $svcPort } test" << endl;
-    fout << "set outFp [open socket-${svcPort}.tmp \"w\"]" << endl;
-    fout << "puts $outFp $test" << endl;
-    fout << "close $outFp" << endl;
-    fout << "if { [regexp {couldn't} $test] || [regexp {^Error} $test] } {"
-         << endl;
-    fout << "    [exit]" << endl;
-    fout << "}" << endl;
-    fout << "vwait events" << endl;
-
-    fout.close();
-
-    fout.open(ptDesignTcl.c_str());
-
-    ifstream fin;
-    if(ptScriptFile != "") {
-        fin.open(ptScriptFile.c_str());
-    }
-
-    if(ptScriptFile == "" || !fin.is_open()) {
-        // fout << "package ifneeded tbcload 1.7 [list load [file join . "
-        //         "libtbcload1.7.so]]"
-        //      << endl;
-        // fout << "source ./sizer.tbc" << endl;
-        fout << "source ./sizer_os.tcl" << endl;
-        fout << "set design  \"" << benchname << "\"" << endl;
-        fout << "set lib_path \". " << dbLibPath << "\"" << endl;
-        fout << "set lib_file_list \[\]" << endl;
-        string lib_file_name;
-        vector< string > lib_name_list;
-        for(int i = 0; i < envlibLibs.size(); i++) {
-            if(libLibPath == "") {
-                lib_file_name = envlibLibs[i];
-            }
-            else {
-                lib_file_name = libLibPath + "/" + envlibLibs[i];
-            }
-
-            fout << "lappend lib_file_list " << lib_file_name << endl;
-            ifstream temp_is(lib_file_name.c_str());
-            string lib_name = _ckt->read_lib_name(temp_is);
-            temp_is.close();
-            lib_name_list.push_back(lib_name);
-        }
-        if(!mmmcOn) {
-            for(int i = 0; i < libLibs.size(); i++) {
-                if(libLibPath == "") {
-                    lib_file_name = libLibs[i];
-                }
-                else {
-                    lib_file_name = libLibPath + "/" + libLibs[i];
-                }
-                fout << "lappend lib_file_list " << lib_file_name << endl;
-                ifstream temp_is(lib_file_name.c_str());
-                string lib_name = _ckt->read_lib_name(temp_is);
-                temp_is.close();
-                lib_name_list.push_back(lib_name);
-            }
-        }
-        else {
-            for(unsigned j = 0; j < mmmcLibLists[corner].size(); ++j) {
-                if(libLibPath != "") {
-                    lib_file_name = libLibPath + "/" + mmmcLibLists[corner][j];
-                }
-                else {
-                    lib_file_name = mmmcLibLists[corner][j];
-                }
-                fout << "lappend lib_file_list " << lib_file_name << endl;
-                ifstream temp_is(lib_file_name.c_str());
-                string lib_name = _ckt->read_lib_name(temp_is);
-                temp_is.close();
-                lib_name_list.push_back(lib_name);
-            }
-        }
-
-        fout << "set lib_list [list *";
-        for(unsigned i = 0; i < lib_name_list.size(); ++i) {
-            fout << " " << lib_name_list[i];
-        }
-        fout << "]" << endl;
-        fout << "set verilog_input " << verilogFile << endl;
-
-        if(timerSdcFile == "") {
-            timerSdcFile = sdcFile;
-        }
-
-        if(!mmmcOn)
-            fout << "set sdc " << timerSdcFile << endl;
-        else
-            fout << "set sdc " << mmmcSdcList[mode] << endl;
-
-        if(!noSPEF) {
-            if(!mmmcOn)
-                fout << "set spef " << ptsiStr << spefFile << endl;
-            else
-                fout << "set spef " << ptsiStr << mmmcSpefList[corner] << endl;
-        }
-        fout << "OSLoadDesign" << endl;
-    }
-    else {
-        string temp;
-        while(std::getline(fin, temp)) {
-            fout << temp << endl;
-        }
-        fin.close();
-    }
-    fout.close();
-
-    string var = "OPENSTA_EXECUTABLE";
-    const char *val = ::getenv(var.c_str());
-
-    string launchFile = "launch_os." + ostr.str() + ".cmd";
-    fout.open(launchFile.c_str());
-    if(val != 0)
-        ecc::logInfo() << var << ": " << val << endl;
-    else {
-        fout << "OPENSTA_EXECUTABLE=$(pwd)/sta" << endl;
-        val = "${OPENSTA_EXECUTABLE}";
-    }
-    if(ptLaunchScriptFile != "") {
-        fin.open(ptLaunchScriptFile.c_str());
-    }
-    if(ptLaunchScriptFile == "" || !fin.is_open()) {
-        if(ptLogSave) {
-            if(BACKGROUND)
-                fout << val << " " << ptOption << " -f " << serverTcl << " > os"
-                     << port << ".log" << endl;
-            else
-                fout << val << " " << ptOption << " -f " << serverTcl
-                     << " |& tee os" << port << ".log" << endl;
-        }
-        else
-            fout << val << " " << ptOption << " -f " << serverTcl << endl;
-    }
-    else {
-        string temp;
-        while(std::getline(fin, temp)) {
-            fout << temp << endl;
-        }
-        fin.close();
-    }
-    fout.close();
-
-    // Execute PrimeTime
-    char Commands[250];
-    // sprintf(Commands, "chmod +x launch_os.%d.cmd", port);
-    // system(Commands);
-
-    if(!BACKGROUND) {
-        sprintf(Commands,
-                "xterm -T SizerOpenSTA%d -iconic -e csh -f launch_os.%d.cmd &",
-                port, port);
-    }
-    else {
-        sprintf(Commands, "./launch_os.%d.cmd &", port);
-    }
-    // system(Commands);
-}
-
-void Sizer::exePTServer(string &serverName, int &port, unsigned view) {
-    char socketFile[250];
-    char hostnameFile[250];
-    char Commands[250];
-    bool flag;
-    ifstream file;
-    string line;
-
-    while(true) {
-        flag = false;
-        if(port > 9999) {
-            ecc::logInfo() << "Error: cannot open PT socket" << endl;
-            exit(0);
-        }
-        std::ostringstream ostr;
-        ostr.str("");
-        ostr << port;
-        exePTServerOne(port, view);
-        bool flag2 = true;
-        sprintf(socketFile, "socket-%d.tmp", port);
-        sprintf(hostnameFile, "hostname-%d.tmp", port);
-        int tmp_cnt = 0;
-        ecc::logInfo() << "waiting for socket file ";
-        while(flag2) {
-            ifstream fp;
-            wait(1);
-            fp.open(socketFile);
-            if(fp)
-                flag2 = false;
-            fp.close();
-            ecc::logInfo() << ".";
-            if(tmp_cnt++ > max(200, (int)numcells))
-                break;
-        }
-        ecc::logInfo() << endl;
-        file.open(socketFile);
-        ecc::logInfo() << "open socket file: " << socketFile << endl;
-        if(!file) {
-            ecc::logInfo() << "Error: socket file not found" << endl;
-        }
-        while(std::getline(file, line)) {
-            if(line.find("Error") != string::npos)
-                flag = true;
-        }
-        file.close();
-        if(!flag)
-            break;
-        port++;
-    }
-    line = "";
-
-    file.open(hostnameFile);
-    if(file) {
-        while(std::getline(file, line)) {
-            if(line != "") {
-                serverName = line;
-            }
-        }
-    }
-    file.close();
-    ecc::logInfo() << "PT socket is opened at " << serverName << ":" << port << endl;
-    // sprintf(Commands, "\\rm socket-*.tmp" );
-    sprintf(Commands, "\\rm -f %s", socketFile);
-    system(Commands);
-}
-
-void Sizer::exeETSServer(string &serverName, int &port, unsigned view) {
-    char socketFile[250];
-    char hostnameFile[250];
-    char Commands[250];
-    bool flag;
-    ifstream file;
-    string line;
-
-    while(true) {
-        flag = false;
-        if(port > 9999) {
-            ecc::logInfo() << "Error: cannot open ETS socket" << endl;
-            exit(0);
-        }
-        exeETSServerOne(port, view);
-        bool flag2 = true;
-        sprintf(socketFile, "socket-%d.tmp", port);
-        sprintf(hostnameFile, "hostname-%d.tmp", port);
-        int tmp_cnt = 0;
-        ecc::logInfo() << "waiting for socket file " << endl;
-        while(flag2) {
-            ifstream fp;
-            wait(1);
-            fp.open(socketFile);
-            if(fp)
-                flag2 = false;
-            fp.close();
-            ecc::logInfo() << ".";
-            if(tmp_cnt++ > max(200, (int)numcells))
-                break;
-        }
-        ecc::logInfo() << endl;
-        file.open(socketFile);
-        ecc::logInfo() << "open socket file: " << socketFile << endl;
-        if(!file) {
-            ecc::logInfo() << "Error: socket file not found" << endl;
-            flag = true;
-        }
-        else {
-            while(std::getline(file, line)) {
-                if(line.find("Error") != string::npos)
-                    flag = true;
-                if(line.find("couldn") != string::npos)
-                    flag = true;
-            }
-        }
-        file.close();
-        if(!flag)
-            break;
-        port++;
-    }
-    line = "";
-
-    file.open(hostnameFile);
-    if(file) {
-        while(std::getline(file, line)) {
-            if(line != "") {
-                serverName = line;
-            }
-        }
-    }
-    file.close();
-    ecc::logInfo() << "ETS socket is opened at " << serverName << ":" << port << endl;
-    // sprintf(Commands, "\\rm socket-*.tmp" );
-    if(NO_LOG) {
-        sprintf(Commands, "\\rm -f %s", socketFile);
-        system(Commands);
-    }
-}
-
-void Sizer::exeOSServer(string &serverName, int &port, unsigned view) {
-    char socketFile[250];
-    char hostnameFile[250];
-    char Commands[250];
-    bool flag;
-    ifstream file;
-    string line;
-
-    while(true) {
-        flag = false;
-        if(port > 9999) {
-            ecc::logInfo() << "Error: cannot open OpenSTA socket" << endl;
-            exit(0);
-        }
-        std::ostringstream ostr;
-        ostr.str("");
-        ostr << port;
-        exeOSServerOne(port, view);
-        bool flag2 = true;
-        sprintf(socketFile, "socket-%d.tmp", port);
-        sprintf(hostnameFile, "hostname-%d.tmp", port);
-        int tmp_cnt = 0;
-        ecc::logInfo() << "waiting for socket file ";
-        while(flag2) {
-            ifstream fp;
-            wait(1);
-            fp.open(socketFile);
-            if(fp)
-                flag2 = false;
-            fp.close();
-            ecc::logInfo() << ".";
-            if(tmp_cnt++ > max(200, (int)numcells))
-                break;
-        }
-        ecc::logInfo() << endl;
-        file.open(socketFile);
-        ecc::logInfo() << "open socket file: " << socketFile << endl;
-        if(!file) {
-            ecc::logInfo() << "Error: socket file not found" << endl;
-        }
-        while(std::getline(file, line)) {
-            if(line.find("Error") != string::npos)
-                flag = true;
-        }
-        file.close();
-        if(!flag)
-            break;
-        port++;
-    }
-    line = "";
-
-    file.open(hostnameFile);
-    if(file) {
-        while(std::getline(file, line)) {
-            if(line != "") {
-                serverName = line;
-            }
-        }
-    }
-    file.close();
-    ecc::logInfo() << "OpenSTA socket is opened at " << serverName << ":" << port << endl;
-    // sprintf(Commands, "\\rm socket-*.tmp" );
-    sprintf(Commands, "\\rm -f %s", socketFile);
-    system(Commands);
 }
 
 void Sizer::SizeOut(bool success) {
@@ -2858,15 +1832,8 @@ double Sizer::ReportWithPT(vector< CELL > &c, string sizeout, double &wns_input,
 
     double current_leak = 0.0;
     double current_tot = 0.0;
-    if(useOpenSTA) {
-        // string find_timing = T[view]->doOneCmd("find_timing");
-        current_leak = T[view]->getLeakPower();
-        current_tot = current_leak;
-    }
-    else {
-        current_leak = T[view]->getLeakPower();
-        current_tot = T[view]->getTotPower();
-    }
+    current_leak = T[view]->getLeakPower();
+    current_tot = current_leak;
 
     double skew_violation = T[view]->getTNS(clk_name[worst_corner]);
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
@@ -3861,21 +2828,6 @@ int Sizer::DownSizeFOCellsGreedy(bool corr_pt, unsigned option,
             continue;  // min size
         // if (curfo == dont_touch) continue;    // dont_touch
 
-        /*
-        for (unsigned k = 0; k <
-        nets[corner][pins[view][cells[curfo].outpin].net].outpins.size(); k ++ )
-        {
-            if (
-        pins[view][nets[pins[view][cells[curfo].outpin].net].outpins[k]].owner =
-        dont_touch ) {
-                ignore = true;
-                break;
-            }
-        }
-
-        if ( ignore ) continue;
-        */
-
         entry tmpEntry2;
         tmpEntry2.id = curfo;
         tmpEntry2.change = DNSIZE;
@@ -4804,24 +3756,6 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                 unsigned best_sol = UINT_MAX;
                 double max_neg_slk = 0.0;
 
-                //                double wslk = 0.0;
-                //                for (unsigned l = 0; l < num_cell_set ; l ++ )
-                //                {
-                //                    for ( unsigned m = 0 ; m <
-                //                    cells[path[start+l]].inpins.size(); m++ )
-                //                    {
-                //                        double slk =
-                //                        min(pins[view][cells[path[start+l]].inpins[m]].rslk,
-                //                        pins[view][cells[path[start+l]].inpins[m]].fslk);
-                //                        if ( wslk > slk )
-                //                            wslk = slk;
-                //                    }
-                //                    if (wslk >
-                //                    min(pins[view][cells[path[start+l]].outpin].rslk,pins[view][cells[path[start+l]].outpin].fslk))
-                //                        wslk =
-                //                        min(pins[view][cells[path[start+l]].outpin].rslk,pins[view][cells[path[start+l]].outpin].fslk);
-                //                }
-                //                max_neg_slk = wslk;
                 max_neg_slk =
                     min(pins[view][cells[path[path.size() - 1]].outpin].rslk,
                         pins[view][cells[path[path.size() - 1]].outpin].fslk);
@@ -4854,24 +3788,6 @@ unsigned Sizer::OptWNSPathGray(bool corr_pt, unsigned thread_id,
                         // cells[path[start+l]].name;
 
                         if(k == 0) {
-                            //                              cout
-                            //                              <<cells[path[start+l]].type<<"
-                            //                              ";
-                            //                            if (
-                            //                            gray_code_ary[k][l] !=
-                            //                            0 ) {
-                            //                                cout
-                            //                                <<"*("<<cells[path[start+l]].type<<"->";
-                            //
-                            //                                cell_move(cells[path[start+l]],
-                            //                                gray_code_ary[k][l]);
-                            //                                OneTimer(cells[path[start+l]],STA_MARGIN);
-                            //
-                            //                                ecc::logInfo() <<
-                            //                                cells[path[start+l]].type<<"-";
-                            //                                cout
-                            //                                <<gray_code_ary[k][l]<<")";
-                            //                            }
                         }
                         else {
                             if(gray_code_ary[k][l] != gray_code_ary[k - 1][l]) {
@@ -5450,7 +4366,7 @@ void Sizer::runOrdTO() {
     // legalizePlacement();
     // Rebuild parasitics after the final detailed placement so the reported
     // final slacks match the exported design state.
-    if(use_gr_rc && (noSPEF || spefFile.empty())) {
+    if(usesGlobalRouting() && !hasExtractedParasitics()) {
         ecc::logPrintf("Run final global-routing RC refresh after runOrdTO...\n");
         refreshOpenStaParasitics(true);
     }
@@ -5791,7 +4707,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                         }
                         best_cells_poweropt[i].isChanged = 0;
                     }
-                    if(spefFile == "") {
+                    if(!hasExtractedParasitics()) {
                         _ckt->runGR(50, false, 6);
                     }
                     _ckt->readSpef_opensta(_sta);
@@ -5932,10 +4848,10 @@ void Sizer::FinalReport() {
             best_cells_poweropt[i].isChanged = 1;
         }
 
-        if(!noSPEF && !spefFile.empty()) {
+        if(hasExtractedParasitics()) {
             return;
         }
-        if(!PRESERVE_PLACEMENT) {
+        if(!hasExtractedParasitics()) {
             _ord_design->evalTclString(
                 "set_placement_padding -global -left " + std::to_string(dp_padding) +
                 " -right " + std::to_string(dp_padding));
@@ -5943,7 +4859,7 @@ void Sizer::FinalReport() {
         }
     });
 
-    if(!noSPEF && spefFile != "") {
+    if(hasExtractedParasitics()) {
         return;
     }
 
@@ -8595,16 +7511,6 @@ unsigned Sizer::ReducePowerLegal(int thread_id, int option, int iter,
                     }
 
                     for(unsigned k = 0; k < cells[cur].outpins.size(); ++k) {
-                        // double slack =
-                        // min(pins[view1][cells[cur].outpins[k]].rslk,
-                        // pins[view1][cells[cur].outpins[k]].fslk);
-                        // if ( slack < toler ) {
-                        //    if ( VERBOSE >= 1 )
-                        //    ecc::logInfo() << "RESTORED DUE TO SLACK " << slack << " "
-                        //    << toler << " ";
-                        //    restore_flag = true;
-                        //    break;
-                        //}
 
                         maxCap = lib_cell_info
                                      ->pins[pins[view1][cells[cur].outpins[k]]
@@ -9218,61 +8124,13 @@ void Sizer::Profile() {
 
 void ecc::runCellSizing(ord::Design& design, const RepairConfig& config,
                         const std::function<void()>& refresh,
-                        bool extracted_parasitics) {
+                        ParasiticsMode parasitics_mode) {
     // The original sizing search retains its analysis arrays; the only mutable
     // physical design and all input parsing belong to the OpenROAD session.
-    Sizer sizer(0, nullptr);
-    sizer.exeOp = 1;
-    sizer.swapOp = 1;
-    sizer.stopCond = 0;
-    sizer.maxTrCheck = false;
-    GUARD_BAND = 0.0;
-    sizer.swapstep = 10000;
-    sizer.sdcFile = "";
-    sizer.timerSdcFile = "";
-    sizer.defFile = "";
-    sizer.spefFile = "";
-    sizer.verilogFile = "";
-    sizer.clockName = "clk";
-    sizer.reportFile = "result.rpt";
-    sizer.verilogOutFile = "";
-    sizer.defOutFile = "";
-    sizer.spefOutFile = "";
-    sizer.ptCmd = "";
-    sizer.ptOption = "";
-    sizer.ptLogSave = true;
-    sizer.exePNRFlag = false;
-    sizer.chkWNSFlag = false;
-    sizer.totPWRFlag = false;
-    sizer.mmmcOn = false;
-    sizer.useETS = false;
-    sizer.useTempus = false;
-    sizer.useOpenSTA = true;
-    sizer.noDEF = false;
-    sizer.noSPEF = false;
-    sizer.saifFile = "";
-    sizer.swapFile = "";
-    sizer.optEffort = 1;
-    sizer.soceScriptFile = "";
-    sizer.etsScriptFile = "";
-    sizer.ptScriptFile = "";
-    sizer.ptLaunchScriptFile = "";
-    sizer.tcfFile = "";
-    sizer.soceBin = "";
-    sizer.sensFunc = 1;  // SF 6 is TNS, originally 0
-    sizer.sensFunc2 = 0;
-    sizer.sensFuncT = 5;  // SF 6 is TNS only, originally 5
-    sizer.falsePathFile = "";
-    sizer.timerTestCnt = 0;
-    sizer.timerTestCell = 0;
-    sizer.timerTestMove = 0;
-    sizer.use_gr_rc = design.getResizer()->getEstimateParasitics()->getParasiticsSrc()
-                      == est::ParasiticsSrc::kGlobalRouting;
+    Sizer sizer;
 
     sizer.benchname = design.getBlock()->getName();
-    sizer.numVt = 1;
     sizer.numCorners = sizer.numModes = sizer.numViews = 1;
-    sizer.RuntimeLimit = 3600;
     sizer.global_begin = cpuTime();
     sizer.time_IO = sizer.time_SizeOut = sizer.time_WNSOpt = 0;
     sizer.time_Coarse = sizer.time_Zoomin = sizer.time_KickOpt = sizer.time_LeakOpt = 0;
@@ -9280,11 +8138,8 @@ void ecc::runCellSizing(ord::Design& design, const RepairConfig& config,
     sizer.count_OneTimer = sizer.count_CallTimer = 0;
     sizer.nativeRepairConfig = config;
     sizer.refresh_design = refresh;
-    sizer.noSPEF = false;  // Both estimated and extracted RC come from STA.
-    sizer.spefFile = extracted_parasitics ? "loaded" : "";
     sizer.initSingleMode();
-    NO_FOOTPRINT = true;
-    PRESERVE_PLACEMENT = extracted_parasitics;
+    sizer.parasitics_mode = parasitics_mode;
     sizer.Parser(design);
     sizer.Parallel_Sizer_Launcher();
     sizer.FinalReport();

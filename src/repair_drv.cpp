@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_drv.h"
 #include "repair_backend.h"
+#include "sta/Sdc.hh"
+#include "sta/Mode.hh"
+#include "sta/Liberty.hh"
+#include "db_sta/dbSta.hh"
 #include <chrono>
 #include <unordered_map>
 #include "db_sta/dbNetwork.hh"
@@ -20,6 +24,29 @@
 namespace ecc {
 using detail::NetState;
 using detail::Repair;
+
+static bool applyNetRepair(Repair& backend, sta::dbSta* sta, NetState& state,
+                           unsigned& inserted, unsigned& resized_buffers,
+                           unsigned& resized_gates, unsigned remaining,
+                           bool allow_resize, unsigned& vt_swaps) {
+    const auto plan = backend.planNetRepair(
+        state, remaining > inserted ? remaining - inserted : 0, allow_resize);
+    const bool buffer =
+        sta->getDbNetwork()->libertyCell(state.driver->getInst())->isBuffer();
+    const bool vt = plan.replacement &&
+                    backend.isVtSwap(state.driver->getInst()->getMaster(),
+                                     plan.replacement->master);
+    const auto edits = applyRepairPlan(plan);
+    inserted += edits.inserted_buffers;
+    if(edits.replaced) {
+        vt_swaps += vt;
+        if(buffer)
+            ++resized_buffers;
+        else
+            ++resized_gates;
+    }
+    return bool(edits);
+}
 
 DesignRepairResult OpenDbDesignRepairer::repair(
     odb::dbBlock* block, sta::dbSta* sta,
@@ -82,8 +109,7 @@ DesignRepairResult OpenDbDesignRepairer::repair(
                     break;
             }
         }
-        odb::dbDatabase::beginEco(block);
-        bool eco_active = true;
+        EcoTransaction transaction(block);
         unsigned inserted = 0, resized = 0, resized_gates = 0, downsized = 0,
                  vt_swaps = 0;
         try {
@@ -102,7 +128,7 @@ DesignRepairResult OpenDbDesignRepairer::repair(
                         state.fanout_ratio > 1 || state.cap_ratio > 1;
                     if(overloaded ? !load_violation : state.propagated_slew)
                         continue;
-                    repair.edit(state, inserted, resized, resized_gates,
+                    applyNetRepair(repair, sta, state, inserted, resized, resized_gates,
                                 detail::remainingBufferBudget(
                                     options.max_inserted_buffers,
                                     result.inserted_buffers),
@@ -111,8 +137,7 @@ DesignRepairResult OpenDbDesignRepairer::repair(
             }
             if(inserted == 0 && resized == 0 && resized_gates == 0 &&
                downsized == 0) {
-                odb::dbDatabase::undoEco(block);
-                eco_active = false;
+                transaction.rollback();
                 result.message = "no feasible edit for remaining violations";
                 break;
             }
@@ -130,8 +155,7 @@ DesignRepairResult OpenDbDesignRepairer::repair(
                                            options.tolerances) &&
                (!(downsized || vt_swaps) ||
                 detail::noNewDrv(result.after, after))) {
-                odb::dbDatabase::commitEco(block);
-                eco_active = false;
+                transaction.commit();
                 result.inserted_buffers += inserted;
                 result.resized_buffers += resized;
                 result.resized_gates += resized_gates;
@@ -143,8 +167,7 @@ DesignRepairResult OpenDbDesignRepairer::repair(
                 states = std::move(next_states);
             }
             else {
-                odb::dbDatabase::undoEco(block);
-                eco_active = false;
+                transaction.rollback();
                 refresh();
                 states = analyze(result.after);
                 ++result.rejected_passes;
@@ -166,8 +189,8 @@ DesignRepairResult OpenDbDesignRepairer::repair(
         }
         catch(const std::exception& error) {
             result.message = error.what();
-            if(eco_active) {
-                odb::dbDatabase::undoEco(block);
+            if(transaction.active()) {
+                transaction.rollback();
                 try {
                     refresh();
                     analyze(result.after);
@@ -258,8 +281,7 @@ OrdDesignRepairResult OpenDbOrdDesignRepairer::repair(
             if(selected_nets.empty())
                 break;
 
-            odb::dbDatabase::beginEco(block);
-            bool active = true;
+            EcoTransaction transaction(block);
             unsigned inserted = 0, resized_buffers = 0, resized_gates = 0,
                      vt_swaps = 0, repaired = 0;
             try {
@@ -267,7 +289,7 @@ OrdDesignRepairResult OpenDbOrdDesignRepairer::repair(
                     const auto found = by_net.find(net);
                     if(found == by_net.end())
                         continue;
-                    if(backend.edit(*found->second, inserted, resized_buffers,
+                    if(applyNetRepair(backend, sta, *found->second, inserted, resized_buffers,
                                     resized_gates,
                                     detail::remainingBufferBudget(
                                         options.max_inserted_buffers,
@@ -276,8 +298,7 @@ OrdDesignRepairResult OpenDbOrdDesignRepairer::repair(
                         ++repaired;
                 }
                 if(repaired == 0) {
-                    odb::dbDatabase::undoEco(block);
-                    active = false;
+                    transaction.rollback();
                     for(auto* net : selected_nets)
                         processed.erase(net);
                     break;
@@ -294,8 +315,7 @@ OrdDesignRepairResult OpenDbOrdDesignRepairer::repair(
                 // timing-preserving transaction policy.
                 if(after.severity + options.tolerances.drv_severity <
                    result.after.severity) {
-                    odb::dbDatabase::commitEco(block);
-                    active = false;
+                    transaction.commit();
                     result.after = after;
                     states = std::move(next_states);
                     result.repaired_nets += repaired;
@@ -306,8 +326,7 @@ OrdDesignRepairResult OpenDbOrdDesignRepairer::repair(
                     pass_progress = true;
                     continue;
                 }
-                odb::dbDatabase::undoEco(block);
-                active = false;
+                transaction.rollback();
                 refresh();
                 states = analyze(result.after);
                 for(auto* net : selected_nets)
@@ -323,8 +342,8 @@ OrdDesignRepairResult OpenDbOrdDesignRepairer::repair(
             }
             catch(const std::exception& error) {
                 result.message = error.what();
-                if(active) {
-                    odb::dbDatabase::undoEco(block);
+                if(transaction.active()) {
+                    transaction.rollback();
                     for(auto* net : selected_nets)
                         processed.erase(net);
                     try {
@@ -497,10 +516,10 @@ FanoutRepairResult OpenDbFanoutRepairer::repair(
 
     // Keep the tree construction atomic. OpenDB supports nested ECO journals,
     // so this also composes with a caller-owned transaction.
-    odb::dbDatabase::beginEco(block);
+    EcoTransaction transaction(block);
     const auto rollback = [&](FanoutRepairStatus status,
                               const std::string& message) {
-        odb::dbDatabase::undoEco(block);
+        transaction.rollback();
         result.status = status;
         result.message = message;
         result.inserted_buffers.clear();
@@ -579,7 +598,7 @@ FanoutRepairResult OpenDbFanoutRepairer::repair(
         return rollback(FanoutRepairStatus::kInsertionFailed,
                         "fanout repair finished with an unresolved violation");
     }
-    odb::dbDatabase::commitEco(block);
+    transaction.commit();
     return result;
 }
 
@@ -691,9 +710,9 @@ static bool acceptable(const PowerRepairMetrics& before,
                        const PowerRepairMetrics& after,
                        const PowerRepairOptions& options) {
     const double old_power =
-        options.objective == "total" ? before.total : before.leakage;
+        options.objective == ecc::PowerObjective::Total ? before.total : before.leakage;
     const double new_power =
-        options.objective == "total" ? after.total : after.leakage;
+        options.objective == ecc::PowerObjective::Total ? after.total : after.leakage;
     const double minimum =
         std::max(options.min_absolute_improvement,
                  old_power * options.min_relative_improvement);
@@ -710,7 +729,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
     const std::function< void() >& refresh, const PowerRepairOptions& options) {
     PowerRepairResult result;
     const auto start = std::chrono::steady_clock::now();
-    bool active = false;
+    std::optional<EcoTransaction> transaction;
     try {
         options.validate();
         if(!block || !sta || !refresh ||
@@ -756,8 +775,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
                     backoff();
                     continue;
                 }
-                odb::dbDatabase::beginEco(block);
-                active = true;
+                transaction.emplace(block);
                 unsigned vt_swaps = 0, downsizes = 0;
                 for(const auto i : selected) {
                     const auto& plan = plans[i];
@@ -790,8 +808,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
                     }
                 }
                 if(local_slack_ok && acceptable(result.after, after, options)) {
-                    odb::dbDatabase::commitEco(block);
-                    active = false;
+                    transaction->commit();
                     result.after = after;
                     states = std::move(next);
                     ++result.accepted_batches;
@@ -800,8 +817,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
                     accepted = true;
                     break;
                 }
-                odb::dbDatabase::undoEco(block);
-                active = false;
+                transaction->rollback();
                 update();  // Always restore current timing/power before
                            // returning or replanning.
                 states = measurePower(backend, sta, result.after);
@@ -821,8 +837,8 @@ PowerRepairResult OpenDbPowerRepairer::repair(
     }
     catch(const std::exception& error) {
         result.message = error.what();
-        if(active) {
-            odb::dbDatabase::undoEco(block);
+        if(transaction && transaction->active()) {
+            transaction->rollback();
             try {
                 ++result.refreshes;
                 refresh();

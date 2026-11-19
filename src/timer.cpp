@@ -165,25 +165,6 @@ double r_entry(const LibLUT &liblut, const double tran, const double cap) {
            w_i * w_j * liblut.tableVals[i2][j2];
 }
 
-/*
-
-    double w_i;
-    if(cap < liblut.loadIndices[0]) {
-        w_i = cap / liblut.loadIndices[i1];
-    }
-    else {
-        w_i = (cap - liblut.loadIndices[i1]) /
-              (liblut.loadIndices[i2] - liblut.loadIndices[i1]);
-    }
-    double w_j;
-    if(tran < liblut.transitionIndices[0]) {
-        w_j = tran / liblut.transitionIndices[j1];
-    }
-    else {
-        w_j = (tran - liblut.transitionIndices[j1]) /
-              (liblut.transitionIndices[j2] - liblut.transitionIndices[j1]);
-    }
-*/
 double Sizer::GetCellSlack(CELL &cell) {
     double slack = DBL_MAX;
     for(unsigned view = 0; view < numViews; ++view) {
@@ -972,79 +953,6 @@ unsigned Sizer::FindAvailablePreCell(unsigned prev_cell_input_pin,
     }
     return res_cell;
 }
-#if 0
-unsigned Sizer::FindAvailableNextCell(unsigned prev_cell_input_pin,
-                                     int max_depth, int view) {
-    unsigned res_cell = UINT_MAX;
-    for(int depth = 0; depth < max_depth; depth++) {
-        unsigned net_id = pins[view][prev_cell_input_pin].net;
-        if(net_id == UINT_MAX) {
-            break;
-        }
-        unsigned cell_output_pin = nets[view][net_id].inpin;
-        if(cell_output_pin == UINT_MAX) {
-            break;
-        }
-        unsigned cell_id = pins[view][cell_output_pin].owner;
-        if(cell_id == UINT_MAX) {
-            break;
-        }
-        auto &t_cell = cells[cell_id];
-        if(isff(cells[cell_id]) || cells[cell_id].isDontTouch) {
-            break;
-        }
-        if(!isMax(cells[cell_id])) {
-            res_cell = cell_id;
-            return res_cell;
-        }
-        unsigned next_cell_input_pin = UINT_MAX;
-        double t_max_tran = 0.0;
-        unsigned outpinidx = pins[view][cell_output_pin].lib_pin * 100;
-
-        // downsizing fanouts
-        for(unsigned k = 0; k < nets[corner][outnet].outpins.size(); ++k) {
-            unsigned focell = pins[view][nets[corner][outnet].outpins[k]].owner;
-            if(focell == UINT_MAX) {
-                continue;
-            }
-            if(getLibCellInfo(cells[focell], corner) == NULL) {
-                continue;
-            }
-            if(cells[focell].isClockCell) {
-                continue;
-            }
-            if(cells[focell].isDontTouch)
-                continue;
-            // if(isff(cells[focell])) {
-            //     continue;
-            // }
-            // CalcStats((unsigned)thread_id, false, "", view, false);
-            prev_tns = viewTNS[view];
-
-            if(cell_resize(cells[focell], -1)) {
-                OneTimer(cells[focell], STA_MARGIN, true);
-                // CalcStats((unsigned)thread_id, false, "", view, false);
-                cur_tns = viewTNS[view];
-                change++;
-                if(cur_tns > prev_tns) {
-                    cell_resize(cells[focell], 1);
-                    cells[focell].isChanged -= 2;
-                    change--;
-                    OneTimer(cells[focell], STA_MARGIN, true);
-                }
-                else if(!IsTranVio(pins[view][curpin], cur_max_tran)) {
-                    break;
-                }
-            }
-        }
-        if(next_cell_input_pin == UINT_MAX) {
-            break;
-        }
-        prev_cell_input_pin = next_cell_input_pin;
-    }
-    return res_cell;
-}
-#endif
 
 // delta_cap should be a vector, since there are multiple outputs
 void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
@@ -1123,16 +1031,6 @@ void Sizer::LookupST(CELL &cell, int steps, double *rtran, double *ftran,
                 LibTimingInfo *arc = cur->timingArcs.count(idx)
                                          ? &cur->timingArcs[idx]
                                          : nullptr;
-                // if(arc == nullptr) {
-                //     unsigned out_libpin = pins[view][curoutpin].lib_pin;
-                //     unsigned in_libpin = pins[view][curpin].lib_pin;
-                //     unsigned idx = out_libpin * 100 + in_libpin;
-                //     if(cur->pins[in_libpin].isOutput &&
-                //        cur->pins[out_libpin].isInput) {
-                //         idx = out_libpin + in_libpin * 100;
-                //         arc = &cur->timingArcs[idx];
-                //     }
-                // }
                 if(arc == NULL) {
                     arc_error = true;
                 }
@@ -1352,25 +1250,6 @@ void Sizer::LookupDT(CELL &cell, int steps, vector< double > &rdelay,
                 LibTimingInfo *arc = cur->timingArcs.count(idx)
                                          ? &cur->timingArcs[idx]
                                          : nullptr;
-                // if(arc == nullptr) {
-                //     unsigned out_libpin = pins[view][curoutpin].lib_pin;
-                //     unsigned in_libpin = pins[view][curpin].lib_pin;
-                //     unsigned idx = out_libpin * 100 + in_libpin;
-                //     if(cur->pins[in_libpin].isOutput &&
-                //        cur->pins[out_libpin].isInput) {
-                //         idx = out_libpin + in_libpin * 100;
-                //         arc = &cur->timingArcs[idx];
-                //     }
-                // }
-                // ecc::logInfo() << "LOOK DT " << pins[view][curpin].name << "/" <<
-                // pins[view][curpin].lib_pin << "--" <<
-                // pins[view][curoutpin].name <<"/" <<
-                // pins[view][curoutpin].lib_pin << " " << arc->timingSense <<
-                // endl;
-                // ecc::logInfo() << "DELAY TIMING ARC " << arc->fromPin << "/" <<
-                // cur->lib_pin2id_map[arc->fromPin]<< "--" << arc->toPin <<"/"
-                // << cur->lib_pin2id_map[arc->toPin] << " " << arc->timingSense
-                // << endl;
 
                 if(arc == NULL) {
                     arc_error = true;
@@ -1730,17 +1609,6 @@ void Sizer::CalcSlack(unsigned view) {
         // add a loop for outpins
         for(unsigned k = 0; k < cells[cur].inpins.size(); ++k) {
             unsigned curinpin = cells[cur].inpins[k];
-            // if("g23384__4733/A1" == getFullPinName(pins[view][curinpin])) {
-            //     ecc::logPrintf("debug debug");
-            // }
-            // if("FE_OFC1503_u_NV_NVDLA_cmac_u_core_u_mac_1_mul_136_55_n_69/A"
-            // ==
-            //    getFullPinName(pins[view][curinpin])) {
-            //     ecc::logPrintf("debug debug");
-            // }
-            // if(pins[view][curinpin].name == "2544") {
-            //     ecc::logPrintf("debug debug!");
-            // }
             if(cells[cur].outpins.size() == 0) {
                 double r_AAT = 0.0, f_AAT = 0.0;
                 double r_slk = 0.0, f_slk = 0.0;
@@ -1876,16 +1744,6 @@ void Sizer::CalcSlack(unsigned view) {
                     }
                 }
                 else {
-                    // if(!libs[corner]
-                    //         .find(cells[cur].type)
-                    //         ->second.pins[pins[view][curinpin].lib_pin]
-                    //         .isData) {
-                    //     pins[view][curinpin].rRAT = pins[view][curinpin].fRAT
-                    //     =
-                    //         9999.99;
-                    //     break;
-                    // }
-                    // error
                     pins[view][curinpin].rRAT =
                         min(pins[view][curinpin].rRAT,
                             clk_period[mode] - pins[view][curinpin].rdelay[j]);
@@ -4099,17 +3957,6 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                         ecc::logInfo() << "REACH PO -- ADD BW PIN "
                              << getFullPinName(pins[view][curpin]) << endl;
                     if(bwpins_set.count(curpin) == 0) {
-                        // unsigned fipin =
-                        //     nets[corner][pins[view][curpin].net].inpin;
-                        // if(fipin != UINT_MAX) {
-                        //     pins[view][fipin].rRAT = pins[view][fipin].fRAT =
-                        //         9999.99;
-                        // }
-                        // else {
-                        //     pins[view][curpin].rRAT = pins[view][curpin].fRAT
-                        //     =
-                        //         9999.99;
-                        // }
                         bwpins.push_back(curpin);
                         bwpins_set.insert(curpin);
                     }
@@ -4130,16 +3977,6 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                                      << getFullPinName(pins[view][curpin])
                                      << endl;
                             if(bwpins_set.count(curpin) == 0) {
-                                // unsigned fipin =
-                                //     nets[corner][pins[view][curpin].net].inpin;
-                                // if(fipin != UINT_MAX) {
-                                //     pins[view][fipin].rRAT =
-                                //         pins[view][fipin].fRAT = 9999.99;
-                                // }
-                                // else {
-                                //     pins[view][curpin].rRAT =
-                                //         pins[view][curpin].fRAT = 9999.99;
-                                // }
                                 bwpins.push_back(curpin);
                                 bwpins_set.insert(curpin);
                             }
@@ -4183,17 +4020,6 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
 
                 if(curfo != UINT_MAX) {
                     if(bwpins_set.count(curpin) == 0) {
-                        // unsigned fipin =
-                        //     nets[corner][pins[view][curpin].net].inpin;
-                        // if(fipin != UINT_MAX) {
-                        //     pins[view][fipin].rRAT = pins[view][fipin].fRAT =
-                        //         9999.99;
-                        // }
-                        // else {
-                        //     pins[view][curpin].rRAT = pins[view][curpin].fRAT
-                        //     =
-                        //         9999.99;
-                        // }
                         bwpins.push_back(curpin);
                         bwpins_set.insert(curpin);
                     }
@@ -4207,17 +4033,6 @@ inline void Sizer::OneTimer(CELL &cell, double margin, bool recompute_moment,
                 }
                 else {
                     if(bwpins_set.count(curpin) == 0) {
-                        // unsigned fipin =
-                        //     nets[corner][pins[view][curpin].net].inpin;
-                        // if(fipin != UINT_MAX) {
-                        //     pins[view][fipin].rRAT = pins[view][fipin].fRAT =
-                        //         9999.99;
-                        // }
-                        // else {
-                        //     pins[view][curpin].rRAT = pins[view][curpin].fRAT
-                        //     =
-                        //         9999.99;
-                        // }
                         bwpins.push_back(curpin);
                         bwpins_set.insert(curpin);
                     }
@@ -5208,60 +5023,6 @@ void Sizer::calc_total_res(vector< SUB_NODE > &subNodeVec) {
     //          << endl;
     // }
 }
-#if 0
-double Sizer::calc_fanout_cap(vector< SUB_NODE > &subNodeVec, SUB_NODE* subNode) {
-    stack< SUB_NODE * > dfsStack;
-    vector< bool > visited;
-
-    long branches = 0;
-
-    if(subNode->fanouts.size() == 0){
-        return subNode->cap;
-    }
-
-    for(unsigned i = 0; i < subNodeVec.size(); i++) {
-        subNodeVec[i].totres = 0.0;
-        visited.push_back(false);
-    }
-
-    dfsStack.push(&subNodeVec[0]);
-    visited[0] = true;
-
-    subNodeVec[0].fanin = 0;
-
-    while(!dfsStack.empty()) {
-        SUB_NODE *topNode = dfsStack.top();
-        // ecc::logInfo() << "top " << topNode->id << endl;
-        assert(topNode->id >= 0);
-        bool hasToVisit = false;
-        for(unsigned i = 0; i < topNode->adj.size(); i++) {
-            int to_id = topNode->adj[i];
-            if(!visited[to_id]) {
-                dfsStack.push(&subNodeVec[to_id]);
-                topNode->fanouts.push_back(to_id);
-                subNodeVec[to_id].fanin = topNode->id;
-                // ecc::logInfo() << "push " << to_id << endl;
-                visited[to_id] = true;
-                hasToVisit = true;
-                subNodeVec[to_id].totres += topNode->res[i] + topNode->totres;
-            }
-        }
-        if(topNode->fanouts.size() > 1) {
-            branches++;
-            topNode->is_branch = false;
-        }
-
-        if(!hasToVisit) {
-            dfsStack.pop();
-        }
-    }
-    ecc::logPrintf("Cal total res end!!\n");
-    for(unsigned i = 0; i < subNodeVec.size(); i++) {
-        ecc::logInfo() << "CAL TOTAL RES " << i << "/" << subNodeVec[i].totres << "/"
-             << endl;
-    }
-}
-#endif
 
 // Calculate total resistance of the portion of the unique path
 int Sizer::getNumRCStage(vector< SUB_NODE > &subNodeVec, unsigned sink) {
@@ -5322,13 +5083,6 @@ double Sizer::get_res(vector< SUB_NODE > &subNodeVec, unsigned m, unsigned n) {
     for(unsigned i = 0; i < subNodeVec.size(); ++i) {
         subNodeVec[i].visited = false;  // restore
     }
-    /*
-    curNode = &subNodeVec[m];
-    while (curNode->id !=0) {
-        curNode->visited = false;    // restore
-        curNode = &subNodeVec[curNode->fanin];
-    }
-    */
 
     return totres;
 }
@@ -5345,16 +5099,6 @@ void Sizer::calc_net_moment(vector< SUB_NODE > &subNodeVec,
 
     subNodeVec[0].m1 = 0;
     subNodeVec[0].m2 = 0;
-
-    /*    vector<vector<double> > commonRes;
-
-          for (unsigned i = 0; i < subNodeVec.size()-1; i++) {
-          vector<double> row;
-          commonRes.push_back(row);
-          for (unsigned k = 0; k < i; k++) {
-          commonRes[i].push_back(get_res(subNodeVec,i+1,k+1));
-          }
-          }*/
 
     if(WIRE_METRIC == DEBUG) {
         ecc::logInfo() << "m1 calculation:" << endl;
@@ -5702,26 +5446,6 @@ void Sizer::calc_pin_ceff_MC(PIN &pin, unsigned view) {
     C1 = pin.totcap / 6.0;
     C2 = pin.totcap * 5.0 / 6.0;
 
-    /*
-     *
-    //Read ceff table
-    ifstream infile;
-    if(isRiseTran)
-    infile.open("rceff.txt");
-    else
-    infile.open("fceff.txt");
-
-    vector< vector<double> > ceff_table;
-    ceff_table.resize(alpha_Nstep,0);
-    for(unsigned i=0;i<ceff_table.size();i++)
-    ceff_table[i].resize(beta_Nstep,0);
-
-    for(unsigned a=0;a<ceff_table.size();a++)
-    for(unsigned b=0;b<ceff_table.size();b++)
-    infile>>ceff_table[a][b];
-
-*/
-
     // Initialize variables
     double alpha_var = C2 / (C1 + C2);
     double gamma_tmp = alpha_var;
@@ -5754,17 +5478,7 @@ void Sizer::calc_pin_ceff_MC(PIN &pin, unsigned view) {
     int count = 0;
     while(gamma_delta >= gamma_conv) {
         count++;
-        /*
-           double alpha_step=alpha_max/(alpha_Nstep-1);
-           double beta_step=beta_max/(beta_Nstep-1);
-           unsigned aIdx=(unsigned)(alpha_var/alpha_step);
-           unsigned bIdx=(unsigned)(beta_var/beta_step);
-           assert((aIdx<alpha_Nstep)&&(bIdx<beta_Nstep));
-           if(aIdx>=alpha_Nstep)
-           aIdx=alpha_Nstep-1;
-           if(bIdx>=beta_Nstep)
-           bIdx=beta_Nstep-1;
-           */
+
         gamma_LUT = 1 - exp(-0.2 * beta_var);
         // gamma_LUT=1-exp(-0.13*beta_var);
         // gamma_LUT=1-exp(-0.57*beta_var);
@@ -6244,24 +5958,6 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
     }
 }
 
-#if 0
-// Correlate PT (NEW)
-void Sizer::getInfluencedPins(std::vector< CELL * > &influenced_cells,
-                           ) {
-    for(unsigned i = 0; i < need_to_be_updated.size(); i++) {
-        CELL *cell = need_to_be_updated[i];
-        LibCellInfo *lib_cell_info = getLibCellInfo(cell);
-        if(lib_cell_info == NULL || cell->isDontTouch)
-            continue;
-        if(cell->isChanged) {
-            influenced_cells.push_back(cell);
-            if(isff(*cell))
-                influenced_ffs.push_back(cell);
-        }
-    }
-}
-#endif
-
 void Sizer::CorrelatePT(unsigned option, unsigned view) {
     // std::vector< CELL * > need_to_be_updated;
     // for(unsigned i = 0; i < numcells; i++) {
@@ -6324,31 +6020,6 @@ bool Sizer::IsTranVio(PIN &pin, double max_tran) {
 
 void Sizer::GetMaxTranConst(unsigned view) {
     unsigned mode = mmmcViewList[view].mode;
-#if 0
-    string pt_in_file = benchname + ".pin_list";
-    string pt_out_file = benchname + ".pt_pin_max_tran_const";
-    T[view]->writeMaxTranConst(pt_in_file, pt_out_file);
-    ifstream infile(pt_out_file.c_str());
-    vector< double > temp;
-    string pin_name, tr;
-    double tr_PT;
-    while(infile >> pin_name >> tr) {
-        if(tr == "")
-            tr_PT = .0;
-        else
-            tr_PT = atof(tr.c_str());
-        temp.push_back(tr_PT);
-    }
-    infile.close();
-    for(unsigned i = 0; i < numpins; i++) {
-        unsigned corner = 0; // mmmcViewList[view].corner;
-        if(temp[i] > maxTran[corner])
-            g_pins[view][i].max_tran = temp[i];
-        else {
-            g_pins[view][i].max_tran = maxTran[corner];
-        }
-    }
-#endif
     auto design = this->_ckt->_ord_design;
     sta::dbNetwork* network =
         this->_ckt->_ord_timing->getSta()->getDbNetwork();

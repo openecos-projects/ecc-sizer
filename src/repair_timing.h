@@ -12,6 +12,7 @@ class Design;
 }
 
 namespace ecc {
+enum class ParasiticsMode;
 struct SetupRepairMetrics {
     DesignRepairMetrics design;
     float setup_tns = 0;
@@ -58,5 +59,5 @@ class OpenDbSetupRepairer {
 // Existing cell-sizing search on the caller's loaded OpenROAD design.
 void runCellSizing(ord::Design& design, const RepairConfig& config,
                    const std::function< void() >& refresh,
-                   bool extracted_parasitics = false);
+                   ParasiticsMode parasitics_mode);
 }  // namespace ecc

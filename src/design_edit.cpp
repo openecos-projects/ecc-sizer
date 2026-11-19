@@ -14,6 +14,29 @@
 #include "odb/geom.h"
 
 namespace ecc {
+EcoTransaction::EcoTransaction(odb::dbBlock* block) : block_(block) {
+    if(!block_) throw std::invalid_argument("missing ECO block");
+    odb::dbDatabase::beginEco(block_);
+}
+EcoTransaction::~EcoTransaction() { rollback(); }
+void EcoTransaction::suspend() {
+    if(!active_ || suspended_) throw std::logic_error("ECO is not recording");
+    odb::dbDatabase::endEco(block_);
+    suspended_ = true;
+}
+void EcoTransaction::commit() {
+    if(!active_) throw std::logic_error("ECO is already closed");
+    odb::dbDatabase::commitEco(block_);
+    active_ = false;
+}
+void EcoTransaction::rollback() {
+    if(!active_) return;
+    // Clear ownership first: callbacks invoked by OpenDB must never trigger
+    // a second undo of the same journal during exception unwinding.
+    active_ = false;
+    odb::dbDatabase::undoEco(block_);
+}
+
 namespace {
 
 BufferInsertionResult failure(BufferInsertionStatus status,

@@ -435,7 +435,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathEveryTrialMatchesFullSta)
   constrainSetup(true);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 8;
   options.max_area_growth = 0.5;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
@@ -500,7 +500,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathSequenceMatchesFinalFullSta)
   constrainSetup(true);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 16;
   options.max_area_growth = -1;
   options.defer_rollback_refresh = true;
@@ -527,7 +527,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathFullyVerifiesBeforeEveryCommit)
   constrainSetup(true);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 16;
   options.max_area_growth = -1;
   options.defer_rollback_refresh = true;
@@ -560,8 +560,8 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRunsOnceAndReportsLegalFullSta)
   constrainSetup(true);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
-  options.placement = "final";
+  options.strategy = ecc::PathStrategy::Feedback;
+  options.placement = ecc::PathPlacement::Final;
   options.max_trials = 16;
   options.max_area_growth = -1;
   unsigned prepared = 0, observed = 0;
@@ -614,11 +614,11 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRestoresAllProvisionalEditsAndMo
   const auto original_tns = sta_->totalNegativeSlack(sta::MinMax::max());
   // Both final STA rejection and an exception after DP must restore the
   // entire parent transaction, including accepted child ECOs and old cells.
-  for(const auto* verification : {"trial", "final"})
+  for(const auto verification : {ecc::PathVerification::Trial, ecc::PathVerification::Final})
   for(bool throw_after_move : {false, true}) {
     ecc::PathRepairOptions options;
-    options.strategy = "feedback";
-    options.placement = "final";
+    options.strategy = ecc::PathStrategy::Feedback;
+    options.placement = ecc::PathPlacement::Final;
     options.verification = verification;
     options.path_verification_refresh = [&]() { refreshRepairTiming(); };
     options.max_trials = 16;
@@ -663,8 +663,8 @@ TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJou
   constrainSetup(true);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
-  options.verification = "final";
+  options.strategy = ecc::PathStrategy::Feedback;
+  options.verification = ecc::PathVerification::Final;
   options.max_trials = 16;
   options.max_area_growth = -1;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
@@ -673,7 +673,7 @@ TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJou
   const auto full = [&]() { ++full_refreshes; refreshRepairTiming(); };
   auto rejected = ecc::OpenDbPathRepairer::repair(block_, sta_.get(), full, options);
   EXPECT_FALSE(rejected.ok);
-  options.placement = "final";
+  options.placement = ecc::PathPlacement::Final;
   rejected = ecc::OpenDbPathRepairer::repair(block_, sta_.get(), full, options);
   EXPECT_FALSE(rejected.ok); // Missing authoritative callback.
   EXPECT_EQ(full_refreshes, 0u);
@@ -724,8 +724,8 @@ TEST_F(BufferInserterStaTest, PathRejectionStopStillFinalizesAndKeepsAcceptedEdi
   const auto instances = block_->getInsts().size();
   const auto nets = block_->getNets().size();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
-  options.placement = "final";
+  options.strategy = ecc::PathStrategy::Feedback;
+  options.placement = ecc::PathPlacement::Final;
   options.max_trials = 0;
   options.max_consecutive_rejections = 2;
   options.max_area_growth = -1;
@@ -768,7 +768,7 @@ TEST_F(BufferInserterStaTest, PathTimingPrecheckMatchesFullMetricsAndNeverAccept
   constrainSetup(true);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   options.adaptive_search = true;
   options.timing_precheck = true;
   options.max_trials = 32;
@@ -822,7 +822,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathRollsBackIfFullVerificationFails)
   const auto wns = sta_->worstSlack(sta::MinMax::max());
   const auto tns = sta_->totalNegativeSlack(sta::MinMax::max());
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 16;
   options.max_area_growth = -1;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
@@ -922,7 +922,7 @@ TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
   ecc::VgRepairOptions options;
   // This integration target deliberately links the CPU stub: requesting
   // CUDA must fall back before any ECO, then apply the same atomic plan.
-  options.backend = "cuda";
+  options.backend = ecc::VgBackend::Cuda;
   options.common.max_fanout = 3;
   options.max_buffers = 64;
   options.max_group_loads = 3;
@@ -1585,7 +1585,7 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   constrainSetup(true);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 4;
   options.max_area_growth = 0.5;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
@@ -1602,7 +1602,7 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   // clamped at zero. All edits must be restored, despite optimistic forecasts.
   options.min_relative_improvement = 1;
   // Exercise actual STA rejection independently of prediction screening.
-  options.strategy = "path_gain";
+  options.strategy = ecc::PathStrategy::PathGain;
   const auto rejected = ecc::OpenDbPathRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(rejected.ok) << rejected.message;
@@ -1611,7 +1611,7 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   EXPECT_EQ(accepted, 0u);
   EXPECT_FLOAT_EQ(rejected.before.setup_wns, rejected.after.setup_wns);
   reports = 0;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   const auto screened = ecc::OpenDbPathRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(screened.ok) << screened.message;
@@ -1646,10 +1646,10 @@ TEST_F(BufferInserterStaTest, PathCoverageFindsUnsampledEndpointsAndKeepsGlobalS
   constrainSetup();
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.strategy = "feedback";
+  options.strategy = ecc::PathStrategy::Feedback;
   options.endpoint_coverage = true;
   options.group_schedule = true;
-  options.gain_scope = "global";
+  options.gain_scope = ecc::PathGainScope::Global;
   options.max_paths = 1;
   options.max_trials = 8;
   options.max_area_growth = 0.5;
@@ -1904,7 +1904,7 @@ TEST_F(BufferInserterStaTest, PathPlansCapLimitedTreeAndRollsBackAtomically)
     for(auto* pin : inst->getITerms()) connections.emplace_back(pin, pin->getNet());
   ecc::PathRepairOptions options;
   options.tree_candidates = true;
-  options.strategy = "path_gain";
+  options.strategy = ecc::PathStrategy::PathGain;
   options.max_trials = 0;
   options.max_candidates = 64;
   for(auto* master : lib_->getMasters()) {
@@ -1955,8 +1955,8 @@ TEST_F(BufferInserterStaTest, PathRecoveryCandidatesUseActualEndpointObjective)
       nullptr, false, false, sta::MinMaxAll::max(), false, 0.9e-9, sdc);
   refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.gain_scope = "endpoints";
-  options.strategy = "path_gain";
+  options.gain_scope = ecc::PathGainScope::Endpoints;
+  options.strategy = ecc::PathStrategy::PathGain;
   options.max_area_growth = -1;
   options.max_trials = 4;
   options.min_relative_improvement = 1; // force rollback
@@ -1991,7 +1991,7 @@ TEST_F(BufferInserterStaTest, PathLocalObjectiveRequiresBothEndpointAndGlobalPro
   readTestDesign("gate_repair_sta.v");
   addLegalRows(); constrainSetup(true); refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.gain_scope = "endpoints";
+  options.gain_scope = ecc::PathGainScope::Endpoints;
   options.min_relative_improvement = 0.001;
   options.max_trials = 4;
   options.max_area_growth = -1;
@@ -2019,8 +2019,8 @@ TEST_F(BufferInserterStaTest, PathCurrentGlobalScaleKeepsMeasuredTimingAndElectr
   readTestDesign("gate_repair_sta.v");
   addLegalRows(); constrainSetup(true); refreshRepairTiming();
   ecc::PathRepairOptions options;
-  options.gain_scope = "current_global";
-  options.strategy = "feedback";
+  options.gain_scope = ecc::PathGainScope::CurrentGlobal;
+  options.strategy = ecc::PathStrategy::Feedback;
   options.min_relative_improvement = 0.01;
   options.max_trials = 8;
   options.max_area_growth = -1;
@@ -2059,14 +2059,14 @@ TEST_F(BufferInserterStaTest, PathEndpointScaleIsNotBlockedByUnrelatedRecoveryTn
   refreshRepairTiming();
   ecc::PathRepairOptions options;
   options.recovery = false; // Isolate the gain-scope change.
-  options.strategy = "path_gain";
+  options.strategy = ecc::PathStrategy::PathGain;
   options.min_relative_improvement = 0.1;
   options.max_trials = 4;
   options.max_area_growth = -1;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   auto run = [&]() { return ecc::OpenDbPathRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options); };
-  options.gain_scope = "global";
+  options.gain_scope = ecc::PathGainScope::Global;
   const auto global = run();
   ASSERT_TRUE(global.ok) << global.message;
   EXPECT_GT(global.attempted_trials, 0u);
@@ -2076,7 +2076,7 @@ TEST_F(BufferInserterStaTest, PathEndpointScaleIsNotBlockedByUnrelatedRecoveryTn
   for(const auto& trial : global.trials)
     for(const auto& c : trial.candidates)
       EXPECT_LE(c.predicted_wns_gain, options.common.tolerances.wns_absolute);
-  options.gain_scope = "endpoints";
+  options.gain_scope = ecc::PathGainScope::Endpoints;
   const auto local = run();
   ASSERT_TRUE(local.ok) << local.message;
   EXPECT_GT(local.inserted_buffers, 0u);
@@ -2893,7 +2893,7 @@ TEST_F(BufferInserterStaTest, PowerRecoveryHonorsBudgetSlackAndTotalObjective)
   options.slack_margin = 1;
   EXPECT_EQ(run().attempted_batches, 0);
   options.slack_margin = 0;
-  options.objective = "total";
+  options.objective = ecc::PowerObjective::Total;
   const auto result = run();
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.attempted_batches, 1);
@@ -2971,7 +2971,7 @@ TEST_F(BufferInserterStaTest, VgSetupScopeCollectsCleanNegativeSlackNets)
   ASSERT_LT(drv.before.setup_wns,0);
   ASSERT_EQ(drv.before.severity,0);
   ASSERT_EQ(drv.nets_collected,0u);
-  o.scope="setup";
+  o.scope=ecc::VgScope::Setup;
   auto setup=run();ASSERT_TRUE(setup.ok)<<setup.message;
   EXPECT_GT(setup.nets_collected,0u);
   EXPECT_GE(setup.after.setup_wns+o.common.tolerances.wns_absolute,setup.before.setup_wns);

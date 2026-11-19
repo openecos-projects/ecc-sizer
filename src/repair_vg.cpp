@@ -34,7 +34,7 @@ bool eligible(const NetState& state, sta::dbSta* sta,
         return false;
     if(state.violating())
         return true;
-    if(options.scope != "setup")
+    if(options.scope != ecc::VgScope::Setup)
         return false;
     auto* pin = sta->getDbNetwork()->dbToSta(state.driver);
     return sta->slack(pin, sta::RiseFallBoth::riseFall(),
@@ -470,7 +470,7 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
     }
     std::vector<VgSolution> best(inputs.size());
     bool used_cuda = false;
-    if(options.backend == "cuda") {
+    if(options.backend == ecc::VgBackend::Cuda) {
         try {
             VgForest forest;
             collectCudaBuffers(forest, resizer, scene, options);
@@ -483,7 +483,7 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
                 size_t(options.cuda_max_memory_mb) * 1024 * 1024);
             for(size_t i = 0; i < inputs.size(); ++i) {
                 int selected = result.selected[i];
-                if(options.scope == "setup") {
+                if(options.scope == ecc::VgScope::Setup) {
                     selected = -1;
                     double best_score = inputs[i].unchanged_score;
                     const auto& frontier = result.frontiers[forest.roots[i]];
@@ -514,7 +514,7 @@ std::vector<VgSolution> collectVgSolutions(const std::vector<NetState>& states,
         for(size_t i = 0; i < inputs.size(); ++i) {
             auto candidates = runVg(inputs[i].tree, resizer, scene, sta::MinMax::max(), options);
             best[i].net = inputs[i].net;
-            if(options.scope == "setup")
+            if(options.scope == ecc::VgScope::Setup)
                 best[i].score = inputs[i].unchanged_score;
             for(auto& candidate : candidates) {
                 if(candidate.tree->bufferCount() == 0) continue;
@@ -610,7 +610,7 @@ VgRepairResult OpenDbVgRepairer::repair(
         result.message = "VG STA network does not reference the target block";
         return result;
     }
-    if(options.scope == "setup" && !resizer) {
+    if(options.scope == ecc::VgScope::Setup && !resizer) {
         result.message = "VG setup scope requires the Steiner-tree solver";
         return result;
     }
@@ -639,8 +639,7 @@ VgRepairResult OpenDbVgRepairer::repair(
             result.message = "VG found no applicable buffer plan";
             return result;
         }
-        odb::dbDatabase::beginEco(block);
-        bool active = true;
+        EcoTransaction transaction(block);
         try {
             {
                 Timer apply_timer{&result.apply_ms};
@@ -656,8 +655,7 @@ VgRepairResult OpenDbVgRepairer::repair(
             verify_backend.analyze(after_design, true);
             result.after = metrics(after_design);
             if(!better(result.before, result.after, options)) {
-                odb::dbDatabase::undoEco(block);
-                active = false;
+                transaction.rollback();
                 refresh();
                 ++result.refreshes;
                 result.after = result.before;
@@ -665,8 +663,7 @@ VgRepairResult OpenDbVgRepairer::repair(
                 result.message = "VG plan rejected by timing/DRV acceptance";
                 return result;
             }
-            odb::dbDatabase::commitEco(block);
-            active = false;
+            transaction.commit();
             result.ok = true;
             result.committed = true;
             result.inserted_buffers = result.attempted_buffers;
@@ -676,8 +673,8 @@ VgRepairResult OpenDbVgRepairer::repair(
             return result;
         }
         catch(const std::exception& error) {
-            if(active) {
-                odb::dbDatabase::undoEco(block);
+            if(transaction.active()) {
+                transaction.rollback();
                 try {
                     refresh();
                     ++result.refreshes;
@@ -708,8 +705,7 @@ VgRepairResult OpenDbVgRepairer::repair(
         return result;
     }
 
-    odb::dbDatabase::beginEco(block);
-    bool active = true;
+    EcoTransaction transaction(block);
     std::unordered_set< odb::dbObject* > seen_loads;
     try {
         Timer timer{&result.apply_ms};
@@ -734,8 +730,7 @@ VgRepairResult OpenDbVgRepairer::repair(
             ++result.attempted_buffers;
         }
         if(result.attempted_buffers == 0) {
-            odb::dbDatabase::undoEco(block);
-            active = false;
+            transaction.rollback();
             result.ok = true;
             result.after = result.before;
             result.message = "VG plans became stale before apply";
@@ -747,8 +742,7 @@ VgRepairResult OpenDbVgRepairer::repair(
         backend.analyze(after_design, true);
         result.after = metrics(after_design);
         if(!better(result.before, result.after, options)) {
-            odb::dbDatabase::undoEco(block);
-            active = false;
+            transaction.rollback();
             refresh();
             ++result.refreshes;
             result.after = result.before;
@@ -756,8 +750,7 @@ VgRepairResult OpenDbVgRepairer::repair(
             result.message = "VG plan rejected by timing/DRV acceptance";
             return result;
         }
-        odb::dbDatabase::commitEco(block);
-        active = false;
+        transaction.commit();
         result.ok = true;
         result.committed = true;
         result.inserted_buffers = result.attempted_buffers;
@@ -767,8 +760,8 @@ VgRepairResult OpenDbVgRepairer::repair(
         return result;
     }
     catch(const std::exception& error) {
-        if(active) {
-            odb::dbDatabase::undoEco(block);
+        if(transaction.active()) {
+            transaction.rollback();
             try {
                 refresh();
                 ++result.refreshes;

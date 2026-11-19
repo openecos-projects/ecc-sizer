@@ -2,6 +2,7 @@
 #ifndef __SIZER_H__
 #define __SIZER_H__
 #include "repair_config.h"
+#include "design_io.h"
 ///////////////////////////////////////////////////////////////////////////////
 // Authors: Hyein Lee and Jiajia Li
 //          (Ph.D. advisor: Andrew B. Kahng)
@@ -59,6 +60,7 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <memory>
 #include <queue>
 #include <set>
 #include <stack>
@@ -183,11 +185,7 @@ extern bool INIT_WORST_PATH;
 extern int NORM_SFT;
 extern bool CHECK_ALL_VIEW;
 extern string debug_net;
-extern bool STM28;
-extern bool C40;
-extern bool ASAP7;
-extern bool NO_FOOTPRINT;
-extern bool TIMING_RECOVERY;
+inline constexpr bool NO_FOOTPRINT = true;
 extern bool PEEPHOLE;
 extern bool NO_SEQ_OPT;
 extern bool NO_CLKBUF_OPT;
@@ -200,7 +198,6 @@ extern bool NO_TOPO;
 extern bool UPDATE_LIST;
 extern int MULTI_STEP;
 extern int MULTI_STEP_KICK;
-extern int MULTI_STEP_PWR;
 extern double KICK_RATIO;
 extern double KICK_SLACK;
 extern int KICK_MAX;
@@ -216,23 +213,15 @@ extern bool DATA_PIN_ONLY;
 extern double ALPHA;
 extern double NORMALIZE_FACTOR;
 extern double BETA;
-extern double GAMMA;
 extern double CRISLACK;
 extern unsigned OFFSET;
 extern bool CORR_DYN;
-extern double X_IN;
-extern double EXP_IN;
 extern bool GTRWPT_ONLY;
 extern int MAX_THREAD;
-extern int PTPORT;
-extern int PNRPORT;
-extern int PTNUM;
 extern int PRFT_PTNUM;
 extern int DIFFICULTY;
 extern int MAX_TRAN_CONST;
 extern int VERBOSE;
-extern bool NO_LOG;
-extern bool USE_PT;
 extern bool CORR_PT;
 extern bool CORR_PT_FILE;
 extern bool PT_FULL_UPDATE;
@@ -244,21 +233,12 @@ extern string TEST_MODE;
 extern GTRMetric GTR_METRIC1;
 extern GTRMetric GTR_METRIC2;
 extern CorrPTMetric CORR_PT_METRIC;
-extern unsigned ML_WIRETRAN_MODEL;
-extern unsigned ML_WIREDELAY_MODEL;
-extern unsigned ML_CELLTRAN_MODEL;
-extern double GUARD_BAND;
-extern double GUARD_BAND_GTR;
-extern double GUARD_BAND_2ND_GTR;
+inline constexpr double GUARD_BAND = 0.0;
 extern double CORR_RATIO;
 extern bool PRFT_ONLY;
 extern bool GTR_IN;
-extern string PRFT_FI;
-extern string UD_FI;
-extern string GTR_FI;
 extern unsigned CELL_MOVE;
 extern bool FAST;
-extern int LEAKOPT_OPTION;
 
 using namespace std;
 struct view {
@@ -342,8 +322,6 @@ class Sizer {
    private:
     int best_thread;
     int best_failed_thread;
-    int argc;
-    char **argv;
 
     double slack_margin;
     double slack_margin2;
@@ -457,7 +435,13 @@ class Sizer {
     ecc::FanoutRepairResult repairFanout(
         odb::dbMaster *buffer_master,
         const ecc::FanoutRepairOptions &options = {});
-    bool use_gr_rc = false;
+    ecc::ParasiticsMode parasitics_mode = ecc::ParasiticsMode::Placement;
+    bool hasExtractedParasitics() const {
+        return parasitics_mode == ecc::ParasiticsMode::Extracted;
+    }
+    bool usesGlobalRouting() const {
+        return parasitics_mode == ecc::ParasiticsMode::GlobalRouting;
+    }
     ecc::RepairConfig nativeRepairConfig;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
@@ -686,20 +670,12 @@ class Sizer {
     double showAllSlew(unsigned view, string filename);
 
     void net_arc_forward_timing(int net_inpin, int corner, float margin);
-    // Timing propagation
-    void parallel_bfs(vector< unsigned > &fwpins, vector< unsigned > &bwpins,
-                      unordered_set< unsigned > &fwpins_set,
-                      unordered_set< unsigned > &bwpins_set,
-                      vector< unsigned > &endpins,
-                      unordered_map< unsigned, int > &visited, int view,
-                      int corner, float margin);
-
    public:
     sta::Sta *_sta;
     Tcl_Interp *sta_interp = nullptr;
     // multithreading
     pthread_mutex_t mutex1;
-    pthread_t *threads;
+    std::vector<pthread_t> threads;
 
     vector< double > max_errs;
     vector< double > errs_vec;
@@ -709,7 +685,7 @@ class Sizer {
     // library, constraint, circuit information
     //
 
-    Circuit *_ckt = nullptr;
+    std::unique_ptr<Circuit> _ckt;
 
     string root, benchname, directory;
     string resultDefFile = "";
@@ -804,68 +780,28 @@ class Sizer {
     //
     // options, environment, design db, dk
     //
-    unsigned exeOp;
-    unsigned swapOp;
-    unsigned stopCond;
-    unsigned sensFunc;
-    unsigned sensFunc2;
-    unsigned sensFuncT;
+    unsigned exeOp = 1;
+    unsigned swapOp = 1;
+    unsigned stopCond = 0;
+    unsigned sensFunc = 1;
+    unsigned sensFunc2 = 0;
+    unsigned sensFuncT = 5;
     unsigned dp_padding = 1;
     // Use bundled abacus legalizer instead of OpenROAD detailed_placement.
     bool use_native_abacus = true;
     bool holdCheck;
-    bool maxTrCheck;
+    bool maxTrCheck = false;
     bool oaGenFlag;
-    unsigned swapstep;
-    string mmmcFileList;
-    string serverName;
-    string defFile;
-    string spefFile;
-    string verilogFile;
-    string falsePathFile;
+    unsigned swapstep = 10000;
     string outputDir = "./";
-    string sdcFile;
-    string timerSdcFile;
-    string clockName;
-    string reportFile;
-    string verilogOutFile;
-    string defOutFile;
-    string spefOutFile;
-    string ptCmd;
-    string ptOption;
-    bool ptLogSave;
-    bool exePNRFlag;
-    bool chkWNSFlag;
-    bool totPWRFlag;
-    bool mmmcOn;
-    bool useETS;
-    bool useTempus;
-    bool useOpenSTA;
-    bool noDEF;
-    bool noSPEF;
-    string saifFile;
-    string tcfFile;
-    string swapFile;
-    int optEffort;
+    string clockName = "clk";
+    bool mmmcOn = false;
+    int optEffort = 1;
     string dontTouchFile;
     string dontUseFile;
     string dontTouchCellFile;
-    string soceScriptFile;
-    string etsScriptFile;
-    string ptScriptFile;
-    string ptLaunchScriptFile;
-    string soceBin;
 
-    string oaRefLib;
-    string dbLibPath;
-    string libLibPath;
-    vector< string > dbLibs;
-    vector< string > dbMinLibs;
-    vector< string > libLibs;
-    vector< string > envlibLibs;
-    vector< string > libMinLibs;
     vector< string > libSuffix;
-    vector< string > lefFiles;
     vector< string > mmmcFiles;
 
     vector< string > dontTouchInst;
@@ -878,8 +814,7 @@ class Sizer {
     string suffix;
     string lefPath;
     string setRCFile = "";
-    string util_tcl_file = "";
-    int numVt;
+    int numVt = 1;
 
     ////////////////////////////////////////////////////
     // init design info
@@ -893,7 +828,7 @@ class Sizer {
 
     ////////////////////////////////////////////////////
 
-    double RuntimeLimit;
+    double RuntimeLimit = 3600;
     double global_begin;
     double tot_timer_time;
 
@@ -919,14 +854,13 @@ class Sizer {
     double sw_adj = 1e-6;
 
     // cell_sizing.cpp
-    Sizer(int _argc, char **_argv) : argc(_argc), argv(_argv) {
+    Sizer() {
         tot_timer_time = 0.0;
         pt_err = false;
-        threads = new pthread_t[MAX_THREAD];
+        threads.resize(MAX_THREAD);
         slack_margin = -0.00005;
         slack_margin2 = -0.00005;
-        pthread_mutex_init(&mutex1, NULL);
-        // best_power = DBL_MAX;
+        pthread_mutex_init(&mutex1, nullptr);
         best_score = DBL_MAX;
         second_best_power = DBL_MAX;
         best_failed_power = DBL_MAX;
@@ -938,34 +872,14 @@ class Sizer {
         gtr2_feasible = false;
         worst_corner = 0;
         already_built = false;
-        // guardband=0.0;
-        // maxTran = 0.0;
-        // for (unsigned i = 0; i < MAX_NUM_THREADS; i++) {
-        // char filename[100];
-        // sprintf(filename, "gtr_no_pt_",i);
-        //  files[i] = NULL;
-        //}
         best_failed_thread = -1;
         best_thread = -1;
-        // FAST=false;
-        /*
-        for(int i=1; i<_argc; i++)
-            if (0==strcmp(_argv[i],"--fast"))
-            {
-                //FAST=true;
-                STA_MARGIN=3.0;
-            }
-        */
 
-        // TODO layer name
         layerList[0] = "HVT";
         layerList[1] = "NVT";
         layerList[2] = "LVT";
     }
-    ~Sizer() {
-        delete[] threads;
-        delete _ckt;
-    }
+    ~Sizer() { pthread_mutex_destroy(&mutex1); }
 
     // test.cpp
 
@@ -977,9 +891,9 @@ class Sizer {
     void ZeroDelayTest();
     void HLTest();
     void TimerTest(int timerTestCnt = 10, unsigned view = 0);
-    int timerTestCnt;
-    int timerTestCell;
-    int timerTestMove;
+    int timerTestCnt = 0;
+    int timerTestCell = 0;
+    int timerTestMove = 0;
     vector< string > testCells;
     void PTCorrTest(unsigned view = 0);
     void ReportTimingErr(unsigned view = 0);
@@ -1032,7 +946,6 @@ class Sizer {
     // PT
     designTiming *LaunchPTimer(unsigned thread_id = 0, unsigned view = 0);
     void ExitPTimer();
-    void InitPTSizes();
     void InitPowerBeforeUpdate(vector< CELL > &c);
     void UpdatePTSizes(unsigned option, int &count);
     void UpdatePTSizes(vector< CELL > &c, unsigned option = 0);
@@ -1040,13 +953,6 @@ class Sizer {
     void CheckCorrPT(unsigned option = 0, CorrPTMetric pt_metric = SLK,
                      unsigned view = 0);
     void LoadPTSlack();
-    void exePTServer(string &ServerName, int &Port, unsigned view = 0);
-    void exePTServerOne(int Port, unsigned view = 0);
-    void exeETSServer(string &ServerName, int &Port, unsigned view = 0);
-    void exeETSServerOne(int Port, unsigned view = 0);
-    void exeOSServer(string &ServerName, int &Port, unsigned view = 0);
-    void exeOSServerOne(int Port, unsigned view = 0);
-    void wait(int seconds);
 
     // size in/out
     void CheckTriSizes(string filename);
@@ -1069,8 +975,6 @@ class Sizer {
     unsigned BwdFixCapViolation(unsigned view = 0);
     unsigned FindAvailablePreCell(unsigned prev_cell_input_pin, int max_depth,
                                   int view);
-    unsigned FindAvailableNextCell(unsigned prev_cell_input_pin, int max_depth,
-                                   int view);
     unsigned FwdFixCapViolation(unsigned view = 0);
     unsigned BwdFixSlewViolation(double maxTranRatio, unsigned view);
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);

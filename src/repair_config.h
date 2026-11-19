@@ -13,6 +13,14 @@ class dbMaster;
 class dbInst;
 }  // namespace odb
 namespace ecc {
+enum class PathStrategy { Sequential, PathGain, Feedback };
+enum class PathPlacement { Trial, Final };
+enum class PathVerification { Trial, Final };
+enum class PathGainScope { Global, CurrentGlobal, Endpoints };
+enum class PowerObjective { Leakage, Total };
+enum class VgScope { Drv, Setup };
+enum class VgBackend { Cpu, Cuda };
+
 struct PathBufferTrial;
 struct PathFanoutCheck;
 struct RepairAnalysisChanges;
@@ -80,7 +88,7 @@ struct PathRepairSettings {
     float min_improvement = 1e-13f;
     bool defer_rollback_refresh = true;
     // Sequential is the measured reference; path_gain ranks multi-path ECOs.
-    std::string strategy = "path_gain";
+    PathStrategy strategy = PathStrategy::PathGain;
     // Feedback ablations; none changes the global STA acceptance tolerances.
     bool failure_cache = true;
     bool calibrate = true;
@@ -102,11 +110,11 @@ struct PathRepairSettings {
     bool reuse_rejections = false;
     // "trial": legalize every trial; "final": search at proposed locations,
     // then legalize and verify the whole phase, restoring its input on failure.
-    std::string placement = "trial";
+    PathPlacement placement = PathPlacement::Trial;
     // "trial": full RC before each acceptance. "final": incremental RC/STA
     // and full electrical checks during search, with authoritative full RC
     // after final placement. Requires the phase-wide rollback journal.
-    std::string verification = "trial";
+    PathVerification verification = PathVerification::Trial;
     // Complete high-fanout candidates inside one ECO before RC/STA.
     bool fanout_repair = true;
     // Search setup and recovery separately so one check type cannot starve
@@ -118,7 +126,7 @@ struct PathRepairSettings {
     // ECO. "global" uses initial full-design scaling; "current_global"
     // uses the committed remaining full-design violation, recomputed after
     // each acceptance. Neither changes global hold/DRV/non-regression guards.
-    std::string gain_scope = "endpoints";
+    PathGainScope gain_scope = PathGainScope::Endpoints;
     // Relative to the selected gain scope.
     // Zero preserves the existing absolute improvement requirement.
     // Default search only screens with the zero-negative-slack upper bound.
@@ -165,7 +173,7 @@ struct PathRepairOptions : PathRepairSettings {
 
 struct PowerRepairSettings {
     // "leakage" or "total"; both measured by OpenSTA in watts.
-    std::string objective = "leakage";
+    PowerObjective objective = PowerObjective::Leakage;
     unsigned max_passes = 6;
     unsigned max_trials = 24;
     unsigned max_candidates = 64;
@@ -178,10 +186,10 @@ struct PowerRepairSettings {
 };
 struct VgRepairSettings {
     // setup also includes electrically clean nets on negative-slack paths.
-    std::string scope = "drv";
+    VgScope scope = VgScope::Drv;
     // VG solver backend. CUDA runs propagation, merge, pruning and selection;
     // falls back to CPU if unavailable or over the GPU memory budget.
-    std::string backend = "cpu";
+    VgBackend backend = VgBackend::Cpu;
     unsigned cuda_max_memory_mb = 512;
     unsigned max_buffers = 64;
     unsigned max_nets = 0;
@@ -191,14 +199,10 @@ struct VgRepairSettings {
     void validate() const;
 };
 struct GobiRepairSettings {
-    // The migrated GOBI implementation is GPU-only.  Keeping the backend in
-    // the configuration makes the execution policy explicit and avoids a
-    // silent fallback to the different CPU VG implementation.
-    std::string backend = "cuda";
+    // GOBI uses its CUDA solver; backend availability is checked at runtime.
     unsigned max_buffers = 64;
     unsigned max_nets = 0;
     bool require_drv_reduction = true;
-    void validate() const;
 };
 struct PowerRepairOptions : PowerRepairSettings {
     RepairCommonOptions common;

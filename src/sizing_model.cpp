@@ -564,25 +564,18 @@ void Circuit::Parser(string benchmark) {
     }
 
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
-        if(!_sizer->noSPEF) {
-            if(_sizer->mmmcOn)
-                ecc::logInfo() << "Parsing spef...    " << _sizer->mmmcSpefList[corner]
-                     << " for corner " << corner << endl;
-            else
-                ecc::logInfo() << "Parsing spef...    " << endl;
+        spdlog::debug("Importing STA parasitics for corner {}", corner);
+        readSpef_opensta(_sta);
 
-            readSpef_opensta(_sta);
-
-            node2id.clear();
-        }
+        node2id.clear();
 
         for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
             // g_nets[corner][i].cap =
             //     g_nets[corner][i].cap;  //* 1e-12 / _sizer->cap_unit
 
             if(VERBOSE > 4)
-                ecc::logInfo() << "CORNER " << corner << " NETS --- " << i << " "
-                     << g_nets[corner][i].name << endl;
+                ecc::logInfo() << "CORNER " << corner << " NETS --- " << i
+                               << " " << g_nets[corner][i].name << endl;
 
             vector< SUB_NODE >* subNodeVecPtr = &g_nets[corner][i].subNodeVec;
             std::vector< SUB_NODE >::iterator subNodeIter;
@@ -1419,10 +1412,6 @@ void Circuit::runGR(int, bool, int) {
 
 // Slowest path
 void Circuit::readDesign_opensta(sta::dbSta* _sta) {
-    string netlistFileName = _sizer->verilogFile;
-    string sdcFileName = _sizer->sdcFile;
-    string spefFileName = _sizer->spefFile;
-    vector< string > libs = _sizer->libLibs;
     string top_cell_name = _sizer->benchname;
     string clk_name = _sizer->clockName;
 

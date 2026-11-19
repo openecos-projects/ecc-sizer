@@ -251,7 +251,6 @@ std::vector<odb::dbObject*> applyNode(
 
 void GobiRepairOptions::validate() const {
     common.validate();
-    GobiRepairSettings::validate();
 }
 
 GobiRepairResult OpenDbGobiRepairer::repair(
@@ -387,8 +386,7 @@ GobiRepairResult OpenDbGobiRepairer::repair(
         result.message = "GOBI produced no buffer insertion";
         return result;
     }
-    odb::dbDatabase::beginEco(block);
-    bool active = true;
+    EcoTransaction transaction(block);
     try {
         const auto apply_start = Clock::now();
         for(size_t i = 0; i < selections.size(); ++i) {
@@ -404,8 +402,7 @@ GobiRepairResult OpenDbGobiRepairer::repair(
         verify.analyze(after_design, true);
         result.after = metrics(after_design);
         if(!better(result.before, result.after, options)) {
-            odb::dbDatabase::undoEco(block);
-            active = false;
+            transaction.rollback();
             refresh();
             ++result.refreshes;
             result.after = result.before;
@@ -413,8 +410,7 @@ GobiRepairResult OpenDbGobiRepairer::repair(
             result.message = "GOBI plan rejected by timing/DRV acceptance";
             return result;
         }
-        odb::dbDatabase::commitEco(block);
-        active = false;
+        transaction.commit();
         result.ok = true;
         result.committed = true;
         result.inserted_buffers = result.attempted_buffers;
@@ -422,9 +418,14 @@ GobiRepairResult OpenDbGobiRepairer::repair(
         result.message = "GOBI CUDA plan applied";
         return result;
     } catch(const std::exception& e) {
-        if(active) {
-            odb::dbDatabase::undoEco(block);
-            try { refresh(); ++result.refreshes; } catch(...) {}
+        if(transaction.active()) {
+            transaction.rollback();
+            try { refresh(); ++result.refreshes; }
+            catch(const std::exception& restore_error) {
+                result.message = std::string(e.what()) +
+                    "; rollback refresh failed: " + restore_error.what();
+                return result;
+            }
         }
         result.message = e.what();
         return result;

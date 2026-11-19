@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_timing.h"
 #include "repair_backend.h"
+#include "sta/Graph.hh"
+#include "sta/Liberty.hh"
+#include "odb/db.h"
+#include "db_sta/dbNetwork.hh"
+#include "db_sta/dbSta.hh"
 #include "repair_path.h"
 
 #include <chrono>
@@ -330,8 +335,7 @@ SetupRepairResult OpenDbSetupRepairer::repair(
                 backoff();
                 continue;
             }
-            odb::dbDatabase::beginEco(block);
-            bool active = true;
+            EcoTransaction transaction(block);
             unsigned inserted = 0, resized = 0, downsized = 0, vt_swaps = 0;
             try {
                 for(const auto i : selected) {
@@ -359,8 +363,7 @@ SetupRepairResult OpenDbSetupRepairer::repair(
                     }
                 }
                 if(!inserted && !resized) {
-                    odb::dbDatabase::undoEco(block);
-                    active = false;
+                    transaction.rollback();
                     cursor += width;
                     width = std::min(size_t(options.batch_size),
                                      plans.size() - cursor);
@@ -375,8 +378,7 @@ SetupRepairResult OpenDbSetupRepairer::repair(
                 SetupRepairMetrics after;
                 auto next_states = inspect(after);
                 if(acceptableSetup(result.after, after, area_limit, options)) {
-                    odb::dbDatabase::commitEco(block);
-                    active = false;
+                    transaction.commit();
                     ++result.accepted_batches;
                     result.inserted_buffers += inserted;
                     result.resized_cells += resized;
@@ -387,8 +389,7 @@ SetupRepairResult OpenDbSetupRepairer::repair(
                     accepted = true;
                     break;
                 }
-                odb::dbDatabase::undoEco(block);
-                active = false;
+                transaction.rollback();
                 needs_refresh = true;
                 if(!options.defer_rollback_refresh) {
                     update(true);
@@ -400,8 +401,8 @@ SetupRepairResult OpenDbSetupRepairer::repair(
             }
             catch(const std::exception& error) {
                 result.message = error.what();
-                if(active) {
-                    odb::dbDatabase::undoEco(block);
+                if(transaction.active()) {
+                    transaction.rollback();
                     try {
                         update(true);
                         states = inspect(result.after);
