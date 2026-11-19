@@ -1075,7 +1075,9 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
     _tclInputString = "OSGetPinArrival " + pinName;
     // cout << _tclInputString << endl;
     //_tclExpression = (char *)_tclInputString.c_str();
-    printf("Error: not OSGetPinArrival !, pin name %s\n", pinName.c_str());
+    // The native OpenSTA query below supplies the arrival values directly.
+    // Keep this fallback quiet; it is called for many pins without a Tcl
+    // OSGetPinArrival path and the unconditional diagnostic floods the log.
     double begin = cpuTime();
     auto pin_ =
         _sizer->_ckt->_ord_design->getBlock()->findITerm2(pinName.c_str());
@@ -1093,8 +1095,7 @@ void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
     fallArrival = f_att / _sizer->time_unit;
 
     pt_time += cpuTime() - begin;
-    cout << "Arrival " << pinName << " " << riseArrival << " " << fallArrival
-         << endl;
+    // Arrival values are returned to the caller; do not print one line per pin.
 }
 
 double designTiming::getRiseSlack(string PinName) {

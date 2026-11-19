@@ -205,8 +205,9 @@ extern double KICK_RATIO;
 extern double KICK_SLACK;
 extern int KICK_MAX;
 extern int KICK_METHOD;
-extern bool FIX_CAP;
 extern bool FIX_SLEW;
+extern bool FIX_CAP_REPAIR;
+extern bool FIX_SLEW_REPAIR;
 extern bool FIX_GLOBAL;
 extern bool FIXDRV_VT_SWAP;
 extern bool VT_ONLY;
@@ -385,6 +386,14 @@ class Sizer {
     bool gtr1_feasible;
     bool gtr2_feasible;
     double setup_margin = 0.75;
+    // Hold repair target margin in ns. Hold-only uses propagated clocks.
+    double hold_margin = 0.02;
+    // Optional placement wire RC override in the Liberty distance unit
+    // (CX55: ohm/um and pF/um). Both values must be supplied together.
+    double placement_wire_resistance = 0.0;
+    double placement_wire_capacitance = 0.0;
+    std::string placement_wire_rc_corner = "unspecified";
+    bool placement_wire_rc_explicit = false;
     vector< CELL > best_cells;
     vector< CELL > second_best_cells;
     vector< CELL > best_cells_poweropt;
@@ -467,6 +476,21 @@ class Sizer {
     string min_route_layer = "METAL1";
     string max_route_layer = "METAL7";
     bool use_gr_rc = false;
+    bool hasPlacementWireRCOverride() const {
+        return placement_wire_rc_explicit;
+    }
+    double placementWireResistance() const {
+        return placement_wire_resistance;
+    }
+    double placementWireCapacitance() const {
+        return placement_wire_capacitance;
+    }
+    const std::string& placementWireRCCorner() const {
+        return placement_wire_rc_corner;
+    }
+    // Congestion-iteration budget for in-process GR-based RC refreshes.
+    // The supported experiment modes are 10 (default) and 50.
+    int gr_rc_congestion_iterations = 10;
     // Pre-place mode: repair DRV (fanout/slew/cap) once via OpenROAD
     // repair_design and write out; no sizing loop, no placement.
     bool preplaceMode = false;
@@ -486,10 +510,17 @@ class Sizer {
     string sizerBufferCell;
     bool sizerRepairClockNets = false;
 
-    // Hold-only mode: run repair_timing -hold then write out. No sizing loop.
+    // Hold-only mode: propagated clocks, placement RC by default, repair_timing -hold.
+    // No sizing loop; -use_gr_rc 1 selects global-routing RC.
     // Legalize-only mode: run legalizePlacement then write out.
     bool legalizeOnlyMode = false;
     bool holdOnlyMode = false;
+    // Post-route mode: requires SPEF parasitics, preserves SPEF on untouched/resized
+    // nets, and falls back to incremental RC estimation on topology-changed nets.
+    bool postrouteMode = false;
+    bool blockageAwareSteiner = true;
+    // Pre-CTS hold repair must not propagate an unbuffered clock network.
+    bool idealClockMode = false;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;

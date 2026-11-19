@@ -337,6 +337,75 @@ Scenario make_offgrid_macro() {
     return sc;
 }
 
+Scenario make_out_of_core_fixed_obstacles() {
+    Scenario sc;
+    sc.name = "out-of-core fixed obstacles";
+    sc.segs = full_rows(3, 2000, 2000, 237);
+    for(int r = 0; r < 3; ++r) {
+        for(int c = 0; c < 2; ++c) {
+            sc.nodes.push_back({2000.0 + c * 800,
+                                2000.0 + r * SITE_H, 400, SITE_H, false});
+        }
+    }
+    sc.num_movable = (int)sc.nodes.size();
+    // I/O blocks outside the standard-cell rows must not be clamped onto the
+    // boundary rows and fabricated into obstacles.
+    sc.nodes.push_back({2000, -10000, 20000, 5000, true});
+    sc.nodes.push_back({-10000, 3400, 5000, SITE_H, true});
+    sc.nodes.push_back({2000, 2000.0 + 3 * SITE_H, 20000, 5000, true});
+    return sc;
+}
+
+Scenario make_padding_threshold_identity() {
+    Scenario sc;
+    sc.name = "80 percent adjacent padding";
+    sc.segs = full_rows(1, 2000, 2000, 40);
+    const double xs[] = {2000, 2600, 3200, 3800, 4400, 4800};
+    for(double x : xs) {
+        sc.nodes.push_back({x, 2000, 400, SITE_H, false});
+    }
+    sc.num_movable = (int)sc.nodes.size();
+    sc.padding = 1.0;
+    return sc;
+}
+
+Scenario make_padding_below_threshold() {
+    Scenario sc;
+    sc.name = "below 80 percent adjacent padding";
+    sc.segs = full_rows(1, 2000, 2000, 40);
+    const double xs[] = {2000, 2600, 3200, 3800, 4200, 4600};
+    for(double x : xs) {
+        sc.nodes.push_back({x, 2000, 400, SITE_H, false});
+    }
+    sc.num_movable = (int)sc.nodes.size();
+    sc.padding = 1.0;
+    sc.require_padding = true;
+    return sc;
+}
+
+void run_expect_identity(const Scenario& sc) {
+    printf("scenario: %s\n", sc.name.c_str());
+    std::vector<LegalizeNode> nodes = sc.nodes;
+    std::vector<double> out_x;
+    std::vector<int> out_row;
+    int base_x = 0, base_y = 0, num_rows = 0;
+    int rc = ecc::dpLegalizeCore(sc.segs, SITE_W, SITE_H, nodes,
+                                 sc.num_movable, sc.padding, out_x, out_row,
+                                 base_x, base_y, num_rows);
+    check(rc == 0, "core should handle an already-legal placement");
+    if(rc != 0) {
+        return;
+    }
+    verify(sc, nodes, sc.num_movable, out_x, out_row, base_x, base_y,
+           num_rows);
+    for(int i = 0; i < sc.num_movable; ++i) {
+        check(out_x[i] == nodes[i].x, "legal cell x must be preserved");
+        check(out_row[i] ==
+                  (int)std::llround((nodes[i].y - base_y) / SITE_H),
+              "legal cell row must be preserved");
+    }
+}
+
 // A genuinely overfull row is not fixable; the core must report
 // inapplicable (rc != 0) so the caller falls back to DPL -- no crash.
 void run_expect_fallback(const Scenario& sc) {
@@ -368,6 +437,9 @@ int main() {
     run(make_overfull());  // greedy relocates the excess cell to row 1
     run_expect_fallback(make_true_overfull());
     run(make_offgrid_macro());
+    run_expect_identity(make_out_of_core_fixed_obstacles());
+    run_expect_identity(make_padding_threshold_identity());
+    run(make_padding_below_threshold());
     if(failures == 0) {
         printf("ALL LEGALIZE TESTS PASSED\n");
         return 0;

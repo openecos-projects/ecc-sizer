@@ -112,15 +112,56 @@ The default is `drive_resistance`, which follows the OpenSTA equivalent-cell
 order. The `leakage` mode sorts candidates in each equivalence class by leakage
 power first.
 
-Parasitic estimation defaults to placement RC. Set the following command-file
-option to run global routing and estimate RC from the routed topology after
-detailed placement:
+Parasitic estimation defaults to placement RC for setup repair. Set the
+following command-file option to run global routing and estimate RC from the
+routed topology after detailed placement:
 
 ```text
 -use_gr_rc 1
 ```
 
-The accepted values are `0` and `1`; the default is `0`.
+The accepted values are `0` and `1`; the default is `0` for setup repair.
+When global-routing RC is enabled, the in-process congestion iteration budget
+can be selected with `-gr_rc_congestion_iterations 10` or
+`-gr_rc_congestion_iterations 50`; the default is `10`.
+
+The setup flow runs `repair_design`, then `repair_timing -hold`, then
+`repair_timing -setup`. This hold pass uses the loaded setup-corner libraries
+and the configured `-hold_margin` (default `0.02` ns). A later hold-only pass
+with MIN/FF libraries is still needed for fast-corner hold repair.
+
+Hold-only repair uses propagated clocks and global-routing RC by default. Set
+`-use_gr_rc 0` to select placement RC. The
+`-gr_rc_congestion_iterations` setting is shared with setup repair. Sizer
+legalizes the first hold-repair result, refreshes parasitics, runs one more
+hold-repair pass, and legalizes again before exporting. Parasitics are
+refreshed after the final legalization. Its target margin can be set in the
+command file with `-hold_margin <ns>`; the default is `0.02` ns.
+
+For hold repair before CTS, combine `-hold_only -ideal_clock -use_gr_rc 0`.
+`-ideal_clock` keeps clocks ideal during initial parasitic estimation and
+subsequent refreshes, so the unbuffered clock network is not propagated.
+
+Post-route timing optimization can be enabled with `-postroute` (optionally
+paired with `-spef <file>`):
+
+```text
+-postroute
+-spef /path/to/design.spef
+```
+
+When `-postroute` is set without an explicit `-spef`, Sizer looks for
+`<top>.spef` in the working directory or alongside the input DEF file, and
+exits with an error if no SPEF file is found. Untouched and resized/VT-swapped
+nets retain their SPEF parasitic networks (`reduceToPiElmore` is re-evaluated
+with updated pin capacitances), while nets whose topology is modified or newly
+created by buffer insertion, load splitting, or gate cloning automatically fall
+back to incremental parasitic estimation (`placement` by default, or
+`global_routing` when `-use_gr_rc 1` is enabled).
+
+Pre-place repair (`-preplace` and `-preplace_gain`) uses a design-level maximum
+fanout of `32`. If the input SDC sets a positive design-level `max_fanout`,
+the effective limit is `min(32, max_fanout)`.
 
 For single-VT libraries, `leakage` sorting is usually a good starting point
 because the timing spread within an equivalence class is relatively limited and

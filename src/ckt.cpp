@@ -7,11 +7,14 @@
 #include <tcl8.6/tclDecls.h>
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <ostream>
+#include <sstream>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -27,6 +30,8 @@
 #include "ord/OpenRoad.hh"
 #include "odb/db.h"
 #include "ord/Timing.h"
+#include "est/EstimateParasitics.h"
+#include "lef_layer_rc.h"
 // #include "dpl/Opendp.h"
 #include "grt/GlobalRouter.h"
 #include "db_sta/dbSta.hh"
@@ -43,6 +48,193 @@
 using namespace sta;
 
 void skip(istream& is);
+
+namespace {
+
+bool isInputLike(odb::dbIoType io_type)
+{
+    return io_type == odb::dbIoType::INPUT || io_type == odb::dbIoType::INOUT;
+}
+
+bool isOutputLike(odb::dbIoType io_type)
+{
+    return io_type == odb::dbIoType::OUTPUT || io_type == odb::dbIoType::INOUT;
+}
+
+bool isPadDataPin(odb::dbITerm* iterm)
+{
+    if(iterm == nullptr || iterm->getInst() == nullptr ||
+       iterm->getInst()->getMaster() == nullptr || iterm->getMTerm() == nullptr) {
+        return false;
+    }
+    return iterm->getInst()->getMaster()->isPad() &&
+           iterm->getMTerm()->getName() == "PAD";
+}
+
+bool isExternalPadOnlyNet(odb::dbNet* db_net)
+{
+    if(db_net == nullptr || db_net->getBTerms().empty() ||
+       db_net->getITerms().empty()) {
+        return false;
+    }
+
+    for(auto* iterm : db_net->getITerms()) {
+        if(iterm == nullptr || iterm->getMTerm() == nullptr ||
+           iterm->getMTerm()->getMaster() == nullptr) {
+            return false;
+        }
+        const odb::dbMasterType type
+            = iterm->getMTerm()->getMaster()->getType();
+        if(!(type.isPad() || type.isCover()) ||
+           iterm->getMTerm()->getName() != "PAD") {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block)
+{
+    if(block == nullptr) {
+        return 0;
+    }
+
+    int marked = 0;
+    for(auto* db_net : block->getNets()) {
+        if(isExternalPadOnlyNet(db_net) && !db_net->isDoNotTouch()) {
+            db_net->setDoNotTouch(true);
+            ++marked;
+        }
+    }
+    return marked;
+}
+
+bool isBoundaryBuffer(odb::dbInst* inst)
+{
+    if(inst == nullptr || inst->getMaster() == nullptr) {
+        return false;
+    }
+    const string inst_name = inst->getName();
+    if(inst_name.rfind("buffer_coord", 0) == 0) {
+        return true;
+    }
+    const string master_name = inst->getMaster()->getName();
+    return inst->getMaster()->isCore() &&
+           (master_name.find("BUF") != string::npos ||
+            master_name.find("INV") != string::npos);
+}
+
+[[noreturn]] void abortIllegalExternalPadBoundaryChain(
+    const string& direction,
+    odb::dbBTerm* bterm,
+    odb::dbNet* upstream_net,
+    odb::dbInst* buffer,
+    odb::dbNet* downstream_net,
+    odb::dbITerm* pad)
+{
+    const string bterm_name = bterm == nullptr ? "" : bterm->getName();
+    const string upstream_name =
+        upstream_net == nullptr ? "" : upstream_net->getName();
+    const string downstream_name =
+        downstream_net == nullptr ? "" : downstream_net->getName();
+    const string buffer_name = buffer == nullptr ? "" : buffer->getName();
+    const string master_name =
+        buffer == nullptr || buffer->getMaster() == nullptr
+            ? ""
+            : buffer->getMaster()->getName();
+    const string pad_inst_name =
+        pad == nullptr || pad->getInst() == nullptr ? "" : pad->getInst()->getName();
+    const string pad_pin_name =
+        pad == nullptr || pad->getMTerm() == nullptr ? "" : pad->getMTerm()->getName();
+    std::cerr << "illegal IO boundary buffering: direction=" << direction
+              << " bterm=" << bterm_name
+              << " upstream net=" << upstream_name
+              << " buffer inst=" << buffer_name
+              << " buffer master=" << master_name
+              << " downstream net=" << downstream_name
+              << " pad inst=" << pad_inst_name
+              << " pad pin=" << pad_pin_name << std::endl;
+    assert(false && "illegal external PAD boundary buffer chain");
+    std::abort();
+}
+
+void scanIllegalExternalPadBoundaryChain(odb::dbBlock* block)
+{
+    if(block == nullptr) {
+        return;
+    }
+    // Only top-level ports can start or end the forbidden chain.  Walking
+    // their connected nets avoids scanning every instance in large DEFs.
+    for(auto* bterm : block->getBTerms()) {
+        if(bterm == nullptr || bterm->getSigType().isSupply() ||
+           bterm->getNet() == nullptr ||
+           bterm->getNet()->getSigType().isSupply()) {
+            continue;
+        }
+        auto* port_net = bterm->getNet();
+
+        if(isInputLike(bterm->getIoType())) {
+            for(auto* buffer_input : port_net->getITerms()) {
+                auto* buffer = buffer_input == nullptr
+                                   ? nullptr
+                                   : buffer_input->getInst();
+                if(buffer == nullptr || buffer_input->getSigType().isSupply() ||
+                   !isBoundaryBuffer(buffer) ||
+                   !isInputLike(buffer_input->getIoType())) {
+                    continue;
+                }
+                for(auto* buffer_output : buffer->getITerms()) {
+                    auto* pad_net = buffer_output->getNet();
+                    if(buffer_output->getSigType().isSupply() ||
+                       !isOutputLike(buffer_output->getIoType()) ||
+                       pad_net == nullptr || pad_net->getSigType().isSupply() ||
+                       pad_net == port_net) {
+                        continue;
+                    }
+                    for(auto* pad : pad_net->getITerms()) {
+                        if(isPadDataPin(pad) && isInputLike(pad->getIoType())) {
+                            abortIllegalExternalPadBoundaryChain(
+                                "port_to_pad", bterm, port_net, buffer,
+                                pad_net, pad);
+                        }
+                    }
+                }
+            }
+        }
+
+        if(isOutputLike(bterm->getIoType())) {
+            for(auto* buffer_output : port_net->getITerms()) {
+                auto* buffer = buffer_output == nullptr
+                                   ? nullptr
+                                   : buffer_output->getInst();
+                if(buffer == nullptr || buffer_output->getSigType().isSupply() ||
+                   !isBoundaryBuffer(buffer) ||
+                   !isOutputLike(buffer_output->getIoType())) {
+                    continue;
+                }
+                for(auto* buffer_input : buffer->getITerms()) {
+                    auto* pad_net = buffer_input->getNet();
+                    if(buffer_input->getSigType().isSupply() ||
+                       !isInputLike(buffer_input->getIoType()) ||
+                       pad_net == nullptr || pad_net->getSigType().isSupply() ||
+                       pad_net == port_net) {
+                        continue;
+                    }
+                    for(auto* pad : pad_net->getITerms()) {
+                        if(isPadDataPin(pad) && isOutputLike(pad->getIoType())) {
+                            abortIllegalExternalPadBoundaryChain(
+                                "pad_to_port", bterm, pad_net, buffer,
+                                port_net, pad);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+}  // namespace
 
 // Sort the list by leakage
 //
@@ -69,6 +261,12 @@ bool Circuit::isDontUse(string master) {
         }
     }
     return false;
+}
+
+void Circuit::assertNoIllegalExternalPadBoundaryChain()
+{
+    scanIllegalExternalPadBoundaryChain(
+        _ord_design == nullptr ? nullptr : _ord_design->getBlock());
 }
 
 void Circuit::InitData() {
@@ -1662,19 +1860,11 @@ ostream& operator<<(ostream& os, SOL& sol) {
 
 void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     auto corner = _ord_timing->getCorners()[0];
-    auto block = _ord_design->getBlock();
-    if(old_localtion_x.empty()) {
-        for(auto db_inst : block->getInsts()) {
-            int inst_x, inst_y;
-            db_inst->getLocation(inst_x, inst_y);
-            old_localtion_x.push_back(inst_x);
-            old_localtion_y.push_back(inst_y);
-        }
-    }
     bool use_gr_correlation = false;
     int cor_step = 0;
     int numcells = g_cells.size();
 #if 0
+    auto block = _ord_design->getBlock();
     if(use_gr_correlation) {
         for(auto db_inst : block->getInsts()) {
             string old_type = db_inst->getMaster()->getName();
@@ -1736,9 +1926,8 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
     if(_sizer->use_gr_rc) {
         // Global Route and estimate global-route RC.
         // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
-        // Rebuild pin access points before invoking the global router.
-        _ord_design->evalTclString(
-            "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
+        // Keep the input IO-pin geometry and placement; do not synthesize
+        // top-level BPin geometry with place_pins during the RC refresh.
         auto db_tech = _ord_design->getTech()->getDB()->getTech();
         auto* low_layer = db_tech->findLayer(_sizer->min_route_layer.c_str());
         auto* high_layer = db_tech->findLayer(_sizer->max_route_layer.c_str());
@@ -1759,14 +1948,15 @@ void Circuit::runGR(int gr_overflow_iterations, bool fast, int slack_max_iter) {
         grt->setMaxRoutingLayer(signal_high_layer);
         grt->setMinLayerForClock(clk_low_layer);
         grt->setMaxLayerForClock(clk_high_layer);
-        grt->setAdjustment(0.5);
+        grt->setAdjustment(0.0);
         grt->setResistanceAware(false);
         grt->setVerbose(true);
         grt->setCongestionIterations(gr_overflow_iterations);
         printf("Run Global Routing...\n");
         _ord_design->evalTclString(
             "global_route -congestion_iterations " +
-            to_string(gr_overflow_iterations) + " -allow_congestion -verbose");
+            to_string(gr_overflow_iterations) +
+            " -allow_congestion -verbose");
         int iter = 0;
 #if 0
         if(use_gr_correlation) {
@@ -1912,21 +2102,15 @@ void Circuit::init_opensta() {
     // _ord_design->readVerilog(_sizer->verilogFile);
     // _ord_design->link(_sizer->);
     _ord_design->readDef(_sizer->defFile, true);
-    auto block = _ord_design->getBlock();
-    old_localtion_x.clear();
-    old_localtion_y.clear();
-    old_localtion_x.reserve(block->getInsts().size());
-    old_localtion_y.reserve(block->getInsts().size());
-    for(auto db_inst : block->getInsts()) {
-        int inst_x, inst_y;
-        db_inst->getLocation(inst_x, inst_y);
-        old_localtion_x.push_back(inst_x);
-        old_localtion_y.push_back(inst_y);
+    assertNoIllegalExternalPadBoundaryChain();
+    const int marked_external_pad_nets
+        = markExternalPadOnlyNetsDontTouch(_ord_design->getBlock());
+    if(marked_external_pad_nets > 0) {
+        cout << "Marked " << marked_external_pad_nets
+             << " external PAD-only nets as dont-touch before timing repair."
+             << endl;
     }
     // std::string spefFile = design_dir + design_name + ".spef";
-    if(_sizer->spefFile != "") {
-        _ord_design->evalTclString("read_spef " + _sizer->spefFile);
-    }
     _ord_design->evalTclString("read_sdc " + _sizer->sdcFile);
     if(_sizer->setRCFile != "") {
         std::string setrc_file = _sizer->setRCFile;
@@ -1940,21 +2124,198 @@ void Circuit::init_opensta() {
         (_sizer->sizerDesignRepairMode || _sizer->sizerOrdDesignRepairMode ||
          _sizer->sizerVgRepairMode || _sizer->sizerGbiRepairMode)
             ? _sizer->nativeRepairConfig.sta_threads : 32));
-    // Native repair (including standalone VG) must use the supplied RC,
-    // rather than overwriting benchmark wire RC with the default layer model.
-    if((!_sizer->sizerDesignRepairMode &&
-        !_sizer->sizerOrdDesignRepairMode && !_sizer->sizerVgRepairMode &&
-        !_sizer->sizerGbiRepairMode) ||
-       _sizer->setRCFile.empty()) {
-        _ord_design->evalTclString("set_wire_rc -signal -layer " +
-                                 _sizer->min_route_layer);
-        _ord_design->evalTclString("set_wire_rc -clock -layer " +
-                                 _sizer->min_route_layer);
+    if(_sizer->preplaceMode) {
+        _ord_design->evalTclString("unset_propagated_clock [all_clocks]");
+        // No -layer/-resistance/-capacitance means zero signal and clock RC.
+        // repair_design also consumes wire RC without estimate_parasitics.
+        _ord_design->evalTclString("set_wire_rc");
+        _ord_design->evalTclString(
+            "puts [format {preplace_wire_rc resistance=%g capacitance=%g estimated=%d} "
+            "[est::wire_signal_resistance [sta::cmd_scene]] "
+            "[est::wire_signal_capacitance [sta::cmd_scene]] "
+            "[est::have_estimated_parasitics]]");
+        if(!_sizer->noSPEF && _sizer->spefFile != "") {
+            _ord_design->evalTclString("read_spef " + _sizer->spefFile);
+            ord::OpenRoad::openRoad()->getEstimateParasitics()->initSpefParasitics();
+        }
     }
-    if(!_sizer->preplaceMode) {
-        _ord_design->evalTclString("estimate_parasitics -placement");
+    else {
+        _ord_design->evalTclString(_sizer->idealClockMode
+            ? "unset_propagated_clock [all_clocks]"
+            : "set_propagated_clock [all_clocks]");
+        if(_sizer->holdOnlyMode) {
+            std::cout << "Hold-only clock mode: "
+                      << (_sizer->idealClockMode ? "ideal" : "propagated")
+                      << '\n';
+        }
+        if(_sizer->use_gr_rc || (!_sizer->noSPEF && !_sizer->spefFile.empty())) {
+            auto* tech = _ord_tech->getDB()->getTech();
+            auto* estimate_parasitics =
+                ord::OpenRoad::openRoad()->getEstimateParasitics();
+            const double dbu_per_micron = tech->getDbUnitsPerMicron();
+            auto* min_layer = tech->findLayer(_sizer->min_route_layer.c_str());
+            auto* max_layer = tech->findLayer(_sizer->max_route_layer.c_str());
+            if(!min_layer || !max_layer ||
+               min_layer->getRoutingLevel() == 0 ||
+               max_layer->getRoutingLevel() < min_layer->getRoutingLevel()) {
+                std::cerr << "Error: invalid GR routing-layer range: "
+                          << _sizer->min_route_layer << ".."
+                          << _sizer->max_route_layer << '\n';
+                exit(1);
+            }
+
+            int initialized_routing_layers = 0;
+            int initialized_cut_layers = 0;
+            for(auto* layer : tech->getLayers()) {
+                const bool routing = layer->getType() == odb::dbTechLayerType::ROUTING;
+                const bool cut = layer->getType() == odb::dbTechLayerType::CUT;
+                if(!routing && !cut) {
+                    continue;
+                }
+
+                std::optional<ecc::LefLayerRC> lef_rc;
+                if(routing && dbu_per_micron > 0.0) {
+                    lef_rc = ecc::lefLayerRC(
+                        layer->getWidth() / dbu_per_micron,
+                        layer->getResistance(),
+                        layer->getCapacitance(),
+                        layer->getEdgeCapacitance());
+                }
+                std::optional<double> lef_via_resistance;
+                bool conflicting_vias = false;
+                if(cut && layer->getResistance() <= 0.0) {
+                    for(auto* via : tech->getVias()) {
+                        auto* bottom = via->getBottomLayer();
+                        if(!via->isDefault() || !bottom ||
+                           bottom->getUpperLayer() != layer ||
+                           via->getTopLayer() != layer->getUpperLayer() ||
+                           via->getResistance() <= 0.0) {
+                            continue;
+                        }
+                        const double resistance = via->getResistance();
+                        if(lef_via_resistance &&
+                           std::abs(*lef_via_resistance - resistance) >
+                               1e-9 * std::max(1.0, *lef_via_resistance)) {
+                            conflicting_vias = true;
+                            break;
+                        }
+                        lef_via_resistance = resistance;
+                    }
+                }
+                for(auto* scene : _sta->scenes()) {
+                    double resistance = 0.0;
+                    double capacitance = 0.0;
+                    estimate_parasitics->layerRC(
+                        layer, scene, resistance, capacitance);
+                    if(routing && lef_rc) {
+                        const auto filled = ecc::fillMissingLayerRC(
+                            {resistance, capacitance}, *lef_rc);
+                        if(filled.resistance_per_meter != resistance ||
+                           filled.capacitance_per_meter != capacitance) {
+                            estimate_parasitics->setLayerRC(
+                                layer, scene, filled.resistance_per_meter,
+                                filled.capacitance_per_meter);
+                            ++initialized_routing_layers;
+                        }
+                    }
+                    else if(cut && resistance == 0.0) {
+                        const double lef_cut_resistance =
+                            layer->getResistance() > 0.0
+                                ? layer->getResistance()
+                                : (!conflicting_vias && lef_via_resistance
+                                       ? *lef_via_resistance : 0.0);
+                        if(lef_cut_resistance > 0.0) {
+                            estimate_parasitics->setLayerRC(
+                                layer, scene, lef_cut_resistance, capacitance);
+                            ++initialized_cut_layers;
+                        }
+                    }
+
+                    if(cut) {
+                        estimate_parasitics->layerRC(
+                            layer, scene, resistance, capacitance);
+                        if(resistance <= 0.0) {
+                            std::cerr << "Warning: cut layer " << layer->getName()
+                                      << " has no layer resistance in corner "
+                                      << scene->name() << "; no unambiguous "
+                                      << "default LEF via RC; configure "
+                                      << "-setRCFile if needed\n";
+                        }
+                    }
+                    if(routing &&
+                       layer->getRoutingLevel() >= min_layer->getRoutingLevel() &&
+                       layer->getRoutingLevel() <= max_layer->getRoutingLevel()) {
+                        estimate_parasitics->layerRC(
+                            layer, scene, resistance, capacitance);
+                        if(!std::isfinite(resistance) ||
+                           !std::isfinite(capacitance) ||
+                           resistance <= 0.0 || capacitance <= 0.0) {
+                            std::cerr << "Error: GR layer " << layer->getName()
+                                      << " has missing RC in corner "
+                                      << scene->name() << "; check tech LEF or "
+                                      << "-setRCFile\n";
+                            exit(1);
+                        }
+                        std::cout << "GR layer RC " << layer->getName()
+                                  << " corner=" << scene->name()
+                                  << " R=" << resistance << " ohm/m C="
+                                  << capacitance << " F/m\n";
+                    }
+                }
+            }
+            std::cout << "Initialized " << initialized_routing_layers
+                      << " routing and " << initialized_cut_layers
+                      << " cut layer/corner RC entries from tech LEF.\n";
+        }
+        const bool repair_mode = _sizer->sizerDesignRepairMode ||
+                                 _sizer->sizerOrdDesignRepairMode ||
+                                 _sizer->sizerVgRepairMode ||
+                                 _sizer->sizerGbiRepairMode;
+        if(!repair_mode || _sizer->setRCFile.empty()) {
+            _ord_design->evalTclString("set_wire_rc -signal -layer " +
+                                       _sizer->min_route_layer);
+            _ord_design->evalTclString("set_wire_rc -clock -layer " +
+                                       _sizer->min_route_layer);
+        }
+        if(_sizer->hasPlacementWireRCOverride() && !_sizer->use_gr_rc) {
+            // The ECC config stores physical CX55 values (ohm/um and pF/um).
+            // This Liberty uses 1kohm resistance and 1pf capacitance UI units;
+            // set_wire_rc performs the distance conversion after these values
+            // are converted to the Liberty command units.
+            std::ostringstream wire_rc_stream;
+            wire_rc_stream << std::setprecision(12)
+                           << " -resistance "
+                           << _sizer->placementWireResistance() / 1000.0
+                           << " -capacitance "
+                           << _sizer->placementWireCapacitance();
+            const std::string wire_rc = wire_rc_stream.str();
+            _ord_design->evalTclString("set_wire_rc -signal" + wire_rc);
+            _ord_design->evalTclString("set_wire_rc -clock" + wire_rc);
+            std::cout << "placement_wire_rc override resistance="
+                      << _sizer->placementWireResistance() << " ohm/um "
+                      << "capacitance=" << _sizer->placementWireCapacitance()
+                      << " pF/um source=" << _sizer->placementWireRCCorner()
+                      << std::endl;
+        }
+        if(!_sizer->noSPEF && _sizer->spefFile != "") {
+            _ord_design->evalTclString("read_spef " + _sizer->spefFile);
+            ord::OpenRoad::openRoad()->getEstimateParasitics()->initSpefParasitics();
+        }
+        else {
+            _ord_design->evalTclString("estimate_parasitics -placement");
+        }
+        _ord_design->evalTclString("puts \"=== OpenSTA Initial Timing Summary ===\"");
+        _ord_design->evalTclString("report_worst_slack -max -digits 3");
+        _ord_design->evalTclString("report_tns -max -digits 3");
+        _ord_design->evalTclString("report_worst_slack -min -digits 3");
+        _ord_design->evalTclString("report_tns -min -digits 3");
+        _ord_design->evalTclString(
+            "puts \"max_slew_violations [sta::max_slew_violation_count] "
+            "worst_slew_slack [format %.3f [sta::max_slew_check_slack]]\"");
+        _ord_design->evalTclString(
+            "puts \"max_cap_violations [sta::max_capacitance_violation_count] "
+            "worst_cap_slack [format %.3f [sta::max_capacitance_check_slack]]\"");
     }
-    // _ord_design->evalTclString("set_propagated_clock [all_clocks]");
 
     // _sizer->_ckt->_ord_design->writeDef(_sizer->resultDefFile);
     // _sizer->_ckt->_ord_design->evalTclString("write_verilog " +
@@ -1983,7 +2344,7 @@ void Circuit::init_opensta() {
         slack_max_iter = 3;
     }
     if(_sizer->use_gr_rc && _sizer->spefFile == "" && !_sizer->preplaceMode) {
-        runGR(10, false, slack_max_iter);
+        runGR(_sizer->gr_rc_congestion_iterations, false, slack_max_iter);
     }
 
     // _sizer->incr_groute_ = new grt::IncrementalGRoute(grt, block);
@@ -2394,6 +2755,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
     }
 
     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
+        node2id.clear();
         string netNameStr = g_nets[corner][i].name;
         assert(net2id[netNameStr] == i);
         double totcap = 0.0;
@@ -2548,28 +2910,17 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             }
             // printf("node str %s\n", pin_name.c_str());
         }
-        sta::ConcreteParasiticSubNodeMap* sub_nodes = conc_net_para->subNodes();
-        auto sub_nodes_iter = sub_nodes->begin();
-#if 0
-        double c1, c2, rpi;
-        sta::ConcretePi* para_pi =
-            conc_net_para->piModel(float& c2, float& rpi, float& c1);
-#endif
-        // CAP
-        while(sub_nodes_iter != sub_nodes->end()) {
-            ConcreteParasiticNode* node = sub_nodes_iter->second;
+        // CAP (both pin nodes and internal sub-nodes)
+        for(sta::ParasiticNode* para_node : conc_net_para->nodes()) {
+            ConcreteParasiticNode* node =
+                static_cast< ConcreteParasiticNode* >(para_node);
 
             string fromNodeNameStr = node->name(_sta->network());
             readSpefChangePinName(fromNodeNameStr);
-            // printf("node str %s\n", fromNodeNameStr.c_str());
             std::map< string, int >::const_iterator node2IdIter1 =
                 node2id.find(fromNodeNameStr);
             float value_cap =
-                node->capacitance() / _sizer->cap_unit;  // FIXME:?
-            // if(_sizer->use_margin) {
-            //     value_cap *= 1.1;
-            // }
-            // totcap += value_cap;
+                node->capacitance() / _sizer->cap_unit;
             if(node2IdIter1 != node2id.end()) {
                 subNodeVecPtr->at(node2IdIter1->second).cap = value_cap;
             }
@@ -2580,12 +2931,7 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
                 node2id[fromNodeNameStr] = sn.id;
                 subNodeVecPtr->push_back(sn);
             }
-            sub_nodes_iter++;
         }
-
-        // conc_net_para->findParasiticNode(connPin);
-        // sta::ConcreteParasiticNode* conc_node =
-        //     static_cast< sta::ConcreteParasiticNode* >(para_node);
 
         for(auto* pDev : conc_net_para->resistors()) {
             ConcreteParasiticResistor* paraDev =
@@ -2607,23 +2953,10 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
 
             float value = parasitics->value(paraDev) / _sizer->res_unit;
 
-            // RES
-            // RES
-            // if (parasitics->isResistor(paraDev)) {
-            // RES
-            // if (parasitics->isResistor(paraDev)) {
-            SUB_NODE sn;
-            sn.cap = 0.0;
-            sn.id = node_index++;
-            // assert();
-            assert(node2id.find(toNodeNameStr) != node2id.end());
-            assert(node2id.find(toNodeNameStr) != node2id.end());
-            // if(node2id.find(fromNodeNameStr) == node2id.end() ||
-            //    node2id.find(toNodeNameStr) == node2id.end()) {
-            //     printf("from %s to %s\n", fromNodeNameStr.c_str(),
-            //            toNodeNameStr.c_str());
-            // }
-            if(node2id.find(fromNodeNameStr) == node2id.end()) {
+            if(node2IdIter1 == node2id.end()) {
+                SUB_NODE sn;
+                sn.cap = 0.0;
+                sn.id = node_index++;
                 node2id[fromNodeNameStr] = sn.id;
                 subNodeVecPtr->push_back(sn);
                 index1 = sn.id;
@@ -2631,7 +2964,11 @@ void Circuit::readSpef_opensta(sta::dbSta* _sta) {
             else {
                 index1 = node2IdIter1->second;
             }
-            if(node2id.find(toNodeNameStr) == node2id.end()) {
+            node2IdIter2 = node2id.find(toNodeNameStr);
+            if(node2IdIter2 == node2id.end()) {
+                SUB_NODE sn;
+                sn.cap = 0.0;
+                sn.id = node_index++;
                 node2id[toNodeNameStr] = sn.id;
                 subNodeVecPtr->push_back(sn);
                 index2 = sn.id;

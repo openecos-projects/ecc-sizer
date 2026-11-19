@@ -1574,7 +1574,6 @@ void Sizer::CalcSlack(unsigned view) {
                 else {
                     if(cells[cur].inpins.size() == 0) {
                         double r_AAT = 0.0, f_AAT = 0.0;
-                        cout << __FILE__ << ":" << __LINE__ << endl;
                         T[view]->getPinArrival(
                             r_AAT, f_AAT,
                             getFullPinName(pins[view][cells[cur].outpins[j]]));

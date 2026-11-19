@@ -870,6 +870,7 @@ class Circuit {
     map< string, unsigned > check_map;
     string getFullPinName(PIN& pin);
     void Parser(string benchmark);
+    void assertNoIllegalExternalPadBoundaryChain();
     void Print_Stats();
     void timing_parser(string filename);
     double timing_parser2(string filename);
@@ -894,8 +895,6 @@ class Circuit {
     void readSpefChangePinName(string& pin_name);
     sta::dbSta* _sta = nullptr;
     Tcl_Interp* sta_interp = nullptr;
-    std::vector< int > old_localtion_x;
-    std::vector< int > old_localtion_y;
     std::vector< string > old_master_map;
 
    private:

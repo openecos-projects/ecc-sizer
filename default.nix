@@ -110,6 +110,9 @@ stdenv.mkDerivation {
     # Fix shebangs in thirdparty/OpenROAD
     patchShebangs --build thirdparty/OpenROAD/etc/find_messages.py
     patchShebangs --build thirdparty/OpenROAD/etc/file_to_string.py
+
+    # Build-time asset embedding scripts invoked directly by CMake.
+    patchShebangs --build thirdparty/OpenROAD/src/web/src
     # Disable two tests that are failing curently.
     sed 's/^.*partition_gcd/# \0/g' -i thirdparty/OpenROAD/src/par/test/CMakeLists.txt
 
@@ -122,6 +125,11 @@ stdenv.mkDerivation {
     (lib.cmakeBool "USE_SYSTEM_BOOST" true)
     (lib.cmakeBool "USE_SYSTEM_ABC" false)
     (lib.cmakeBool "ABC_SKIP_TESTS" true) # it attempts to download gtest
+    # The project forces BUILD_SYN=OFF, so OpenROAD's syn_py target
+    # never exists while its Python module list still references it,
+    # which breaks linking with -lsyn_py. Match the CI build and skip
+    # Python bindings entirely.
+    (lib.cmakeBool "BUILD_PYTHON" false)
     (lib.cmakeBool "USE_SYSTEM_OPENSTA" false)
     (lib.cmakeFeature "OPENROAD_VERSION" "v0.1.0-alpha")
     (lib.cmakeBool "CMAKE_RULE_MESSAGES" false)

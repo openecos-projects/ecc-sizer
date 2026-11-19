@@ -172,8 +172,12 @@ int KICK_MAX = 1;
 int KICK_STEP = 1;
 bool VT_ONLY = false;
 bool SIZE_ONLY = false;
-bool FIX_CAP = true;
+// FIX_SLEW selects the legacy slew-statistics source in CalcStats. The
+// command-file repair controls are kept separate so disabling repair does not
+// silently change the timing objective.
 bool FIX_SLEW = true;
+bool FIX_CAP_REPAIR = true;
+bool FIX_SLEW_REPAIR = true;
 bool FIX_SLEW_POST = false;
 bool FIX_GLOBAL = true;
 bool FIXDRV_VT_SWAP = false;  // allow VT-swap (retype) moves in fix cap/slew phases
@@ -576,6 +580,18 @@ void Sizer::ReportOptions() {
     cout << "Cap. Metric    : " << CapMetricNames[CAP_METRIC] << endl;
     cout << "GTR. Metric    : " << GTRMetricNames[GTR_METRIC1] << "/"
          << GTRMetricNames[GTR_METRIC2] << endl;
+    cout << "Timing repair  : cap=" << FIX_CAP_REPAIR
+         << " slew=" << FIX_SLEW_REPAIR << " global=" << FIX_GLOBAL << endl;
+    cout << "Hold margin    : " << hold_margin << " ns" << endl;
+    cout << "Postroute Mode : " << postrouteMode << endl;
+    cout << "Blockage-aware Steiner : " << blockageAwareSteiner << endl;
+    if(placement_wire_rc_explicit) {
+        cout << "Placement wire RC override: resistance="
+             << placement_wire_resistance << " ohm/um capacitance="
+             << placement_wire_capacitance << " pF/um source="
+             << placement_wire_rc_corner << endl;
+    }
+    cout << "GR RC iterations: " << gr_rc_congestion_iterations << endl;
     cout << "Test Mode      : " << TEST_MODE << endl;
     if(sizerDesignRepairMode || sizerVgRepairMode || sizerGbiRepairMode) {
         cout << "Sizer repair   : native repair, max fanout "
@@ -1025,7 +1041,7 @@ bool Sizer::cell_retype(CELL &cell, int dir, bool pt_corr, bool update_cap) {
         return false;
 
     cell_vtypes vtype = cell.c_vtype;
-    printf("retype %s\n", cell.name.c_str());
+    // printf("retype %s\n", cell.name.c_str());
     if(dir == 0)
         return (cell.c_vtype == (numVt - 1));
 
@@ -1595,7 +1611,7 @@ void Sizer::refreshOpenStaParasitics(bool verbose_global_route) {
     auto design = _ckt->_ord_design;
     auto sta = _ckt->_ord_timing->getSta();
 
-    if(!use_gr_rc) {
+    if(!use_gr_rc || (!noSPEF && !spefFile.empty())) {
         design->evalTclString("estimate_parasitics -placement");
         sta->findRequireds();
         return;
@@ -1623,16 +1639,19 @@ void Sizer::refreshOpenStaParasitics(bool verbose_global_route) {
     grt->setMaxRoutingLayer(signal_high_layer);
     grt->setMinLayerForClock(signal_low_layer);
     grt->setMaxLayerForClock(signal_high_layer);
-    grt->setAdjustment(0.5);
+    grt->setAdjustment(0.0);
     grt->setResistanceAware(false);
     grt->setVerbose(verbose_global_route);
-    grt->setCongestionIterations(10);
+    const int gr_iterations = gr_rc_congestion_iterations;
+    grt->setCongestionIterations(gr_iterations);
     printf("Run Global Routing after size update...\n");
-    design->evalTclString(
-        verbose_global_route
-            ? "global_route -congestion_iterations 10 -allow_congestion "
-              "-verbose"
-            : "global_route -congestion_iterations 10 -allow_congestion");
+    string global_route_cmd =
+        "global_route -congestion_iterations " + to_string(gr_iterations) +
+        " -allow_congestion";
+    if(verbose_global_route) {
+        global_route_cmd += " -verbose";
+    }
+    design->evalTclString(global_route_cmd);
     design->evalTclString("estimate_parasitics -global_routing");
     sta->findRequireds();
 }
@@ -1641,6 +1660,20 @@ void Sizer::applyOpenStaDbChanges(
     const std::function< void() > &apply_changes) {
     auto design = _ckt->_ord_design;
     auto sta = _ckt->_ord_timing->getSta();
+
+    if(!noSPEF && !spefFile.empty()) {
+        auto resizer = design->getResizer();
+        auto estimate_parasitics = resizer->getEstimateParasitics();
+        if(estimate_parasitics->isIncrementalParasiticsEnabled()) {
+            apply_changes();
+            resizer->updateParasiticsAndTiming();
+            return;
+        }
+        est::IncrementalParasiticsGuard parasitics_guard(estimate_parasitics);
+        apply_changes();
+        resizer->updateParasiticsAndTiming();
+        return;
+    }
 
     if(!use_gr_rc) {
         apply_changes();
@@ -6565,8 +6598,8 @@ void Sizer::runSizerGbiRepair(bool write_output) {
 // Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
 // out. No sizing loop, no placement.
 void Sizer::runPreplace() {
-    // Give gain buffering a finite fanout limit: reuse the design-level SDC
-    // max_fanout when present, otherwise fall back to 64.
+    // Cap pre-place repair fanout at 32 and preserve a stricter design-level
+    // SDC max_fanout when present.
 
     // Detect an unplaced input DEF (the expected pre-place case): wire RC is
     // then ~0, so slew/cap repair runs optimistic. Fanout repair is
@@ -6593,10 +6626,17 @@ void Sizer::runPreplace() {
     bool sdc_max_fanout_exists = false;
     _ckt->_sta->cmdSdc()->fanoutLimit(top_cell, sta::MinMax::max(),
                                       sdc_max_fanout, sdc_max_fanout_exists);
-    if(!(sdc_max_fanout_exists && sdc_max_fanout > 0)) {
-        printf("preplace: no SDC max_fanout, fall back to 64\n");
-        _ckt->_ord_design->evalTclString("set_max_fanout 64 [current_design]");
+    float max_fanout = 32.0f;
+    if(sdc_max_fanout_exists && sdc_max_fanout > 0) {
+        max_fanout = std::min(max_fanout, sdc_max_fanout);
+        printf("preplace: SDC max_fanout %g, effective max_fanout %g\n",
+               sdc_max_fanout, max_fanout);
     }
+    else {
+        printf("preplace: no SDC max_fanout, fall back to 32\n");
+    }
+    _ckt->_sta->cmdSdc()->setFanoutLimit(top_cell, sta::MinMax::max(),
+                                      max_fanout);
 
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
@@ -6611,6 +6651,11 @@ void Sizer::runPreplace() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
 
+    _ckt->_ord_design->evalTclString(
+        "puts [format {preplace_after_repair resistance=%g capacitance=%g estimated=%d} "
+        "[est::wire_signal_resistance [sta::cmd_scene]] "
+        "[est::wire_signal_capacitance [sta::cmd_scene]] "
+        "[est::have_estimated_parasitics]]");
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }
@@ -6628,13 +6673,14 @@ void Sizer::runPreplace() {
     _ckt->_ord_design->evalTclString("write_verilog " + resultVerilogFile);
 }
 
-// Hold-only mode: single repair_timing -hold round, then write results out.
+// Hold-only mode: repair_timing -hold, legalize, refresh, and repeat once.
 // Input must be placed (parasitics estimated during load). No sizing loop.
 void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin 0.1 -skip_pin_swap -verbose");
+        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
+        " -skip_pin_swap -verbose");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: hold buffering must not have broken setup
@@ -6652,6 +6698,33 @@ void Sizer::runHoldOnly() {
     // placement before exporting it so downstream legalization sees a legal
     // starting geometry rather than overlapping inserted instances.
     legalizePlacement();
+    // Rebuild parasitics on the legalized geometry before a second hold pass.
+    refreshOpenStaParasitics(true);
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
+    _ckt->_ord_design->evalTclString(
+        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
+        " -skip_pin_swap -verbose");
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
+    // guard: the second hold pass must not have broken setup
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
+    {
+        const int connected_special_pins
+            = ecc::connectMissingWildcardSpecialNetPins(
+                _ckt->_ord_design->getBlock());
+        if(connected_special_pins > 0) {
+            cout << "Connected " << connected_special_pins
+                 << " new instance pins to wildcard special nets." << endl;
+        }
+    }
+    // The second hold pass can insert another set of movable buffers; make
+    // the exported geometry legal once more before the final RC refresh.
+    legalizePlacement();
+    refreshOpenStaParasitics(true);
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -digits 3");
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }
@@ -6738,11 +6811,21 @@ int Sizer::legalizeDreamplace() {
         if(!inst->isFixed()) {
             continue;
         }
-        auto* master = inst->getMaster();
-        int ix = 0, iy = 0;
-        inst->getLocation(ix, iy);
-        nodes.push_back({double(ix), double(iy), double(master->getWidth()),
-                         double(master->getHeight()), true});
+        auto* bbox = inst->getBBox();
+        int x_min = bbox->xMin();
+        int y_min = bbox->yMin();
+        int x_max = bbox->xMax();
+        int y_max = bbox->yMax();
+        if(inst->getHalo() != nullptr) {
+            odb::Rect halo = inst->getTransformedHalo();
+            x_min -= halo.xMin();
+            y_min -= halo.yMin();
+            x_max += halo.xMax();
+            y_max += halo.yMax();
+        }
+        nodes.push_back({double(x_min), double(y_min),
+                         double(x_max - x_min),
+                         double(y_max - y_min), true});
     }
     if(num_movable == 0) {
         return 0;
@@ -6781,22 +6864,25 @@ void Sizer::legalizePlacement() {
 }
 
 void Sizer::runOrdTO() {
+    _ckt->assertNoIllegalExternalPadBoundaryChain();
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
+    resizer->setBlockageAwareSteiner(blockageAwareSteiner);
     int repaired_net_count, slew_violations, cap_violations, fanout_violations,
         length_violations;
     // _ckt->_ord_design->evalTclString("buffer_ports");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
-    _ckt->_ord_design->evalTclString(
-        "report_check_types -max_slew -max_capacitance -max_fanout -violators "
-        "-digits 3");
+    // Keep the detailed report_checks table out of the production log; the
+    // repair commands below compute and report their own summary metrics.
     // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 10 -cap_margin 10 -verbose");
+    // Repair hold in the setup corner before setup optimization consumes slack.
     _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin 0.1 -skip_pin_swap -verbose");
+        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
+        " -skip_pin_swap -verbose");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) +
                                      " -skip_pin_swap -verbose");
@@ -6807,6 +6893,14 @@ void Sizer::runOrdTO() {
         cout << "Connected " << connected_special_pins
              << " new instance pins to wildcard special nets." << endl;
     }
+    const char *pre_final_legalization_def =
+        std::getenv("SIZER_PRE_FINAL_LEGALIZATION_DEF");
+    if(pre_final_legalization_def != nullptr &&
+       pre_final_legalization_def[0] != '\0') {
+        cout << "Write DEF before final legalization: "
+             << pre_final_legalization_def << endl;
+        _ckt->_ord_design->writeDef(pre_final_legalization_def);
+    }
     legalizePlacement();
     // Legalization moves degrade the repaired timing state. Rebuild placement
     // parasitics, run a margin-free recovery pass, then re-legalize any cells
@@ -6814,18 +6908,30 @@ void Sizer::runOrdTO() {
     // _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
     // _ckt->_ord_design->evalTclString(
     //     "repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    // _ckt->_ord_design->evalTclString("repair_timing -hold -verbose");
     // _ckt->_ord_design->evalTclString("repair_timing -setup -verbose");
     // legalizePlacement();
     // Rebuild parasitics after the final detailed placement so the reported
     // final slacks match the exported design state.
-    if(use_gr_rc) {
+    if(use_gr_rc && (noSPEF || spefFile.empty())) {
         printf("Run final global-routing RC refresh after runOrdTO...\n");
         refreshOpenStaParasitics(true);
     }
     else {
         _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
+        _ckt->_ord_timing->getSta()->findRequireds();
     }
+    _ckt->_ord_design->evalTclString("puts \"=== OpenSTA Final Timing Summary ===\"");
+    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -max -digits 3");
+    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
+    _ckt->_ord_design->evalTclString("report_tns -min -digits 3");
+    _ckt->_ord_design->evalTclString(
+        "puts \"max_slew_violations [sta::max_slew_violation_count] "
+        "worst_slew_slack [format %.3f [sta::max_slew_check_slack]]\"");
+    _ckt->_ord_design->evalTclString(
+        "puts \"max_cap_violations [sta::max_capacitance_violation_count] "
+        "worst_cap_slack [format %.3f [sta::max_capacitance_check_slack]]\"");
+    _ckt->assertNoIllegalExternalPadBoundaryChain();
     double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
     double tns = T[view]->getTNS(clk_name[worst_corner]);
 
@@ -7154,25 +7260,6 @@ void Sizer::Parallel_Sizer_Launcher() {
                     auto block = _ord_design->getBlock();
                     auto _sta = ord::OpenRoad::openRoad()->getSta();
                     _sta->networkChanged();
-                    int inst_iter = 0;
-                    for(auto db_inst : block->getInsts()) {
-                        int inst_x, inst_y;
-                        int old_x, old_y;
-                        db_inst->getLocation(old_x, old_y);
-                        if((old_x != _ckt->old_localtion_x[inst_iter] ||
-                            old_y != _ckt->old_localtion_y[inst_iter]) &&
-                           !db_inst->getPlacementStatus().isFixed()) {
-                            db_inst->setLocation(
-                                _ckt->old_localtion_x[inst_iter],
-                                _ckt->old_localtion_y[inst_iter]);
-                            cout << "Move " << db_inst->getName() << " from ("
-                                 << old_x << ", " << old_y << ") to ("
-                                 << _ckt->old_localtion_x[inst_iter] << ", "
-                                 << _ckt->old_localtion_y[inst_iter] << ")"
-                                 << endl;
-                        }
-                        inst_iter++;
-                    }
                     for(unsigned i = 0; i < numcells; i++) {
                         LibCellInfo *lib_cell_info =
                             getLibCellInfo(best_cells_poweropt[i]);
@@ -7224,14 +7311,10 @@ void Sizer::Parallel_Sizer_Launcher() {
                     }
                     InitNets();
                     max_time_recovery_iter = 2;
-                    FIX_GLOBAL = true;
-                    FIX_CAP = true;
                     ATTACK_RATIO = 30;
-                    FIX_SLEW = true;
                     FIX_SLEW_POST = true;
                     post_slew_opt_output = false;
                     // ATTACK_RATIO = std::max(ATTACK_RATIO, 10);
-                    // FIX_SLEW = false;
                 }
                 // pthread_create(&threads[j], NULL, (),
                 //                ;
@@ -7389,47 +7472,22 @@ void Sizer::FinalReport() {
             best_cells_poweropt[i].isChanged = 1;
         }
 
-        if(spefFile != "") {
+        if(!noSPEF && !spefFile.empty()) {
             return;
         }
-
         if(!PRESERVE_PLACEMENT) {
-            int inst_iter = 0;
-            for(auto db_inst : block->getInsts()) {
-                int old_x, old_y;
-                db_inst->getLocation(old_x, old_y);
-                if((old_x != _ckt->old_localtion_x[inst_iter] ||
-                    old_y != _ckt->old_localtion_y[inst_iter]) &&
-                   !db_inst->getPlacementStatus().isFixed()) {
-                    db_inst->setLocation(_ckt->old_localtion_x[inst_iter],
-                                         _ckt->old_localtion_y[inst_iter]);
-                }
-                inst_iter++;
-            }
-        }
-
-        if(!PRESERVE_PLACEMENT) {
-            char padding_str[100];
-            sprintf(padding_str,
-                    "set_placement_padding -global -left %d -right %d",
-                    dp_padding,
-                    dp_padding);
-            _ord_design->evalTclString(string(padding_str));
+            _ord_design->evalTclString(
+                "set_placement_padding -global -left " + std::to_string(dp_padding) +
+                " -right " + std::to_string(dp_padding));
             legalizePlacement();
         }
     });
 
-    if(spefFile != "") {
+    if(!noSPEF && spefFile != "") {
         return;
     }
 
     double begin = cpuTime();
-    if(use_gr_rc) {
-        // Post-CTS DEFs can omit routing-layer geometry for top-level pins.
-        // Rebuild pin access points before invoking the global router.
-        _ord_design->evalTclString(
-            "place_pins -hor_layers {MET5} -ver_layers {MET4} -annealing");
-    }
     refreshOpenStaParasitics(true);
     printf("Run Global Routing Time %f\n", cpuTime() - begin);
     _ckt->readSpef_opensta(_sta);
@@ -7534,11 +7592,11 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     while(skew_violation > clk_period[worst_corner] * 0.1) {
         skew_violation_prev = skew_violation;
         cout << "[PostWNSOpt] without correlation # " << optCnt++ << endl;
-        if(FIX_CAP) {
+        if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
             BwdFixCapViolation();
         }
-        if(FIX_SLEW) {
+        if(FIX_SLEW_REPAIR) {
             FwdFixSlewViolation(1.0);
         }
         CallTimer();
@@ -7572,11 +7630,11 @@ void Sizer::PostWNSOpt(string input, unsigned view) {
     while(skew_violation > 0.) {
         cout << "[PostWNSOpt] with correlation # " << optCnt++ << endl;
         skew_violation_prev = skew_violation;
-        if(FIX_CAP) {
+        if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
             BwdFixCapViolation();
         }
-        if(FIX_SLEW) {
+        if(FIX_SLEW_REPAIR) {
             FwdFixSlewViolation(1.0);
         }
         CallTimer();
@@ -7948,20 +8006,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                     }
 
-                    if(FIX_CAP && cap_violation != 0) {
+                    if(FIX_CAP_REPAIR && cap_violation != 0) {
                         // CalcStats((unsigned)thread_id, true,
                         //           "AFTER_FIX_CAP", view);
                         change += FwdFixCapViolation(view);
                         change += BwdFixCapViolation(view);
-                        CallTimer(view);
-                        if(change > 1000) {
-                            CorrelatePT((unsigned)thread_id, view);
-                        }
-                        CalcStats((unsigned)thread_id, true, "AFTER_FIX_CAP",
-                                  view);
-                    }
-                    else if(cap_violation != 0) {
-                        FwdFixCapViolation(view);
                         CallTimer(view);
                         if(change > 1000) {
                             CorrelatePT((unsigned)thread_id, view);
@@ -7993,7 +8042,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     all_change += change;
                     change = 0;
-                    if(FIX_SLEW && slew_violation != 0.0) {
+                    if(FIX_SLEW_REPAIR && slew_violation != 0.0) {
                         change += FwdFixSlewViolation(1.0, view);
                         // change += BwdFixSlewViolation(1.0, view);
                         if(FIX_SLEW_POST) {
@@ -8007,17 +8056,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                         CalcStats((unsigned)thread_id, true, "AFTER_FIX_SLEW",
                                   view);
-                    }
-                    else if(slew_violation != 0.0) {
-                        if(FIX_SLEW_POST) {
-                            change += FwdFixSlewViolationPost(1.0, view);
-                            CallTimer(view);
-                            if(change > 1000) {
-                                CorrelatePT((unsigned)thread_id, view);
-                            }
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_FIX_SLEW", view);
-                        }
                     }
 
                     printf(
@@ -8092,20 +8130,11 @@ void Sizer::Post_PowerOpt(int thread_id) {
 
                     change = 0;
                     if(time_recovery_iter == max_time_recovery_iter - 1) {
-                        if(FIX_CAP) {
+                        if(FIX_CAP_REPAIR) {
                             change += FwdFixCapViolation(view);
                             change += BwdFixCapViolation(view);
                             CallTimer(view);
                             if(change > 0 && time_recovery_iter != 0) {
-                                CorrelatePT((unsigned)thread_id, view);
-                            }
-                            CalcStats((unsigned)thread_id, true,
-                                      "AFTER_FIX_CAP", view);
-                        }
-                        else if(cap_violation != 0) {
-                            FwdFixCapViolation(view);
-                            CallTimer(view);
-                            if(change > 1000) {
                                 CorrelatePT((unsigned)thread_id, view);
                             }
                             CalcStats((unsigned)thread_id, true,
@@ -8127,7 +8156,7 @@ void Sizer::Post_PowerOpt(int thread_id) {
                             }
                             updated_local = true;
                         }
-                        if(FIX_SLEW) {
+                        if(FIX_SLEW_REPAIR) {
                             change += FwdFixSlewViolation(1.0, view);
                             // change += BwdFixSlewViolation(1.0, view);
                             if(FIX_SLEW_POST) {
@@ -8141,17 +8170,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                                       "AFTER_FIX_SLEW", view);
                             all_change += change;
                             change = 0;
-                        }
-                        else if(slew_violation != 0.0) {
-                            if(FIX_SLEW_POST) {
-                                change += FwdFixSlewViolationPost(1.0, view);
-                                CallTimer(view);
-                                if(change > 1000) {
-                                    CorrelatePT((unsigned)thread_id, view);
-                                }
-                                CalcStats((unsigned)thread_id, true,
-                                          "AFTER_FIX_SLEW", view);
-                            }
                         }
                     }
                     printf(
@@ -10535,6 +10553,23 @@ void Sizer::readEnvFile(string envFileStr) {
             lefPath = getTokenS(line, "-lefPath ");
         if(line.find("-setRCFile ") != string::npos)
             setRCFile = getTokenS(line, "-setRCFile ");
+        if(line.find("-spef ") != string::npos)
+            spefFile = getTokenS(line, "-spef ");
+        if(line.find("-postroute") != string::npos) {
+            postrouteMode = true;
+            if(line.find("-setup_margin ") == string::npos) {
+                setup_margin = 0.02;
+            }
+        }
+        if(line.find("-no_blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = false;
+        }
+        else if(line.find("-blockage_aware_steiner ") != string::npos) {
+            blockageAwareSteiner = (getTokenI(line, "-blockage_aware_steiner ") != 0);
+        }
+        else if(line.find("-blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = true;
+        }
         if(line.find("-tclFile ") != string::npos)
             util_tcl_file = getTokenS(line, "-tclFile ");
         if(line.find("-suffix_nvt ") != string::npos) {
@@ -10612,6 +10647,12 @@ void Sizer::readCmdFile(string cmdFileStr) {
     timerTestCell = 0;
     timerTestMove = 0;
     use_gr_rc = false;
+    gr_rc_congestion_iterations = 10;
+    hold_margin = 0.02;
+    placement_wire_resistance = 0.0;
+    placement_wire_capacitance = 0.0;
+    placement_wire_rc_corner = "unspecified";
+    placement_wire_rc_explicit = false;
 
     try {
         ecc::loadRepairConfigFiles(nativeRepairConfig, cmdFileStr);
@@ -10673,6 +10714,16 @@ void Sizer::readCmdFile(string cmdFileStr) {
             }
             use_gr_rc = use_gr_rc_value == 1;
         }
+        if(line.find("-gr_rc_congestion_iterations ") != string::npos) {
+            const int value =
+                getTokenI(line, "-gr_rc_congestion_iterations ");
+            if(value != 10 && value != 50) {
+                cout << "Error: -gr_rc_congestion_iterations must be 10 or 50."
+                     << endl;
+                exit(1);
+            }
+            gr_rc_congestion_iterations = value;
+        }
         if(line.find("-equiv_cell_sort ") != string::npos)
             setEquivCellSortMode(getTokenS(line, "-equiv_cell_sort "));
         if(line.find("-sdc ") != string::npos)
@@ -10713,6 +10764,44 @@ void Sizer::readCmdFile(string cmdFileStr) {
             ALPHA_STUCK = getTokenF(line, "-alpha_stuck ");
         if(line.find("-setup_margin ") != string::npos)
             setup_margin = getTokenF(line, "-setup_margin ");
+        if(line.find("-hold_margin ") != string::npos) {
+            const double value = getTokenF(line, "-hold_margin ");
+            if(value < 0.0) {
+                cout << "Error: -hold_margin must be non-negative." << endl;
+                exit(1);
+            }
+            hold_margin = value;
+        }
+        if(line.find("-placement_wire_resistance_ohm_per_um ") !=
+           string::npos) {
+            const double value = getTokenF(
+                line, "-placement_wire_resistance_ohm_per_um ");
+            if(!std::isfinite(value) || value <= 0.0) {
+                cout << "Error: -placement_wire_resistance_ohm_per_um must "
+                        "be positive."
+                     << endl;
+                exit(1);
+            }
+            placement_wire_resistance = value;
+            placement_wire_rc_explicit = true;
+        }
+        if(line.find("-placement_wire_rc_corner ") != string::npos) {
+            placement_wire_rc_corner =
+                getTokenS(line, "-placement_wire_rc_corner ");
+        }
+        if(line.find("-placement_wire_capacitance_pf_per_um ") !=
+           string::npos) {
+            const double value = getTokenF(
+                line, "-placement_wire_capacitance_pf_per_um ");
+            if(!std::isfinite(value) || value <= 0.0) {
+                cout << "Error: -placement_wire_capacitance_pf_per_um must "
+                        "be positive."
+                     << endl;
+                exit(1);
+            }
+            placement_wire_capacitance = value;
+            placement_wire_rc_explicit = true;
+        }
         if(line.find("-def_out_path ") != string::npos)
             resultDefFile = getTokenS(line, "-def_out_path ");
         if(line.find("-verilog_out_path ") != string::npos)
@@ -10874,6 +10963,23 @@ void Sizer::readCmdFile(string cmdFileStr) {
             sizerRepairClockNets = true;
         if(line.find("-hold_only") != string::npos)
             holdOnlyMode = true;
+        if(line.find("-postroute") != string::npos) {
+            postrouteMode = true;
+            if(line.find("-setup_margin ") == string::npos) {
+                setup_margin = 0.02;
+            }
+        }
+        if(line.find("-no_blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = false;
+        }
+        else if(line.find("-blockage_aware_steiner ") != string::npos) {
+            blockageAwareSteiner = (getTokenI(line, "-blockage_aware_steiner ") != 0);
+        }
+        else if(line.find("-blockage_aware_steiner") != string::npos) {
+            blockageAwareSteiner = true;
+        }
+        if(line.find("-ideal_clock") != string::npos)
+            idealClockMode = true;
         if(line.find("-legalize_only") != string::npos)
             legalizeOnlyMode = true;
         if(line.find("-use_native_abacus ") != string::npos)
@@ -11249,13 +11355,37 @@ void Sizer::readCmdFile(string cmdFileStr) {
         if(line.find("-size_only") != string::npos) {
             SIZE_ONLY = true;
         }
-        if(line.find("-fix_cap") != string::npos) {
-            FIX_CAP = true;
+        if(line.find("-fix_cap ") != string::npos) {
+            const int value = getTokenI(line, "-fix_cap ");
+            if(value != 0 && value != 1) {
+                cout << "Error: -fix_cap must be 0 or 1." << endl;
+                exit(1);
+            }
+            FIX_CAP_REPAIR = value == 1;
         }
-        if(line.find("-fix_slew") != string::npos) {
-            FIX_SLEW = true;
+        else if(line.find("-fix_cap") != string::npos) {
+            FIX_CAP_REPAIR = true;
         }
-        if(line.find("-fix_global") != string::npos) {
+        if(line.find("-fix_slew ") != string::npos) {
+            const int value = getTokenI(line, "-fix_slew ");
+            if(value != 0 && value != 1) {
+                cout << "Error: -fix_slew must be 0 or 1." << endl;
+                exit(1);
+            }
+            FIX_SLEW_REPAIR = value == 1;
+        }
+        else if(line.find("-fix_slew") != string::npos) {
+            FIX_SLEW_REPAIR = true;
+        }
+        if(line.find("-fix_global ") != string::npos) {
+            const int value = getTokenI(line, "-fix_global ");
+            if(value != 0 && value != 1) {
+                cout << "Error: -fix_global must be 0 or 1." << endl;
+                exit(1);
+            }
+            FIX_GLOBAL = value == 1;
+        }
+        else if(line.find("-fix_global") != string::npos) {
             FIX_GLOBAL = true;
         }
         // Sizing-only legacy experiments can disable the historical fixdrv
@@ -11395,8 +11525,22 @@ void Sizer::readCmdFile(string cmdFileStr) {
     if(noSPEF) {
         WIRE_METRIC = ND;
     }
-    cout << "Parasitics mode: "
-         << (use_gr_rc ? "global_routing" : "placement") << endl;
+    if(placement_wire_rc_explicit &&
+       (placement_wire_resistance <= 0.0 || placement_wire_capacitance <= 0.0)) {
+        cout << "Error: -placement_wire_resistance_ohm_per_um and "
+                "-placement_wire_capacitance_pf_per_um must be specified "
+                "together."
+             << endl;
+        exit(1);
+    }
+    if(postrouteMode || (!noSPEF && !spefFile.empty())) {
+        cout << "Parasitics mode: postroute_spef (fallback: "
+             << (use_gr_rc ? "global_routing" : "placement") << ")" << endl;
+    }
+    else {
+        cout << "Parasitics mode: "
+             << (use_gr_rc ? "global_routing" : "placement") << endl;
+    }
 }
 
 void Sizer::main(unsigned thread_id, bool postGTR) {
@@ -11494,7 +11638,7 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
 
         // pthread_mutex_unlock(&mutex1);
 
-        if(FIX_CAP) {
+        if(FIX_CAP_REPAIR) {
             FwdFixCapViolation();
             BwdFixCapViolation();
         }
@@ -11576,11 +11720,11 @@ void Sizer::main(unsigned thread_id, bool postGTR) {
                         swap_cnt = 0;
                     }
                 }
-                if(FIX_CAP) {
+                if(FIX_CAP_REPAIR) {
                     FwdFixCapViolation();
                     BwdFixCapViolation();
                 }
-                if(FIX_SLEW) {
+                if(FIX_SLEW_REPAIR) {
                     FwdFixSlewViolation(1.0);
                 }
                 CallTimer();
@@ -11886,6 +12030,9 @@ int main(int argc, char **argv) {
         _sizer.numCorners = _sizer.mmmcSpefList.size();
         _sizer.numModes = _sizer.mmmcSdcList.size();
         _sizer.numViews = _sizer.mmmcViewList.size();
+        if(_sizer.spefFile.empty() && !_sizer.mmmcSpefList.empty()) {
+            _sizer.spefFile = _sizer.mmmcSpefList[0];
+        }
 
         bool temp = false;
         for(unsigned i = 0; i < _sizer.mmmcViewList.size(); ++i) {
@@ -11919,6 +12066,54 @@ int main(int argc, char **argv) {
     }
     else {
         _sizer.initSingleMode();
+    }
+    if(_sizer.postrouteMode) {
+        if(_sizer.preplaceMode) {
+            cout << "Error: -postroute cannot be combined with -preplace."
+                 << endl;
+            exit(1);
+        }
+        if(_sizer.legalizeOnlyMode) {
+            cout << "Error: -postroute cannot be combined with -legalize_only."
+                 << endl;
+            exit(1);
+        }
+        if(_sizer.noSPEF) {
+            cout << "Error: -postroute cannot be combined with -noSPEF."
+                 << endl;
+            exit(1);
+        }
+        if(_sizer.spefFile.empty()) {
+            string candidate = _sizer.benchname + ".spef";
+            ifstream f_local(candidate.c_str());
+            if(f_local.good()) {
+                _sizer.spefFile = candidate;
+            }
+            else {
+                size_t slash_pos = _sizer.defFile.find_last_of("/\\");
+                if(slash_pos != string::npos) {
+                    string def_dir = _sizer.defFile.substr(0, slash_pos + 1);
+                    string def_dir_candidate = def_dir + _sizer.benchname + ".spef";
+                    ifstream f_def_dir(def_dir_candidate.c_str());
+                    if(f_def_dir.good()) {
+                        _sizer.spefFile = def_dir_candidate;
+                    }
+                    else {
+                        _sizer.spefFile = candidate;
+                    }
+                }
+                else {
+                    _sizer.spefFile = candidate;
+                }
+            }
+        }
+        ifstream spef_check(_sizer.spefFile.c_str());
+        if(!spef_check.good()) {
+            cout << "Error: -postroute requires a valid SPEF file (-spef <file> "
+                    "or <top>.spef), cannot open: "
+                 << _sizer.spefFile << endl;
+            exit(1);
+        }
     }
     _sizer.ReportOptions();
 

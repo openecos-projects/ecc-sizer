@@ -416,7 +416,7 @@ void Sizer::CountPathsLesserThanSlack(unsigned view, double slack) {
     }
 
     vector< unsigned > NtoPO(numpins, 0);
-    vector< vector< unsigned > > FOtoPO(numpins);
+    vector< vector< unsigned > > FOtoPO(numcells);
     for(unsigned i = 0; i < _ckt->POs.size(); i++) {
         NtoPO[_ckt->POs[i]] = 0;
     }
@@ -595,7 +595,8 @@ void Sizer::CountPaths() {
 
     vector< unsigned > NtoPO(numpins, 0);
     vector< unsigned > NCelltoPO(numpins, 0);
-    vector< vector< unsigned > > FOtoPO(numpins);
+    // Cell cones are indexed by instance ID, including physical-only cells.
+    vector< vector< unsigned > > FOtoPO(numcells);
     for(unsigned i = 0; i < _ckt->POs.size(); i++) {
         NtoPO[_ckt->POs[i]] = 0;
         NCelltoPO[_ckt->POs[i]] = 0;

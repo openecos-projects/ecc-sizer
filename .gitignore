@@ -65,3 +65,7 @@ smic110
 
 # Synthetic Liberty fixtures are source data, not compiled static libraries.
 !/tests/data/repair_vt_*.lib
+
+# Nix build outputs
+/result
+/result-*
