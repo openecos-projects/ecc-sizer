@@ -44,6 +44,7 @@
 #include "sizer.h"
 
 #include <omp.h>
+#include <stdexcept>
 #include <stdlib.h>
 #include <algorithm>
 #include <cassert>
@@ -9414,12 +9415,12 @@ void Sizer::readEnvFile(string envFileStr) {
     string line;
     string tmp_str;
 
-    // TSMC 45
+    // Process settings are explicit; an unspecified configuration is single-VT.
     suffixHVT = "";
     suffixLVT = "";
     suffixNVT = "";
     suffix = "";
-    numVt = 3;
+    numVt = 1;
 
     dontTouchFile = "";
     dontUseFile = "";
@@ -9505,6 +9506,15 @@ void Sizer::readEnvFile(string envFileStr) {
         }
     }
     file.close();
+    if(numVt < 1 || numVt > 3) {
+        throw std::runtime_error("Sizer supports one to three explicitly configured VT groups");
+    }
+    if(numVt >= 2 && (suffixHVT.empty() || suffixNVT.empty() || suffixHVT == suffixNVT)) {
+        throw std::runtime_error("Multi-VT sizing requires distinct nonempty HVT/NVT suffixes");
+    }
+    if(numVt == 3 && (suffixLVT.empty() || suffixLVT == suffixHVT || suffixLVT == suffixNVT)) {
+        throw std::runtime_error("Three-VT sizing requires a distinct nonempty LVT suffix");
+    }
 }
 
 void Sizer::readCmdFile(string cmdFileStr) {
@@ -10758,6 +10768,12 @@ void Sizer::Profile() {
 }
 
 int main(int argc, char **argv) {
+    // Machine-readable contract probe must not initialize OpenROAD or a design.
+    if(argc == 2 && std::string(argv[1]) == "--ecc-capabilities") {
+        std::cout << "{\"schema_version\":1,\"tool\":\"ecc-sizer\","
+                     "\"contracts\":{\"explicit_vt_groups\":1}}\n";
+        return 0;
+    }
     int agc = 0;
     char **arv = nullptr;
     // omp_set_num_threads(8);

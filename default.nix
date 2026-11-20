@@ -52,6 +52,7 @@ stdenv.mkDerivation {
       ./src
       ./submit
       ./test
+      ./tests
       ./thirdparty
       ./CMakeLists.txt
       ./LICENSE
