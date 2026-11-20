@@ -314,12 +314,6 @@ bool DesignSession::hasExtractedParasitics() const {
            design_->getOpenRoad()->getEstimateParasitics()->hasSpefNets();
 }
 
-ParasiticsMode DesignSession::parasiticsMode() const {
-    if(hasExtractedParasitics()) return ParasiticsMode::Extracted;
-    return inputs_.global_routing ? ParasiticsMode::GlobalRouting
-                                  : ParasiticsMode::Placement;
-}
-
 void DesignSession::reconnectSupplies() {
     block()->globalConnect(false, false);
     connectMissingWildcardSpecialNetPins(block());

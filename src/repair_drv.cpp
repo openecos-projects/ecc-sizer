@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_drv.h"
 #include "repair_backend.h"
+#include "repair_timing.h"
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
 #include "sta/Liberty.hh"
@@ -20,6 +21,7 @@
 #include "sta/PowerClass.hh"
 #include "power/Power.hh"
 #include <set>
+#include "spdlog/spdlog.h"
 
 namespace ecc {
 using detail::NetState;
@@ -608,6 +610,7 @@ struct PowerCandidate {
     double saving;
     float slack;
     bool vt;
+    bool needs_recovery;
 };
 // Characterized leakage is only a ranking estimate. Acceptance uses
 // whole-design OpenSTA power including conditional leakage/activity effects.
@@ -666,15 +669,19 @@ static std::vector< PowerCandidate > powerCandidates(
                 continue;
             const float delay = backend.predictedDelay(
                 *replacement, state.capacitance, state.input_slew);
-            if(!std::isfinite(old_delay) || !std::isfinite(delay) ||
-               slack < options.slack_margin + std::max(0.0f, delay - old_delay))
+            if(!std::isfinite(old_delay) || !std::isfinite(delay))
                 continue;
             plans.push_back(
                 {inst, replacement->master, old_leakage - new_leakage, slack,
-                 backend.isVtSwap(inst->getMaster(), replacement->master)});
+                 backend.isVtSwap(inst->getMaster(), replacement->master),
+                 slack <
+                     options.slack_margin + std::max(0.0f, delay - old_delay)});
         }
     }
     std::sort(plans.begin(), plans.end(), [](const auto& a, const auto& b) {
+        // Try slack-budgeted moves first, then bounded recovery trials.
+        if(a.needs_recovery != b.needs_recovery)
+            return !a.needs_recovery;
         if(a.saving != b.saving)
             return a.saving > b.saving;
         if(a.slack != b.slack)
@@ -706,9 +713,9 @@ static std::vector< detail::NetState > measurePower(
             throw std::runtime_error("invalid STA power result");
     return states;
 }
-static bool acceptable(const PowerRepairMetrics& before,
-                       const PowerRepairMetrics& after,
-                       const PowerRepairOptions& options) {
+static bool powerImproves(const PowerRepairMetrics& before,
+                          const PowerRepairMetrics& after,
+                          const PowerRepairOptions& options) {
     const double old_power =
         options.objective == ecc::PowerObjective::Total ? before.total : before.leakage;
     const double new_power =
@@ -716,7 +723,12 @@ static bool acceptable(const PowerRepairMetrics& before,
     const double minimum =
         std::max(options.min_absolute_improvement,
                  old_power * options.min_relative_improvement);
-    return new_power < old_power - minimum &&
+    return new_power < old_power - minimum;
+}
+static bool acceptable(const PowerRepairMetrics& before,
+                       const PowerRepairMetrics& after,
+                       const PowerRepairOptions& options) {
+    return powerImproves(before, after, options) &&
            after.design.area <= before.design.area &&
            detail::timingNonRegressing(before.design, after.design,
                                        options.common.tolerances) &&
@@ -744,7 +756,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
             refresh();
         };
         for(unsigned pass = 0; pass < options.max_passes &&
-                               result.attempted_batches < options.max_trials;
+                               result.attempted_trials < options.max_trials;
             ++pass) {
             const auto plans = powerCandidates(backend, sta, states, options);
             size_t cursor = 0,
@@ -764,7 +776,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
                 }
             };
             while(cursor < plans.size() &&
-                  result.attempted_batches < options.max_trials) {
+                  result.attempted_trials < options.max_trials) {
                 std::vector< size_t > selected;
                 std::unordered_set< odb::dbInst* > touched;
                 for(size_t i = cursor;
@@ -786,28 +798,98 @@ PowerRepairResult OpenDbPowerRepairer::repair(
                     else
                         ++downsizes;
                 }
-                ++result.attempted_batches;
+                ++result.attempted_trials;
                 if(options.common.prepare)
                     options.common.prepare();
                 update();
                 PowerRepairMetrics after;
                 auto next = measurePower(backend, sta, after);
-                bool local_slack_ok = true;
-                for(const auto i : selected) {
-                    for(auto* pin : plans[i].inst->getITerms()) {
-                        if(pin->getSigType() != odb::dbSigType::SIGNAL ||
-                           pin->getIoType() != odb::dbIoType::OUTPUT)
-                            continue;
-                        const float slack = float(
-                            sta->slack(sta->getDbNetwork()->dbToSta(pin),
-                                       sta::RiseFallBoth::riseFall(),
-                                       sta->scenes(), sta::MinMax::max()));
-                        local_slack_ok &= std::isfinite(slack) &&
-                                          slack < sta::INF &&
-                                          slack >= options.slack_margin;
+                const auto localSlackOk = [&]() {
+                    bool local_slack_ok = true;
+                    for(const auto i : selected) {
+                        for(auto* pin : plans[i].inst->getITerms()) {
+                            if(pin->getSigType() != odb::dbSigType::SIGNAL ||
+                               pin->getIoType() != odb::dbIoType::OUTPUT)
+                                continue;
+                            const float slack = float(
+                                sta->slack(sta->getDbNetwork()->dbToSta(pin),
+                                           sta::RiseFallBoth::riseFall(),
+                                           sta->scenes(), sta::MinMax::max()));
+                            local_slack_ok &= std::isfinite(slack) &&
+                                              slack < sta::INF &&
+                                              slack >= options.slack_margin;
+                        }
                     }
+                    return local_slack_ok;
+                };
+                // Migrate the old power -> timing recovery strategy onto the
+                // same OpenDB journal and STA models as native repair. A child
+                // commit remains provisional until whole-design acceptance.
+                if(powerImproves(result.after, after, options) &&
+                   (!localSlackOk() ||
+                    !acceptable(result.after, after, options)) &&
+                   result.attempted_trials < options.max_trials) {
+                    transaction->suspend();
+                    ++result.recovery_attempts;
+                    auto recovery_common = options.common;
+                    // Retain the proposed saving during recovery. Otherwise
+                    // setup can simply undo it and waste the recovery budget.
+                    for(const auto i : selected)
+                        recovery_common.excluded_resize_instances.push_back(
+                            plans[i].inst);
+                    if(!detail::noNewDrv(result.after.design, after.design) &&
+                       result.attempted_trials < options.max_trials) {
+                        DesignRepairOptions drv;
+                        static_cast< RepairCommonOptions& >(drv) =
+                            recovery_common;
+                        drv.max_passes =
+                            options.max_trials - result.attempted_trials;
+                        drv.max_inserted_buffers =
+                            static_cast< unsigned >(selected.size());
+                        const auto repaired = OpenDbDesignRepairer::repair(
+                            block, sta, update, drv);
+                        result.attempted_trials +=
+                            repaired.accepted_passes + repaired.rejected_passes;
+                        if(!repaired.ok)
+                            throw std::runtime_error(repaired.message);
+                        next = measurePower(backend, sta, after);
+                    }
+                    if(result.attempted_trials < options.max_trials) {
+                        SetupRepairOptions setup;
+                        setup.common = recovery_common;
+                        setup.max_trials =
+                            options.max_trials - result.attempted_trials;
+                        setup.max_passes = setup.max_trials;
+                        setup.max_candidates = options.max_candidates;
+                        setup.batch_size = options.batch_size;
+                        setup.batch_backoff = options.batch_backoff;
+                        // Recovery can spend area released by the power move.
+                        // Final acceptance still forbids net area growth.
+                        if(after.design.area > 0)
+                            setup.max_area_growth =
+                                std::max(0.0, result.after.design.area /
+                                                      after.design.area -
+                                                  1.0);
+                        const auto repaired = OpenDbSetupRepairer::repair(
+                            block, sta, update, setup);
+                        spdlog::debug(
+                            "Power setup recovery: {} ({} trials, {} accepted)",
+                            repaired.message, repaired.attempted_batches,
+                            repaired.accepted_batches);
+                        result.attempted_trials += repaired.attempted_batches;
+                        if(!repaired.ok)
+                            throw std::runtime_error(repaired.message);
+                    }
+                    next = measurePower(backend, sta, after);
                 }
-                if(local_slack_ok && acceptable(result.after, after, options)) {
+                spdlog::debug(
+                    "Power trial: local_slack={} leakage {} -> {}, setup {} -> "
+                    "{}, hold {} -> {}, DRV {} -> {}",
+                    localSlackOk(), result.after.leakage, after.leakage,
+                    result.after.design.setup_wns, after.design.setup_wns,
+                    result.after.design.hold_wns, after.design.hold_wns,
+                    result.after.design.severity, after.design.severity);
+                if(localSlackOk() && acceptable(result.after, after, options)) {
                     transaction->commit();
                     result.after = after;
                     states = std::move(next);
@@ -829,7 +911,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
                 break;
         }
         result.ok = true;
-        result.message = result.attempted_batches >= options.max_trials
+        result.message = result.attempted_trials >= options.max_trials
                              ? "power trial budget exhausted"
                          : result.accepted_batches >= options.max_passes
                              ? "power pass budget exhausted"

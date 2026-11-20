@@ -66,6 +66,8 @@ set_max_fanout 4 [current_design]
         self.assertIn("--flow", self.run_sizer("--help"))
         for args in (("--threads",), ("--wat",),
                      (self.script, "--flow", "pbbi"),
+                     (self.script, "--flow", "sizing"),
+                     (self.script, "--legalizer", "missing"),
                      ("-env", "old.env", "-f", "old.cmd"),
                      ("legacy", "-env", "old.env"),
                      (self.script, "--set", "pbbi.enabled=true"),
@@ -154,21 +156,26 @@ read_spef {{{spef}}}
         output = self.run_sizer(extracted_script, "--flow", "hold", "--threads", "1",
                                 "--output", self.work / "script-spef")
         self.assertIn("hold finished", output)
-        self.assertIn("placement RC", self.run_sizer(extracted_script, ok=False))
+        output = self.run_sizer(extracted_script, "--flow", "native,power",
+                                "--threads", "1", "--output", self.work / "native-spef")
+        self.assertIn("native finished", output)
+        self.assertIn("power finished", output)
+        self.assertEqual(spef.read_bytes(), original)
+        self.assertIn("placement RC", self.run_sizer(extracted_script, "--flow", "path", ok=False))
         with self.script.open("a") as script:
             script.write("make_tracks\nset_routing_layers -signal metal2-metal6 -clock metal2-metal6\n")
-        output = self.run_sizer(self.script, "--global-routing", "--flow", "hold",
+        output = self.run_sizer(self.script, "--global-routing", "--flow", "native,power,hold",
                                 "--threads", "1", "--output", self.work / "routed")
         self.assertIn("hold finished", output)
 
-    def test_sizing_uses_loaded_design(self):
+    def test_native_power_uses_loaded_design_and_abacus(self):
         with self.script.open("a") as script:
             script.write("set_input_delay 0 -clock clk [get_ports in]\n"
                          "set_output_delay 1 -clock clk [get_ports out*]\n")
-        output = self.run_sizer(self.script, "--flow", "sizing", "--threads", "1",
-                                "--output", self.work / "sizing")
-        self.assertIn("sizing finished", output)
-        self.assertTrue((self.work / "sizing.odb").is_file())
+        output = self.run_sizer(self.script, "--flow", "native,power", "--legalizer", "abacus", "--threads", "1",
+                                "--output", self.work / "native-power")
+        self.assertIn("power finished", output)
+        self.assertTrue((self.work / "native-power.odb").is_file())
 
 
 if __name__ == "__main__":

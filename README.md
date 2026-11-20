@@ -68,17 +68,16 @@ current design; inputs are never reloaded between stages.
 | path | STA-verified path buffer search |
 | gobi | GOBI CUDA buffer search |
 | ord | OpenROAD-style driver traversal using Sizer edits/acceptance |
-| power | Native power recovery, including supported resizing/VT moves |
+| power | Native resizing/VT power search with bounded DRV/setup recovery |
 | fanout | Standalone fanout buffer insertion |
 | legalize | Legalize the current placement and refresh timing |
 | hold | OpenROAD hold repair with legalization and a second repair pass |
 | preplace / preplace-gain | Independent zero-wire-RC repair of an unplaced design |
-| sizing | Retained cell-sizing search, using the loaded OpenROAD design |
 
 Repair uses one STA scene. Placed flows require core rows; preplace does not.
-Native/ORD/VG/GOBI/Path use placement parasitics. Existing wire RC is retained;
+VG/GOBI/Path use placement parasitics. Existing wire RC is retained;
 if absent, physical RC is derived from the lowest usable LEF routing layer.
-Sizing and hold also support `--spef FILE` (or `read_spef` in input Tcl) for
+Native, ORD, power and hold also support `--spef FILE` (or `read_spef` in input Tcl) for
 extracted/postroute parasitics and `--global-routing` for routing estimates. Supply routing setup/tracks in
 input Tcl for global routing. Input Tcl controls propagated/ideal clocks.
 Use `--rc rc.tcl` when the technology needs an explicit wire model. An SDC
@@ -88,11 +87,23 @@ Use OpenROAD's `set_dont_use` and `set_dont_touch` in input Tcl for exclusions.
 Output defaults to `<input-stem>.sized.def`, `.v` and `.odb`; `--output PREFIX`
 sets their location. Input files must not be reused as the output prefix.
 
-OpenROAD/OpenSTA own LEF, DEF, Verilog, Liberty, SDC and SPEF parsing. The
-retained sizing search imports only the additional representations it needs:
-Liberty lookup tables and an RC adjacency graph built through STA's public
-parasitics API. Pin timing and arc delays are queried directly from STA,
-including top-level ports; no timing-report parsing or PT/ETS server is needed.
+OpenROAD/OpenSTA own LEF, DEF, Verilog, Liberty, SDC and SPEF parsing,
+cell timing models, parasitic networks and timing propagation. Algorithms
+query these live objects; there is no copied Liberty LUT, RC import graph,
+custom timer or timing-report parser.
+
+Use `--flow native,power` for electrical/setup repair followed by power search.
+Power tries slack-budgeted moves first. A larger saving can provisionally
+violate setup/DRV and invoke native recovery inside the same ECO transaction.
+The final design must reduce the chosen STA power objective without increasing
+area or degrading setup, hold or electrical checks. Rejection and exceptions
+undo both the power move and any committed recovery children. All recovery
+trials count against `power.max_trials`; there is no second search engine.
+
+`--legalizer abacus` retains the vendored DreamPlace greedy/Abacus legalizer
+for uniform single-height row grids and fixed obstacles. OpenDP remains the
+default and handles unsupported layouts, regions, blockages and padding.
+Both choices protect fixed/DNT cells and validate placement with OpenROAD.
 
 ## Configuration and logging
 
@@ -109,7 +120,7 @@ The C++ API uses seconds; text options ending in `_ns` use nanoseconds.
 VT moves still require explicitly configured library suffixes; cell naming
 conventions are not guessed.
 
-Application, repair and retained sizing diagnostics use spdlog. `--log-level debug|info|warn|error|off`
+Application, repair and Abacus diagnostics use spdlog. `--log-level debug|info|warn|error|off`
 controls them and `--log FILE` adds a file sink. OpenROAD/STA diagnostics use
 OpenROAD's logger and its own controls. Tcl failures are checked and stop the
 flow instead of allowing acceptance with stale timing.
@@ -132,18 +143,33 @@ flow instead of allowing acceptance with stale timing.
 - `repair_config.*`: typed algorithm policies and a single key/field registry
   for strict parsing, unit conversion and serialization. `[path]` is supported;
   `gobi.backend` has been removed because GOBI always uses CUDA.
-- `cell_sizing.*`, `sizing_model.*`, `liberty_import.cpp`: retained cell-sizing
-  search and its derived analysis arrays. Liberty models come from loaded STA
-  objects. These build as `sizer_search`, separate from `sizer_algorithms`.
-  Placement, global-routing and extracted RC use an explicit mode; the old
-  external timer launchers and their unused configuration have been removed.
+- `legalize_core.*`: standalone greedy/Abacus geometry, linked as
+  `sizer_placement`; `design_edit` adapts OpenDB rows and cells. All strategies
+  build as `sizer_algorithms`, directly linked by the application.
+
+The former sizing engine has been removed. Its active strategies map to the
+shared native implementation as follows:
+
+| Former responsibility | Current implementation |
+| --- | --- |
+| Capacitance/slew repair, drive/VT moves | `repair_drv`, shared candidate backend |
+| Negative-slack cell search, side-load relief | `repair_timing` and native STA validation |
+| Leakage reduction followed by timing recovery | Compound trials in native `power` |
+| Best-design snapshots and undo | Scoped OpenDB ECO transactions and strict acceptance |
+| DreamPlace/Abacus placement | Shared placement adapter and `legalize_core` |
+| Liberty/RC import, custom interpolation/timing | OpenROAD/OpenSTA objects and APIs |
+
+Disabled random kicks, nominal multi-start scheduling, unused exponential
+path enumeration and technology-specific LUT patches were not carried over.
+VG, Path and GOBI retain their independent algorithms; the obsolete `sizing`
+entry is removed rather than maintained as a compatibility alias.
 
 OpenDB remains the authoritative topology/placement store, and OpenSTA owns
 constraints/timing. Algorithm graphs and caches are temporary views. Plans
 must be rebuilt after intervening topology changes or rollback.
 
 Input and output now use the same entry for all retained stages, including
-sizing, preplace, hold and postroute. Old env/cmd experiment launchers and
+native, power, preplace, hold and postroute. Old env/cmd experiment launchers and
 submission templates have been deleted. Existing result checkers and OpenROAD
 Tcl evaluators remain useful for stored data; historical experiment formats
 are not a compatibility contract.

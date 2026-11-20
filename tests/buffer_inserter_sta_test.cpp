@@ -38,8 +38,6 @@
 #include "sta/VerilogReader.hh"
 #include "sta/VerilogWriter.hh"
 #include "tst/IntegratedFixture.h"
-#include "analyze_timing.h"
-#include "cell_sizing.h"
 
 namespace {
 
@@ -85,12 +83,12 @@ class BufferInserterStaTest : public tst::IntegratedFixture
     ASSERT_TRUE(sta_->search()->arrivalsValid());
   }
 
-  void readVtDesign()
+  void readVtDesign(const char* design = "repair_vt.v")
   {
     for (const auto* suffix : {"H", "L", "B", "X"})
       readLiberty(std::string(ECC_SIZER_TEST_DATA_DIR) + "/repair_vt_" + suffix + ".lib");
     ASSERT_TRUE(updateLib(lib_, std::string(ECC_SIZER_TEST_DATA_DIR) + "/repair_vt.lef"));
-    readTestDesign("repair_vt.v");
+    readTestDesign(design);
     addLegalRows();
     int y = 1000;
     for (auto* term : block_->getBTerms()) {
@@ -99,6 +97,26 @@ class BufferInserterStaTest : public tst::IntegratedFixture
       pin->setPlacementStatus(odb::dbPlacementStatus::PLACED);
       y += 1000;
     }
+    refreshRepairTiming();
+  }
+
+  void makePowerRecoveryDesign()
+  {
+    readVtDesign("repair_power.v");
+    auto* sdc = sta_->cmdMode()->sdc();
+    for (const auto* name : {"out1", "out2"})
+      sta_->setOutputDelay(db_network_->dbToSta(block_->findBTerm(name)),
+                           sta::RiseFallBoth::riseFall(),
+                           sdc->findClock("clk"),
+                           sta::RiseFall::rise(),
+                           nullptr,
+                           false,
+                           false,
+                           sta::MinMaxAll::max(),
+                           false,
+                           0.38e-9f,
+                           sdc);
+    ecc::legalizeRepairPlacement(block_, &dp_);
     refreshRepairTiming();
   }
 
@@ -2890,15 +2908,15 @@ TEST_F(BufferInserterStaTest, PowerRecoveryHonorsBudgetSlackAndTotalObjective)
   options.common.vt_suffixes = {"_H", "_L"};
   const auto run = [&]() { return ecc::OpenDbPowerRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options); };
   options.max_trials = 0;
-  EXPECT_EQ(run().attempted_batches, 0);
+  EXPECT_EQ(run().attempted_trials, 0);
   options.max_trials = 1;
   options.slack_margin = 1;
-  EXPECT_EQ(run().attempted_batches, 0);
+  EXPECT_EQ(run().attempted_trials, 0);
   options.slack_margin = 0;
   options.objective = ecc::PowerObjective::Total;
   const auto result = run();
   ASSERT_TRUE(result.ok) << result.message;
-  EXPECT_EQ(result.attempted_batches, 1);
+  EXPECT_EQ(result.attempted_trials, 1);
   EXPECT_EQ(result.vt_swaps, 1);
   EXPECT_LT(result.after.total, result.before.total);
 }
@@ -2933,6 +2951,92 @@ TEST_F(BufferInserterStaTest, PowerRecoveryRollsBackBadTimingAndPrepareException
   EXPECT_EQ(side->getMaster(), original);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   db_network_->checkAxioms();
+}
+
+// Two L -> H moves save 18 nW but violate both output constraints. Changing
+// their shared driver H -> L repairs both paths for 9 nW: a useful joint move
+// which neither the former slack-only power stage nor setup alone can make.
+TEST_F(BufferInserterStaTest,
+       CompoundPowerRecoveryUsesNativeSetupAndSharedBudget)
+{
+  makePowerRecoveryDesign();
+  ecc::PowerRepairOptions options;
+  options.common.vt_suffixes = {"_H", "_L"};
+  options.max_passes = 1;
+  options.max_trials = 1;
+  const auto run = [&]() {
+    return ecc::OpenDbPowerRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  };
+  auto result = run();
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_EQ(result.accepted_batches, 0u);
+  EXPECT_EQ(result.attempted_trials, 1u);
+  EXPECT_EQ(result.recovery_attempts, 0u);
+  EXPECT_EQ(block_->findInst("driver")->getMaster()->getName(), "VTBUF_H");
+  EXPECT_EQ(block_->findInst("side")->getMaster()->getName(), "VTBUF_L");
+  options.max_trials = 8;
+  result = run();
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_EQ(result.accepted_batches, 1u);
+  EXPECT_EQ(result.attempted_trials, 2u);
+  EXPECT_GT(result.recovery_attempts, 0u);
+  EXPECT_LE(result.attempted_trials, options.max_trials);
+  EXPECT_NEAR(result.before.leakage - result.after.leakage, 9e-9, 1e-12);
+  EXPECT_GE(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_GE(result.after.design.hold_wns, result.before.design.hold_wns);
+  EXPECT_LE(result.after.design.area, result.before.design.area);
+  EXPECT_EQ(block_->findInst("driver")->getMaster()->getName(), "VTBUF_L");
+  EXPECT_EQ(block_->findInst("side")->getMaster()->getName(), "VTBUF_H");
+  EXPECT_EQ(block_->findInst("side2")->getMaster()->getName(), "VTBUF_H");
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  db_network_->checkAxioms();
+}
+
+TEST_F(BufferInserterStaTest,
+       CompoundPowerRecoveryRollsBackChildCommitsAndErrors)
+{
+  makePowerRecoveryDesign();
+  ecc::PowerRepairOptions options;
+  options.common.vt_suffixes = {"_H", "_L"};
+  options.max_passes = 1;
+  options.max_trials = 8;
+  // The initial 18 nW saving passes ranking, but the final 9 nW does not.
+  options.min_absolute_improvement = 12e-9;
+  const auto run = [&]() {
+    return ecc::OpenDbPowerRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  };
+  const auto restored = [&]() {
+    EXPECT_EQ(block_->findInst("driver")->getMaster()->getName(), "VTBUF_H");
+    EXPECT_EQ(block_->findInst("side")->getMaster()->getName(), "VTBUF_L");
+    EXPECT_EQ(block_->findInst("side2")->getMaster()->getName(), "VTBUF_L");
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+    db_network_->checkAxioms();
+  };
+  auto result = run();
+  ASSERT_TRUE(result.ok) << result.message;
+  EXPECT_GT(result.recovery_attempts, 0u);
+  EXPECT_EQ(result.accepted_batches, 0u);
+  EXPECT_EQ(result.before.leakage, result.after.leakage);
+  EXPECT_EQ(result.before.design.setup_wns, result.after.design.setup_wns);
+  restored();
+  options.min_absolute_improvement = 0;
+  options.common.prepare = [&]() {
+    if (block_->findInst("driver")->getMaster()->getName() == "VTBUF_L")
+      throw std::runtime_error("recovery preparation failed");
+  };
+  result = run();
+  EXPECT_FALSE(result.ok);
+  EXPECT_NE(result.message.find("recovery preparation failed"),
+            std::string::npos);
+  restored();
+  options.common.prepare = {};
+  block_->findInst("driver")->setDoNotTouch(true);
+  result = run();
+  EXPECT_TRUE(result.ok) << result.message;
+  EXPECT_EQ(result.accepted_batches, 0u);
+  restored();
 }
 
 TEST_F(BufferInserterStaTest, PowerRecoveryDownsizesSlackRichCells)
@@ -2999,144 +3103,6 @@ TEST_F(BufferInserterStaTest, IncrementalPlacementRetainsLegalProtectedCells)
   odb::dbInst::destroy(added);
 }
 
-TEST_F(BufferInserterStaTest, SizingTimingQueriesUseStaObjects)
-{
-  readTestDesign();
-  constrainSetup();
-  auto* sdc = sta_->cmdMode()->sdc();
-  auto* input = db_network_->dbToSta(block_->findBTerm("in"));
-  sta_->setInputDelay(input, sta::RiseFallBoth::riseFall(), sdc->findClock("clk"),
-                     sta::RiseFall::rise(), nullptr, false, false,
-                     sta::MinMaxAll::all(), false, 0.02e-9f, sdc);
-  sta_->updateTiming(true);
-  for(const auto* name : {"in", "driver/A", "driver/Z", "load1/A", "out1"}) {
-    auto* pin = ecc::findTimingPin(sta_.get(), name);
-    ASSERT_NE(pin, nullptr);
-    for(auto* mm : {sta::MinMax::min(), sta::MinMax::max()}) {
-      const auto slack = ecc::pinTiming(sta_.get(), pin, ecc::PinTimingMetric::Slack, mm);
-      const auto arrival = ecc::pinTiming(sta_.get(), pin, ecc::PinTimingMetric::Arrival, mm);
-      const auto slew = ecc::pinTiming(sta_.get(), pin, ecc::PinTimingMetric::Slew, mm);
-      for(auto* rf : sta::RiseFall::range()) {
-        auto normalize = [](double value) {
-          return std::abs(value) >= sta::INF
-                     ? std::copysign(std::numeric_limits<double>::infinity(), value) : value;
-        };
-        EXPECT_DOUBLE_EQ(slack[rf->index()], normalize(sta_->slack(pin, rf->asRiseFallBoth(), sta_->scenes(), mm)));
-        EXPECT_DOUBLE_EQ(arrival[rf->index()], normalize(sta_->arrival(pin, rf->asRiseFallBoth(), mm)));
-        EXPECT_GE(slew[rf->index()], 0.0);
-        EXPECT_TRUE(std::isfinite(slew[rf->index()]));
-      }
-    }
-  }
-  EXPECT_THROW(ecc::findTimingPin(sta_.get(), "missing/pin"), std::invalid_argument);
-  auto* inst = block_->findInst("load1");
-  ASSERT_TRUE(inst->rename("scope:part/load[1]"));
-  EXPECT_EQ(ecc::findTimingPin(sta_.get(), "scope:part/load[1]/A"),
-            db_network_->dbToSta(inst->findITerm("A")));
-}
-
-TEST_F(BufferInserterStaTest, SizingArcQueriesPreserveRiseFallAndWireDelay)
-{
-  readTestDesign();
-  sta_->findDelays();
-  auto* graph = sta_->graph();
-  for(bool wire : {false, true}) {
-    auto* from = ecc::findTimingPin(sta_.get(), wire ? "driver/Z" : "driver/A");
-    auto* to = ecc::findTimingPin(sta_.get(), wire ? "load1/A" : "driver/Z");
-    auto* source = wire ? graph->pinDrvrVertex(from) : graph->pinLoadVertex(from);
-    auto* target = wire ? graph->pinLoadVertex(to) : graph->pinDrvrVertex(to);
-    sta::VertexOutEdgeIterator edges(source, graph);
-    unsigned annotated = 0;
-    while(edges.hasNext()) {
-      auto* edge = edges.next();
-      if(edge->to(graph) != target || edge->isWire() != wire) continue;
-      for(auto* arc : edge->timingArcSet()->arcs()) {
-        const float value = arc->toEdge()->asRiseFall() == sta::RiseFall::rise() ? 31e-12f : 57e-12f;
-        sta_->setArcDelay(edge, arc, sta_->scenes().front(), sta::MinMaxAll::max(), value);
-        ++annotated;
-      }
-    }
-    ASSERT_GE(annotated, 2u);
-    const auto delay = ecc::timingArcDelays(sta_.get(), from, to, wire);
-    EXPECT_DOUBLE_EQ(delay[0], double(31e-12f));
-    EXPECT_DOUBLE_EQ(delay[1], double(57e-12f));
-  }
-}
-
-TEST_F(BufferInserterStaTest, SizingImportsLoadedParasiticsWithoutParsingNames)
-{
-  readTestDesign();
-  ASSERT_TRUE(block_->findInst("load1")->rename("scope:part/load[1]"));
-  class ImportedCircuit : public Circuit {
-   public:
-    using Circuit::Circuit;
-    using Circuit::importParasitics;
-  };
-  Sizer sizer;
-  sizer.cap_unit = 1e-15;
-  sizer.res_unit = 1e3;
-  ImportedCircuit model(&sizer);
-  model.g_cells.resize(3);
-  model.g_cells[0].name = "driver";
-  model.g_cells[1].name = "scope:part/load[1]";
-  model.g_cells[2].name = "load2";
-  model.g_pins.resize(5);
-  for(unsigned i = 0; i < 3; ++i) {
-    model.g_pins[i].owner = i;
-    model.g_pins[i].name = i == 0 ? "Z" : "A";
-  }
-  model.g_pins[3].name = "in";
-  model.g_pins[3].owner = UINT_MAX;
-  model.g_pins[4].name = "A";
-  model.g_pins[4].owner = 0;
-  model.g_nets.resize(1);
-  auto& nets = model.g_nets.front();
-  nets.resize(2);
-  nets[0].name = "n1";
-  nets[0].inpin = 0;
-  nets[0].outpins = {1, 2};
-  nets[1].name = "in";
-  nets[1].inpin = 3;
-  nets[1].outpins = {4};
-  auto* parasitics = sta_->scenes().front()->parasitics(sta::MinMax::max());
-  for(auto& net : nets) {
-    auto* sta_net = db_network_->dbToSta(block_->findNet(net.name.c_str()));
-    auto* rc = parasitics->makeParasiticNetwork(sta_net, false);
-    auto* internal = parasitics->ensureParasiticNode(rc, sta_net, 42, db_network_);
-    parasitics->incrCap(internal, 7e-15f);
-    auto add_pin = [&](unsigned id, float resistance, float cap) {
-      auto* pin = ecc::findTimingPin(sta_.get(), model.getFullPinName(model.g_pins[id]));
-      auto* node = parasitics->ensureParasiticNode(rc, pin, db_network_);
-      parasitics->incrCap(node, cap);
-      parasitics->makeResistor(rc, id, resistance, node, internal);
-    };
-    add_pin(net.inpin, 100.0f, 2e-15f);
-    for(auto id : net.outpins) add_pin(id, 200.0f, 3e-15f);
-  }
-  for(int pass = 0; pass < 2; ++pass) {
-    model.importParasitics(sta_.get());
-    for(const auto& net : nets) {
-      const auto& nodes = net.subNodeVec;
-      ASSERT_EQ(nodes.size(), net.outpins.size() + 2);
-      EXPECT_EQ(nodes.front().pinId, net.inpin);
-      EXPECT_EQ(model.g_pins[net.inpin].spef_pin, 0u);
-      EXPECT_NEAR(nodes.front().cap, 2.0, 1e-6);
-      ASSERT_EQ(nodes.front().adj.size(), 1u);
-      const auto internal = nodes.front().adj.front();
-      EXPECT_NEAR(nodes[internal].cap, 7.0, 1e-6);
-      EXPECT_NEAR(nodes.front().res.front(), 0.1, 1e-6);
-      EXPECT_EQ(nodes[internal].adj.size(), net.outpins.size() + 1);
-      for(auto id : net.outpins) {
-        const auto& sink = nodes.at(model.g_pins[id].spef_pin);
-        EXPECT_TRUE(sink.isSink);
-        EXPECT_EQ(sink.pinId, id);
-        EXPECT_NEAR(sink.cap, 3.0, 1e-6);
-        EXPECT_NEAR(sink.res.front(), 0.2, 1e-6);
-      }
-    }
-  }
-}
-
 TEST_F(BufferInserterStaTest, CellReplacementChecksProtectionAndCompatibility)
 {
   readTestDesign();
@@ -3160,4 +3126,35 @@ TEST_F(BufferInserterStaTest, CellReplacementChecksProtectionAndCompatibility)
     EXPECT_EQ(inst->getMaster(), larger);
   }
   EXPECT_EQ(inst->getMaster(), original);
+}
+
+TEST_F(BufferInserterStaTest,
+       AbacusLegalizationPreservesProtectedCellsAndEcoUndo)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  auto* fixed = block_->findInst("load0");
+  auto* moved = block_->findInst("load1");
+  fixed->setDoNotTouch(true);
+  int fx, fy, mx, my;
+  fixed->getLocation(fx, fy);
+  moved->getLocation(mx, my);
+  const auto status = fixed->getPlacementStatus();
+  {
+    ecc::EcoTransaction trial(block_);
+    moved->setLocation(fx, fy);
+    ecc::legalizeRepairPlacement(
+        block_, &dp_, {}, false, ecc::PlacementLegalizer::Abacus);
+    EXPECT_NO_THROW(dp_.checkPlacement(false));
+    int x, y;
+    fixed->getLocation(x, y);
+    EXPECT_EQ(x, fx);
+    EXPECT_EQ(y, fy);
+    EXPECT_EQ(fixed->getPlacementStatus(), status);
+  }
+  int x, y;
+  moved->getLocation(x, y);
+  EXPECT_EQ(x, mx);
+  EXPECT_EQ(y, my);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
 }

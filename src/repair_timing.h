@@ -7,12 +7,7 @@
 #include "repair_vg.h"
 #include "repair_gobi.h"
 
-namespace ord {
-class Design;
-}
-
 namespace ecc {
-enum class ParasiticsMode;
 struct SetupRepairMetrics {
     DesignRepairMetrics design;
     float setup_tns = 0;
@@ -56,8 +51,4 @@ class OpenDbSetupRepairer {
                                     const std::function< void() >& refresh,
                                     const SetupRepairOptions& options = {});
 };
-// Existing cell-sizing search on the caller's loaded OpenROAD design.
-void runCellSizing(ord::Design& design,
-                   const std::function< void() >& refresh,
-                   ParasiticsMode parasitics_mode);
 }  // namespace ecc

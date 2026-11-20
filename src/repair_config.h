@@ -47,6 +47,9 @@ struct RepairCommonOptions {
     std::function< void() > prepare;
     std::vector< odb::dbMaster* > excluded_masters;
     std::vector< odb::dbInst* > excluded_instances;
+    // Preserve selected cell masters during compound ECO recovery, while
+    // retaining their nets and timing cones in analysis. Not a CLI setting.
+    std::vector< odb::dbInst* > excluded_resize_instances;
     void validate() const;
 };
 struct DesignRepairOptions : RepairCommonOptions {

@@ -9,6 +9,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
+#include "spdlog/spdlog.h"
 
 DREAMPLACE_BEGIN_NAMESPACE
 
@@ -33,15 +35,28 @@ int dreamplacePrintStream(MessageType m, FILE* stream, const char* format,
 
 int dreamplaceVPrintStream(MessageType m, FILE* stream, const char* format,
                            va_list args) {
-  // print prefix
-  char prefix[16];
-  dreamplaceSPrintPrefix(m, prefix);
-  fprintf(stream, "%s", prefix);
-
-  // print message
-  int ret = vfprintf(stream, format, args);
-
-  return ret;
+  // Keep the vendored printf interface, but route console diagnostics through
+  // the application's logger so level/file controls also cover legalization.
+  if (stream != stdout && stream != stderr)
+    return vfprintf(stream, format, args);
+  const auto level = m == kERROR || m == kASSERT ? spdlog::level::err
+                     : m == kWARN                ? spdlog::level::warn
+                                                 : spdlog::level::debug;
+  if (!spdlog::should_log(level))
+    return 0;
+  va_list copy;
+  va_copy(copy, args);
+  const int size = vsnprintf(nullptr, 0, format, copy);
+  va_end(copy);
+  if (size < 0)
+    return size;
+  std::vector<char> text(static_cast<size_t>(size) + 1);
+  vsnprintf(text.data(), text.size(), format, args);
+  size_t length = static_cast<size_t>(size);
+  while (length && (text[length - 1] == '\n' || text[length - 1] == '\r'))
+    --length;
+  spdlog::log(level, "Abacus: {}", std::string_view(text.data(), length));
+  return size;
 }
 
 int dreamplaceSPrint(MessageType m, char* buf, const char* format, ...) {
@@ -93,7 +108,7 @@ void dreamplacePrintAssertMsg(const char* expr, const char* fileName,
   char buf[1024];
   va_list args;
   va_start(args, format);
-  vsprintf(buf, format, args);
+  vsnprintf(buf, sizeof(buf), format, args);
   va_end(args);
 
   // print message

@@ -403,8 +403,10 @@ std::vector< const Buffer* > Repair::resizeCandidates(const NetState& state,
     auto* driver = state.driver->getInst();
     auto* original = network_->libertyCell(driver);
     if(!original || driver->isFixed() || driver->isDoNotTouch() ||
-       excluded_.count(driver) || state.fanout_ratio > 1 ||
-       (vt_only && protectedInputs(driver)) ||
+       excluded_.count(driver) ||
+       std::ranges::find(opts_.excluded_resize_instances, driver) !=
+           opts_.excluded_resize_instances.end() ||
+       state.fanout_ratio > 1 || (vt_only && protectedInputs(driver)) ||
        (!original->isBuffer() && !opts_.allow_gate_resize))
         return result;
     auto [it, fresh] = resize_candidates_.try_emplace(original);

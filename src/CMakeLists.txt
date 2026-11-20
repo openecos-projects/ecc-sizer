@@ -7,29 +7,10 @@ set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -DNDEBUG")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS} -O3")
 
 set(OPENROAD_HOME ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/OpenROAD/src/)
-set(OPENROAD_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/OpenROAD/include/)
-set(OPENSTA_HOME ${OPENROAD_HOME}/sta)
-set(OPENSTA_HDEAR_HOME "${OPENSTA_HOME}/include/")
-set(OPENSTA_para_HDEAR_HOME "${OPENSTA_HOME}/parasitics/")
-set(OPENDB_HDEAR_HOME "${OPENROAD_HOME}/odb/include/")
-set(OPENDP_HDEAR_HOME "${OPENROAD_HOME}/dpl/include/")
-set(FASTROUTE_HDEAR_HOME "${OPENROAD_HOME}/grt/include/")
-
-list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
-
-set(dbSTA_HDEAR_HOME "${OPENROAD_HOME}/dbSta/include/")
-include_directories(${OPENSTA_HDEAR_HOME}
-                    ${dbSTA_HDEAR_HOME}
-                    ${OPENSTA_HDEAR_HOME}/sta
-                    ${OPENSTA_para_HDEAR_HOME}
-                    ${TCL_INCLUDE_PATH}
-                    ${OPENSTA_HOME}
-                    ${OPENDB_HDEAR_HOME}
-                    ${OPENDP_HDEAR_HOME}
-                    ${FASTROUTE_HDEAR_HOME}
-                    ${OPENROAD_HOME}/rsz/src
-                    )
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize)
+# These two private headers implement STA power and OpenROAD buffer trees.
+# All public include paths come from OpenROAD's transitive targets.
+include_directories(${OPENROAD_HOME}/sta ${OPENROAD_HOME}/sta/include/sta
+                    ${OPENROAD_HOME}/rsz/src)
 
 # Repair algorithms depend on OpenDB/STA and edit primitives, not cell sizing.
 set(SOURCES
@@ -38,13 +19,14 @@ set(SOURCES
     repair_path.cpp repair_vg.cpp repair_vg_cuda.cpp
     repair_gobi.cpp repair_gobi_cuda.cpp)
 
-set(SIZING_SOURCES
-    analyze_timing.cpp calc.cpp sizing_model.cpp fixdrv.cpp graphop.cpp legalize_core.cpp
-    liberty_import.cpp cell_sizing.cpp test.cpp timer.cpp timing_propagating.cpp utils.cpp
+add_library(sizer_placement STATIC legalize_core.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/greedy_legalize_cpu.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/legalize_bin_cpu.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/merge_bin_cpu.cpp
     ../thirdparty/dreamplace-legalize/utility/src/msg.cpp)
+target_link_libraries(sizer_placement PUBLIC spdlog::spdlog)
+target_include_directories(sizer_placement PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize)
 
 if(ENABLE_VG_CUDA OR ENABLE_GOBI_CUDA)
     include(CheckLanguage)
@@ -71,11 +53,9 @@ else()
 endif()
 
 add_library(sizer_algorithms STATIC ${SOURCES})
-add_library(sizer_search STATIC ${SIZING_SOURCES})
 add_executable(Sizer application.cpp design_io.cpp)
-target_link_libraries(sizer_algorithms PUBLIC openroad)
-target_link_libraries(sizer_search PUBLIC sizer_algorithms)
-target_link_libraries(Sizer sizer_search)
+target_link_libraries(sizer_algorithms PUBLIC openroad sizer_placement)
+target_link_libraries(Sizer sizer_algorithms)
 # GUI objects refer back to OpenROAD's Tcl entry symbols. Retain those symbols
 # without invoking the standalone entry (which would create a second session).
 set_property(TARGET Sizer PROPERTY LINK_LIBRARY_OVERRIDE "WHOLE_ARCHIVE,openroad")
@@ -181,7 +161,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${OPENROAD_HOME}/utl/include
     )
-    target_link_libraries(ecc_sizer_buffer_inserter_test openroad)
+    target_link_libraries(ecc_sizer_buffer_inserter_test openroad sizer_placement)
     add_test(NAME ecc_sizer_buffer_inserter
              COMMAND ecc_sizer_buffer_inserter_test)
 
@@ -224,7 +204,7 @@ if(BUILD_TESTING)
         GTest::gtest
         GTest::gtest_main
         tst
-        sizer_search
+        openroad sizer_placement
     )
     set_property(TARGET ecc_sizer_buffer_inserter_sta_test PROPERTY
                  LINK_LIBRARY_OVERRIDE "WHOLE_ARCHIVE,openroad")
@@ -256,16 +236,11 @@ if(BUILD_TESTING)
 
     add_executable(ecc_sizer_legalize_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/legalize_test.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/legalize_core.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/greedy_legalize_cpu.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/legalize_bin_cpu.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/greedy_legalize/src/merge_bin_cpu.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize/utility/src/msg.cpp
     )
     target_include_directories(ecc_sizer_legalize_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/dreamplace-legalize
     )
-    target_link_libraries(ecc_sizer_legalize_test PRIVATE spdlog::spdlog)
+    target_link_libraries(ecc_sizer_legalize_test PRIVATE sizer_placement)
     add_test(NAME ecc_sizer_legalize COMMAND ecc_sizer_legalize_test)
 endif()

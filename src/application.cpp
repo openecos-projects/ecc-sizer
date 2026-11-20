@@ -15,6 +15,7 @@
 #include "db_sta/dbSta.hh"
 #include "odb/db.h"
 #include "ord/Design.h"
+#include "est/EstimateParasitics.h"
 #include "repair_config.h"
 #include "repair_drv.h"
 #include "repair_gobi.h"
@@ -46,8 +47,7 @@ enum class Stage {
     Legalize,
     Hold,
     Preplace,
-    PreplaceGain,
-    Sizing
+    PreplaceGain
 };
 struct StageName {
     std::string_view name;
@@ -65,11 +65,11 @@ constexpr StageName stage_names[] = {{"native", Stage::Native},
                                      {"legalize", Stage::Legalize},
                                      {"hold", Stage::Hold},
                                      {"preplace", Stage::Preplace},
-                                     {"preplace-gain", Stage::PreplaceGain},
-                                     {"sizing", Stage::Sizing}};
+                                     {"preplace-gain", Stage::PreplaceGain}};
 
 struct Options {
     DesignInputs inputs;
+    PlacementLegalizer legalizer = PlacementLegalizer::OpenDP;
     RepairConfig repair;
     std::vector< Stage > stages{Stage::Native};
     std::string output;
@@ -86,7 +86,7 @@ constexpr auto help = R"(Usage:
 The default flow is native (electrical repair followed by setup repair).
 --flow accepts comma-separated stages, e.g. vg,native,path,power.
 Stages: native, design, setup, path, vg, gobi, ord, power, fanout, legalize,
-        hold, preplace, preplace-gain, sizing.
+        hold, preplace, preplace-gain.
 Inputs are loaded once; every stage sees the preceding committed design.
 
 Options:
@@ -94,6 +94,7 @@ Options:
   --lib FILE          Repeat for Liberty libraries
   --sdc FILE          Constraints (required for direct DEF/ODB input)
   --rc FILE           Optional OpenROAD RC Tcl; otherwise derive RC from LEF
+  --legalizer NAME    opendp (default) or abacus, with OpenDP fallback
   --spef FILE         Use extracted parasitics (postroute)
   --global-routing    Estimate RC from global routing instead of placement
   --output PREFIX     Write PREFIX.def/.v/.odb (default: <design>.sized)
@@ -106,7 +107,7 @@ Options:
 
 Input Tcl uses standard OpenROAD read_* commands; paths are relative to the
 working directory. Tcl may also specify dont_use/dont_touch and wire RC.
-Native/VG/Path/GOBI use placement RC and one STA scene. GOBI requires CUDA.
+VG/Path/GOBI use placement RC. All repair uses one STA scene. GOBI requires CUDA.
 OpenROAD diagnostics retain their own controls.
 )";
 
@@ -159,6 +160,15 @@ static Options parseOptions(int argc, char** argv) {
             result.inputs.spef = value();
         else if(arg == "--global-routing")
             result.inputs.global_routing = true;
+        else if(arg == "--legalizer") {
+            const auto name = value();
+            if(name == "opendp")
+                result.legalizer = PlacementLegalizer::OpenDP;
+            else if(name == "abacus")
+                result.legalizer = PlacementLegalizer::Abacus;
+            else
+                throw std::invalid_argument("unknown legalizer: " + name);
+        }
         else if(arg == "--flow")
             result.stages = parseStages(value());
         else if(arg == "--output")
@@ -260,16 +270,14 @@ static void run(Options& options) {
     sta->setThreadCount(static_cast< int >(options.repair.sta_threads));
     const bool placement_only = std::any_of(
         options.stages.begin(), options.stages.end(), [](Stage stage) {
-            return stage == Stage::Native || stage == Stage::Design ||
-                   stage == Stage::Setup || stage == Stage::Path ||
-                   stage == Stage::Vg || stage == Stage::Gobi ||
-                   stage == Stage::Ord;
+            return stage == Stage::Path || stage == Stage::Vg ||
+                   stage == Stage::Gobi;
         });
     if(placement_only &&
        (!options.inputs.spef.empty() || options.inputs.global_routing ||
         session.hasExtractedParasitics()))
         throw std::invalid_argument(
-            "Native/ORD/VG/GOBI/Path require placement RC; use sizing or hold "
+            "VG/GOBI/Path require placement RC; use native, power or hold "
             "for postroute/global-routing repair");
     auto common = options.repair.design;
     for(auto* inst : block->getInsts())
@@ -277,7 +285,8 @@ static void run(Options& options) {
             common.excluded_instances.push_back(inst);
     common.prepare = [&]() {
         legalizeRepairPlacement(block, session.design().getOpendp(),
-                                common.excluded_instances);
+                                common.excluded_instances, false,
+                                options.legalizer);
     };
     auto* top = sta->network()->cell(sta->network()->topInstance());
     float limit = 0;
@@ -309,6 +318,13 @@ static void run(Options& options) {
         throw std::invalid_argument(
             "preplace uses zero wire RC, without SPEF or global routing");
     }
+
+    // Keep OpenROAD callbacks active across edits AND ECO undo. SPEF nets
+    // retain extracted RC; changed topology is re-estimated by OpenROAD.
+    std::unique_ptr< est::IncrementalParasiticsGuard > extracted_updates;
+    if(session.hasExtractedParasitics())
+        extracted_updates = std::make_unique< est::IncrementalParasiticsGuard >(
+            session.design().getResizer()->getEstimateParasitics());
 
     for(const auto stage : options.stages) {
         const auto begin = std::chrono::steady_clock::now();
@@ -435,14 +451,6 @@ static void run(Options& options) {
                              result.inserted_buffers.size());
                 break;
             }
-            case Stage::Sizing:
-                runCellSizing(session.design(), refresh,
-                              session.parasiticsMode());
-                if(session.hasExtractedParasitics())
-                    refresh();
-                else
-                    placeAndRefresh();
-                break;
             case Stage::Hold:
                 // Preserve the repair -> legalize -> refresh -> repair
                 // sequence.
