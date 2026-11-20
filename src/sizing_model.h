@@ -77,9 +77,7 @@
 
 // Parasitic refresh is supplied by the application session.
 #define NUM_VTS 3
-#define NUM_SIZES 10
 
-#define DBL_MAX 1.7976931348623158e+308 /* max value */
 
 // Swig uses C linkage for init functions.
 extern "C" {
@@ -91,8 +89,6 @@ namespace sta {
 extern const char* tcl_inits[];
 
 }
-
-void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]);
 
 // typedef unsigned cell_vtypes;
 using namespace std;
@@ -123,112 +119,31 @@ struct CellSol {
 
 struct SUB_NODE {
     string pin_name;
-    unsigned id;      // id of the sub-node
-    bool isSink : 1;  // if the sub-node is sink (i.e., an outpin)
-    bool visited : 1;
-    bool is_branch : 1;
-    double cap;  // Capacitance (wire + input cap.) of the node
-    int pinId;
-    double totres;               // Total resistance of this node + upstream
-    vector< unsigned > adj;      // Adjacencent nodes
-    unsigned fanin;              // the fanin node
-    vector< unsigned > fanouts;  // fanout nodes
-    vector< double > res;        // Resistance from this node to adjacent nodes
-    double delay;                // RC delay at this node
-    double m1;                   // Elmore delay moment 1 (== Elmore delay)
-    double m2;                   // Elmore delay moment 2
-
-    SUB_NODE()
-        : id(0),
-          pinId(-1),
-          isSink(false),
-          visited(false),
-          is_branch(true),
-          cap(0),
-          totres(0),
-          fanin(0),
-          delay(0),
-          m1(0),
-          m2(0) {
-    }
-
-    SUB_NODE(const SUB_NODE& orig)
-        : id(orig.id),
-          pinId(orig.pinId),
-          isSink(orig.isSink),
-          visited(orig.visited),
-          is_branch(orig.is_branch),
-          cap(orig.cap),
-          totres(orig.totres),
-          pin_name(orig.pin_name),
-          adj(orig.adj),
-          fanin(orig.fanin),
-          fanouts(orig.fanouts),
-          res(orig.res),
-          delay(orig.delay),
-          m1(orig.m1),
-          m2(orig.m2) {
-    }
-
-    const SUB_NODE& operator=(const SUB_NODE& assign) {
-        id = assign.id;
-        pinId = assign.pinId;
-        isSink = assign.isSink;
-        visited = assign.visited;
-        is_branch = assign.is_branch;
-        cap = assign.cap;
-        totres = assign.totres;
-        adj = assign.adj;
-        fanin = assign.fanin;
-        fanouts = assign.fanouts;
-        pin_name = assign.pin_name;
-        res = assign.res;
-        delay = assign.delay;
-        m1 = assign.m1;
-        m2 = assign.m2;
-        return *this;
-    }
+    unsigned id = 0;
+    bool isSink : 1 = false;
+    bool visited : 1 = false;
+    bool is_branch : 1 = true;
+    double cap = 0;  // Wire capacitance; the timer adds input capacitance.
+    int pinId = -1;
+    double totres = 0;
+    vector< unsigned > adj;
+    unsigned fanin = 0;
+    vector< unsigned > fanouts;
+    vector< double > res;  // Resistance to each adjacent node.
+    double delay = 0;
+    double m1 = 0;  // Elmore delay moment.
+    double m2 = 0;
 };
 
 struct NET {
     string name;
-    unsigned inpin;
+    unsigned inpin = UINT_MAX;
     vector< unsigned > outpins;
-    double cap;
-    double is_clock = false;
-    vector< SUB_NODE > subNodeVec;  // subNodeVec[0] is the inpin,
-                                    // subNodeVec[1...n] are the n sub-nodes,
-                                    // and subNodeVec[n+1...] are the outpins
+    double cap = 0;
+    bool is_clock = false;
+    // Driver at index zero, then sinks and internal parasitic nodes.
+    vector< SUB_NODE > subNodeVec;
     vector< vector< double > > subNodeResVec;
-    NET()
-        : name(""),
-          inpin(UINT_MAX),
-          outpins(vector< unsigned >()),
-          cap(0.0),
-          subNodeVec(vector< SUB_NODE >()),
-          subNodeResVec(vector< vector< double > >()) {
-    }
-
-    NET(const NET& orig)
-        : name(orig.name),
-          inpin(orig.inpin),
-          outpins(orig.outpins),
-          cap(orig.cap),
-          subNodeVec(orig.subNodeVec),
-          is_clock(orig.is_clock),
-          subNodeResVec(orig.subNodeResVec) {
-    }
-
-    const NET& operator=(const NET& assign) {
-        name = assign.name;
-        inpin = assign.inpin;
-        outpins = assign.outpins;
-        cap = assign.cap;
-        is_clock = assign.is_clock;
-        subNodeVec = assign.subNodeVec;
-        subNodeResVec = assign.subNodeResVec;
-        return *this;
-    }
 };
 
 struct PIN {
@@ -734,68 +649,6 @@ struct LibInfo {
     double volt;
 };
 
-/////////////////////////////////////////////////////////////////////
-//
-// The following classes can be used to parse the specific spef
-// format as defined in the ISPD-13 contest benchmarks. It is not
-// intended to be used as a generic spef parser.
-//
-// See test_spef_parser () function in parser_helper.cpp for an
-// example of how to use this class.
-//
-/////////////////////////////////////////////////////////////////////
-struct SpefNodeName {
-    string n1;
-    string n2;
-    string getFullName() {
-        return n1 + ":" + n2;
-    }
-
-    // A node in the spef file can be defined in 3 different ways:
-    // 1. For the node corresponding to the connection to a port:
-    //       nodeName = "portName", i.e. n1 = "portName", n2 = ""
-    //
-    // 2. For the node corresponding to the connection to a cell pin:
-    //       nodeName = "cellName":"pinName", i.e. n1 = "cellName", n2 =
-    //       "pinName"
-    //
-    // 3. For an internal node of an RC tree:
-    //       nodeName = "netName":"index", i.e. n1 = "netName", n2 = "index"
-};
-
-struct SpefConnection {
-    char nodeType;  // either 'P' (port) or 'I' (internal)
-    SpefNodeName nodeName;
-    char direction;  // either 'I' (receiver pin) or 'O' (driver pin)
-};
-
-struct SpefCapacitance {
-    SpefNodeName nodeName;
-    double capacitance;
-};
-
-struct SpefResistance {
-    SpefNodeName fromNodeName;
-    SpefNodeName toNodeName;
-    double resistance;
-};
-
-struct SpefNet {
-    string netName;
-    double netLumpedCap;
-    vector< SpefConnection > connections;
-    vector< SpefCapacitance > capacitances;
-    vector< SpefResistance > resistances;
-
-    void clear() {
-        netName = "";
-        netLumpedCap = 0.0;
-        connections.clear();
-        capacitances.clear();
-        resistances.clear();
-    }
-};
-
 struct SOL {
     string cell_name;
     string inst_name;
@@ -853,7 +706,6 @@ ostream& operator<<(ostream& os, SOL& sol);
 
 class Sizer;
 class Sta;
-class ConcreteParasiticNetwork;
 
 class Circuit {
    public:
@@ -867,11 +719,10 @@ class Circuit {
     friend class Sizer;
     map< string, unsigned > check_map;
     string getFullPinName(PIN& pin);
-    void Parser(string benchmark);
+    void buildSizingModel();
     void assertNoIllegalExternalPadBoundaryChain();
     void Print_Stats();
-    void timing_parser(string filename);
-    double timing_parser2(string filename);
+
     void merge_timingArcs(LibTimingInfo& timing1, LibTimingInfo& timing2);
 
     void InitData();
@@ -881,20 +732,17 @@ class Circuit {
     ord::Tech* _ord_tech = nullptr;
 
    protected:
-    void verilog_parser(string filename);
-    void spef_parser(string filename, unsigned corner = 0);
+
     void importLiberty(sta::LibertyLibrary* library, unsigned corner = 0);
     // OpenSTA
-    void readDesign_opensta(sta::dbSta* _sta);
+    void importDesign(sta::dbSta* _sta);
 
-    void readSpef_opensta(sta::dbSta* _sta);
-    void readSpefChangePinName(string& pin_name);
+    void importParasitics(sta::dbSta* _sta);
     sta::dbSta* _sta = nullptr;
     Tcl_Interp* sta_interp = nullptr;
     std::vector< string > old_master_map;
 
    private:
-    std::ifstream is;
     Sizer* _sizer;
     /////////////////////////////////
     //
@@ -923,7 +771,6 @@ class Circuit {
     map< string, unsigned > pcell2id;
     map< string, unsigned > net2id;
     map< string, unsigned > pin2id;  // from 0 to numpins-1
-    map< string, int > node2id;
 
     vector< unsigned > topolist;
     vector< unsigned > rtopolist;
@@ -954,39 +801,24 @@ class Circuit {
     // sdc
 
     // spec
-    bool read_connections(vector< SpefConnection >& connections);
-    void read_capacitances(vector< SpefCapacitance >& capacitances);
-    void read_resistances(vector< SpefResistance >& resistances);
-    bool read_net_data(SpefNet& spefNet);
+
 
     // timing
-    bool read_pin_timing(string& cellInst, string& pin, double& riseSlack,
-                         double& fallSlack, double& riseTransition,
-                         double& fallTransition);
-    bool read_port_timing(string& port, double& riseSlack, double& fallSlack,
-                          double& riseTransition, double& fallTransition);
 
     // lib
-    void _skip_lut_3D();
-    bool read_default_max_transition(double& maxTransition);
-    void read_leak(istream& is, double& leak, unsigned& leak_cnt);
+
 
     // functions for lib parser
 
-    string read_lib_name(istream& is);
-    void parse_cell(sta::LibertyLibrary* sta_lib, sta::LibertyCell* sta_cell,
+    void importCell(sta::LibertyLibrary* sta_lib, sta::LibertyCell* sta_cell,
                     LibCellInfo& out_cell);
-    void parse_pin(sta::LibertyLibrary* sta_lib, sta::LibertyPort* sta_port,
+    void importPin(sta::LibertyLibrary* sta_lib, sta::LibertyPort* sta_port,
                    LibCellInfo& out_cell, LibPinInfo& out_pin);
-    void parse_timing(sta::LibertyLibrary* sta_lib,
+    void importTimingArcs(sta::LibertyLibrary* sta_lib,
                       sta::TimingArcSet* sta_arcset, LibTimingInfo& out_timing);
-    void parse_power(sta::LibertyLibrary* sta_lib, sta::InternalPower* sta_pwr,
-                     LibPowerInfo& out_pwr);
-    void add_pg_pin(LibPowerInfo& powerTables, string pg_pin);
     void update_lut(LibLUT& toLut, LibLUT fromLut);
     void average_lut(LibLUT& lut, int num);
     void report_cell(LibCellInfo cell);
-    void merge_powerTables(LibPowerInfo& power1, LibPowerInfo& power2);
 
     // etc
     void generate_sizelookup();
@@ -1000,10 +832,5 @@ class Circuit {
 };
 
 ostream& operator<<(ostream& os, const LibCellInfo& cell);
-
-bool read_line_as_tokens(istream& is, vector< string >& tokens,
-                         bool includeSpecialChars = false);
-int read_line_as_tokens_chk(istream& is, vector< string >& tokens);
-bool is_special_char(char c);
 
 #endif

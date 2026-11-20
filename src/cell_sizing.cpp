@@ -446,59 +446,6 @@ int get_available_port(int start_port) {
     return -1;  // No available port found
 }
 
-int getTokenI(string line, string option) {
-    int token;
-    size_t sizeStr, startPos, endPos;
-    string arg;
-    sizeStr = option.size();
-    startPos = line.find_first_not_of(" ", line.find(option) + sizeStr);
-    endPos = line.find_first_of(" ", startPos);
-    arg = line.substr(startPos, endPos - startPos);
-    sscanf(arg.c_str(), "%d", &token);
-    return token;
-}
-
-float getTokenF(string line, string option) {
-    float token;
-    size_t sizeStr, startPos, endPos;
-    string arg;
-    sizeStr = option.size();
-    startPos = line.find_first_not_of(" ", line.find(option) + sizeStr);
-    endPos = line.find_first_of(" ", startPos);
-    arg = line.substr(startPos, endPos - startPos);
-    sscanf(arg.c_str(), "%f", &token);
-    return token;
-}
-
-string getTokenS(string line, string option) {
-    size_t sizeStr, startPos, endPos;
-    string arg;
-    sizeStr = option.size();
-    startPos = line.find_first_not_of(" ", line.find(option) + sizeStr);
-    endPos = line.find_first_of(" ", startPos);
-    arg = line.substr(startPos, endPos - startPos);
-    return arg;
-}
-
-char *string_to_char(string str) {
-    char *writable = new char[str.size() + 1];
-    std::copy(str.begin(), str.end(), writable);
-    writable[str.size()] = '\0';
-    return writable;
-}
-
-vector< string > split(string input, string delim) {
-    vector< string > result;
-    char *charArray = string_to_char(input);
-    char *p = strtok(charArray, delim.c_str());
-    while(p) {
-        result.push_back(string(p));
-        p = strtok(NULL, delim.c_str());
-    }
-    delete[] charArray;
-    return result;
-}
-
 void Sizer::setEquivCellSortMode(const string& mode) {
     if(mode == "leakage") {
         sortEquivCellsByLeakage = true;
@@ -1055,7 +1002,7 @@ void Sizer::CleanIntFiles() {
     system(Commands);
 }
 
-void Sizer::Parser(ord::Design& design) {
+void Sizer::importDesign(ord::Design& design) {
     double begin = cpuTime();
     directory = "./";
     _ckt = std::make_unique<Circuit>(this);
@@ -1063,7 +1010,7 @@ void Sizer::Parser(ord::Design& design) {
     _ckt->_ord_tech = design.getTech();
     _ckt->_ord_timing = new ord::Timing(&design);
     _ckt->_sta = design.getTech()->getSta();
-    _ckt->Parser(directory + benchname);
+    _ckt->buildSizingModel();
     _sta = _ckt->_sta;
     ecc::logInfo() << endl
          << "Hard Runtime Limit   : " << RuntimeLimit / 3600 << " hours"
@@ -1197,8 +1144,7 @@ void Sizer::ExitPTimer() {
     for(unsigned i = 0; i < MAX_THREAD; i++) {
         for(int view = 0; view < numViews; view++) {
             tot_timer_time += PTimer[i][view]->pt_time;
-            // PTimer[i][view]->Exit();
-            ecc::logInfo() << "Exit PrimeTime number " << i << " " << view << endl;
+            ecc::logInfo() << "Timing session " << i << " " << view << endl;
             // delete PTimer[i][view];
         }
         // delete[] PTimer[i];
@@ -1207,7 +1153,7 @@ void Sizer::ExitPTimer() {
 }
 
 designTiming *Sizer::LaunchPTimer(unsigned, unsigned) {
-    return new designTiming(OS, this);
+    return new designTiming(this);
 }
 
 void Sizer::InitPowerBeforeUpdate(vector< CELL > &c) {
@@ -1330,25 +1276,18 @@ ecc::BufferInsertionResult Sizer::insertBufferBeforeLoads(
     return result;
 }
 
-ecc::FanoutRepairResult Sizer::repairFanout(
-    odb::dbMaster *buffer_master,
-    const ecc::FanoutRepairOptions &options) {
-    ecc::FanoutRepairResult result;
-    odb::dbBlock *block = _ckt->_ord_design->getBlock();
-    applyOpenStaDbChanges([&]() {
-        result = ecc::OpenDbFanoutRepairer::repair(block, buffer_master,
-                                                   options);
-        if(result) {
-            if(usesGlobalRouting()) {
-                auto *opendp = _ckt->_ord_design->getOpendp();
-                for(odb::dbInst *buffer : result.inserted_buffers) {
-                    opendp->legalCellPos(buffer);
-                }
-            }
-            ecc::connectMissingWildcardSpecialNetPins(block);
-        }
-    });
-    return result;
+bool Sizer::replaceCell(odb::dbInst* instance, odb::dbMaster* master) {
+    if(!instance || !master) return false;
+    if(instance->getMaster() == master) return true;
+    if(instance->isFixed() || instance->isDoNotTouch() ||
+       !ecc::compatibleCellMasters(instance->getMaster(), master)) return false;
+    bool changed = false;
+    applyOpenStaDbChanges([&] { changed = ecc::replaceCell({instance, master}); });
+    if(changed && cells) {
+        if(auto it = cell2id.find(instance->getName()); it != cell2id.end())
+            cells[it->second].isStaticChanged = true;
+    }
+    return changed;
 }
 
 void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
@@ -1379,7 +1318,9 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
                 assert(inst);
                 auto new_master = db->findMaster(cells[i].type.c_str());
                 if(new_master) {
-                    inst->swapMaster(new_master);
+                    if(!ecc::replaceCell({inst, new_master}))
+                        throw std::runtime_error(
+                            "sizing cell replacement failed: " + inst->getName());
                     cells[i].isChanged = 0;
                     cells[i].isStaticChanged = true;
                 }
@@ -1400,101 +1341,9 @@ void Sizer::UpdatePTSizes(vector< CELL > &cells, unsigned option) {
     // else ecc::logInfo() << "No cell has been changed." << endl;
 }
 
-void Sizer::CheckTriSizes(string opt_str) {
-    string filename = benchname + "." + opt_str + ".sizes";
-    vector< pair< string, string > > sizes = readSizes(filename);
 
-    vector< bool > checked;
-    checked.resize(numcells);
 
-    for(unsigned i = 0; i < numcells; ++i) {
-        checked[i] = false;
-    }
-    for(unsigned i = 0; i < sizes.size(); ++i) {
-        string cellName = sizes[i].first;
-        string cellType = sizes[i].second;
-        checked[cell2id[cellName]] = true;
-        if(cells[cell2id[cellName]].type != cellType) {
-            ecc::logInfo() << "Error -- cell size mismatch: " << cellName << " "
-                 << cells[cell2id[cellName]].type << "(File: " << cellType
-                 << ")" << endl;
-        };
-    }
-    for(unsigned i = 0; i < numcells; ++i) {
-        if(!checked[i]) {
-            ecc::logInfo() << "Error -- no cell size info from the file: "
-                 << cells[i].name << " " << cells[i].type << endl;
-        }
-    }
-}
 
-void Sizer::CheckPTSizes(unsigned option) {
-    T = PTimer[option];
-
-    string filename = "pt.sizes";
-    T[0]->checkSize(filename);
-
-    vector< pair< string, string > > sizes = readSizes(filename);
-
-    vector< bool > checked;
-    checked.resize(numcells);
-
-    for(unsigned i = 0; i < numcells; ++i) {
-        checked[i] = false;
-    }
-    for(unsigned i = 0; i < sizes.size(); ++i) {
-        string cellName = sizes[i].first;
-        string cellType = sizes[i].second;
-        checked[cell2id[cellName]] = true;
-        if(cells[cell2id[cellName]].type != cellType) {
-            ecc::logInfo() << "Error -- cell size mismatch: " << cellName << " "
-                 << cells[cell2id[cellName]].type << "(Timer: " << cellType
-                 << ")" << endl;
-        };
-    }
-    for(unsigned i = 0; i < numcells; ++i) {
-        if(!checked[i]) {
-            ecc::logInfo() << "Error -- no cell size info from timer: " << cells[i].name
-                 << " " << cells[i].type << endl;
-        }
-    }
-}
-
-bool Sizer::replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
-                        std::unordered_set< odb::dbNet * > &parasitics_invalid_) {
-    using odb::dbInst;
-    using odb::dbMaster;
-    dbMaster *replacement_master = new_master;
-    auto sta_ = _ckt->_ord_timing->getSta();
-    auto db_network_ = sta_->getDbNetwork();
-    auto inst = db_network_->dbToSta(dinst);
-    auto opendp_ = ord::OpenRoad::openRoad()->getOpendp();
-    dbMaster *master = dinst->getMaster();
-    if(replacement_master) {
-        // dbInst *dinst = db_network_->staToDb(inst);
-
-        dinst->swapMaster(replacement_master);
-        // sta_->replaceCell(inst, replacement_cell1);
-        // designAreaIncr(area(replacement_master));
-
-        // Legalize the position of the instance in case it leaves the die
-        // opendp_->legalCellPos(dinst);
-        // if(parasitics_src_ == ParasiticsSrc::global_routing) {
-        // }
-
-        // auto *pin_iter = db_network_->pinIterator(inst);
-        for(auto item : dinst->getITerms()) {
-            auto item_net = item->getNet();
-            if(!item_net || item_net->getSigType() == odb::dbSigType::POWER ||
-               item_net->getSigType() == odb::dbSigType::GROUND) {
-                continue;
-            }
-            parasitics_invalid_.insert(item_net);
-        }
-        return true;
-    }
-    return false;
-}
 
 void Sizer::UpdatePTSizes(unsigned option, int &count) {
 
@@ -1535,7 +1384,9 @@ void Sizer::UpdatePTSizes(unsigned option, int &count) {
                     cells[i].isStaticChanged = true;
                 }
                 else {
-                    inst->swapMaster(new_master);
+                    if(!ecc::replaceCell({inst, new_master}))
+                        throw std::runtime_error(
+                            "sizing cell replacement failed: " + inst->getName());
                     cells[i].isChanged = 0;
                     cells[i].isStaticChanged = true;
                 }
@@ -1722,27 +1573,6 @@ void Sizer::SizeInit(string option) {
     }
 }
 
-void Sizer::SizeInfromPT(string filename) {
-    ecc::logInfo() << "Reading sizes... " << filename << endl;
-    vector< pair< string, string > > sizes = readSizesPT(filename);
-    if(sizes.size() == 0)
-        return;
-    for(unsigned i = 0; i < sizes.size(); ++i) {
-        string cellName = sizes[i].first;
-        string cellType = sizes[i].second;
-
-        if(cells[cell2id[cellName]].type != cellType) {
-            cells[cell2id[cellName]].type = cellType;
-            LibCellInfo *lib_cell_info =
-                getLibCellInfo(cells[cell2id[cellName]]);
-            if(lib_cell_info != NULL) {
-                cells[cell2id[cellName]].c_vtype = lib_cell_info->c_vtype;
-                cells[cell2id[cellName]].c_size = lib_cell_info->c_size;
-            }
-        }
-    }
-}
-
 vector< pair< string, string > > Sizer::readSizes(const string &filename) {
     std::vector< std::pair< std::string, std::string > > sizes;
     // Open the file in read mode, exit if could not open
@@ -1762,39 +1592,6 @@ vector< pair< string, string > > Sizer::readSizes(const string &filename) {
         infile >> size;
         if(infile.eof())
             break;
-        sizes.push_back(make_pair(inst, size));
-    }
-    // Close the file
-    infile.close();
-    // Return the sizes vector
-    return sizes;
-}
-
-vector< pair< string, string > > Sizer::readSizesPT(const string &filename) {
-    std::vector< std::pair< std::string, std::string > > sizes;
-    // Open the file in read mode, exit if could not open
-    ifstream infile(filename.c_str());
-    if(!infile) {
-        ecc::logInfo() << "-E-: readSizes: Could not read sizes from '" << filename << "'"
-             << endl;
-        return sizes;
-        //    exit(1);
-    }
-    // Read the entire file
-    string tmp, cmd, inst, size;
-    while(!infile.eof()) {
-        infile >> cmd;
-        if(cmd != "size_cell")
-            continue;
-        infile >> tmp;
-        inst = tmp.substr(1, tmp.length() - 2);
-        if(infile.eof())
-            break;
-        infile >> tmp;
-        size = tmp.substr(1, tmp.length() - 2);
-        if(infile.eof())
-            break;
-        // ecc::logInfo() << inst << " " << size << endl;
         sizes.push_back(make_pair(inst, size));
     }
     // Close the file
@@ -4317,103 +4114,6 @@ void Sizer::legalizePlacement() {
         "detailed_placement -use_negotiation -abacus");
 }
 
-void Sizer::runOrdTO() {
-    _ckt->assertNoIllegalExternalPadBoundaryChain();
-    int view = 0;
-    rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
-    resizer->setBlockageAwareSteiner(true);
-    int repaired_net_count, slew_violations, cap_violations, fanout_violations,
-        length_violations;
-    // _ckt->_ord_design->evalTclString("buffer_ports");
-    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
-    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -digits 3");
-    // Keep the detailed report_checks table out of the production log; the
-    // repair commands below compute and report their own summary metrics.
-    // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
-    _ckt->_ord_design->evalTclString(
-        "repair_design -slew_margin 10 -cap_margin 10 -verbose");
-    // Repair hold in the setup corner before setup optimization consumes slack.
-    _ckt->_ord_design->evalTclString(
-        "repair_timing -hold -hold_margin " + to_string(hold_margin) +
-        " -skip_pin_swap -verbose");
-    _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
-                                     to_string(setup_margin) +
-                                     " -skip_pin_swap -verbose");
-    const int connected_special_pins
-        = ecc::connectMissingWildcardSpecialNetPins(
-            _ckt->_ord_design->getBlock());
-    if(connected_special_pins > 0) {
-        ecc::logInfo() << "Connected " << connected_special_pins
-             << " new instance pins to wildcard special nets." << endl;
-    }
-    const char *pre_final_legalization_def =
-        std::getenv("SIZER_PRE_FINAL_LEGALIZATION_DEF");
-    if(pre_final_legalization_def != nullptr &&
-       pre_final_legalization_def[0] != '\0') {
-        ecc::logInfo() << "Write DEF before final legalization: "
-             << pre_final_legalization_def << endl;
-        _ckt->_ord_design->writeDef(pre_final_legalization_def);
-    }
-    legalizePlacement();
-    // Legalization moves degrade the repaired timing state. Rebuild placement
-    // parasitics, run a margin-free recovery pass, then re-legalize any cells
-    // inserted by the recovery.
-    // _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
-    // _ckt->_ord_design->evalTclString(
-    //     "repair_design -slew_margin 20 -cap_margin 20 -verbose");
-    // _ckt->_ord_design->evalTclString("repair_timing -setup -verbose");
-    // legalizePlacement();
-    // Rebuild parasitics after the final detailed placement so the reported
-    // final slacks match the exported design state.
-    if(usesGlobalRouting() && !hasExtractedParasitics()) {
-        ecc::logPrintf("Run final global-routing RC refresh after runOrdTO...\n");
-        refreshOpenStaParasitics(true);
-    }
-    else {
-        _ckt->_ord_design->evalTclString("estimate_parasitics -placement");
-        _ckt->_ord_timing->getSta()->findRequireds();
-    }
-    _ckt->_ord_design->evalTclString("puts \"=== OpenSTA Final Timing Summary ===\"");
-    _ckt->_ord_design->evalTclString("report_worst_slack -max -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -max -digits 3");
-    _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
-    _ckt->_ord_design->evalTclString("report_tns -min -digits 3");
-    _ckt->_ord_design->evalTclString(
-        "puts \"max_slew_violations [sta::max_slew_violation_count] "
-        "worst_slew_slack [format %.3f [sta::max_slew_check_slack]]\"");
-    _ckt->_ord_design->evalTclString(
-        "puts \"max_cap_violations [sta::max_capacitance_violation_count] "
-        "worst_cap_slack [format %.3f [sta::max_capacitance_check_slack]]\"");
-    _ckt->assertNoIllegalExternalPadBoundaryChain();
-    double wns = T[view]->getWorstSlack(clk_name[worst_corner]);
-    double tns = T[view]->getTNS(clk_name[worst_corner]);
-
-    double leak = 0.0;
-    double tot = 0.0;
-
-    tot = leak;
-
-    double tran_tot, tran_max;
-    tran_tot = tran_max = 0.0;
-    int tran_num = 0;
-    T[view]->getTranVio(tran_tot, tran_max, tran_num);
-
-    double cap_tot, cap_max;
-    cap_tot = cap_max = 0.0;
-    int cap_num = 0;
-    T[view]->getCapVio(cap_tot, cap_max, cap_num);
-    ecc::logInfo() << "[view " << view << "] Final WNS after runOrdTO  : " << wns << " ns"
-         << endl;
-    ecc::logInfo() << "[view " << view << "] Final TNS after runOrdTO  : " << tns << " ns"
-         << endl;
-    // ecc::logInfo() << "[view " << view << "] Initial Leakage Power    : " << leak
-    //      << endl;
-    // ecc::logInfo() << "[view " << view << "] Initial Total Power    : " << tot
-    //      << endl;
-    ecc::logInfo() << "[view " << view << "] Final Tran after runOrdTO : " << tran_tot
-         << " ps " << tran_num << " " << tran_max << " ps" << endl;
-}
 void Sizer::Parallel_Sizer_Launcher() {
     double begin = cpuTime();
     PRFT_PTNUM = 1;
@@ -4484,9 +4184,6 @@ void Sizer::Parallel_Sizer_Launcher() {
     totalLeakagePower /= sw_adj;
     init_tot[0] = totalLeakagePower;
     init_leak[0] = totalLeakagePower;
-    if(false) {
-        runOrdTO();
-    }
 
     double temp_best_tns = DBL_MAX;
     ecc::logPrintf("Start get initial values\n");
@@ -4699,7 +4396,9 @@ void Sizer::Parallel_Sizer_Launcher() {
                             ecc::logPrintf("Change %s %s\n",
                                    inst->getMaster()->getName().c_str(),
                                    best_cells_poweropt[i].type.c_str());
-                            inst->swapMaster(new_master);
+                            if(!ecc::replaceCell({inst, new_master}))
+                                throw std::runtime_error(
+                                    "sizing cell replacement failed: " + inst->getName());
                             best_cells_poweropt[i].isStaticChanged = true;
                         }
                         else {
@@ -4710,7 +4409,7 @@ void Sizer::Parallel_Sizer_Launcher() {
                     if(!hasExtractedParasitics()) {
                         _ckt->runGR(50, false, 6);
                     }
-                    _ckt->readSpef_opensta(_sta);
+                    _ckt->importParasitics(_sta);
                     int corner = 0;
                     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
                         g_nets[corner][i].cap =
@@ -4723,7 +4422,6 @@ void Sizer::Parallel_Sizer_Launcher() {
                         int sink_num = 0;
                         for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
                             if(sn.isSink) {
-                                sn.pinId = pin2id[sn.pin_name];
                                 g_pins[corner][sn.pinId].spef_pin = sn.id;
                             }
                             sink_num += sn.isSink;
@@ -4833,7 +4531,9 @@ void Sizer::FinalReport() {
                     ecc::logPrintf("Change %s %s\n",
                            inst->getMaster()->getName().c_str(),
                            best_cells_poweropt[i].type.c_str());
-                    inst->swapMaster(new_master);
+                    if(!ecc::replaceCell({inst, new_master}))
+                        throw std::runtime_error(
+                            "sizing cell replacement failed: " + inst->getName());
                 }
                 else {
                     ecc::logPrintf("Change %s %s not found\n",
@@ -4866,7 +4566,7 @@ void Sizer::FinalReport() {
     double begin = cpuTime();
     refreshOpenStaParasitics(true);
     ecc::logPrintf("Run Global Routing Time %f\n", cpuTime() - begin);
-    _ckt->readSpef_opensta(_sta);
+    _ckt->importParasitics(_sta);
     int corner = 0;
     ofstream ofs("net_changed.log");
     for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
@@ -4888,7 +4588,6 @@ void Sizer::FinalReport() {
         int sink_num = 0;
         for(auto &sn : _ckt->g_nets[corner][i].subNodeVec) {
             if(sn.isSink) {
-                sn.pinId = pin2id[sn.pin_name];
                 g_pins[corner][sn.pinId].spef_pin = sn.id;
             }
             sink_num += sn.isSink;
@@ -5420,7 +5119,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                     change = 0;
                     if(FIX_SLEW_REPAIR && slew_violation != 0.0) {
                         change += FwdFixSlewViolation(1.0, view);
-                        // change += BwdFixSlewViolation(1.0, view);
                         if(FIX_SLEW_POST) {
                             change += FwdFixSlewViolationPost(1.0, view);
                         }
@@ -5534,7 +5232,6 @@ void Sizer::Post_PowerOpt(int thread_id) {
                         }
                         if(FIX_SLEW_REPAIR) {
                             change += FwdFixSlewViolation(1.0, view);
-                            // change += BwdFixSlewViolation(1.0, view);
                             if(FIX_SLEW_POST) {
                                 change += FwdFixSlewViolationPost(1.0, view);
                             }
@@ -8122,7 +7819,7 @@ void Sizer::Profile() {
          << timer_time / 60 << " min.)" << endl;
 }
 
-void ecc::runCellSizing(ord::Design& design, const RepairConfig& config,
+void ecc::runCellSizing(ord::Design& design,
                         const std::function<void()>& refresh,
                         ParasiticsMode parasitics_mode) {
     // The original sizing search retains its analysis arrays; the only mutable
@@ -8136,11 +7833,10 @@ void ecc::runCellSizing(ord::Design& design, const RepairConfig& config,
     sizer.time_Coarse = sizer.time_Zoomin = sizer.time_KickOpt = sizer.time_LeakOpt = 0;
     sizer.time_OneTimer = sizer.time_CallTimer = sizer.time_Fineswap = 0;
     sizer.count_OneTimer = sizer.count_CallTimer = 0;
-    sizer.nativeRepairConfig = config;
     sizer.refresh_design = refresh;
     sizer.initSingleMode();
     sizer.parasitics_mode = parasitics_mode;
-    sizer.Parser(design);
+    sizer.importDesign(design);
     sizer.Parallel_Sizer_Launcher();
     sizer.FinalReport();
 }

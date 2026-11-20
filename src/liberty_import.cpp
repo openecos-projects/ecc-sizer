@@ -22,117 +22,14 @@
 #include "sta/InternalPower.hh"
 #include "sta/Sta.hh"
 
-void skip(istream& is) {
-    bool finishedReading = false;
-
-    int check = 1;
-
-    std::vector< string > tokens;
-    while(!finishedReading) {
-        check += read_line_as_tokens_chk(is, tokens);
-
-        if(check == 0) {
-            finishedReading = true;
-        }
-    }
-}
-
-int check_brac(char c) {
-    if(c == '{') {
-        return 1;
-    }
-    if(c == '}') {
-        return -1;
-    }
-    return 0;
-}
-
-int read_line_as_tokens_chk(istream& is, std::vector< string >& tokens) {
-    tokens.clear();
-    string line;
-    std::getline(is, line);
-
-    int chkBrac = 0;
-
-    string token = "";
-
-    for(unsigned i = 0; i < line.size(); ++i) {
-        char currChar = line[i];
-        bool isSpecialChar = is_special_char(currChar);
-        chkBrac += check_brac(currChar);
-
-        if(std::isspace(currChar) || isSpecialChar) {
-            if(!token.empty()) {
-                // Add the current token to the list of tokens
-                tokens.push_back(token);
-                token.clear();
-            }
-        }
-        else {
-            // Add the char to the current token
-            token.push_back(currChar);
-        }
-    }
-
-    if(!token.empty())
-        tokens.push_back(token);
-
-    return chkBrac;
-}
-
-bool read_line_as_tokens(istream& is, std::vector< string >& tokens,
-                         bool includeSpecialChars) {
-    tokens.clear();
-
-    string line;
-    std::getline(is, line);
-
-    while(is && tokens.empty()) {
-        string token = "";
-
-        for(unsigned i = 0; i < line.size(); ++i) {
-            char currChar = line[i];
-            bool isSpecialChar = is_special_char(currChar);
-
-            if(std::isspace(currChar) || isSpecialChar) {
-                if(!token.empty()) {
-                    // Add the current token to the list of tokens
-                    tokens.push_back(token);
-                    token.clear();
-                }
-
-                if(includeSpecialChars && isSpecialChar) {
-                    tokens.push_back(string(1, currChar));
-                }
-            }
-            else {
-                // Add the char to the current token
-                token.push_back(currChar);
-            }
-        }
-
-        if(!token.empty())
-            tokens.push_back(token);
-
-        if(tokens.empty()) {
-            // Previous line read was empty. Read the next one.
-            std::getline(is, line);
-        }
-    }
-
-    return !tokens.empty();
-}
-
 // Unified unit conversion helper.
 struct UnitScaler {
     double time;  // 1e-9 (ns)
     double cap;   // 1e-15 (fF)
-    double volt;
 
     UnitScaler(const sta::Units* u) {
         time = u->timeUnit()->scale() / 1e-9;
         cap = u->capacitanceUnit()->scale() / 1e-15;
-        volt = u->voltageUnit()->scale();
     }
 
     double to_ns(double val) const {
@@ -233,15 +130,7 @@ static void extract_lut(sta::LibertyLibrary* sta_lib,
     }
 }
 
-// TODO: OpenSTA Power
-void Circuit::parse_power(sta::LibertyLibrary* sta_lib,
-                          sta::InternalPower* sta_pwr, LibPowerInfo& out_pwr) {
-    out_pwr.toPin = sta_pwr->port() ? sta_pwr->port()->name() : "";
-    out_pwr.relatedPin =
-        sta_pwr->relatedPort() ? sta_pwr->relatedPort()->name() : "";
-}
-
-void Circuit::parse_timing(sta::LibertyLibrary* sta_lib,
+void Circuit::importTimingArcs(sta::LibertyLibrary* sta_lib,
                            sta::TimingArcSet* sta_arcset,
                            LibTimingInfo& out_timing) {
     out_timing.isFunc = (sta_arcset->cond() != nullptr);
@@ -289,7 +178,7 @@ void Circuit::parse_timing(sta::LibertyLibrary* sta_lib,
     }
 }
 
-void Circuit::parse_pin(sta::LibertyLibrary* sta_lib,
+void Circuit::importPin(sta::LibertyLibrary* sta_lib,
                         sta::LibertyPort* sta_port, LibCellInfo& out_cell,
                         LibPinInfo& out_pin) {
     UnitScaler scale(sta_lib->units());
@@ -352,7 +241,7 @@ static cell_vtypes determine_vt_type(const std::string& name, Sizer* sizer) {
     return s;
 }
 
-void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
+void Circuit::importCell(sta::LibertyLibrary* sta_lib,
                          sta::LibertyCell* sta_cell, LibCellInfo& out_cell) {
     out_cell.name = sta_cell->name();
     out_cell.libname = sta_lib->name();
@@ -404,7 +293,7 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
             continue;
         }
         LibPinInfo pin;
-        parse_pin(sta_lib, sta_port, out_cell, pin);
+        importPin(sta_lib, sta_port, out_cell, pin);
 
         // Update isData from sequential definitions
         for(const auto& seq : sta_cell->sequentials()) {
@@ -429,7 +318,7 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
             }
 
             LibTimingInfo ti;
-            parse_timing(sta_lib, sta_arc, ti);
+            importTimingArcs(sta_lib, sta_arc, ti);
             ti.toPin = sta_port->name();
 
             // Logic Fixes
@@ -512,7 +401,7 @@ void Circuit::importLiberty(sta::LibertyLibrary* sta_lib, unsigned corner) {
         tmpl.name = sta_tmpl->name();
         tmpl.loadFirst = tmpl.tranFirst = false;
 
-        auto parse_ax = [&](const sta::TableAxis* ax, bool is_ax1) {
+        auto import_axis = [&](const sta::TableAxis* ax, bool is_ax1) {
             if(!ax) {
                 return;
             }
@@ -528,8 +417,8 @@ void Circuit::importLiberty(sta::LibertyLibrary* sta_lib, unsigned corner) {
             extract_axis(ax, units, target);
         };
 
-        parse_ax(sta_tmpl->axis1(), true);
-        parse_ax(sta_tmpl->axis2(), false);
+        import_axis(sta_tmpl->axis1(), true);
+        import_axis(sta_tmpl->axis2(), false);
 
         if(sta_tmpl->axis1()) {
             lib.templs.emplace(tmpl.name, tmpl);
@@ -556,7 +445,7 @@ void Circuit::importLiberty(sta::LibertyLibrary* sta_lib, unsigned corner) {
     sta::LibertyCellIterator it(sta_lib);
     while(it.hasNext()) {
         LibCellInfo c;
-        parse_cell(sta_lib, it.next(), c);
+        importCell(sta_lib, it.next(), c);
         cells.push_back(std::move(c));
     }
 
@@ -623,21 +512,6 @@ void Circuit::importLiberty(sta::LibertyLibrary* sta_lib, unsigned corner) {
 #endif
 }
 
-string Circuit::read_lib_name(istream& is) {
-    bool finishedReading = false;
-
-    std::vector< string > tokens;
-
-    while(!finishedReading) {
-        read_line_as_tokens_chk(is, tokens);
-
-        if(tokens.size() == 2 && tokens[0] == "library") {
-            return tokens[1];
-        }
-    }
-    return "";
-}
-
 void Circuit::average_lut(LibLUT& lut, int num) {
     if(num <= 0) {
         return;
@@ -647,15 +521,6 @@ void Circuit::average_lut(LibLUT& lut, int num) {
             lut.tableVals[i][j] /= double(num);
         }
     }
-}
-
-void Circuit::add_pg_pin(LibPowerInfo& powerTables, string pg_pin) {
-    for(unsigned i = 0; i < powerTables.pgPins.size(); ++i) {
-        if(powerTables.pgPins[i] == pg_pin) {
-            return;
-        }
-    }
-    powerTables.pgPins.push_back(pg_pin);
 }
 
 void Circuit::update_lut(LibLUT& toLut, LibLUT fromLut) {
@@ -731,46 +596,5 @@ void Circuit::merge_timingArcs(LibTimingInfo& timing1, LibTimingInfo& timing2) {
             }
             update_lut(timing1.riseTransition, timing2.riseTransition);
         }
-    }
-}
-
-void Circuit::merge_powerTables(LibPowerInfo& power1, LibPowerInfo& power2) {
-    if(power1.isFunc && !power2.isFunc) {
-        if(power2.fallPower.templ != "") {
-            power1.fallPower = power2.fallPower;
-        }
-        if(power2.risePower.templ != "") {
-            power1.risePower = power2.risePower;
-        }
-        power1.isFunc = false;
-        power1.cnt = 1;
-    }
-    else if(!power1.isFunc && !power2.isFunc) {
-        bool flag = false;
-        for(unsigned i = 0; i < power1.pgPins.size(); ++i) {
-            if(power1.pgPins[i] == power2.pgPins[0]) {
-                flag = true;
-                break;
-            }
-        }
-        if(!flag) {
-            if(power2.fallPower.templ != "") {
-                update_lut(power1.fallPower, power2.fallPower);
-            }
-            if(power2.risePower.templ != "") {
-                update_lut(power1.risePower, power2.risePower);
-            }
-            add_pg_pin(power1, power2.pgPins[0]);
-        }
-    }
-    else if(power1.isFunc && power2.isFunc) {
-        if(power2.fallPower.templ != "") {
-            update_lut(power1.fallPower, power2.fallPower);
-        }
-        if(power2.risePower.templ != "") {
-            update_lut(power1.risePower, power2.risePower);
-        }
-        add_pg_pin(power1, power2.pgPins[0]);
-        ++power1.cnt;
     }
 }

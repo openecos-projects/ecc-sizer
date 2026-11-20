@@ -89,6 +89,12 @@ struct CellReplacement {
     odb::dbMaster* master = nullptr;
 };
 
+// Physical/pin compatibility only; algorithms establish logical equivalence.
+bool compatibleCellMasters(odb::dbMaster* from, odb::dbMaster* to);
+// Reject protected instances and incompatible masters. Timing refresh belongs
+// to the caller; an unchanged master is a successful no-op.
+bool replaceCell(const CellReplacement& replacement);
+
 struct BufferInsertion {
     odb::dbNet* net = nullptr;
     std::vector< odb::dbObject* > loads;

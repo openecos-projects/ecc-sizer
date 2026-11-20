@@ -46,7 +46,7 @@
 #ifndef __DESIGN_TIMING__
 #define __DESIGN_TIMING__
 
-#include <sys/time.h>
+#include <array>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -69,30 +69,31 @@
 #include "sta/TimingArc.hh"
 #include "sta/TimingModel.hh"
 #include "sta/Units.hh"
-// #include "utl/Logger.h"
 class Sizer;
 
 using namespace std;
 
-typedef enum { PT, ETS, OS } ServerProg;
+namespace sta { class dbSta; }
+namespace ecc {
+enum class PinTimingMetric { Slack, Slew, Arrival };
+// Values are in STA SI units. Lookup accepts both instance pins and ports.
+const sta::Pin* findTimingPin(sta::dbSta* sta, const std::string& name);
+std::array<double, 2> pinTiming(sta::dbSta* sta, const sta::Pin* pin,
+                               PinTimingMetric metric, const sta::MinMax* min_max);
+std::array<double, 2> timingArcDelays(sta::dbSta* sta, const sta::Pin* from,
+                                     const sta::Pin* to, bool wire);
+}
 
 class designTiming {
    public:
-    // constructor
-    designTiming();
-    designTiming(ServerProg program, Sizer *sizer);
-    // destructor
-    ~designTiming();
-
-    ServerProg program;
-    double pt_time;
+    explicit designTiming(Sizer* sizer);
+    double pt_time = 0;
     double getWorstSlack(string clockName);
     double getWorstSlackHold(string clockName);
     double getTNS(string clockName = "");
     double getTNSHold(string clockName = "");
     void getTranVio(double &tot, double &max, int &num);
     bool sizeCell(string cellInstance, string cellMaster);
-    double getCellSlack(string CellName);
     double getRiseSlack(string PinName);
     double getFallSlack(string PinName);
     double getRiseTran(string PinName);
@@ -100,12 +101,8 @@ class designTiming {
     double getRiseArrival(string PinName);
     double getFallArrival(string PinName);
     void getNetDelay(double &delay, string sourcePinName, string sinkPinName);
-    void getInputSlew(double &riseSlew, double &fallSlew, string pinName);
-    // void getCellDelay(double &delay, string &riseFall, string cellInPin,
-    //                   string cellOutPin);
     void getCellDelay(double &rise_delay, double &fall_delay, string cellInPin,
                       string cellOutPin);
-    void getFFDelay(double &rdelay, double &fdelay, string cellOutPin);
     void getPinSlack(double &riseSlack, double &fallSlack, string pinName);
     void getPinMinSlack(double &riseSlack, double &fallSlack, string pinName);
     void getPinTran(double &riseTran, double &fallTran, string pinName);
@@ -113,42 +110,21 @@ class designTiming {
                        string pinName);
     double getCellPower(string cell_name);
     double getCeff(string PinName);
-    bool checkServer();
-    bool checkSize(string filename);
     string getLibCell(string CellName);
-    void Exit();
-    void initializeServerContact(string clientName);
-    bool loadDesign(string benchname);
-    bool updateSize(string benchname);
-    void closeServerContact();
-    bool runECO(unsigned mode);
-    bool writeMaxTranConst(string infile, string outfile);
-    bool writeECOChange(string filename);
     bool writePinSlack(string infile, string outfile);
-    bool writePinMinSlack(string infile, string outfile);
     bool writePinTran(string infile, string outfile);
-    bool writePinCeff(string infile, string outfile);
     bool writePinAll(string infile, string outfile);
-    bool writePinToggleRate(string infile, string outfile, string clock_period);
-    bool writePinToggleRate(string infile, string outfile);
-    void getPinToggleRate(double &toggleRate, string pinName);
 
-    string doOneCmd(string command);
     double getLeakPower();
     double getTotPower();
     void getCapVio(double &tot, double &max, int &num);
-    void testTCL();
 
    private:
-    string _convertToString(double x);
-    double _convertToDouble(const string &s);
-    int _convertToInt(const string &s);
-    Sizer *_sizer;
-    Tcl_Interp *_interpreter;
-    int _errorCode;
-    char *_tclExpression;
-    char *_tclAnswer;
-    string _tclInputString;
+    enum class PinReport { Slack, Slew, All };
+    bool writePins(const string& input, const string& output, PinReport report);
+    void pinValues(double& rise, double& fall, const string& name,
+                   ecc::PinTimingMetric metric, const sta::MinMax* min_max);
+    Sizer* _sizer;
 };
 
 #endif

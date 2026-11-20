@@ -57,7 +57,7 @@ class OpenDbSetupRepairer {
                                     const SetupRepairOptions& options = {});
 };
 // Existing cell-sizing search on the caller's loaded OpenROAD design.
-void runCellSizing(ord::Design& design, const RepairConfig& config,
+void runCellSizing(ord::Design& design,
                    const std::function< void() >& refresh,
                    ParasiticsMode parasitics_mode);
 }  // namespace ecc

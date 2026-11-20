@@ -5855,81 +5855,16 @@ void Sizer::CorrPT(unsigned option, CorrPTMetric pt_metric, unsigned view,
         }
     }
     else if(pt_metric == HOLD_SLK) {
-        stringstream ostr;
-        ostr.str("");
-        ostr << option << "_" << view;
-
-        string org_pin_file = benchname + ".pin_list";
-        string pt_in_file = benchname + "_" + ostr.str() + ".pin_list";
-        string pt_out_file2 =
-            benchname + "_" + ostr.str() + ".pt_hold_slack.timing";
-        T[view]->writePinMinSlack(pt_in_file, pt_out_file2);
-        ifstream infile2(pt_out_file2.c_str());
-
-        vector< timing_lookup > slack_list;
-        string pin_name, rise, fall;
-        while(infile2 >> pin_name >> rise >> fall) {
-            timing_lookup slack;
-            if(rise == "100000000000.0")
-                slack.rise = DBL_MAX;
-            else
-                slack.rise = atof(rise.c_str());
-            if(fall == "100000000000.0")
-                slack.fall = DBL_MAX;
-            else
-                slack.fall = atof(fall.c_str());
-
-            slack_list.push_back(slack);
+        for(unsigned i = 0; i < numpins; ++i) {
+            double rise, fall;
+            T[view]->getPinMinSlack(rise, fall, getFullPinName(pins[view][i]));
+            if(std::isfinite(rise)) pins[view][i].hold_rslk = rise;
+            if(std::isfinite(fall)) pins[view][i].hold_fslk = fall;
         }
-        for(unsigned i = 0; i < numpins; i++) {
-            if(slack_list[i].rise != DBL_MAX) {
-                pins[view][i].hold_rslk = slack_list[i].rise;
-            }
-
-            if(slack_list[i].fall != DBL_MAX) {
-                pins[view][i].hold_fslk = slack_list[i].fall;
-            }
-        }
-        infile2.close();
     }
     else if(pt_metric == CEFF) {
-        stringstream ostr;
-        ostr.str("");
-        ostr << option;
-
-        string org_pin_file = benchname + ".pin_list";
-        string pt_in_file = benchname + "_" + ostr.str() + ".pin_list";
-        string pt_out_file = benchname + "_" + ostr.str() + ".pt.ceff";
-        string cmd;
-        cmd = "cp -f " + org_pin_file + " " + pt_in_file;
-        system(cmd.c_str());
-
-        T[view]->writePinCeff(pt_in_file, pt_out_file);
-        vector< double > ceff_list;
-
-        ifstream infile(pt_out_file.c_str());
-        if(!infile) {
-            for(unsigned i = 0; i < numpins; i++) {
-                pins[view][i].ceff =
-                    T[view]->getCeff(getFullPinName(pins[view][i]));
-                ceff_list.push_back(pins[view][i].ceff);
-            }
-        }
-        else {
-            string pin_name, ceff;
-            double ceff_value = 0.0;
-            while(infile >> pin_name >> ceff) {
-                if(ceff == "100000000000.0")
-                    ceff_value = std::numeric_limits< double >::infinity();
-                else
-                    ceff_value = atof(ceff.c_str());
-                ceff_list.push_back(ceff_value);
-            }
-            infile.close();
-            for(unsigned i = 0; i < numpins; i++) {
-                pins[view][i].ceff = ceff_list[i];
-            }
-        }
+        for(unsigned i = 0; i < numpins; ++i)
+            pins[view][i].ceff = T[view]->getCeff(getFullPinName(pins[view][i]));
     }
     else if(pt_metric == AAT) {
         for(unsigned i = 0; i < numpins; i++) {

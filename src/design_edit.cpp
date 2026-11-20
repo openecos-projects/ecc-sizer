@@ -271,6 +271,32 @@ BufferInsertionResult OpenDbBufferInserter::insertBufferBeforeLoads(
     return makeResult(buffer, original_nets);
 }
 
+bool compatibleCellMasters(odb::dbMaster* from, odb::dbMaster* to) {
+    if(!from || !to || from->getHeight() != to->getHeight() ||
+       from->getSite() != to->getSite() ||
+       from->getMTerms().size() != to->getMTerms().size())
+        return false;
+    for(auto* term : from->getMTerms()) {
+        auto* other = to->findMTerm(term->getConstName());
+        if(!other || term->getIoType() != other->getIoType() ||
+           term->getSigType() != other->getSigType())
+            return false;
+    }
+    return true;
+}
+
+bool replaceCell(const CellReplacement& replacement) {
+    auto* inst = replacement.instance;
+    auto* master = replacement.master;
+    if(!inst || !master)
+        return false;
+    if(inst->getMaster() == master)
+        return true;
+    return !inst->isFixed() && !inst->isDoNotTouch() &&
+           compatibleCellMasters(inst->getMaster(), master) &&
+           inst->swapMaster(master);
+}
+
 NetRepairEdits applyRepairPlan(const NetRepairPlan& plan) {
     NetRepairEdits result;
     if(plan.replacement) {
@@ -278,7 +304,7 @@ NetRepairEdits applyRepairPlan(const NetRepairPlan& plan) {
         if(!replacement.instance || !replacement.master)
             throw std::invalid_argument(
                 "cell replacement requires an instance and master");
-        if(replacement.instance->swapMaster(replacement.master)) {
+        if(replaceCell(replacement)) {
             result.replaced = true;
             return result;
         }

@@ -102,7 +102,6 @@
 #include "sizing_model.h"
 #include "utils.h"
 
-#define DBL_MAX 1.7976931348623158e+308 /* max value */
 
 #define TIMER_RUNS_BACKGROUND
 
@@ -415,7 +414,6 @@ class Sizer {
     std::map< string, int > cellName2EquaivaID;
     std::map< string, int > cellName2EquivOrder;
     std::vector< std::vector< string > > EquaivaID2cellNames;
-    void runOrdTO();
     // Legalize via vendored DreamPlace ops when use_native_abacus, else DPL.
     void legalizePlacement();
     // DreamPlace greedy+abacus legalization (vendored ops).
@@ -432,9 +430,7 @@ class Sizer {
         odb::dbNet *net, const std::vector< odb::dbObject * > &loads,
         odb::dbMaster *buffer_master,
         const ecc::BufferInsertionOptions &options = {});
-    ecc::FanoutRepairResult repairFanout(
-        odb::dbMaster *buffer_master,
-        const ecc::FanoutRepairOptions &options = {});
+    bool replaceCell(odb::dbInst* instance, odb::dbMaster* master);
     ecc::ParasiticsMode parasitics_mode = ecc::ParasiticsMode::Placement;
     bool hasExtractedParasitics() const {
         return parasitics_mode == ecc::ParasiticsMode::Extracted;
@@ -442,7 +438,6 @@ class Sizer {
     bool usesGlobalRouting() const {
         return parasitics_mode == ecc::ParasiticsMode::GlobalRouting;
     }
-    ecc::RepairConfig nativeRepairConfig;
     bool sortEquivCellsByLeakage = true;
     void setEquivCellSortMode(const string& mode);
     string equivCellSortModeName() const;
@@ -468,8 +463,6 @@ class Sizer {
     void buildTargets(unsigned iter, unsigned STAGE, double RATIO,
                       double leak_exponent, double alpha, double break_ratio,
                       unsigned thread_id, double toler, unsigned view);
-    bool replaceCell(odb::dbInst *dinst, odb::dbMaster *new_master,
-                     std::unordered_set< odb::dbNet * > &parasitics_invalid_);
     void applyOpenStaDbChanges(const std::function< void() > &apply_changes);
     void refreshOpenStaParasitics(bool verbose_global_route = false);
     inline bool isMin(const CELL &cell) {
@@ -742,7 +735,6 @@ class Sizer {
     grt::IncrementalGRoute *incr_groute_ = nullptr;
     vector< vector< LibCellTable * > > main_lib_cell_tables;  // MMMC
     vector< unordered_map< string, LibCellInfo > > libs;      // MMMC
-    vector< map< string, int > > node2id;                     // MMMC
     unsigned numCorners;
     unsigned numModes;
     unsigned numViews;
@@ -935,7 +927,7 @@ class Sizer {
 
     // initialize, parser, launcher
     void initSingleMode();
-    void Parser(ord::Design& design);
+    void importDesign(ord::Design& design);
     std::function<void()> refresh_design;
     void Parallel_Sizer_Launcher();
     void Parallel_Sizer_Launcher(double ratio, double exponent, int option,
@@ -949,13 +941,11 @@ class Sizer {
     void InitPowerBeforeUpdate(vector< CELL > &c);
     void UpdatePTSizes(unsigned option, int &count);
     void UpdatePTSizes(vector< CELL > &c, unsigned option = 0);
-    void CheckPTSizes(unsigned option = 0);
     void CheckCorrPT(unsigned option = 0, CorrPTMetric pt_metric = SLK,
                      unsigned view = 0);
     void LoadPTSlack();
 
     // size in/out
-    void CheckTriSizes(string filename);
     void SizeOut(bool success);
     void SizeOut(bool success, string option);
     void SizeOut(string path);
@@ -965,10 +955,8 @@ class Sizer {
     bool SizeIn(string path);
     void UDSizeIn(string option);
     void UDSizeIn(vector< CELL > &int_cells, string filename);
-    void SizeInfromPT(string filename);
     void SizeInit(string option);
     vector< pair< string, string > > readSizes(const string &filename);
-    vector< pair< string, string > > readSizesPT(const string &filename);
     void TimingOut();
 
     // sizer main functions
@@ -976,12 +964,10 @@ class Sizer {
     unsigned FindAvailablePreCell(unsigned prev_cell_input_pin, int max_depth,
                                   int view);
     unsigned FwdFixCapViolation(unsigned view = 0);
-    unsigned BwdFixSlewViolation(double maxTranRatio, unsigned view);
     unsigned FwdFixSlewViolation(double maxTranRatio, unsigned view = 0);
     unsigned FwdFixSlewViolationPost(double maxTranRatio, unsigned view = 0);
     int FwdFixSlewViolationCell(bool corr_pt, unsigned option, unsigned cur,
                                 double maxTran, unsigned view = 0);
-    unsigned FwdFixSlackViolation(double maxTranRatio, unsigned view);
     unsigned Attack(unsigned round, unsigned STAGE, double RATIO,
                     double leak_exponent, double alpha = -1,
                     double break_ratio = 0.1, unsigned thread_id = 0,

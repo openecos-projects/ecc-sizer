@@ -224,7 +224,10 @@ if(BUILD_TESTING)
         GTest::gtest
         GTest::gtest_main
         tst
+        sizer_search
     )
+    set_property(TARGET ecc_sizer_buffer_inserter_sta_test PROPERTY
+                 LINK_LIBRARY_OVERRIDE "WHOLE_ARCHIVE,openroad")
     add_test(NAME ecc_sizer_buffer_inserter_sta
              COMMAND ecc_sizer_buffer_inserter_sta_test)
     set_tests_properties(ecc_sizer_buffer_inserter_sta PROPERTIES

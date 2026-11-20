@@ -40,6 +40,7 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 #include <algorithm>
+#include <cfloat>
 #include <string>
 #include <iostream>
 #include <sys/param.h>
@@ -103,7 +104,6 @@ typedef unsigned cell_sizes;
 enum cell_vtypes { s = 0, m, f, default_vtype };
 // #include "cell_sizing.h"
 // #include "sizing_model.h"
-#define DBL_MAX 1.7976931348623158e+308 /* max value */
 
 inline cell_sizes getSizes(std::string size) {
     if(size == "01") {
@@ -179,8 +179,6 @@ int r_size(const CELL &cell);
 bool isEqual(double a, double b);
 double cpuTime(void);
 void printMemoryUsage(void);
-void LaunchPTBackground(std::string root, std::string benchname);
-void KillPTBackground();
 
 struct LCA {
     int vertex_num, query_num, root;  // Number of vertices, queries, and root node

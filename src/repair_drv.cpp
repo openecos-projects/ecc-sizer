@@ -117,7 +117,7 @@ DesignRepairResult OpenDbDesignRepairer::repair(
             // buffers. All candidates are measured before any ECO mutation.
             if(!load_plans.empty()) {
                 for(const auto& plan : load_plans)
-                    if(plan.inst->swapMaster(plan.master))
+                    if(replaceCell({plan.inst, plan.master}))
                         ++downsized;
             }
             else {
@@ -779,7 +779,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(
                 unsigned vt_swaps = 0, downsizes = 0;
                 for(const auto i : selected) {
                     const auto& plan = plans[i];
-                    if(!plan.inst->swapMaster(plan.master))
+                    if(!replaceCell({plan.inst, plan.master}))
                         throw std::runtime_error("power cell swap failed");
                     if(plan.vt)
                         ++vt_swaps;

@@ -88,6 +88,12 @@ Use OpenROAD's `set_dont_use` and `set_dont_touch` in input Tcl for exclusions.
 Output defaults to `<input-stem>.sized.def`, `.v` and `.odb`; `--output PREFIX`
 sets their location. Input files must not be reused as the output prefix.
 
+OpenROAD/OpenSTA own LEF, DEF, Verilog, Liberty, SDC and SPEF parsing. The
+retained sizing search imports only the additional representations it needs:
+Liberty lookup tables and an RC adjacency graph built through STA's public
+parasitics API. Pin timing and arc delays are queried directly from STA,
+including top-level ports; no timing-report parsing or PT/ETS server is needed.
+
 ## Configuration and logging
 
 The env/cmd format and `legacy` entry have been removed. Ordinary runs need no tuning files. `--threads` defaults to the

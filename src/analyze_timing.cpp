@@ -37,1269 +37,415 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///////////////////////////////////////////////////////////////////////////////
 
-// ****************************************************************************
-// analyzeTiming.cpp
-//
-// Make contact with PT/ETS/SOCE Tcl server, pass commands,
-// get results and report
-// ****************************************************************************
-
+// Direct OpenSTA queries and sizing-unit adaptation. Input parsing belongs to
+// the OpenROAD session; this module never interprets timing report text.
 #include "analyze_timing.h"
-#include <stdlib.h>
-#include <sys/time.h>
-#include <cassert>
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <string>
-#include "MinMax.hh"
-#include "ord/Timing.h"
-#include "sta/Network.hh"
-#include "sta/Sta.hh"
-#include "utils.h"
 #include "cell_sizing.h"
-#include <tcl8.6/tcl.h>
-#include <tcl8.6/tclDecls.h>
+#include "design_edit.h"
+#include "utils.h"
 #include "db_sta/dbNetwork.hh"
-designTiming::designTiming() {
-    program = PT;
-    pt_time = 0.0;
-}
-designTiming::designTiming(ServerProg _program, Sizer *sizer) {
-    _sizer = sizer;
-    program = _program;
-    pt_time = 0.0;
-}
-designTiming::~designTiming() {
-}
+#include "sta/Sta.hh"
+#include "sta/TimingRole.hh"
+#include <array>
+#include <cmath>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <stdexcept>
 
-void designTiming::testTCL() {
-    _interpreter = Tcl_CreateInterp();
-    _tclInputString = "puts \"TCL TEST";
-    //_tclExpression = (char *)_tclInputString.c_str();
-    Tcl_Eval(_interpreter, _tclExpression);
-}
+namespace ecc {
 
-void designTiming::initializeServerContact(string clientName) {
-    _interpreter = Tcl_CreateInterp();
-    ifstream _clientTcl(clientName.c_str());
-    if(!_clientTcl) {
-        ecc::logError() << "Fatal error: cannot proceed without *client.tcl file" << endl;
-        exit(1);
-    }
-    _tclInputString = "source " + clientName;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    Tcl_Eval(_interpreter, _tclExpression);
-
-    _tclInputString = "InitClient";
-    //_tclExpression = (char *)_tclInputString.c_str();
-    ecc::logInfo() << "InitClient" << endl;
-    Tcl_Eval(_interpreter, _tclExpression);
-    pt_time += cpuTime() - begin;
+const sta::Pin* findTimingPin(sta::dbSta* sta, const std::string& name) {
+    auto* network = sta->getDbNetwork();
+    auto* block = network->block();
+    if(auto* term = block->findITerm2(name.c_str()))
+        return network->dbToSta(term);
+    if(auto* term = block->findBTerm(name.c_str()))
+        return network->dbToSta(term);
+    throw std::invalid_argument("timing pin not found: " + name);
 }
 
-void designTiming::closeServerContact() {
-    _tclInputString = "CloseClient";
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    Tcl_Eval(_interpreter, _tclExpression);
-    Tcl_DeleteInterp(_interpreter);
-    pt_time += cpuTime() - begin;
-}
-
-void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
-                                string cellInPin, string cellOutPin) {
-    _tclInputString = "gate_delay " + cellInPin + " " + cellOutPin;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double temp1 = 0.0;
-    double temp2 = 0.0;
-
-    if(_tclAnswer != "") {
-        // Method 1: use more specific format matching.
-        // char dummy1[20], dummy2[20];
-        // sscanf(_tclAnswer.c_str(), "%s %f %s %f", dummy1, &temp2, dummy2,
-        // &temp1);
-
-        // // Method 2: find and parse specific key-value pairs.
-        size_t fall_pos = _tclAnswer.find("fall_delay");
-        size_t rise_pos = _tclAnswer.find("rise_delay");
-
-        if(fall_pos != string::npos) {
-            sscanf(_tclAnswer.c_str() + fall_pos, "fall_delay %lf", &temp2);
+std::array<double, 2> pinTiming(sta::dbSta* sta, const sta::Pin* pin,
+                                PinTimingMetric metric, const sta::MinMax* min_max) {
+    auto* graph = sta->ensureGraph();
+    auto* vertex = graph->pinLoadVertex(pin);
+    auto* driver = graph->pinDrvrVertex(pin);
+    std::array<double, 2> result;
+    for(auto* rf : sta::RiseFall::range()) {
+        auto* edge = rf->asRiseFallBoth();
+        double value;
+        switch(metric) {
+        case PinTimingMetric::Slack:
+            value = sta->slack(pin, edge, sta->scenes(), min_max);
+            break;
+        case PinTimingMetric::Arrival:
+            value = sta->arrival(pin, edge, min_max);
+            break;
+        case PinTimingMetric::Slew:
+            value = vertex ? double(sta->slew(vertex, edge, sta->scenes(), min_max)) : 0.0;
+            if(driver && driver != vertex)
+                value = min_max == sta::MinMax::max()
+                            ? std::max(value, double(sta->slew(driver, edge, sta->scenes(), min_max)))
+                            : std::min(value, double(sta->slew(driver, edge, sta->scenes(), min_max)));
+            break;
         }
-        if(rise_pos != string::npos) {
-            sscanf(_tclAnswer.c_str() + rise_pos, "rise_delay %lf", &temp1);
-        }
+        if(std::abs(value) >= sta::INF)
+            value = std::copysign(std::numeric_limits<double>::infinity(), value);
+        result[rf->index()] = value;
     }
-    rise_delay = temp1;
-    fall_delay = temp2;
-
-    // ecc::logInfo() << delay << " " << riseFall << " " << endl;
+    return result;
 }
 
-// FIXME:
-// void designTiming::getCellDelay(double &rise_delay, double &fall_delay,
-//                                 string cellInPin, string cellOutPin) {
-//     _tclInputString =
-//         "report_dcalc -max -digits 3 -from " + cellInPin + " -to " +
-//         cellOutPin;
-//     // ecc::logInfo() << _tclInputString << endl;
-//     //_tclExpression = (char *)_tclInputString.c_str();
-//     double begin = cpuTime();
-//     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-//     // report_dcalc -max -digits 3 -from $cellInPin -to $cellOutPin >
-//     tmp3.rpt
-//     // assert(0);
-//     pt_time += cpuTime() - begin;
-//     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-//     float temp1 = 0;
-//     float temp2 = 0;
-//     ecc::logInfo() << _tclAnswer << std::endl;
-//     if(_tclAnswer == "") {
-//         ecc::logPrintf("Error: getCellDelay failed for %s %s\n", cellInPin.c_str(),
-//                cellOutPin.c_str());
-//         exit(0);
-//     }
-//     sscanf(_tclAnswer.c_str(), "%f %f", &temp1, &temp2);
-// }
-
-void designTiming::getFFDelay(double &rdelay, double &fdelay,
-                              string cellOutPin) {
-    _tclInputString = "PtGetFFDelay " + cellOutPin;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    ecc::logPrintf("Error : don't have getFFDelay !\n");
-    exit(0);
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    pt_time += cpuTime() - begin;
-    float temp1;
-    float temp2;
-    sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    rdelay = temp1;
-    fdelay = temp2;
-}
-
-void designTiming::getNetDelay(double &delay, string sourcePinName,
-                               string sinkPinName) {
-    _tclInputString = "report_wire_delay " + sourcePinName + " " + sinkPinName;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-
-    pt_time += cpuTime() - begin;
-    float temp;
-    sscanf(_tclAnswer.c_str(), "%f", &temp);
-    delay = temp;
-}
-
-void designTiming::getInputSlew(double &riseSlew, double &fallSlew,
-                                string pinName) {
-    _tclInputString = "PtGetCellInputSlew " + pinName;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
-    sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    riseSlew = temp1;
-    fallSlew = temp2;
-}
-
-string designTiming::_convertToString(double x) {
-    std::ostringstream o;
-    o << x;
-    return o.str();
-}
-
-double designTiming::_convertToDouble(const string &s) {
-    std::istringstream i(s);
-    double x;
-    i >> x;
-    if(s == "INFINITY") {
-        x = std::numeric_limits< double >::infinity();
-    }
-    return x;
-}
-
-int designTiming::_convertToInt(const string &s) {
-    std::istringstream i(s);
-    int x;
-    i >> x;
-    return x;
-}
-
-double designTiming::getWorstSlackHold(string _clkName) {
-    if(program == PT) {
-        _tclInputString = "PtWorstHoldSlack " + _clkName;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWorstHoldSlack " + _clkName;
-    }
-    else if(program == OS) {
-        const auto begin = cpuTime();
-        auto* timing = _sizer->_ckt->_ord_timing->getSta();
-        const double value = timing->worstSlack(sta::MinMax::min());
-        pt_time += cpuTime() - begin;
-        return value >= sta::INF ? 0.0 : value / _sizer->time_unit;
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double _pathSlack = _convertToDouble(_answerStr);
-    return (_pathSlack);
-}
-
-double designTiming::getWorstSlack(string _clkName) {
-    if(program == PT) {
-        _tclInputString = "PtWorstSlack " + _clkName;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWorstSlack " + _clkName;
-    }
-    else if(program == OS) {
-        const auto begin = cpuTime();
-        auto* timing = _sizer->_ckt->_ord_timing->getSta();
-        const double value = timing->worstSlack(sta::MinMax::max());
-        pt_time += cpuTime() - begin;
-        return value >= sta::INF ? 0.0 : value / _sizer->time_unit;
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double _pathSlack = _convertToDouble(_answerStr);
-    _pathSlack = _pathSlack * 1e-12 / _sizer->time_unit;
-    return (_pathSlack);
-}
-
-double designTiming::getTotPower() {
-    if(program == PT) {
-        _tclInputString = "PtTotalPower";
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsTotalPower";
-    }
-    else {
-        return getLeakPower();
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    // ecc::logInfo() << _tclInputString << endl;
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    // ecc::logInfo() << _tclAnswer << endl;
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double _totPower = _convertToDouble(_answerStr);
-    return (_totPower);
-}
-
-double designTiming::getCellPower(string cell_name) {
-    if(program == PT) {
-        _tclInputString = "PtTotalPower";
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsTotalPower";
-    }
-    else {
-        double begin = cpuTime();
-        double totalLeakagePower = 0.0;
-        auto inst =
-            _sizer->_ckt->_ord_design->getBlock()->findInst(cell_name.c_str());
-        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
-        totalLeakagePower +=
-            _sizer->_ckt->_ord_timing->staticPower(inst, corner);
-        totalLeakagePower /= _sizer->sw_adj;
-        pt_time += cpuTime() - begin;
-        return totalLeakagePower;
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    // ecc::logInfo() << _tclInputString << endl;
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    // ecc::logInfo() << _tclAnswer << endl;
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double _totPower = _convertToDouble(_answerStr);
-    return (_totPower);
-}
-
-double designTiming::getLeakPower() {
-    if(program == PT) {
-        _tclInputString = "PtLeakPower";
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsLeakPower";
-    }
-    else {
-        double begin = cpuTime();
-        double totalLeakagePower = 0.0;
-        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
-        // #progma omp parallel for
-        // for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
-        //     totalLeakagePower +=
-        //         _sizer->_ckt->_ord_timing->staticPower(inst, corner);
-        // }
-        if(_sizer->cells == nullptr) {
-            for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
-                totalLeakagePower +=
-                    _sizer->_ckt->_ord_timing->staticPower(inst, corner);
-            }
-        }
-        else {
-            for(int i = 0; i < _sizer->numcells; i++) {
-                if(_sizer->cells[i].isStaticChanged) {
-                    auto inst = _sizer->_ckt->_ord_design->getBlock()->findInst(
-                        _sizer->cells[i].name.c_str());
-                    _sizer->cells[i].static_power =
-                        _sizer->_ckt->_ord_timing->staticPower(inst, corner);
-                    _sizer->cells[i].isStaticChanged = false;
+std::array<double, 2> timingArcDelays(sta::dbSta* sta, const sta::Pin* from,
+                                      const sta::Pin* to, bool wire) {
+    sta->findDelays();
+    auto* graph = sta->graph();
+    auto* source = wire ? graph->pinDrvrVertex(from) : graph->pinLoadVertex(from);
+    auto* target = wire ? graph->pinLoadVertex(to) : graph->pinDrvrVertex(to);
+    std::array<double, 2> result = {-std::numeric_limits<double>::infinity(),
+                                   -std::numeric_limits<double>::infinity()};
+    if(source && target) {
+        sta::VertexOutEdgeIterator edges(source, graph);
+        while(edges.hasNext()) {
+            auto* edge = edges.next();
+            if(edge->to(graph) != target || edge->isWire() != wire ||
+               edge->role()->isTimingCheck())
+                continue;
+            for(auto* scene : sta->scenes()) {
+                const auto ap = scene->dcalcAnalysisPtIndex(sta::MinMax::max());
+                for(auto* arc : edge->timingArcSet()->arcs()) {
+                    const auto* transition = arc->toEdge()->asRiseFall();
+                    if(!transition) continue;
+                    const auto index = transition->index();
+                    result[index] = std::max(result[index], double(sta->arcDelay(edge, arc, ap)));
                 }
-                totalLeakagePower += _sizer->cells[i].static_power;
             }
         }
-        totalLeakagePower /= _sizer->sw_adj;
-        pt_time += cpuTime() - begin;
-        return totalLeakagePower;
     }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    // ecc::logInfo() << _tclInputString << endl;
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+    // No graph arc means this pin pair has no modeled propagation delay.
+    for(auto& delay : result)
+        if(!std::isfinite(delay)) delay = 0.0;
+    return result;
+}
+}  // namespace ecc
 
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+designTiming::designTiming(Sizer* sizer) : _sizer(sizer) {}
+
+void designTiming::pinValues(double& rise, double& fall, const std::string& name,
+                              ecc::PinTimingMetric metric, const sta::MinMax* min_max) {
+    const auto begin = cpuTime();
+    auto* sta = _sizer->_ckt->_ord_timing->getSta();
+    const auto values = ecc::pinTiming(sta, ecc::findTimingPin(sta, name), metric, min_max);
+    rise = values[0] / _sizer->time_unit;
+    fall = values[1] / _sizer->time_unit;
     pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double _leakPower = _convertToDouble(_answerStr);
-    return (_leakPower);
 }
 
-double designTiming::getTNS(string _clkName) {
-    if(program == PT) {
-        _tclInputString = "PtGetTNS " + _clkName;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetTNS " + _clkName;
-    }
-    else if(program == OS) {
-        const auto begin = cpuTime();
-        auto* timing = _sizer->_ckt->_ord_timing->getSta();
-        const double value = timing->totalNegativeSlack(sta::MinMax::max());
-        pt_time += cpuTime() - begin;
-        return value >= sta::INF ? 0.0 : value / _sizer->time_unit;
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+void designTiming::getCellDelay(double& rise, double& fall, string from, string to) {
+    const auto begin = cpuTime();
+    auto* sta = _sizer->_ckt->_ord_timing->getSta();
+    const auto values = ecc::timingArcDelays(sta, ecc::findTimingPin(sta, from),
+                                            ecc::findTimingPin(sta, to), false);
+    rise = values[0] / _sizer->time_unit;
+    fall = values[1] / _sizer->time_unit;
+    pt_time += cpuTime() - begin;
+}
 
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double _pathSlack = _convertToDouble(_answerStr);
-    _pathSlack = _pathSlack * 1e-12 / _sizer->time_unit;
-    return (_pathSlack);
+void designTiming::getNetDelay(double& delay, string from, string to) {
+    const auto begin = cpuTime();
+    auto* sta = _sizer->_ckt->_ord_timing->getSta();
+    const auto values = ecc::timingArcDelays(sta, ecc::findTimingPin(sta, from),
+                                            ecc::findTimingPin(sta, to), true);
+    delay = std::max(values[0], values[1]) / _sizer->time_unit;
+    pt_time += cpuTime() - begin;
 }
 
 void designTiming::getTranVio(double &tot, double &max, int &num) {
-    if(program == PT) {
-        _tclInputString = "PtGetTranVio ";
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetTranVio ";
-    }
-    else if(program == OS) {
-        _tclInputString = "OSGetTranVio ";
-        double begin = cpuTime();
-        auto design = _sizer->_ckt->_ord_design;
-        sta::dbNetwork* network =
-            _sizer->_ckt->_ord_timing->getSta()->getDbNetwork();
-        for(auto inst : design->getBlock()->getInsts()) {
-            for(auto pin_ : inst->getITerms()) {
-                if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
-                   pin_->getNet()->getSigType() != "GROUND" &&
-                   pin_->getNet()->getSigType() != "CLOCK") {
-                    auto m_term = pin_->getMTerm();
-                    sta::Port* port = network->dbToSta(m_term);
-                    sta::LibertyPort* lib_port =
-                        port ? network->libertyPort(port) : nullptr;
-                    if(lib_port == nullptr) {
-                        continue;
-                    }
-                    double r_slew = _sizer->_ckt->_ord_timing->getPinSlew(
-                        pin_, ord::Timing::Rise);
-                    double f_slew = _sizer->_ckt->_ord_timing->getPinSlew(
-                        pin_, ord::Timing::Fall);
-                    double now_slew = std::max(r_slew, f_slew);
-                    double slew_limit =
-                        _sizer->_ckt->_ord_timing->getMaxSlewLimit(m_term);
-                    double slew_diff = std::max(
-                        (now_slew - slew_limit) / _sizer->time_unit, 0.0);
-                    tot += slew_diff;
-                    if(slew_diff > 0) {
-                        ecc::logDebug() << pin_->getName()
-                            << " max tran vio: " << now_slew / _sizer->time_unit
-                            << " " << slew_limit / _sizer->time_unit << endl;
-                        num++;
-                    }
-                    max = std::max(max, slew_diff);
+    double begin = cpuTime();
+    auto design = _sizer->_ckt->_ord_design;
+    sta::dbNetwork* network =
+        _sizer->_ckt->_ord_timing->getSta()->getDbNetwork();
+    for(auto inst : design->getBlock()->getInsts()) {
+        for(auto pin_ : inst->getITerms()) {
+            if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+               pin_->getNet()->getSigType() != "GROUND" &&
+               pin_->getNet()->getSigType() != "CLOCK") {
+                auto m_term = pin_->getMTerm();
+                sta::Port* port = network->dbToSta(m_term);
+                sta::LibertyPort* lib_port =
+                    port ? network->libertyPort(port) : nullptr;
+                if(lib_port == nullptr) {
+                    continue;
                 }
+                double r_slew = _sizer->_ckt->_ord_timing->getPinSlew(
+                    pin_, ord::Timing::Rise);
+                double f_slew = _sizer->_ckt->_ord_timing->getPinSlew(
+                    pin_, ord::Timing::Fall);
+                double now_slew = std::max(r_slew, f_slew);
+                double slew_limit =
+                    _sizer->_ckt->_ord_timing->getMaxSlewLimit(m_term);
+                double slew_diff = std::max(
+                    (now_slew - slew_limit) / _sizer->time_unit, 0.0);
+                tot += slew_diff;
+                if(slew_diff > 0) {
+                    ecc::logDebug() << pin_->getName()
+                        << " max tran vio: " << now_slew / _sizer->time_unit
+                        << " " << slew_limit / _sizer->time_unit << endl;
+                    num++;
+                }
+                max = std::max(max, slew_diff);
             }
         }
-        pt_time += cpuTime() - begin;
-        return;
     }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
     pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
-    int temp3;
-    sscanf(_tclAnswer.c_str(), "%f%f%d", &temp1, &temp2, &temp3);
-    tot = temp1;
-    max = temp2;
-    num = temp3;
+    return;
 }
 
 void designTiming::getCapVio(double &tot, double &max, int &num) {
-    if(program == PT) {
-        _tclInputString = "PtGetCapVio ";
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetCapVio ";
-    }
-    else if(program == OS) {
-        _tclInputString = "OSGetCapVio ";
-        double begin = cpuTime();
-        auto design = _sizer->_ckt->_ord_design;
-        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
-        sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
-        sta::dbNetwork* network = sta->getDbNetwork();
-        for(auto inst : design->getBlock()->getInsts()) {
-            for(auto pin_ : inst->getITerms()) {
-                if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
-                   pin_->getNet()->getSigType() != "GROUND" &&
-                   pin_->getNet()->getSigType() != "CLOCK" &&
-                   pin_->isOutputSignal()) {
-                    auto m_term = pin_->getMTerm();
-                    sta::Port* port = network->dbToSta(m_term);
-                    sta::LibertyPort* lib_port =
-                        port ? network->libertyPort(port) : nullptr;
-                    if(lib_port == nullptr) {
-                        continue;
-                    }
-                    float pin_cap;
-                    float wire_cap;
-                    sta::Net *sta_net =
-                        network->dbToSta(pin_->getNet());
-                    _sizer->_sta->connectedCap(
-                        sta_net, corner, sta::MinMax::max(), pin_cap, wire_cap);
-                    wire_cap /= _sizer->cap_unit;
-                    pin_cap /= _sizer->cap_unit;
-                    double now_cap = wire_cap + pin_cap;
-                    double cap_limit =
-                        _sizer->_ckt->_ord_timing->getMaxCapLimit(m_term) /
-                        _sizer->cap_unit;
-                    double cap_diff = std::max((now_cap - cap_limit), 0.0);
-                    tot += cap_diff;
-                    if(cap_diff > 0) {
-                        ecc::logDebug() << pin_->getName() << " max cap vio: " << now_cap
-                            << " " << wire_cap << " " << cap_limit << endl;
-                        num++;
-                    }
-                    max = std::max(max, cap_diff);
+    double begin = cpuTime();
+    auto design = _sizer->_ckt->_ord_design;
+    auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+    sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
+    sta::dbNetwork* network = sta->getDbNetwork();
+    for(auto inst : design->getBlock()->getInsts()) {
+        for(auto pin_ : inst->getITerms()) {
+            if(pin_->getNet() && pin_->getNet()->getSigType() != "POWER" &&
+               pin_->getNet()->getSigType() != "GROUND" &&
+               pin_->getNet()->getSigType() != "CLOCK" &&
+               pin_->isOutputSignal()) {
+                auto m_term = pin_->getMTerm();
+                sta::Port* port = network->dbToSta(m_term);
+                sta::LibertyPort* lib_port =
+                    port ? network->libertyPort(port) : nullptr;
+                if(lib_port == nullptr) {
+                    continue;
                 }
+                float pin_cap;
+                float wire_cap;
+                sta::Net *sta_net =
+                    network->dbToSta(pin_->getNet());
+                _sizer->_sta->connectedCap(
+                    sta_net, corner, sta::MinMax::max(), pin_cap, wire_cap);
+                wire_cap /= _sizer->cap_unit;
+                pin_cap /= _sizer->cap_unit;
+                double now_cap = wire_cap + pin_cap;
+                double cap_limit =
+                    _sizer->_ckt->_ord_timing->getMaxCapLimit(m_term) /
+                    _sizer->cap_unit;
+                double cap_diff = std::max((now_cap - cap_limit), 0.0);
+                tot += cap_diff;
+                if(cap_diff > 0) {
+                    ecc::logDebug() << pin_->getName() << " max cap vio: " << now_cap
+                        << " " << wire_cap << " " << cap_limit << endl;
+                    num++;
+                }
+                max = std::max(max, cap_diff);
             }
         }
-        pt_time += cpuTime() - begin;
-        return;
     }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
     pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
-    int temp3;
-    sscanf(_tclAnswer.c_str(), "%f%f%d", &temp1, &temp2, &temp3);
-    tot = temp1;
-    max = temp2;
-    num = temp3;
+    return;
 }
 
-double designTiming::getTNSHold(string _clkName) {
-    if(program == PT) {
-        _tclInputString = "PtGetTNSHold " + _clkName;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetTNSHold " + _clkName;
-    }
-    else {
-        return _sizer->_ckt->_ord_timing->getSta()->totalNegativeSlack(sta::MinMax::min())
-               / _sizer->time_unit;
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+double designTiming::getWorstSlack(string _clkName) {
+    const auto begin = cpuTime();
+    auto* timing = _sizer->_ckt->_ord_timing->getSta();
+    const double value = timing->worstSlack(sta::MinMax::max());
     pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double _pathSlack = _convertToDouble(_answerStr);
-    return (_pathSlack);
+    return value >= sta::INF ? 0.0 : value / _sizer->time_unit;
 }
 
-bool designTiming::sizeCell(string cellInstance, string cellMaster) {
-    if(program == PT) {
-        _tclInputString = "PtSizeCell " + cellInstance + " " + cellMaster;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsSizeCell " + cellInstance + " " + cellMaster;
-    }
-    else if(program == OS) {
-        _tclInputString = "OSSizeCell " + cellInstance + " " + cellMaster;
-        ecc::logPrintf("Error: don't have OSSizeCell !\n");
-        exit(0);
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+double designTiming::getWorstSlackHold(string _clkName) {
+    const auto begin = cpuTime();
+    auto* timing = _sizer->_ckt->_ord_timing->getSta();
+    const double value = timing->worstSlack(sta::MinMax::min());
     pt_time += cpuTime() - begin;
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    int _returnStatus = _convertToInt(_answerStr);
-    if(_returnStatus == 0) {
-        ecc::logError() << "Fatal error: size_cell failed; check the status on ptserver"
-             << endl;
-        return false;
-    }
-    return true;
+    return value >= sta::INF ? 0.0 : value / _sizer->time_unit;
 }
 
-bool designTiming::writeECOChange(string filename) {
-    if(program == PT) {
-        _tclInputString = "write_change -format ptsh -output  " + filename;
-    }
-    else if(program == ETS) {
-        _tclInputString = "write_eco -format ets -output " + filename;
-    }
-    else {
-        ecc::logPrintf("error: no writeECOChange !");
-        exit(0);
-    }
-
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+double designTiming::getTNS(string _clkName) {
+    const auto begin = cpuTime();
+    auto* timing = _sizer->_ckt->_ord_timing->getSta();
+    const double value = timing->totalNegativeSlack(sta::MinMax::max());
     pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+    return value >= sta::INF ? 0.0 : value / _sizer->time_unit;
 }
 
-double designTiming::getCellSlack(string CellName) {
-    if(CellName == "")
-        return ((double)0);
-    else {
-        if(program == PT || program == ETS) {
-            _tclInputString = "PtCellSlack " + CellName;
+double designTiming::getLeakPower() {
+    double begin = cpuTime();
+    double totalLeakagePower = 0.0;
+    auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+
+    if(_sizer->cells == nullptr) {
+        for(auto inst : _sizer->_ckt->_ord_design->getBlock()->getInsts()) {
+            totalLeakagePower +=
+                _sizer->_ckt->_ord_timing->staticPower(inst, corner);
         }
-        else {
-            ecc::logPrintf("error: no getCellSlack !");
-            exit(0);
+    }
+    else {
+        for(int i = 0; i < _sizer->numcells; i++) {
+            if(_sizer->cells[i].isStaticChanged) {
+                auto inst = _sizer->_ckt->_ord_design->getBlock()->findInst(
+                    _sizer->cells[i].name.c_str());
+                _sizer->cells[i].static_power =
+                    _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+                _sizer->cells[i].isStaticChanged = false;
+            }
+            totalLeakagePower += _sizer->cells[i].static_power;
         }
-        //_tclExpression = (char *)_tclInputString.c_str();
-        double begin = cpuTime();
-        _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-        pt_time += cpuTime() - begin;
-
-        string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-        string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-        double _setupSlack = _convertToDouble(_answerStr);
-        return (_setupSlack);
     }
+    totalLeakagePower /= _sizer->sw_adj;
+    pt_time += cpuTime() - begin;
+    return totalLeakagePower;
 }
 
-bool designTiming::loadDesign(string benchname) {
-    _tclInputString =
-        "redirect pt.loadDesign.log {source pt." + benchname + ".tcl}";
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
+double designTiming::getCellPower(string cell_name) {
     double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+    double totalLeakagePower = 0.0;
+    auto inst =
+        _sizer->_ckt->_ord_design->getBlock()->findInst(cell_name.c_str());
+    if(!inst)
+        throw std::invalid_argument("timing instance not found: " + cell_name);
+    auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
+    totalLeakagePower +=
+        _sizer->_ckt->_ord_timing->staticPower(inst, corner);
+    totalLeakagePower /= _sizer->sw_adj;
     pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
+    return totalLeakagePower;
+}
 
-    if(_answerStr == "1")
-        return true;
-    else
+double designTiming::getTotPower() {
+    // The sizing search uses static leakage as its power objective.
+    return getLeakPower();
+}
+
+double designTiming::getTNSHold(string) {
+    const auto begin = cpuTime();
+    const auto value = _sizer->_ckt->_ord_timing->getSta()->totalNegativeSlack(sta::MinMax::min());
+    pt_time += cpuTime() - begin;
+    return value >= sta::INF ? 0.0 : value / _sizer->time_unit;
+}
+
+bool designTiming::sizeCell(string instance, string master) {
+    auto* block = _sizer->_ckt->_ord_design->getBlock();
+    auto* inst = block->findInst(instance.c_str());
+    auto* replacement = block->getDb()->findMaster(master.c_str());
+    if(!inst || !replacement)
         return false;
-}
-
-// bool designTiming::updateSize(string filename) {
-//     //_tclInputString = "redirect pt.updateSize.log {source " +
-//     // filename+"}";
-
-//     _sizer->_sta->networkChanged1();  // FIXME: This has a bug
-//     _tclInputString = "source " + filename;
-//     // ecc::logInfo() << _tclInputString << endl;
-//     //_tclExpression = (char *)_tclInputString.c_str();
-//     double begin = cpuTime();
-//     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-//     pt_time += cpuTime() - begin;
-//     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-//     string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-
-//     if(_answerStr == "1")
-//         return true;
-//     else
-//         return false;
-// }
-
-bool designTiming::checkSize(string filename) {
-    if(program == PT) {
-        _tclInputString = "PtGetCurSize " + filename;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetCurSize " + filename;
-    }
-    else if(program == OS) {
-        _tclInputString = "OSGetCurSize " + filename;
-        ecc::logPrintf("Error: don't have OSGetCurSize !\n");
-        exit(0);
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-
-    if(_answerStr == "1")
+    if(inst->getMaster() == replacement)
         return true;
-    else
-        return false;
+    return _sizer->replaceCell(inst, replacement);
 }
 
-bool designTiming::checkServer() {
-    _tclInputString = "checkServer";
-    // ecc::logInfo() << "checkServer\" " << this << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
+double designTiming::getCeff(string name) {
+    const auto begin = cpuTime();
+    auto* sta = _sizer->_ckt->_ord_timing->getSta();
+    auto* net = sta->network()->net(ecc::findTimingPin(sta, name));
+    float pin_cap = 0, wire_cap = 0;
+    if(net)
+        sta->connectedCap(net, sta->scenes().front(), sta::MinMax::max(), pin_cap, wire_cap);
     pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+    // Preserve the sizing model's total connected-load convention.
+    return (pin_cap + wire_cap) / _sizer->cap_unit;
 }
 
-void designTiming::getPinSlack(double &riseSlack, double &fallSlack,
-                               string pinName) {
-    if(program == PT) {
-        _tclInputString = "PtGetPinSlack " + pinName;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetPinSlack " + pinName;
-    }
-    else if(program == OS) {
-        double begin = cpuTime();
-        auto pin_ =
-            _sizer->_ckt->_ord_design->getBlock()->findITerm2(pinName.c_str());
-        sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
-        sta::dbNetwork *network = sta->getDbNetwork();
-        // sta::Port *port = network->dbToSta(pin_->getMTerm());
-        double r_att =
-            _sizer->_ckt->_ord_timing->getPinSlack(pin_, ord::Timing::Rise);
-        double f_att =
-            _sizer->_ckt->_ord_timing->getPinSlack(pin_, ord::Timing::Fall);
-        pt_time += cpuTime() - begin;
-
-        riseSlack = r_att / _sizer->time_unit;
-        fallSlack = f_att / _sizer->time_unit;
-
-        pt_time += cpuTime() - begin;
-        ecc::logInfo() << "Slack " << pinName << " " << riseSlack << " " << fallSlack
-             << endl;
-        return;
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
-    sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    if(temp1 >= 100000000000.0 - 1e-5) {
-        temp1 = std::numeric_limits< float >::infinity();
-    }
-    if(temp2 >= 100000000000.0 - 1e-5) {
-        temp2 = std::numeric_limits< float >::infinity();
-    }
-    riseSlack = temp1;
-    fallSlack = temp2;
+string designTiming::getLibCell(string name) {
+    auto* inst = _sizer->_ckt->_ord_design->getBlock()->findInst(name.c_str());
+    if(!inst)
+        throw std::invalid_argument("timing instance not found: " + name);
+    return inst->getMaster()->getName();
 }
 
-void designTiming::getPinMinSlack(double &riseSlack, double &fallSlack,
-                                  string pinName) {
-    if(program == PT) {
-        _tclInputString = "PtGetPinMinSlack " + pinName;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetPinMinSlack " + pinName;
-    }
-    else {
-        ecc::logPrintf("error: no getPinMinSlack !");
-        exit(0);
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp1;
-    float temp2;
-    sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-    riseSlack = temp1;
-    fallSlack = temp2;
-    // ecc::logInfo() << pinName << " " << riseSlack << " " << fallSlack << endl;
+void designTiming::getPinSlack(double& rise, double& fall, string name) {
+    pinValues(rise, fall, name, ecc::PinTimingMetric::Slack, sta::MinMax::max());
 }
 
-void designTiming::getPinTran(double &riseTran, double &fallTran,
-                              string pinName) {
-    _tclInputString = "OSGetPinTran " + pinName;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    if(VERBOSE > 3) {
-        ecc::logPrintf("Error: not OSGetPinTran !, pin name %s\n", pinName.c_str());
-    }
-    auto pin_ =
-        _sizer->_ckt->_ord_design->getBlock()->findITerm2(pinName.c_str());
-    sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
-    sta::dbNetwork *network = sta->getDbNetwork();
-    // sta::Port *port = network->dbToSta(pin_->getMTerm());
-    double r_slew =
-        _sizer->_ckt->_ord_timing->getPinSlew(pin_, ord::Timing::Rise);
-    double f_slew =
-        _sizer->_ckt->_ord_timing->getPinSlew(pin_, ord::Timing::Fall);
-    pt_time += cpuTime() - begin;
-
-    riseTran = r_slew / _sizer->time_unit;
-    fallTran = f_slew / _sizer->time_unit;
-    ecc::logInfo() << pinName << " " << riseTran << " " << fallTran << endl;
+void designTiming::getPinMinSlack(double& rise, double& fall, string name) {
+    pinValues(rise, fall, name, ecc::PinTimingMetric::Slack, sta::MinMax::min());
 }
 
-// void designTiming::getPinCap(double &riseTran, double &fallTran,
-//                               string pinName) {
-//     _tclInputString = "OSGetPinTran " + pinName;
-//     // ecc::logInfo() << _tclInputString << endl;
-//     //_tclExpression = (char *)_tclInputString.c_str();
-//     double begin = cpuTime();
-//     _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-//     pt_time += cpuTime() - begin;
-
-//     string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-//     float temp1;
-//     float temp2;
-//     sscanf(_tclAnswer.c_str(), "%f%f", &temp1, &temp2);
-//     riseTran = temp1;
-//     fallTran = temp2;
-//     // ecc::logInfo() << pinName << " " << riseSlack << " " << fallSlack << endl;
-// }
-
-bool designTiming::writePinSlack(string infile, string outfile) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinSlack " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWritePinSlack " + infile + " " + outfile;
-    }
-    else if(program == OS) {
-        _tclInputString = "OSWritePinSlack " + infile + " " + outfile;
-        ecc::logPrintf("Error: don't have OSWritePinSlack !\n");
-        exit(0);
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+void designTiming::getPinTran(double& rise, double& fall, string name) {
+    pinValues(rise, fall, name, ecc::PinTimingMetric::Slew, sta::MinMax::max());
 }
 
-bool designTiming::writePinMinSlack(string infile, string outfile) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinMinSlack " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWritePinMinSlack " + infile + " " + outfile;
-    }
-    else {
-        ecc::logPrintf("error: no writePinMinSlack !");
-        // exit(0);
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+void designTiming::getPinArrival(double& rise, double& fall, string name) {
+    pinValues(rise, fall, name, ecc::PinTimingMetric::Arrival, sta::MinMax::max());
 }
 
-bool designTiming::writeMaxTranConst(string infile, string outfile) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinMaxTranConst " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWritePinMaxTranConst " + infile + " " + outfile;
-    }
-    else {
-        _tclInputString = "OSWritePinMaxTranConst " + infile + " " + outfile;
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+double designTiming::getRiseSlack(string name) {
+    double rise, fall;
+    getPinSlack(rise, fall, name);
+    return rise;
 }
 
-// JLPWR
-bool designTiming::writePinToggleRate(string infile, string outfile,
-                                      string clock_period) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinToggleRate " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWritePinToggleRateWithClock " + infile + " " +
-                          outfile + " " + clock_period;
-    }
-    else if(program == OS) {
-        _tclInputString = "OSWritePinToggleRate " + infile + " " + outfile;
-        ecc::logPrintf("Error: don't have OSWritePinToggleRate !\n");
-        // exit(0);
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+double designTiming::getFallSlack(string name) {
+    double rise, fall;
+    getPinSlack(rise, fall, name);
+    return fall;
 }
 
-bool designTiming::writePinToggleRate(string infile, string outfile) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinToggleRate " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWritePinToggleRate " + infile + " " + outfile;
-    }
-    else if(program == OS) {
-        _tclInputString = "OSWritePinToggleRate " + infile + " " + outfile;
-        ecc::logPrintf("Error: don't have OSWritePinToggleRate !\n");
-        // exit(0);
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+double designTiming::getRiseTran(string name) {
+    double rise, fall;
+    getPinTran(rise, fall, name);
+    return rise;
 }
 
-// JLPWR
-void designTiming::getPinToggleRate(double &toggleRate, string pinName) {
-    if(program == PT || program == ETS) {
-        _tclInputString = "PtGetPinToggleRate " + pinName;
-    }
-    else {
-        _tclInputString = "OSGetPinToggleRate " + pinName;
-        toggleRate = 0;
-        return;
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    float temp;
-    sscanf(_tclAnswer.c_str(), "%f", &temp);
-    toggleRate = temp;
+double designTiming::getFallTran(string name) {
+    double rise, fall;
+    getPinTran(rise, fall, name);
+    return fall;
 }
 
-bool designTiming::writePinTran(string infile, string outfile) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinTran " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "PtWritePinTran " + infile + " " + outfile;
-    }
-    else {
-        ecc::logPrintf("error: no writePinTran !");
-        // exit(0);
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+double designTiming::getRiseArrival(string name) {
+    double rise, fall;
+    getPinArrival(rise, fall, name);
+    return rise;
 }
 
-bool designTiming::writePinAll(string infile, string outfile) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinAll " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWritePinAll " + infile + " " + outfile;
-    }
-    else if(program == OS) {
-        _tclInputString = "OSWritePinAll " + infile + " " + outfile;
-        ecc::logPrintf("Error: don't have OSWritePinAll !\n");
-        // exit(0);
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+double designTiming::getFallArrival(string name) {
+    double rise, fall;
+    getPinArrival(rise, fall, name);
+    return fall;
 }
 
-// FIXEME:
-void designTiming::getPinArrival(double &riseArrival, double &fallArrival,
-                                 string pinName) {
-    _tclInputString = "OSGetPinArrival " + pinName;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    // The native OpenSTA query below supplies the arrival values directly.
-    // Keep this fallback quiet; it is called for many pins without a Tcl
-    // OSGetPinArrival path and the unconditional diagnostic floods the log.
-    double begin = cpuTime();
-    auto pin_ =
-        _sizer->_ckt->_ord_design->getBlock()->findITerm2(pinName.c_str());
-    sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
-    sta::dbNetwork *network = sta->getDbNetwork();
-    // assert(0);
-    // sta::Port *port = network->dbToSta(pin_->getMTerm());
-    double r_att =
-        _sizer->_ckt->_ord_timing->getPinArrival(pin_, ord::Timing::Rise);
-    double f_att =
-        _sizer->_ckt->_ord_timing->getPinArrival(pin_, ord::Timing::Fall);
-    pt_time += cpuTime() - begin;
-
-    riseArrival = r_att / _sizer->time_unit;
-    fallArrival = f_att / _sizer->time_unit;
-
-    pt_time += cpuTime() - begin;
-    // Arrival values are returned to the caller; do not print one line per pin.
-}
-
-double designTiming::getRiseSlack(string PinName) {
-    if(program == PT || program == ETS) {
-        _tclInputString = "PtGetRiseSlack " + PinName;
-    }
-    else {
-        _tclInputString = "OSGetRiseSlack " + PinName;
-    }
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double slack = _convertToDouble(_answerStr);
-    return slack;
-}
-
-double designTiming::getFallSlack(string PinName) {
-    if(program == PT || program == ETS) {
-        _tclInputString = "PtGetFallSlack " + PinName;
-    }
-    else {
-        _tclInputString = "OSGetFallSlack " + PinName;
-    }
-
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double slack = _convertToDouble(_answerStr);
-    return slack;
-}
-
-double designTiming::getRiseTran(string PinName) {
-    if(program == PT) {
-        _tclInputString = "PtGetRiseTran " + PinName;
-    }
-    else {
-        _tclInputString = "OSGetRiseTran " + PinName;
-    }
-    // ecc::logPrintf("Error: not OSGetRiseTran !, pin name %s\n", PinName.c_str());
-    // exit(0);
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double tran = _convertToDouble(_answerStr);
-    return tran;
-}
-
-double designTiming::getFallTran(string PinName) {
-    if(program == PT) {
-        _tclInputString = "PtGetFallTran " + PinName;
-    }
-    else {
-        _tclInputString = "OSGetFallTran " + PinName;
-    }
-
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double tran = _convertToDouble(_answerStr);
-    return tran;
-}
-
-double designTiming::getRiseArrival(string PinName) {
-    _tclInputString = "PtGetRiseArrival " + PinName;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double val = _convertToDouble(_answerStr);
-    return val;
-}
-
-double designTiming::getFallArrival(string PinName) {
-    _tclInputString = "PtGetFallArrival " + PinName;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double val = _convertToDouble(_answerStr);
-    return val;
-}
-
-double designTiming::getCeff(string PinName) {
-    if(program == PT) {
-        _tclInputString = "PtGetCeff " + PinName;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsGetCeff " + PinName;
-    }
-    else {
-        auto design = _sizer->_ckt->_ord_design;
-        // ofstream ofs("opensta_cap_vio.txt");
-        auto corner = _sizer->_ckt->_ord_timing->getCorners()[0];
-        auto pin_ = design->getBlock()->findITerm2(PinName.c_str());
-        if(!pin_) {
-            ecc::logPrintf("error: no getCeff !\n");
-            return 0;
+bool designTiming::writePins(const string& input, const string& output, PinReport report) {
+    std::ifstream in(input);
+    if(!in) throw std::runtime_error("cannot read pin list: " + input);
+    std::ofstream out(output);
+    if(!out) throw std::runtime_error("cannot write pin report: " + output);
+    out << std::setprecision(std::numeric_limits<double>::max_digits10);
+    auto write = [&](double value) {
+        if(std::isinf(value)) out << (value < 0 ? " -INFINITY" : " INFINITY");
+        else out << ' ' << value;
+    };
+    for(string name; std::getline(in, name);) {
+        if(!name.empty() && name.back() == '\r') name.pop_back();
+        if(name.empty()) continue;
+        out << name;
+        double rise, fall;
+        if(report != PinReport::Slew) {
+            getPinSlack(rise, fall, name);
+            write(rise); write(fall);
         }
-        auto m_term = pin_->getMTerm();
-        float pin_cap;
-        float wire_cap;
-        sta::dbSta *sta = _sizer->_ckt->_ord_timing->getSta();
-        sta::Net *sta_net = sta->getDbNetwork()->dbToSta(pin_->getNet());
-        _sizer->_sta->connectedCap(sta_net, corner, sta::MinMax::max(), pin_cap,
-                                   wire_cap);
-        wire_cap /= _sizer->cap_unit;
-        pin_cap /= _sizer->cap_unit;
-        double now_cap = wire_cap + pin_cap;
-        return now_cap;
-        ecc::logPrintf("error: no getCeff !");
+        if(report != PinReport::Slack) {
+            getPinTran(rise, fall, name);
+            write(rise); write(fall);
+        }
+        if(report == PinReport::All) {
+            getPinArrival(rise, fall, name);
+            write(rise); write(fall);
+        }
+        out << '\n';
     }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    double val = _convertToDouble(_answerStr);
-    return val;
+    return bool(out);
 }
 
-bool designTiming::writePinCeff(string infile, string outfile) {
-    if(program == PT) {
-        _tclInputString = "PtWritePinCeff " + infile + " " + outfile;
-    }
-    else if(program == ETS) {
-        _tclInputString = "EtsWritePinCeff " + infile + " " + outfile;
-    }
-    else {
-        ecc::logPrintf("error: no writePinCeff !");
-        exit(0);
-    }
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+bool designTiming::writePinSlack(string input, string output) {
+    return writePins(input, output, PinReport::Slack);
 }
-
-bool designTiming::runECO(unsigned mode) {
-    if(program != PT)
-        return false;
-
-    string cmd = "";
-    if(mode == 0) {
-        cmd = "fix_eco_timing -type setup -methods size_cell";
-    }
-    else if(mode == 1) {
-        cmd = "fix_eco_drc -type max_transition -methods size_cell";
-    }
-    else if(mode == 2) {
-        cmd = "fix_eco_drc -type max_capacitance -methods size_cell";
-    }
-
-    _tclInputString = "" + cmd;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-
-    if(_answerStr == "1")
-        return true;
-    else
-        return false;
+bool designTiming::writePinTran(string input, string output) {
+    return writePins(input, output, PinReport::Slew);
 }
-
-string designTiming::getLibCell(string CellName) {
-    _tclInputString = "PtGetLibCell " + CellName;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    return (_answerStr);
-}
-
-void designTiming::Exit() {
-    _tclInputString = "exitServer";
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-}
-
-string designTiming::doOneCmd(string command) {
-    _tclInputString = "" + command;
-    // ecc::logInfo() << _tclInputString << endl;
-    //_tclExpression = (char *)_tclInputString.c_str();
-    double begin = cpuTime();
-    _sizer->_ckt->_ord_design->evalTclString(_tclInputString);
-    pt_time += cpuTime() - begin;
-
-    string _tclAnswer(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    string _answerStr(Tcl_GetStringResult(sta::Sta::sta()->tclInterp()));
-    return _answerStr;
+bool designTiming::writePinAll(string input, string output) {
+    return writePins(input, output, PinReport::All);
 }

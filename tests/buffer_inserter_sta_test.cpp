@@ -38,6 +38,8 @@
 #include "sta/VerilogReader.hh"
 #include "sta/VerilogWriter.hh"
 #include "tst/IntegratedFixture.h"
+#include "analyze_timing.h"
+#include "cell_sizing.h"
 
 namespace {
 
@@ -2995,4 +2997,167 @@ TEST_F(BufferInserterStaTest, IncrementalPlacementRetainsLegalProtectedCells)
   EXPECT_EQ(nx,x);EXPECT_EQ(ny,y);EXPECT_EQ(fixed->getPlacementStatus(),status);
   EXPECT_NO_THROW(dp_.checkPlacement(false));
   odb::dbInst::destroy(added);
+}
+
+TEST_F(BufferInserterStaTest, SizingTimingQueriesUseStaObjects)
+{
+  readTestDesign();
+  constrainSetup();
+  auto* sdc = sta_->cmdMode()->sdc();
+  auto* input = db_network_->dbToSta(block_->findBTerm("in"));
+  sta_->setInputDelay(input, sta::RiseFallBoth::riseFall(), sdc->findClock("clk"),
+                     sta::RiseFall::rise(), nullptr, false, false,
+                     sta::MinMaxAll::all(), false, 0.02e-9f, sdc);
+  sta_->updateTiming(true);
+  for(const auto* name : {"in", "driver/A", "driver/Z", "load1/A", "out1"}) {
+    auto* pin = ecc::findTimingPin(sta_.get(), name);
+    ASSERT_NE(pin, nullptr);
+    for(auto* mm : {sta::MinMax::min(), sta::MinMax::max()}) {
+      const auto slack = ecc::pinTiming(sta_.get(), pin, ecc::PinTimingMetric::Slack, mm);
+      const auto arrival = ecc::pinTiming(sta_.get(), pin, ecc::PinTimingMetric::Arrival, mm);
+      const auto slew = ecc::pinTiming(sta_.get(), pin, ecc::PinTimingMetric::Slew, mm);
+      for(auto* rf : sta::RiseFall::range()) {
+        auto normalize = [](double value) {
+          return std::abs(value) >= sta::INF
+                     ? std::copysign(std::numeric_limits<double>::infinity(), value) : value;
+        };
+        EXPECT_DOUBLE_EQ(slack[rf->index()], normalize(sta_->slack(pin, rf->asRiseFallBoth(), sta_->scenes(), mm)));
+        EXPECT_DOUBLE_EQ(arrival[rf->index()], normalize(sta_->arrival(pin, rf->asRiseFallBoth(), mm)));
+        EXPECT_GE(slew[rf->index()], 0.0);
+        EXPECT_TRUE(std::isfinite(slew[rf->index()]));
+      }
+    }
+  }
+  EXPECT_THROW(ecc::findTimingPin(sta_.get(), "missing/pin"), std::invalid_argument);
+  auto* inst = block_->findInst("load1");
+  ASSERT_TRUE(inst->rename("scope:part/load[1]"));
+  EXPECT_EQ(ecc::findTimingPin(sta_.get(), "scope:part/load[1]/A"),
+            db_network_->dbToSta(inst->findITerm("A")));
+}
+
+TEST_F(BufferInserterStaTest, SizingArcQueriesPreserveRiseFallAndWireDelay)
+{
+  readTestDesign();
+  sta_->findDelays();
+  auto* graph = sta_->graph();
+  for(bool wire : {false, true}) {
+    auto* from = ecc::findTimingPin(sta_.get(), wire ? "driver/Z" : "driver/A");
+    auto* to = ecc::findTimingPin(sta_.get(), wire ? "load1/A" : "driver/Z");
+    auto* source = wire ? graph->pinDrvrVertex(from) : graph->pinLoadVertex(from);
+    auto* target = wire ? graph->pinLoadVertex(to) : graph->pinDrvrVertex(to);
+    sta::VertexOutEdgeIterator edges(source, graph);
+    unsigned annotated = 0;
+    while(edges.hasNext()) {
+      auto* edge = edges.next();
+      if(edge->to(graph) != target || edge->isWire() != wire) continue;
+      for(auto* arc : edge->timingArcSet()->arcs()) {
+        const float value = arc->toEdge()->asRiseFall() == sta::RiseFall::rise() ? 31e-12f : 57e-12f;
+        sta_->setArcDelay(edge, arc, sta_->scenes().front(), sta::MinMaxAll::max(), value);
+        ++annotated;
+      }
+    }
+    ASSERT_GE(annotated, 2u);
+    const auto delay = ecc::timingArcDelays(sta_.get(), from, to, wire);
+    EXPECT_DOUBLE_EQ(delay[0], double(31e-12f));
+    EXPECT_DOUBLE_EQ(delay[1], double(57e-12f));
+  }
+}
+
+TEST_F(BufferInserterStaTest, SizingImportsLoadedParasiticsWithoutParsingNames)
+{
+  readTestDesign();
+  ASSERT_TRUE(block_->findInst("load1")->rename("scope:part/load[1]"));
+  class ImportedCircuit : public Circuit {
+   public:
+    using Circuit::Circuit;
+    using Circuit::importParasitics;
+  };
+  Sizer sizer;
+  sizer.cap_unit = 1e-15;
+  sizer.res_unit = 1e3;
+  ImportedCircuit model(&sizer);
+  model.g_cells.resize(3);
+  model.g_cells[0].name = "driver";
+  model.g_cells[1].name = "scope:part/load[1]";
+  model.g_cells[2].name = "load2";
+  model.g_pins.resize(5);
+  for(unsigned i = 0; i < 3; ++i) {
+    model.g_pins[i].owner = i;
+    model.g_pins[i].name = i == 0 ? "Z" : "A";
+  }
+  model.g_pins[3].name = "in";
+  model.g_pins[3].owner = UINT_MAX;
+  model.g_pins[4].name = "A";
+  model.g_pins[4].owner = 0;
+  model.g_nets.resize(1);
+  auto& nets = model.g_nets.front();
+  nets.resize(2);
+  nets[0].name = "n1";
+  nets[0].inpin = 0;
+  nets[0].outpins = {1, 2};
+  nets[1].name = "in";
+  nets[1].inpin = 3;
+  nets[1].outpins = {4};
+  auto* parasitics = sta_->scenes().front()->parasitics(sta::MinMax::max());
+  for(auto& net : nets) {
+    auto* sta_net = db_network_->dbToSta(block_->findNet(net.name.c_str()));
+    auto* rc = parasitics->makeParasiticNetwork(sta_net, false);
+    auto* internal = parasitics->ensureParasiticNode(rc, sta_net, 42, db_network_);
+    parasitics->incrCap(internal, 7e-15f);
+    auto add_pin = [&](unsigned id, float resistance, float cap) {
+      auto* pin = ecc::findTimingPin(sta_.get(), model.getFullPinName(model.g_pins[id]));
+      auto* node = parasitics->ensureParasiticNode(rc, pin, db_network_);
+      parasitics->incrCap(node, cap);
+      parasitics->makeResistor(rc, id, resistance, node, internal);
+    };
+    add_pin(net.inpin, 100.0f, 2e-15f);
+    for(auto id : net.outpins) add_pin(id, 200.0f, 3e-15f);
+  }
+  for(int pass = 0; pass < 2; ++pass) {
+    model.importParasitics(sta_.get());
+    for(const auto& net : nets) {
+      const auto& nodes = net.subNodeVec;
+      ASSERT_EQ(nodes.size(), net.outpins.size() + 2);
+      EXPECT_EQ(nodes.front().pinId, net.inpin);
+      EXPECT_EQ(model.g_pins[net.inpin].spef_pin, 0u);
+      EXPECT_NEAR(nodes.front().cap, 2.0, 1e-6);
+      ASSERT_EQ(nodes.front().adj.size(), 1u);
+      const auto internal = nodes.front().adj.front();
+      EXPECT_NEAR(nodes[internal].cap, 7.0, 1e-6);
+      EXPECT_NEAR(nodes.front().res.front(), 0.1, 1e-6);
+      EXPECT_EQ(nodes[internal].adj.size(), net.outpins.size() + 1);
+      for(auto id : net.outpins) {
+        const auto& sink = nodes.at(model.g_pins[id].spef_pin);
+        EXPECT_TRUE(sink.isSink);
+        EXPECT_EQ(sink.pinId, id);
+        EXPECT_NEAR(sink.cap, 3.0, 1e-6);
+        EXPECT_NEAR(sink.res.front(), 0.2, 1e-6);
+      }
+    }
+  }
+}
+
+TEST_F(BufferInserterStaTest, CellReplacementChecksProtectionAndCompatibility)
+{
+  readTestDesign();
+  auto* inst = block_->findInst("driver");
+  auto* original = inst->getMaster();
+  auto* larger = lib_->findMaster("BUF_X4");
+  auto* incompatible = lib_->findMaster("AND2_X1");
+  ASSERT_TRUE(ecc::compatibleCellMasters(original, larger));
+  EXPECT_FALSE(ecc::compatibleCellMasters(original, incompatible));
+  EXPECT_FALSE(ecc::replaceCell({inst, incompatible}));
+  inst->setDoNotTouch(true);
+  EXPECT_FALSE(ecc::replaceCell({inst, larger}));
+  EXPECT_TRUE(ecc::replaceCell({inst, original}));
+  inst->setDoNotTouch(false);
+  inst->setPlacementStatus(odb::dbPlacementStatus::LOCKED);
+  EXPECT_FALSE(ecc::replaceCell({inst, larger}));
+  inst->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+  {
+    ecc::EcoTransaction transaction(block_);
+    EXPECT_TRUE(ecc::replaceCell({inst, larger}));
+    EXPECT_EQ(inst->getMaster(), larger);
+  }
+  EXPECT_EQ(inst->getMaster(), original);
 }

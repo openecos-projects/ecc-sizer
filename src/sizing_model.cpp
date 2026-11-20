@@ -4,6 +4,7 @@
 #include "cell_sizing.h"
 #include "sizing_model.h"
 #include "special_net.h"
+#include "design_edit.h"
 #include <tcl8.6/tcl.h>
 #include <tcl8.6/tclDecls.h>
 #include <algorithm>
@@ -37,18 +38,12 @@
 #include "grt/GlobalRouter.h"
 #include "db_sta/dbSta.hh"
 #include "utils.h"
-#define NUM_VTS 3
-#define NUM_SIZES 10
-#define SDC_FILE_POSTFIX ".sizer"
-#define SDC_CONVERT_TCL "./SDC/convert_sdc.tcl"
 #include "sta/Sta.hh"
-#include "ConcreteParasitics.hh"
-#include "ConcreteParasiticsPvt.hh"
+#include "sta/Parasitics.hh"
+#include <stdexcept>
 #include <filesystem>
 // using namespace std;
 using namespace sta;
-
-void skip(istream& is);
 
 namespace {
 
@@ -274,13 +269,11 @@ void Circuit::InitData() {
         vector< NET > _net;
         vector< LibCellTable* > _main_lib_cell_tables;            // MMMC
         unordered_map< string, LibCellInfo > _libs;               // MMMC
-        map< string, int > _node2id;                              // MMMC
         map< string, list< LibCellInfo* > > _func_lib_cell_list;  // MMMC
         double _maxTran = 0.0;
 
         _sizer->main_lib_cell_tables.push_back(_main_lib_cell_tables);
         _sizer->libs.push_back(_libs);
-        _sizer->node2id.push_back(_node2id);
         _sizer->maxTran.push_back(_maxTran);
         g_nets.push_back(_net);
         _sizer->func_lib_cell_list.push_back(_func_lib_cell_list);
@@ -288,13 +281,12 @@ void Circuit::InitData() {
     }
 }
 
-void Circuit::Parser(string benchmark) {
+void Circuit::buildSizingModel() {
     InitData();
     ecc::logInfo() << "Load design... " << _sizer->benchname << endl;
     // _sta = new sta::Sta;
     if(!_ord_design || !_ord_timing || !_sta)
         throw std::logic_error("sizing requires a loaded OpenROAD design");
-    ifstream infile;
     _ord_timing->makeEquivCells();
     int maxx = 0;
     _sizer->cellName2EquaivaID.clear();
@@ -306,7 +298,7 @@ void Circuit::Parser(string benchmark) {
             auto equicCells = _ord_timing->equivCells(dbmaster);
             vector< odb::dbMaster* > valid_equiv_cells;
             for(auto equicCell : equicCells) {
-                if(equicCell != nullptr) {
+                if(ecc::compatibleCellMasters(master, equicCell)) {
                     valid_equiv_cells.push_back(equicCell);
                 }
             }
@@ -335,14 +327,12 @@ void Circuit::Parser(string benchmark) {
             maxx++;
         }
     }
-    infile.close();
     std::unique_ptr<sta::LibertyLibraryIterator> libraries(_sta->network()->libertyLibraryIterator());
     while(libraries->hasNext())
         importLiberty(libraries->next());
-    // _sizer->runOrdTO();
     // find_resize_slacks();
     // exit(0);
-    readDesign_opensta(_sta);
+    importDesign(_sta);
     int t_corner = 0;
     std::map< string, list< LibCellInfo* > >::iterator it;
     for(it = _sizer->func_lib_cell_list[t_corner].begin();
@@ -565,9 +555,7 @@ void Circuit::Parser(string benchmark) {
 
     for(unsigned corner = 0; corner < _sizer->numCorners; ++corner) {
         spdlog::debug("Importing STA parasitics for corner {}", corner);
-        readSpef_opensta(_sta);
-
-        node2id.clear();
+        importParasitics(_sta);
 
         for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
             // g_nets[corner][i].cap =
@@ -577,15 +565,8 @@ void Circuit::Parser(string benchmark) {
                 ecc::logInfo() << "CORNER " << corner << " NETS --- " << i
                                << " " << g_nets[corner][i].name << endl;
 
-            vector< SUB_NODE >* subNodeVecPtr = &g_nets[corner][i].subNodeVec;
-            std::vector< SUB_NODE >::iterator subNodeIter;
             int sink_num = 0;
             for(auto& sn : g_nets[corner][i].subNodeVec) {
-                if(sn.isSink) {
-                    assert(pin2id.count(sn.pin_name));
-                    sn.pinId = pin2id[sn.pin_name];
-                    g_pins[sn.pinId].spef_pin = sn.id;
-                }
                 sink_num += sn.isSink;
             }
             list< string > pin_list2;
@@ -1170,130 +1151,6 @@ void Circuit::report_cell(LibCellInfo cell) {
     ecc::logInfo() << "End of cell " << cell.name << endl << endl;
 }
 
-bool is_special_char(char c) {
-    // static const char specialChars[] = {'(', ')', ',', ':', ';', '/', '#',
-    // '[', ']', '{', '}', '*', '\"', '\\'} ;
-    static const char specialChars[] = {',', '\"', '\\', ';', '(', ')', ':',
-                                        '{', '}',  '/',  '[', ']', '*', '#'};
-
-    for(unsigned i = 0; i < sizeof(specialChars); ++i) {
-        if(c == specialChars[i])
-            return true;
-    }
-
-    return false;
-}
-
-// Read the next line and return it as a list of tokens skipping white space and
-// special characters
-// The return value indicates success/failure.
-
-// Read clock definition
-// Return value indicates if the last read was successful or not.
-
-// Read input delay
-// Return value indicates if the last read was successful or not.
-
-// Read output delay
-// Return value indicates if the last read was successful or not.
-
-// Read driver info for the input port
-// Return value indicates if the last read was successful or not.
-
-// Read output load
-// Return value indicates if the last read was successful or not.
-
-// Read timing info for the next pin
-// Return value indicates if the last read was successful or not.
-bool Circuit::read_pin_timing(string& cellInst, string& pin, double& riseSlack,
-                              double& fallSlack, double& riseTransition,
-                              double& fallTransition) {
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    assert(valid);
-    assert(tokens.size() >= 2);
-
-    if(tokens[0] == "port" && tokens[1] == "timing") {
-        // The next section (port timing) will start after this point
-        tokens.clear();
-        return false;
-    }
-    else {
-        if(tokens.size() != 6) {
-            // ecc::logInfo() << "token size : "<< tokens.size() <<endl;
-            // for(unsigned i=0 ; i<tokens.size() ; i++)
-            //    ecc::logInfo() << tokens[i] << " ";
-        }
-
-        assert(tokens.size() == 6);
-        cellInst = tokens[0];
-        pin = tokens[1];
-        riseSlack = std::atof(tokens[2].c_str());
-        fallSlack = std::atof(tokens[3].c_str());
-        riseTransition = std::atof(tokens[4].c_str());
-        fallTransition = std::atof(tokens[5].c_str());
-        tokens.clear();
-
-        return true;
-    }
-}
-
-// Read timing info for the next port
-// Return value indicates if the last read was successful or not.
-bool Circuit::read_port_timing(string& port, double& riseSlack,
-                               double& fallSlack, double& riseTransition,
-                               double& fallTransition) {
-    vector< string > tokens;
-    bool valid = read_line_as_tokens(is, tokens);
-
-    if(valid) {
-        assert(tokens.size() == 5);
-        port = tokens[0];
-        riseSlack = std::atof(tokens[1].c_str());
-        fallSlack = std::atof(tokens[2].c_str());
-        riseTransition = std::atof(tokens[3].c_str());
-        fallTransition = std::atof(tokens[4].c_str());
-    }
-
-    return valid;
-}
-
-// No need to parse the 3D LUTs, because they will be ignored
-void Circuit::_skip_lut_3D() {
-    std::vector< string > tokens;
-
-    bool valid = read_line_as_tokens(is, tokens);
-    assert(valid);
-    assert(tokens[0] == "index_1");
-    assert(tokens.size() >= 2);
-    int size1 = tokens.size() - 1;
-
-    valid = read_line_as_tokens(is, tokens);
-    assert(valid);
-    assert(tokens[0] == "index_2");
-    assert(tokens.size() >= 2);
-    int size2 = tokens.size() - 1;
-
-    valid = read_line_as_tokens(is, tokens);
-    assert(valid);
-    assert(tokens[0] == "index_3");
-    assert(tokens.size() >= 2);
-    int size3 = tokens.size() - 1;
-
-    valid = read_line_as_tokens(is, tokens);
-    assert(valid);
-    assert(tokens.size() == 1 && tokens[0] == "values");
-
-    for(int i = 0; i < size1; ++i) {
-        for(int j = 0; j < size2; ++j) {
-            valid = read_line_as_tokens(is, tokens);
-            assert(valid);
-            assert(tokens.size() == (unsigned)size3);
-        }
-    }
-}
-
 ostream& operator<<(ostream& os, const LibPowerInfo& power) {
     ecc::logInfo() << "Power related to " << power.relatedPin << " to " << power.toPin
          << ": " << endl;
@@ -1411,7 +1268,7 @@ void Circuit::runGR(int, bool, int) {
 }
 
 // Slowest path
-void Circuit::readDesign_opensta(sta::dbSta* _sta) {
+void Circuit::importDesign(sta::dbSta* _sta) {
     string top_cell_name = _sizer->benchname;
     string clk_name = _sizer->clockName;
 
@@ -1452,7 +1309,8 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
         tmpCell.type = str_cell_name;
         tmpCell.name = db_inst->getName();
         tmpCell.isFF = false;
-        if(liberty_cell == nullptr || !master->isCore()) {
+        if(liberty_cell == nullptr || !master->isCore() ||
+           db_inst->isFixed() || db_inst->isDoNotTouch()) {
             tmpCell.isDontTouch = true;
             tmpCell.isChanged = 0;
         }
@@ -1786,273 +1644,78 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
     }
 }
 
-void Circuit::readSpef_opensta(sta::dbSta* _sta) {
-    ecc::logInfo() << "[opensta] reading spef..." << endl;
-    node2id.clear();
-    Scene* _corner = _sta->scenes()[0];
-    const MinMax* cnst_min_max;
-    cnst_min_max = MinMaxAll::max()->asMinMax();
-    Parasitics* parasitics = _corner->parasitics(cnst_min_max);
+void Circuit::importParasitics(sta::dbSta* sta) {
+    spdlog::debug("Importing loaded STA parasitic networks");
+    auto* network = sta->getDbNetwork();
+    auto* scene = sta->scenes().front();
+    auto* parasitics = scene->parasitics(sta::MinMax::max());
+    for(auto& pin : g_pins)
+        pin.spef_pin = UINT_MAX;
 
-    int corner = 0;
-    for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
-        g_nets[corner][i].subNodeVec.clear();
-    }
-
-    for(unsigned i = 0; i < g_nets[corner].size(); ++i) {
-        node2id.clear();
-        string netNameStr = g_nets[corner][i].name;
-        assert(net2id[netNameStr] == i);
-        double totcap = 0.0;
-        // g_nets[corner][i].cap = totcap;
-        vector< SUB_NODE >* subNodeVecPtr = &g_nets[corner][i].subNodeVec;
-        string name;
-        string attr;
-
-        int node_index = 1;
-        std::vector< SUB_NODE >::iterator subNodeIter;
-        auto ord_net = _ord_design->getBlock()->findNet(netNameStr.c_str());
-        sta::dbSta* sta = _sizer->_ckt->_ord_timing->getSta();
-        sta::Net* net = sta->getDbNetwork()->dbToSta(ord_net);
-        Parasitic* net_parasitic = parasitics->findParasiticNetwork(net);
-        float pin_cap;
-        float wire_cap;
-        _sta->connectedCap(net, _corner, sta::MinMax::max(), pin_cap, wire_cap);
-        // double t_cap = wire_cap / _sizer->cap_unit;
-        // g_nets[corner][i].cap = t_cap;
-        if(ord_net->getSigType() == "CLOCK") {
-            // ecc::logPrintf("net %s is clock\n", netNameStr.c_str());
-            g_nets[corner][i].is_clock = true;
-            // continue;
-        }
-        if(ord_net->getName() == _sizer->clk_name[0]) {
-            g_nets[corner][i].is_clock = true;
+    // This is an adapter for the search's RC model, not a SPEF reader.
+    // Index zero remains the driver; all other nodes use STA object identity.
+    for(auto& net : g_nets.front()) {
+        auto& nodes = net.subNodeVec;
+        nodes.clear();
+        auto* db_net = network->block()->findNet(net.name.c_str());
+        if(!db_net)
+            throw std::runtime_error("sizing net is missing from OpenDB: " + net.name);
+        auto* sta_net = network->dbToSta(db_net);
+        float pin_cap = 0, wire_cap = 0;
+        sta->connectedCap(sta_net, scene, sta::MinMax::max(), pin_cap, wire_cap);
+        net.cap = wire_cap / _sizer->cap_unit;
+        net.is_clock = db_net->getSigType() == odb::dbSigType::CLOCK ||
+                       (!_sizer->clk_name.empty() && net.name == _sizer->clk_name.front());
+        auto* parasitic = parasitics->findParasiticNetwork(sta_net);
+        if(!parasitic || net.inpin == UINT_MAX)
             continue;
-        }
 
-        double t_cap = wire_cap / _sizer->cap_unit;
-        if(t_cap >= 10000) {
-            ecc::logPrintf("net %s cap %f\n", netNameStr.c_str(), t_cap);
-        }
-        // if(_sizer->use_margin) {
-        //     t_cap *= 1.05;
-        // }
-        g_nets[corner][i].cap = t_cap;
-        if(net_parasitic == nullptr) {  //||
-            // ord_net->getName().find("tile_id_i") != string::npos ||
-            ecc::logPrintf("net %s don't have parasitic\n", netNameStr.c_str());
-            continue;
-        }
-        // ecc::logPrintf("net %s has parasitic\n", netNameStr.c_str());
-        assert(net_parasitic);
-        NetConnectedPinIterator* connPinIter =
-            _sta->network()->connectedPinIterator(net);
+        std::unordered_map<const sta::ParasiticNode*, unsigned> node_ids;
+        auto add_pin = [&](unsigned pin_id, bool sink) {
+            const auto name = getFullPinName(g_pins.at(pin_id));
+            const sta::Pin* pin = nullptr;
+            if(auto* term = db_net->getBlock()->findITerm2(name.c_str()))
+                pin = network->dbToSta(term);
+            else if(auto* term = db_net->getBlock()->findBTerm(name.c_str()))
+                pin = network->dbToSta(term);
+            if(!pin)
+                throw std::runtime_error("sizing pin is missing from OpenDB: " + name);
+            SUB_NODE node;
+            node.id = nodes.size();
+            node.pinId = pin_id;
+            node.pin_name = name;
+            node.isSink = sink;
+            g_pins[pin_id].spef_pin = node.id;
+            if(auto* rc_node = parasitics->findParasiticNode(parasitic, pin))
+                node_ids.emplace(rc_node, node.id);
+            nodes.push_back(std::move(node));
+        };
+        add_pin(net.inpin, false);
+        for(auto pin_id : net.outpins)
+            add_pin(pin_id, true);
 
-        SUB_NODE sn;
-        sn.isSink = false;
-        sn.id = 0;
-        sn.pinId = -1;
-        subNodeVecPtr->push_back(sn);
-        ConcreteParasitic* conc_para =
-            static_cast< ConcreteParasitic* >(net_parasitic);
-        sta::ConcreteParasiticNetwork* conc_net_para =
-            static_cast< sta::ConcreteParasiticNetwork* >(conc_para);
-        for(auto pin : ord_net->getITerms()) {
-            string pin_name = pin->getName();
-            // if(pin_name ==
-            //    "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
-            //     puts("debug debug");
-            // }
-            if(pin_name == "RDN" || pin_name == "RDP" || pin_name == "RSTN" ||
-               pin_name == "RSTP") {
+        auto node_id = [&](const sta::ParasiticNode* rc_node) {
+            auto [it, inserted] = node_ids.try_emplace(rc_node, nodes.size());
+            if(inserted) {
+                SUB_NODE node;
+                node.id = it->second;
+                nodes.push_back(std::move(node));
+            }
+            nodes[it->second].cap = parasitics->nodeGndCap(rc_node) / _sizer->cap_unit;
+            return it->second;
+        };
+        for(auto* node : parasitics->nodes(parasitic))
+            node_id(node);
+        for(auto* resistor : parasitics->resistors(parasitic)) {
+            const auto from = node_id(parasitics->node1(resistor));
+            const auto to = node_id(parasitics->node2(resistor));
+            if(from == to)
                 continue;
-            }
-            if(strcmp(pin_name.c_str(), string("SE").c_str()) == 0 ||
-               strcmp(pin_name.c_str(), string("SI").c_str()) == 0 ||
-               strcmp(pin_name.c_str(), string("SO").c_str()) == 0 ||
-               strcmp(pin_name.c_str(), string("HRESETn").c_str()) == 0)
-                continue;
-
-            SUB_NODE sn;
-            // readSpefChangePinName(pin_name);
-            if(pin_name == "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y") {
-                ecc::logInfo() << __LINE__ << "zero para"
-                          << "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y"
-                          << std::endl;
-            }
-            // Input
-            if(pin->isOutputSignal()) {
-                assert(pin2id.count(pin_name));
-                int p_id = pin2id[pin_name];
-                subNodeVecPtr->at(0).pinId = p_id;
-                g_pins[p_id].spef_pin = 0;
-                node2id[pin_name] = 0;
-            }
-            else {
-                // Output
-                sn.isSink = true;
-                sn.id = node_index++;
-
-                node2id[pin_name] = sn.id;
-
-                sn.pin_name = pin_name;
-                subNodeVecPtr->push_back(sn);
-            }
-            // ecc::logPrintf("node str %s\n", pin_name.c_str());
+            const auto resistance = parasitics->value(resistor) / _sizer->res_unit;
+            nodes[from].adj.push_back(to);
+            nodes[to].adj.push_back(from);
+            nodes[from].res.push_back(resistance);
+            nodes[to].res.push_back(resistance);
         }
-        for(auto pin : ord_net->getBTerms()) {
-            string pin_name = pin->getName();
-            // if(pin_name ==
-            //    "u_NV_NVDLA_cmac_u_core_u_mac_0_mul_128_55_g7067/CON") {
-            //     puts("debug debug");
-            // }
-            if(strcmp(pin_name.c_str(), string("SE").c_str()) == 0 ||
-               strcmp(pin_name.c_str(), string("SI").c_str()) == 0 ||
-               strcmp(pin_name.c_str(), string("SO").c_str()) == 0 ||
-               strcmp(pin_name.c_str(), string("HRESETn").c_str()) == 0)
-                continue;
-
-            SUB_NODE sn;
-            // readSpefChangePinName(pin_name);
-            if(pin_name == "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y") {
-                ecc::logInfo() << __LINE__ << "zero para"
-                          << "u_NV_NVDLA_sdp_u_rdma/u_mrdma_u_eg/g141133/Y"
-                          << std::endl;
-            }
-            // Input
-            if(pin->getIoType() == "INPUT") {
-                assert(pin2id.count(pin_name));
-                int p_id = pin2id[pin_name];
-                subNodeVecPtr->at(0).pinId = p_id;
-                g_pins[p_id].spef_pin = 0;
-                node2id[pin_name] = 0;
-            }
-            else {
-                // Output
-                sn.isSink = true;
-                sn.id = node_index++;
-
-                node2id[pin_name] = sn.id;
-                sn.pin_name = pin_name;
-
-                // sn.pinId = pin2id[pin_name];
-                // g_pins[sn.pinId].spef_pin = sn.id;
-
-                subNodeVecPtr->push_back(sn);
-            }
-            // ecc::logPrintf("node str %s\n", pin_name.c_str());
-        }
-        // CAP (both pin nodes and internal sub-nodes)
-        for(sta::ParasiticNode* para_node : conc_net_para->nodes()) {
-            ConcreteParasiticNode* node =
-                static_cast< ConcreteParasiticNode* >(para_node);
-
-            string fromNodeNameStr = node->name(_sta->network());
-            readSpefChangePinName(fromNodeNameStr);
-            std::map< string, int >::const_iterator node2IdIter1 =
-                node2id.find(fromNodeNameStr);
-            float value_cap =
-                node->capacitance() / _sizer->cap_unit;
-            if(node2IdIter1 != node2id.end()) {
-                subNodeVecPtr->at(node2IdIter1->second).cap = value_cap;
-            }
-            else {
-                SUB_NODE sn;
-                sn.cap = value_cap;
-                sn.id = node_index++;
-                node2id[fromNodeNameStr] = sn.id;
-                subNodeVecPtr->push_back(sn);
-            }
-        }
-
-        for(auto* pDev : conc_net_para->resistors()) {
-            ConcreteParasiticResistor* paraDev =
-                static_cast< ConcreteParasiticResistor* >(pDev);
-            sta::ParasiticNode* para_node = paraDev->node1();
-            sta::ParasiticNode* other_node = paraDev->node2();
-            if(para_node == other_node) {
-                continue;
-            }
-            string fromNodeNameStr = parasitics->name(para_node);
-            string toNodeNameStr = parasitics->name(other_node);
-            readSpefChangePinName(fromNodeNameStr);
-            readSpefChangePinName(toNodeNameStr);
-            std::map< string, int >::const_iterator node2IdIter1 =
-                node2id.find(fromNodeNameStr);
-            std::map< string, int >::const_iterator node2IdIter2 =
-                node2id.find(toNodeNameStr);
-            unsigned index1, index2;
-
-            float value = parasitics->value(paraDev) / _sizer->res_unit;
-
-            if(node2IdIter1 == node2id.end()) {
-                SUB_NODE sn;
-                sn.cap = 0.0;
-                sn.id = node_index++;
-                node2id[fromNodeNameStr] = sn.id;
-                subNodeVecPtr->push_back(sn);
-                index1 = sn.id;
-            }
-            else {
-                index1 = node2IdIter1->second;
-            }
-            node2IdIter2 = node2id.find(toNodeNameStr);
-            if(node2IdIter2 == node2id.end()) {
-                SUB_NODE sn;
-                sn.cap = 0.0;
-                sn.id = node_index++;
-                node2id[toNodeNameStr] = sn.id;
-                subNodeVecPtr->push_back(sn);
-                index2 = sn.id;
-            }
-            else {
-                index2 = node2IdIter2->second;
-            }
-
-            if(index1 < subNodeVecPtr->size() &&
-               index2 < subNodeVecPtr->size()) {
-                subNodeVecPtr->at(index1).adj.push_back(index2);
-                subNodeVecPtr->at(index2).adj.push_back(index1);
-                subNodeVecPtr->at(index1).res.push_back(value);
-                subNodeVecPtr->at(index2).res.push_back(value);
-            }
-        }
-        // double t_cap = conc_net_para->capacitance() / _sizer->cap_unit;
-        // g_nets[corner][i].cap = t_cap;  // FIXME:
     }
-}
-
-void Circuit::readSpefChangePinName(string& pin_name) {
-    size_t index = pin_name.find(":");
-    if(index != string::npos) {
-        pin_name.replace(index, 1, "/");
-    }
-}
-
-void evalTclInitForLibrary(Tcl_Interp* interp, const char* inits[]) {
-    size_t length = 0;
-    for(const char** e = inits; *e; e++) {
-        const char* init = *e;
-        length += strlen(init);
-    }
-    char* unencoded = new char[length / 3 + 1];
-    int line = 0;
-    char* u = unencoded;
-    for(const char** e = inits; *e; e++) {
-        // ecc::logPrintf("%d\n", line);
-        const char* init = *e;
-        size_t init_length = strlen(init);
-        for(const char* s = init; s < &init[init_length]; s += 3) {
-            char code[4] = {s[0], s[1], s[2], '\0'};
-            char ch = atoi(code);
-            *u++ = ch;
-        }
-        line++;
-    }
-    *u = '\0';
-    if(Tcl_Eval(interp, unencoded) != TCL_OK) {
-        ecc::logPrintf("%s\n", unencoded);
-        ecc::logPrintf("TCL init script: %s.\n", Tcl_GetStringResult(interp));
-    };
-    delete[] unencoded;
 }

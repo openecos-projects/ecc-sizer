@@ -343,7 +343,7 @@ SetupRepairResult OpenDbSetupRepairer::repair(
                     if(plan.loads.empty()) {
                         const bool vt = backend.isVtSwap(
                             plan.driver->getMaster(), plan.master);
-                        if(!plan.driver->swapMaster(plan.master))
+                        if(!replaceCell({plan.driver, plan.master}))
                             continue;
                         ++resized;
                         vt_swaps += vt;

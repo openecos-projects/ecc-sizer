@@ -436,7 +436,7 @@ static void run(Options& options) {
                 break;
             }
             case Stage::Sizing:
-                runCellSizing(session.design(), options.repair, refresh,
+                runCellSizing(session.design(), refresh,
                               session.parasiticsMode());
                 if(session.hasExtractedParasitics())
                     refresh();

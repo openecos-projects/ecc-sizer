@@ -431,20 +431,9 @@ std::vector< const Buffer* > Repair::resizeCandidates(const NetState& state,
                               original->libertyLibrary() ||
                           (downsize ? candidate.area >= area(master)
                                     : candidate.area <= area(master))) ||
-           candidate.master->getHeight() != master->getHeight() ||
-           candidate.master->getSite() != master->getSite() ||
-           candidate.master->getMTerms().size() != master->getMTerms().size() ||
+           !compatibleCellMasters(master, candidate.master) ||
            (check_load &&
             state.capacitance > candidate.max_cap * (1 - opts_.margin)))
-            continue;
-        bool compatible = true;
-        for(auto* term : master->getMTerms()) {
-            auto* other = candidate.master->findMTerm(term->getConstName());
-            if(!other || other->getIoType() != term->getIoType() ||
-               other->getSigType() != term->getSigType())
-                compatible = false;
-        }
-        if(!compatible)
             continue;
         float limit = state.slew_limit, local_limit;
         bool exists = false;
