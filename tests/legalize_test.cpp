@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -54,15 +55,44 @@ void check(bool ok, const std::string& what) {
     }
 }
 
+void check_nodes_unchanged(const std::vector<LegalizeNode>& before,
+                           const std::vector<LegalizeNode>& after) {
+    check(before.size() == after.size(), "node count must not change");
+    auto same = [](double a, double b) {
+        return a == b || (std::isnan(a) && std::isnan(b));
+    };
+    for(size_t i = 0; i < std::min(before.size(), after.size()); ++i) {
+        check(same(before[i].x, after[i].x) && same(before[i].y, after[i].y) &&
+                  same(before[i].w, after[i].w) && same(before[i].h, after[i].h) &&
+                  before[i].fixed == after[i].fixed,
+              "input movable/fixed geometry must remain unchanged");
+    }
+}
+
 void verify(const Scenario& sc, const std::vector<LegalizeNode>& nodes,
             int num_movable, const std::vector<double>& out_x,
             const std::vector<int>& out_row, int base_x, int base_y,
             int num_rows) {
     printf("  verifying %zu movable cells\n", out_x.size());
-    int max_x = 0;
+    check(out_x.size() == (size_t)num_movable &&
+              out_row.size() == (size_t)num_movable,
+          "result must include every movable");
+    if(out_x.size() != (size_t)num_movable ||
+       out_row.size() != (size_t)num_movable) {
+        return;
+    }
+    int min_x = sc.segs[0].origin_x, min_y = sc.segs[0].origin_y;
+    int max_y = min_y;
+    int max_x = sc.segs[0].origin_x + sc.segs[0].site_count * SITE_W;
     for(auto& s : sc.segs) {
         max_x = std::max(max_x, s.origin_x + s.site_count * SITE_W);
+        min_x = std::min(min_x, s.origin_x);
+        min_y = std::min(min_y, s.origin_y);
+        max_y = std::max(max_y, s.origin_y);
     }
+    check(base_x == min_x && base_y == min_y &&
+              num_rows == (max_y - min_y) / SITE_H + 1,
+          "physical row grid must not be compacted or rebased");
     // (a) movable-movable and movable-fixed overlap
     int overlaps = 0;
     for(int i = 0; i < num_movable; ++i) {
@@ -101,16 +131,31 @@ void verify(const Scenario& sc, const std::vector<LegalizeNode>& nodes,
     // (b) on site grid and inside core
     int offgrid = 0;
     for(int i = 0; i < num_movable; ++i) {
+        if(!std::isfinite(out_x[i]) || out_x[i] < min_x ||
+           out_x[i] > max_x) {
+            check(false, "invalid candidate x");
+            return;
+        }
         int rx = (int)llround(out_x[i]);
-        if((rx - base_x) % SITE_W != 0) {
+        if(std::fabs(out_x[i] - rx) > 1e-9 ||
+           (rx - base_x) % SITE_W != 0) {
             ++offgrid;
         }
         if(rx < base_x || rx + nodes[i].w > max_x + 1e-6) {
             ++offgrid;  // out of core horizontally
         }
         if(out_row[i] < 0 || out_row[i] >= num_rows) {
-            ++offgrid;
+            check(false, "invalid candidate row index");
+            return;
         }
+        const int y = base_y + out_row[i] * SITE_H;
+        check(std::any_of(sc.segs.begin(), sc.segs.end(),
+                          [&](const LegalizeRowSeg& seg) {
+                              return y == seg.origin_y && rx >= seg.origin_x &&
+                                     rx + nodes[i].w <=
+                                         seg.origin_x + seg.site_count * SITE_W;
+                          }),
+              "cell must fit in one real ROW segment, never a missing row");
     }
     check(offgrid == 0, "cells off grid or out of core");
     // (c) padding between movable pairs on the same row (gap >= pad sites)
@@ -151,6 +196,7 @@ void run(const Scenario& sc) {
     int rc = ecc::dpLegalizeCore(sc.segs, SITE_W, SITE_H, nodes,
                                  sc.num_movable, sc.padding, out_x, out_row,
                                  base_x, base_y, num_rows);
+    check_nodes_unchanged(sc.nodes, nodes);
     if(rc != 0) {
         printf("  core returned %d (fell back)\n", rc);
         check(false, "core should handle this scenario");
@@ -383,6 +429,87 @@ Scenario make_padding_below_threshold() {
     return sc;
 }
 
+Scenario make_sparse_rows(int missing, bool legal_input) {
+    Scenario sc;
+    sc.name = std::to_string(missing) + " missing rows, " +
+              (legal_input ? "legal input unchanged" : "gap cells and overlap");
+    const int base_x = 2000, base_y = 2300;
+    const int real_rows[] = {0, 1, missing + 2, missing + 3};
+    for(int r : real_rows) {
+        add_segmented_row(sc.segs, r, base_x, base_y, 40, 5200, 6800);
+        sc.nodes.push_back({double(base_x), double(base_y + r * SITE_H),
+                            400, SITE_H, false});
+        sc.nodes.push_back({double(base_x + 800),
+                            double(base_y + r * SITE_H), 400, SITE_H, false});
+    }
+    sc.num_movable = (int)sc.nodes.size();
+    sc.padding = 1;
+    sc.require_padding = true;
+    if(!legal_input) {
+        sc.nodes[1].x = sc.nodes[0].x;
+        sc.nodes[2].y = base_y + 2.0 * SITE_H;
+        sc.nodes[3].y = base_y + (missing / 2 + 2.0) * SITE_H;
+        sc.nodes[4].x = 5600;  // also inside an x gap on a real row
+        sc.nodes[5].x = 5600;
+    }
+    // The adapter's ROW iteration order is not necessarily sorted.
+    std::reverse(sc.segs.begin(), sc.segs.end());
+    return sc;
+}
+
+Scenario make_sparse_obstacles() {
+    Scenario sc = make_sparse_rows(205, false);
+    sc.name = "205 missing rows with overlapping and off-grid obstacles";
+    sc.nodes.push_back({3050, 2300.0 + SITE_H / 2.0, 800,
+                        207.0 * SITE_H, true});
+    sc.nodes.push_back({3400, 2300.0 + SITE_H, 1200,
+                        206.0 * SITE_H, true});
+    sc.nodes.push_back({2000, -10000, 20000, 5000, true});
+    sc.nodes.push_back({-10000, 2300, 5000, SITE_H, true});
+    return sc;
+}
+
+Scenario make_sparse_overfull(bool fragmented) {
+    Scenario sc;
+    sc.name = fragmented ? "sparse fragmented capacity" : "sparse insufficient capacity";
+    sc.segs = {{2000, 2300, 2}, {3200, 2300, 2},
+               {2000, 2300 + 206 * SITE_H, 2},
+               {3200, 2300 + 206 * SITE_H, 2}};
+    if(fragmented) {
+        // Total free width is 1600, but no segment can fit this 600-wide cell.
+        sc.nodes.push_back({2200, 2300, 600, SITE_H, false});
+    }
+    else {
+        for(int i = 0; i < 5; ++i) {
+            sc.nodes.push_back({2000, 2300, 400, SITE_H, false});
+        }
+    }
+    sc.num_movable = (int)sc.nodes.size();
+    return sc;
+}
+
+Scenario make_fractional_obstacle() {
+    Scenario sc;
+    sc.name = "sub-DBU obstacle crossing row boundary";
+    sc.segs = full_rows(2, 2000, 2000, 40);
+    sc.nodes = {{2000, 2000, 400, SITE_H, false},
+                {2000, 3400, 400, SITE_H, false},
+                {2050, 3399.75, 100, 0.5, true}};
+    sc.num_movable = 2;
+    return sc;
+}
+
+Scenario make_straddling_segments() {
+    Scenario sc;
+    sc.name = "candidate straddles adjacent ROW segments";
+    sc.segs = {{2000, 2300, 2}, {2400, 2300, 2},
+               {2000, 2300 + 2 * SITE_H, 2},
+               {2400, 2300 + 2 * SITE_H, 2}};
+    sc.nodes = {{2100, 2300, 600, SITE_H, false}};
+    sc.num_movable = 1;
+    return sc;
+}
+
 void run_expect_identity(const Scenario& sc) {
     printf("scenario: %s\n", sc.name.c_str());
     std::vector<LegalizeNode> nodes = sc.nodes;
@@ -392,6 +519,7 @@ void run_expect_identity(const Scenario& sc) {
     int rc = ecc::dpLegalizeCore(sc.segs, SITE_W, SITE_H, nodes,
                                  sc.num_movable, sc.padding, out_x, out_row,
                                  base_x, base_y, num_rows);
+    check_nodes_unchanged(sc.nodes, nodes);
     check(rc == 0, "core should handle an already-legal placement");
     if(rc != 0) {
         return;
@@ -406,22 +534,62 @@ void run_expect_identity(const Scenario& sc) {
     }
 }
 
-// A genuinely overfull row is not fixable; the core must report
-// inapplicable (rc != 0) so the caller falls back to DPL -- no crash.
-void run_expect_fallback(const Scenario& sc) {
-    printf("scenario: %s (expect fallback)\n", sc.name.c_str());
+// Fail without publishing partial results. Only dense rows may use DPL.
+void run_expect_failure(const Scenario& sc, int site_w = SITE_W,
+                         int site_h = SITE_H) {
+    printf("scenario: %s (expect failure)\n", sc.name.c_str());
     std::vector<LegalizeNode> nodes = sc.nodes;
-    std::vector<double> out_x;
-    std::vector<int> out_row;
-    int base_x = 0, base_y = 0, num_rows = 0;
-    int rc = ecc::dpLegalizeCore(sc.segs, SITE_W, SITE_H, nodes,
+    std::vector<double> out_x = {123.5, 456.5};
+    std::vector<int> out_row = {-7, 99};
+    int base_x = -12, base_y = -34, num_rows = -56;
+    int rc = ecc::dpLegalizeCore(sc.segs, site_w, site_h, nodes,
                                  sc.num_movable, sc.padding, out_x, out_row,
                                  base_x, base_y, num_rows);
-    if(rc != 0) {
-        printf("  fell back as expected\n");
-        return;
+    check(rc == -1, "illegal/unsupported placement must fail cleanly");
+    check(out_x == std::vector<double>({123.5, 456.5}) &&
+              out_row == std::vector<int>({-7, 99}) &&
+              base_x == -12 && base_y == -34 && num_rows == -56,
+          "failure must leave every output unchanged");
+    check_nodes_unchanged(sc.nodes, nodes);
+}
+
+void run_malformed_inputs() {
+    const Scenario valid = make_sparse_rows(1, true);
+    run_expect_failure(valid, 0, SITE_H);
+    run_expect_failure(valid, SITE_W, 0);
+    run_expect_failure(valid, -SITE_W, SITE_H);
+    run_expect_failure(valid, SITE_W, -SITE_H);
+    for(int which = 0; which < 21; ++which) {
+        Scenario sc = valid;
+        sc.name = "malformed input " + std::to_string(which);
+        switch(which) {
+        case 0: sc.segs.clear(); break;
+        case 1: sc.segs[0].origin_y += 1; break;
+        case 2: sc.segs[0].origin_x += 1; break;
+        case 3: sc.segs[0].site_count = 0; break;
+        case 4: sc.segs[0].site_count = -1; break;
+        case 5: sc.segs[0].site_count = std::numeric_limits<int>::max(); break;
+        case 6: sc.segs[0].origin_y = std::numeric_limits<int>::max(); break;
+        case 7: sc.num_movable = -1; break;
+        case 8: sc.num_movable = (int)sc.nodes.size() + 1; break;
+        case 9: sc.nodes[0].x = std::numeric_limits<double>::quiet_NaN(); break;
+        case 10: sc.nodes[0].y = std::numeric_limits<double>::infinity(); break;
+        case 11: sc.nodes[0].w = 0; break;
+        case 12: sc.nodes[0].h = -1; break;
+        case 13: sc.nodes[0].w += 1; break;
+        case 14: sc.nodes[0].h *= 2; break;
+        case 15: sc.nodes[0].fixed = true; break;
+        case 16: sc.padding = -1; break;
+        case 17: sc.padding = std::numeric_limits<double>::infinity(); break;
+        case 18: sc.padding = std::numeric_limits<double>::quiet_NaN(); break;
+        case 19: sc.nodes[0].x = 1e30; break;
+        case 20:
+            sc.nodes.push_back({2000, 2300, 400,
+                                std::numeric_limits<double>::quiet_NaN(), true});
+            break;
+        }
+        run_expect_failure(sc);
     }
-    check(false, "overfull row must not silently produce a layout");
 }
 
 }  // namespace
@@ -435,11 +603,45 @@ int main() {
     run(make_padding_relaxation());
     run(make_hold_buffer_burst());
     run(make_overfull());  // greedy relocates the excess cell to row 1
-    run_expect_fallback(make_true_overfull());
+    run_expect_failure(make_true_overfull());
     run(make_offgrid_macro());
     run_expect_identity(make_out_of_core_fixed_obstacles());
     run_expect_identity(make_padding_threshold_identity());
     run(make_padding_below_threshold());
+    for(int missing : {1, 205}) {
+        run_expect_identity(make_sparse_rows(missing, true));
+        run(make_sparse_rows(missing, false));
+    }
+    run(make_sparse_obstacles());
+    run_expect_failure(make_sparse_overfull(false));
+    run_expect_failure(make_sparse_overfull(true));
+    run_expect_failure(make_straddling_segments());
+    run(make_fractional_obstacle());
+    Scenario offgrid = make_sparse_rows(205, false);
+    offgrid.name = "off-grid movable coordinates with fractional padding";
+    offgrid.nodes[0].x += 50.5;
+    offgrid.nodes[0].y += 700.25;
+    offgrid.nodes[1].x = -400;
+    offgrid.nodes[1].y = -800;
+    offgrid.padding = 1.5;
+    run(offgrid);
+    Scenario empty = make_sparse_rows(205, true);
+    empty.name = "sparse rows without movable cells";
+    empty.nodes.clear();
+    empty.num_movable = 0;
+    run_expect_identity(empty);
+    Scenario negative = make_sparse_rows(205, true);
+    negative.name = "sparse grid with negative origins remains unchanged";
+    for(auto& seg : negative.segs) {
+        seg.origin_x -= 20000;
+        seg.origin_y -= 500000;
+    }
+    for(auto& node : negative.nodes) {
+        node.x -= 20000;
+        node.y -= 500000;
+    }
+    run_expect_identity(negative);
+    run_malformed_inputs();
     if(failures == 0) {
         printf("ALL LEGALIZE TESTS PASSED\n");
         return 0;
