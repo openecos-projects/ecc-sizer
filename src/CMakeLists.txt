@@ -14,12 +14,12 @@ include_directories(${OPENROAD_HOME}/sta ${OPENROAD_HOME}/sta/include/sta
 
 # Repair algorithms depend on OpenDB/STA and edit primitives, not cell sizing.
 set(SOURCES
-    design_edit.cpp special_net.cpp lef_layer_rc.cpp
-    repair_config.cpp repair_backend.cpp repair_drv.cpp repair_timing.cpp
+    actions/netlist.cpp actions/placement.cpp special_net.cpp lef_layer_rc.cpp
+    repair_config.cpp cell_candidates.cpp design_analysis.cpp repair_drv.cpp repair_setup.cpp
     repair_path.cpp repair_vg.cpp repair_vg_cuda.cpp
     repair_gobi.cpp repair_gobi_cuda.cpp)
 
-add_library(sizer_placement STATIC legalize_core.cpp
+add_library(sizer_placement STATIC actions/legalize_core.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/greedy_legalize_cpu.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/legalize_bin_cpu.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/merge_bin_cpu.cpp
@@ -85,12 +85,6 @@ if(BUILD_TESTING)
     add_test(NAME ecc_sizer_repair_regression
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/repair_regression_test.py)
 
-    add_executable(ecc_sizer_repair_buffer_budget_test
-        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_buffer_budget_test.cpp)
-    target_include_directories(ecc_sizer_repair_buffer_budget_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(ecc_sizer_repair_buffer_budget_test PRIVATE GTest::gtest_main)
-    add_test(NAME ecc_sizer_repair_buffer_budget COMMAND ecc_sizer_repair_buffer_budget_test)
-
     add_executable(ecc_sizer_repair_config_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_config_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp)
@@ -155,7 +149,8 @@ if(BUILD_TESTING)
 
     add_executable(ecc_sizer_buffer_inserter_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_test.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/design_edit.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/actions/netlist.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/actions/placement.cpp
     )
     target_include_directories(ecc_sizer_buffer_inserter_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -167,7 +162,8 @@ if(BUILD_TESTING)
 
     add_executable(ecc_sizer_fanout_repair_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/fanout_repair_test.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/design_edit.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/actions/netlist.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/actions/placement.cpp
     )
     target_include_directories(ecc_sizer_fanout_repair_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -179,9 +175,11 @@ if(BUILD_TESTING)
 
     add_executable(ecc_sizer_buffer_inserter_sta_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/design_edit.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/actions/netlist.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/actions/placement.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_drv.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_backend.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/design_analysis.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/cell_candidates.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
 
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg.cpp
@@ -190,7 +188,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi_cuda.cpp
 
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_path.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_timing.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair_setup.cpp
 
     )
     target_include_directories(ecc_sizer_buffer_inserter_sta_test PRIVATE

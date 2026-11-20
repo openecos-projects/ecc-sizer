@@ -67,13 +67,15 @@ set_max_fanout 4 [current_design]
         for args in (("--threads",), ("--wat",),
                      (self.script, "--flow", "pbbi"),
                      (self.script, "--flow", "sizing"),
+                     (self.script, "--flow", "native"),
+                     (self.script, "--flow", "design"),
                      (self.script, "--legalizer", "missing"),
                      ("-env", "old.env", "-f", "old.cmd"),
                      ("legacy", "-env", "old.env"),
                      (self.script, "--set", "pbbi.enabled=true"),
                      (self.script, "--set", "setup.path_buffer_only=true"),
                      (self.script, "--set", "power.enabled=true"),
-                     (self.script, "--flow", "native,"),
+                     (self.script, "--flow", "drv,"),
                      (self.script, "--set", "common.max_fanout=1"),
                      ("--def", "missing.def")):
             self.run_sizer(*args, ok=False)
@@ -84,13 +86,13 @@ set_max_fanout 4 [current_design]
         self.assertIn("deliberate input failure", output)
         self.assertFalse(list(self.work.glob("*.odb")))
 
-    def test_native_default_and_odb_round_trip(self):
+    def test_drv_setup_default_and_odb_round_trip(self):
         prefix = self.work / "native result"
         log = self.work / "sizer.log"
         output = self.run_sizer(self.script, "--threads", "1", "--output", prefix,
                                 "--log", log)
-        self.assertIn("Starting native", output)
-        self.assertIn("native finished", log.read_text())
+        self.assertLess(output.index("Starting drv"), output.index("Starting setup"))
+        self.assertIn("setup finished", log.read_text())
         for suffix in (".def", ".v", ".odb"):
             self.assertTrue(Path(str(prefix) + suffix).is_file())
         next_prefix = self.work / "roundtrip"
@@ -103,6 +105,18 @@ set_max_fanout 4 [current_design]
         self.assertTrue(Path(str(next_prefix) + ".odb").is_file())
         self.run_sizer("--odb", str(prefix) + ".odb", "--lib", LIB, "--sdc", SDC,
                        "--output", prefix, ok=False)
+
+    def test_composed_goals_with_explicit_actions_and_limits(self):
+        output = self.run_sizer(
+            self.script, "--flow", "path,drv,setup", "--threads", "1",
+            "--set", "common.actions=resize",
+            "--set", "drv.max_inserted_buffers=0",
+            "--set", "setup.max_inserted_buffers=unlimited",
+            "--set", "path.max_inserted_buffers=2",
+            "--output", self.work / "composed")
+        self.assertLess(output.index("Starting path"), output.index("Starting drv"))
+        self.assertLess(output.index("Starting drv"), output.index("Starting setup"))
+        self.assertTrue((self.work / "composed.odb").is_file())
 
     def test_fanout_and_def_input(self):
         prefix = self.work / "fanout"
@@ -156,23 +170,23 @@ read_spef {{{spef}}}
         output = self.run_sizer(extracted_script, "--flow", "hold", "--threads", "1",
                                 "--output", self.work / "script-spef")
         self.assertIn("hold finished", output)
-        output = self.run_sizer(extracted_script, "--flow", "native,power",
+        output = self.run_sizer(extracted_script, "--flow", "drv,setup,power",
                                 "--threads", "1", "--output", self.work / "native-spef")
-        self.assertIn("native finished", output)
+        self.assertIn("setup finished", output)
         self.assertIn("power finished", output)
         self.assertEqual(spef.read_bytes(), original)
         self.assertIn("placement RC", self.run_sizer(extracted_script, "--flow", "path", ok=False))
         with self.script.open("a") as script:
             script.write("make_tracks\nset_routing_layers -signal metal2-metal6 -clock metal2-metal6\n")
-        output = self.run_sizer(self.script, "--global-routing", "--flow", "native,power,hold",
+        output = self.run_sizer(self.script, "--global-routing", "--flow", "drv,setup,power,hold",
                                 "--threads", "1", "--output", self.work / "routed")
         self.assertIn("hold finished", output)
 
-    def test_native_power_uses_loaded_design_and_abacus(self):
+    def test_power_uses_loaded_design_and_abacus(self):
         with self.script.open("a") as script:
             script.write("set_input_delay 0 -clock clk [get_ports in]\n"
                          "set_output_delay 1 -clock clk [get_ports out*]\n")
-        output = self.run_sizer(self.script, "--flow", "native,power", "--legalizer", "abacus", "--threads", "1",
+        output = self.run_sizer(self.script, "--flow", "drv,setup,power", "--legalizer", "abacus", "--threads", "1",
                                 "--output", self.work / "native-power")
         self.assertIn("power finished", output)
         self.assertTrue((self.work / "native-power.odb").is_file())

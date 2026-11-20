@@ -3,7 +3,7 @@
 #pragma once
 
 #include "repair_config.h"
-#include "repair_drv.h"
+#include "design_analysis.h"
 
 #include <functional>
 #include <string>
@@ -58,8 +58,8 @@ struct PathBufferTrial {
     };
     std::vector< Candidate > candidates;
     std::vector< std::string > rejection_reasons;
-    DesignRepairMetrics before;
-    DesignRepairMetrics after;
+    DesignMetrics before;
+    DesignMetrics after;
     double prepare_ms = 0;
     double refresh_ms = 0;
     double measure_ms = 0;
@@ -69,7 +69,7 @@ struct PathFinalPlacement {
     bool attempted = false, accepted = false, rolled_back = false;
     unsigned provisional_buffers = 0;
     double elapsed_ms = 0;
-    DesignRepairMetrics before, after;
+    DesignMetrics before, after;
     std::vector<std::string> rejection_reasons;
 };
 
@@ -113,8 +113,8 @@ struct PathBufferRepairResult {
     double refresh_ms = 0;
     double measure_ms = 0;
     std::vector< PathBufferTrial > trials;
-    DesignRepairMetrics before;
-    DesignRepairMetrics after;
+    DesignMetrics before;
+    DesignMetrics after;
     PathFinalPlacement final_placement;
 };
 

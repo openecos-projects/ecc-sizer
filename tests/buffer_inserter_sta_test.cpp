@@ -12,12 +12,15 @@
 #include <set>
 #include <sstream>
 
-#include "design_edit.h"
+#include "actions/netlist.h"
+#include "actions/placement.h"
 #include "repair_drv.h"
 #include "repair_vg.h"
+#include "repair_gobi.h"
 #include "repair_path.h"
-#include "repair_backend.h"
-#include "repair_timing.h"
+#include "design_analysis.h"
+#include "cell_candidates.h"
+#include "repair_setup.h"
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
 #include "sta/Parasitics.hh"
@@ -156,7 +159,7 @@ class BufferInserterStaTest : public tst::IntegratedFixture
         3 * load->findLibertyPort("A")->capacitance(), sta::MinMax::max());
   }
 
-  void excludeAllBuffers(ecc::DesignRepairOptions& options)
+  void excludeAllBuffers(ecc::DrvRepairOptions& options)
   {
     for (auto* master : lib_->getMasters()) {
       auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
@@ -324,11 +327,11 @@ TEST_F(BufferInserterStaTest, PreparedDelayMatchesOpenStaInterpolationAndExtrapo
   constrainSetup(true);
   refreshRepairTiming();
   ecc::RepairCommonOptions options;
-  ecc::detail::Repair backend(block_, sta_.get(), options);
-  ecc::DesignRepairMetrics metrics;
+  ecc::detail::DesignAnalysis backend(block_, sta_.get(), options);
+  ecc::DesignMetrics metrics;
   const auto states = backend.analyze(metrics, true);
   ASSERT_FALSE(states.empty());
-  std::vector<ecc::detail::Buffer> models = backend.bufferChoices();
+  std::vector<ecc::detail::CellModel> models = backend.bufferChoices();
   for(const auto& state : states)
     if(state.driver) models.push_back(backend.driverModel(state));
   ASSERT_FALSE(models.empty());
@@ -351,13 +354,13 @@ TEST_F(BufferInserterStaTest, IncrementalElectricalAnalysisMatchesFullScanAcross
   constrainSetup(true);
   refreshRepairTiming();
   ecc::RepairCommonOptions options;
-  ecc::detail::Repair cached(block_, sta_.get(), options);
-  ecc::detail::Repair reference(block_, sta_.get(), options);
+  ecc::detail::DesignAnalysis cached(block_, sta_.get(), options);
+  ecc::detail::DesignAnalysis reference(block_, sta_.get(), options);
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
   const auto check = [&]() {
     incremental.update();
     incremental.verifyTiming();
-    ecc::DesignRepairMetrics actual, expected;
+    ecc::DesignMetrics actual, expected;
     auto states = cached.analyzeIncremental(actual, incremental.takeAnalysisChanges());
     auto full = reference.analyze(expected, true);
     ASSERT_GT(full.size(), 0u);
@@ -477,8 +480,8 @@ TEST_F(BufferInserterStaTest, IncrementalPathEveryTrialMatchesFullSta)
       return caps;
     };
     const auto incremental_caps = wire_caps();
-    ecc::detail::Repair backend(block_, sta_.get(), options.common);
-    ecc::DesignRepairMetrics incremental_metrics, full_metrics;
+    ecc::detail::DesignAnalysis backend(block_, sta_.get(), options.common);
+    ecc::DesignMetrics incremental_metrics, full_metrics;
     const auto incremental_states = backend.analyze(incremental_metrics, true);
     // updateTiming(true) only invalidates arrivals; explicitly invalidate
     // delays/slews to compare against a full delay calculation on fixed RC.
@@ -719,8 +722,8 @@ TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJou
   EXPECT_EQ(full_refreshes, 1u);
   EXPECT_GT(incremental.statistics().verifications, 0u);
   EXPECT_LT(incremental.statistics().verifications, result.attempted_trials);
-  ecc::detail::Repair backend(block_, sta_.get(), options.common);
-  ecc::DesignRepairMetrics measured;
+  ecc::detail::DesignAnalysis backend(block_, sta_.get(), options.common);
+  ecc::DesignMetrics measured;
   refreshRepairTiming();
   backend.analyze(measured, true);
   EXPECT_FLOAT_EQ(result.after.setup_wns, measured.setup_wns);
@@ -795,10 +798,10 @@ TEST_F(BufferInserterStaTest, PathTimingPrecheckMatchesFullMetricsAndNeverAccept
   options.max_area_growth = -1;
   options.defer_rollback_refresh = true;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  ecc::DesignRepairMetrics independently_measured;
+  ecc::DesignMetrics independently_measured;
   const auto refresh = [&]() {
     refreshRepairTiming();
-    ecc::detail::Repair backend(block_, sta_.get(), options.common);
+    ecc::detail::DesignAnalysis backend(block_, sta_.get(), options.common);
     backend.analyze(independently_measured, true);
   };
   unsigned partial = 0;
@@ -963,10 +966,10 @@ TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
 
   // The next repairs must analyze the inserted topology, not a pre-VG
   // snapshot. Check the stage boundary metrics and instance accounting.
-  ecc::DesignRepairOptions design_options;
+  ecc::DrvRepairOptions design_options;
   design_options.max_fanout = options.common.max_fanout;
   const auto refresh = [this]() { refreshRepairTiming(); };
-  const auto design = ecc::OpenDbDesignRepairer::repair(
+  const auto design = ecc::DrvRepairer::repair(
       block_, sta_.get(), refresh, design_options);
   ASSERT_TRUE(design.ok) << design.message;
   EXPECT_NEAR(design.before.severity, result.after.severity, 1e-6);
@@ -976,7 +979,7 @@ TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
                              design.inserted_buffers);
   ecc::SetupRepairOptions setup_options;
   setup_options.common = design_options;
-  const auto setup = ecc::OpenDbSetupRepairer::repair(
+  const auto setup = ecc::SetupRepairer::repair(
       block_, sta_.get(), refresh, setup_options);
   ASSERT_TRUE(setup.ok) << setup.message;
   EXPECT_NEAR(setup.before.design.setup_wns, design.after.setup_wns, 1e-15);
@@ -1080,10 +1083,10 @@ TEST_F(BufferInserterStaTest, RepairFanoutBuildsTreeAndKeepsStaValid)
 TEST_F(BufferInserterStaTest, NetRepairPlanningDoesNotMutateAndActionsCanBeUndone)
 {
   readTestDesign("fanout_repair_sta.v");
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
-  ecc::detail::Repair backend(block_, sta_.get(), options);
-  ecc::DesignRepairMetrics metrics;
+  ecc::detail::DesignAnalysis backend(block_, sta_.get(), options);
+  ecc::DesignMetrics metrics;
   const auto states = backend.analyze(metrics);
   const auto found = std::find_if(states.begin(), states.end(), [](const auto& state) {
     return state.net->getName() == "high_fanout";
@@ -1091,7 +1094,8 @@ TEST_F(BufferInserterStaTest, NetRepairPlanningDoesNotMutateAndActionsCanBeUndon
   ASSERT_NE(found, states.end());
   const auto instances = block_->getInsts().size();
   const auto nets = block_->getNets().size();
-  const auto plan = backend.planNetRepair(*found, 2, false);
+  ecc::detail::CellCandidates cells(backend, sta_.get(), options);
+  const auto plan = ecc::planDrvNetRepair(backend, cells, sta_.get(), *found, 2, false, options);
   ASSERT_FALSE(plan.buffers.empty());
   EXPECT_LE(plan.buffers.size(), 2u);
   EXPECT_FALSE(plan.replacement.has_value());
@@ -1099,9 +1103,9 @@ TEST_F(BufferInserterStaTest, NetRepairPlanningDoesNotMutateAndActionsCanBeUndon
   EXPECT_EQ(block_->getNets().size(), nets);
   EXPECT_EQ(ecc::OpenDbFanoutRepairer::loadCount(found->net), 10u);
   odb::dbDatabase::beginEco(block_);
-  const auto edits = ecc::applyRepairPlan(plan);
-  EXPECT_EQ(edits.inserted_buffers, plan.buffers.size());
-  EXPECT_EQ(block_->getInsts().size(), instances + edits.inserted_buffers);
+  const auto inserted = ecc::insertBuffers(plan.buffers);
+  EXPECT_EQ(inserted, plan.buffers.size());
+  EXPECT_EQ(block_->getInsts().size(), instances + inserted);
   odb::dbDatabase::endEco(block_);
   odb::dbDatabase::undoEco(block_);
   EXPECT_EQ(block_->getInsts().size(), instances);
@@ -1113,7 +1117,7 @@ TEST_F(BufferInserterStaTest, NetRepairPlanningDoesNotMutateAndActionsCanBeUndon
 TEST_F(BufferInserterStaTest, NativeDesignRepairUsesStaAndHonorsBudget)
 {
   readTestDesign("fanout_repair_sta.v");
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
   options.max_inserted_buffers = 20;
   const auto refresh = [&]() {
@@ -1122,11 +1126,11 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairUsesStaAndHonorsBudget)
   };
   refresh();
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_passes, 0);
   EXPECT_LT(result.after.severity, result.before.severity);
-  EXPECT_LE(result.inserted_buffers, options.max_inserted_buffers);
+  EXPECT_LE(result.inserted_buffers, *options.max_inserted_buffers);
   EXPECT_GE(result.after.setup_wns + 1e-15f, result.before.setup_wns);
   db_network_->checkAxioms();
   EXPECT_TRUE(sta_->search()->arrivalsValid());
@@ -1139,7 +1143,7 @@ TEST_F(BufferInserterStaTest,
   auto* net = block_->findNet("high_fanout");
   const auto insts = block_->getInsts().size();
   const auto nets = block_->getNets().size();
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
   unsigned updates = 0;
   const auto refresh = [&]() {
@@ -1149,7 +1153,7 @@ TEST_F(BufferInserterStaTest,
     sta_->updateTiming(true);
   };
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.inserted_buffers, 0);
   EXPECT_EQ(block_->getInsts().size(), insts);
@@ -1164,11 +1168,11 @@ TEST_F(BufferInserterStaTest,
 {
   readTestDesign("fanout_repair_sta.v");
   block_->findInst("load0")->setDoNotTouch(true);
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
   const auto refresh = [&]() { sta_->updateTiming(true); };
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok);
   EXPECT_EQ(result.inserted_buffers, 0);
   EXPECT_EQ(
@@ -1176,7 +1180,7 @@ TEST_F(BufferInserterStaTest,
   for (auto* master : lib_->getMasters())
     options.excluded_masters.push_back(master);
   const auto excluded
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   EXPECT_FALSE(excluded.ok);
 }
 
@@ -1188,7 +1192,7 @@ TEST_F(BufferInserterStaTest,
   sta::LibertyPort *input, *output;
   cell->bufferPorts(input, output);
   output->setCapacitanceLimit(input->capacitance() * 3, sta::MinMax::max());
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 64;
   const auto refresh = [&]() {
     ep_.estimateParasitics(est::ParasiticsSrc::kPlacement);
@@ -1196,7 +1200,7 @@ TEST_F(BufferInserterStaTest,
   };
   refresh();
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.before.fanout_nets, 0);
   EXPECT_GT(result.before.capacitance_nets, 0);
@@ -1208,11 +1212,11 @@ TEST_F(BufferInserterStaTest,
 TEST_F(BufferInserterStaTest, NativeDesignRepairHonorsPositiveBufferBudget)
 {
   readTestDesign("fanout_repair_sta.v");
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
   options.max_inserted_buffers = 1;
   const auto count = block_->getInsts().size();
-  const auto result = ecc::OpenDbDesignRepairer::repair(
+  const auto result = ecc::DrvRepairer::repair(
       block_, sta_.get(), [&]() { sta_->updateTiming(true); }, options);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
@@ -1250,7 +1254,7 @@ TEST_F(BufferInserterStaTest,
   db_network_->libertyCell(driver)->bufferPorts(input, output);
   output->setSlewLimit(float(slew) * 0.75f, sta::MinMax::max());
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.before.fanout_nets, 0);
   EXPECT_EQ(result.before.capacitance_nets, 0);
@@ -1281,10 +1285,10 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairRejectsTimingRegression)
     ep_.estimateParasitics(est::ParasiticsSrc::kPlacement);
     sta_->updateTiming(true);
   };
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.rejected_passes, 1);
   EXPECT_EQ(result.accepted_passes, 0);
@@ -1312,9 +1316,9 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairRecognizesSdcClockNets)
                   sta_->cmdMode());
   auto* net = block_->findNet("high_fanout");
   ASSERT_EQ(net->getSigType(), odb::dbSigType::SIGNAL);
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
-  const auto result = ecc::OpenDbDesignRepairer::repair(
+  const auto result = ecc::DrvRepairer::repair(
       block_, sta_.get(), [&]() { sta_->updateTiming(true); }, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(sta_->isClock(db_network_->dbToSta(net), sta_->cmdMode()));
@@ -1325,11 +1329,11 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairRecognizesSdcClockNets)
 TEST_F(BufferInserterStaTest, NativeDesignRepairReportsFailedRollbackRefresh)
 {
   readTestDesign("fanout_repair_sta.v");
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
   const auto insts = block_->getInsts().size();
   const auto nets = block_->getNets().size();
-  const auto result = ecc::OpenDbDesignRepairer::repair(
+  const auto result = ecc::DrvRepairer::repair(
       block_,
       sta_.get(),
       []() { throw std::runtime_error("timing unavailable"); },
@@ -1354,7 +1358,7 @@ TEST_F(BufferInserterStaTest, NativeGateResizeUsesEquivalentFunctionAndKeepsNets
   auto* in1 = driver->findITerm("A1")->getNet();
   auto* in2 = driver->findITerm("A2")->getNet();
   auto* out = driver->findITerm("ZN")->getNet();
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_inserted_buffers = 0;
   const auto refresh = [&]() {
     ep_.estimateParasitics(est::ParasiticsSrc::kPlacement);
@@ -1362,7 +1366,7 @@ TEST_F(BufferInserterStaTest, NativeGateResizeUsesEquivalentFunctionAndKeepsNets
   };
   refresh();
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.resized_gates, 1);
   EXPECT_EQ(result.inserted_buffers, 0);
@@ -1381,14 +1385,14 @@ TEST_F(BufferInserterStaTest,
   constrainGateCap();
   auto* driver = block_->findInst("driver");
   auto* original = driver->getMaster();
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_inserted_buffers = 1;
   excludeAllBuffers(options);
   // Other gates such as NOR2 have the same physical pin names but a different
   // Boolean function. They must not be considered when NAND upsizes are banned.
   options.excluded_masters
       = {lib_->findMaster("NAND2_X2"), lib_->findMaster("NAND2_X4")};
-  const auto result = ecc::OpenDbDesignRepairer::repair(
+  const auto result = ecc::DrvRepairer::repair(
       block_, sta_.get(), [&]() { sta_->updateTiming(true); }, options);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
@@ -1401,7 +1405,7 @@ TEST_F(BufferInserterStaTest, NativeRepairLegalizesEachAcceptedBatch)
 {
   readTestDesign("fanout_repair_sta.v");
   addLegalRows();
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_fanout = 3;
   unsigned prepared = 0;
   options.prepare = [&]() {
@@ -1414,7 +1418,7 @@ TEST_F(BufferInserterStaTest, NativeRepairLegalizesEachAcceptedBatch)
   };
   refresh();
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_passes, 0);
   EXPECT_EQ(prepared, result.accepted_passes + result.rejected_passes);
@@ -1443,7 +1447,7 @@ TEST_F(BufferInserterStaTest,
                          inst->getLocation(),
                          inst->getOrient(),
                          inst->getPlacementStatus()});
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_inserted_buffers = 0;
   options.prepare = [&]() {
     ecc::legalizeRepairPlacement(block_, &dp_);
@@ -1456,7 +1460,7 @@ TEST_F(BufferInserterStaTest,
   };
   refresh();
   const auto result
-      = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.resized_gates, 0);
   for (const auto& snap : snapshots) {
@@ -1496,7 +1500,7 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairImprovesTimingWithoutNewDrv)
   options.max_area_growth = 0.5;
   options.common.prepare
       = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::OpenDbSetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_LT(result.before.design.setup_wns, 0);
@@ -1521,17 +1525,18 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairBuffersNoncriticalBranches)
   refreshRepairTiming();
   auto* critical_net = block_->findInst("load0")->findITerm("A")->getNet();
   ecc::SetupRepairOptions options;
-  options.common.allow_gate_resize = false;
+  options.common.actions.resize = false;
   options.max_path_ends = 1;
-  options.max_passes = 1;
+  options.max_passes = 2;
+  options.max_inserted_buffers = 1;
   options.batch_size = 1;
   options.max_area_growth = 0.5;
   options.common.prepare
       = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::OpenDbSetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
-  EXPECT_GT(result.inserted_buffers, 0);
+  EXPECT_EQ(result.inserted_buffers, 1u);
   EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
   EXPECT_EQ(block_->findInst("load0")->findITerm("A")->getNet(), critical_net);
   EXPECT_NO_THROW(dp_.checkPlacement(false));
@@ -1549,7 +1554,7 @@ TEST_F(BufferInserterStaTest, PathBufferOnlyRepairUsesVerifiedPathEdit)
   options.max_candidates = 4;
   options.max_trials = 4;
   options.max_area_growth = 0.5;
-  options.common.allow_gate_resize = false;
+  options.common.actions.resize = false;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   const auto result = ecc::OpenDbPathRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
@@ -1578,7 +1583,7 @@ TEST_F(BufferInserterStaTest, StandalonePathRepairWithoutBudgetsUsesVerifiedPath
   options.max_candidates = 4;
   options.max_trials = 0;
   options.max_area_growth = 0;
-  options.common.allow_gate_resize = false;
+  options.common.actions.resize = false;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   const auto no_growth = ecc::OpenDbPathRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
@@ -1803,7 +1808,7 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeHonorsSdcAndCompoundBufferBudget)
   EXPECT_GT(bounded.fanout_precheck_rejections, 0u);
   EXPECT_LE(largest_trial, 2u);
   EXPECT_EQ(bounded.inserted_buffers, 0u);
-  options.max_inserted_buffers = 0;
+  options.max_inserted_buffers.reset();
   const auto unbounded = ecc::OpenDbPathRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(unbounded.ok) << unbounded.message;
@@ -2303,7 +2308,7 @@ TEST_F(BufferInserterStaTest,
   const auto master = block_->findInst("driver")->getMaster();
   ecc::SetupRepairOptions options;
   options.max_trials = 0;
-  auto result = ecc::OpenDbSetupRepairer::repair(
+  auto result = ecc::SetupRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
@@ -2313,7 +2318,7 @@ TEST_F(BufferInserterStaTest,
   options.max_trials = 8;
   for (auto* inst : block_->getInsts())
     options.common.excluded_instances.push_back(inst);
-  result = ecc::OpenDbSetupRepairer::repair(
+  result = ecc::SetupRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.attempted_batches, 0);
@@ -2351,7 +2356,7 @@ TEST_F(BufferInserterStaTest,
     refreshRepairTiming();
   };
   const auto result
-      = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.accepted_batches, 0);
   EXPECT_EQ(result.rejected_batches, 1);
@@ -2380,7 +2385,7 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairRestoresOnPreparationFailure)
   options.common.prepare = []() {
     throw std::runtime_error("injected setup preparation failure");
   };
-  const auto result = ecc::OpenDbSetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.accepted_batches, 0);
@@ -2429,7 +2434,7 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairRejectsHoldLossDespiteSetupGain)
     }
   };
   const auto result
-      = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+      = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(candidate_setup, result.before.design.setup_wns);
   EXPECT_LT(candidate_hold, result.before.design.hold_wns);
@@ -2448,7 +2453,7 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairHonorsZeroAreaGrowth)
   refreshRepairTiming();
   ecc::SetupRepairOptions options;
   options.max_area_growth = 0;
-  const auto result = ecc::OpenDbSetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::repair(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
@@ -2467,18 +2472,18 @@ TEST_F(BufferInserterStaTest, NativeRepairConfigZeroPassAndInvalidPolicyDoNotEdi
   const auto count = block_->getInsts().size();
   const auto master = block_->findInst("driver")->getMaster();
   ecc::RepairConfig config;
-  config.set("design.max_passes", "0");
+  config.set("drv.max_passes", "0");
   unsigned refreshes = 0;
   auto refresh = [&]() { ++refreshes; refreshRepairTiming(); };
-  auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, config.design);
+  auto result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, config.drv);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_FALSE(result.converged);
   EXPECT_EQ(result.accepted_passes, 0);
   EXPECT_EQ(refreshes, 0);
   EXPECT_EQ(block_->getInsts().size(), count);
   EXPECT_EQ(block_->findInst("driver")->getMaster(), master);
-  config.design.overload_group_fraction = 1;
-  result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, config.design);
+  config.drv.overload_group_fraction = 1;
+  result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, config.drv);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(refreshes, 0);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
@@ -2491,18 +2496,18 @@ TEST_F(BufferInserterStaTest, NativeSetupConfigControlsGainAndTrialBudgets)
   constrainSetup();
   refreshRepairTiming();
   ecc::RepairConfig config;
-  config.design.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  config.drv.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   config.set("setup.min_improvement_ns", "1000000");
   config.set("setup.max_area_growth", "0.5");
   auto refresh = [&]() { refreshRepairTiming(); };
-  auto result = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, config.setupOptions());
+  auto result = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, config.setupOptions());
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.attempted_batches, 0);
   EXPECT_EQ(result.after.design.setup_wns, result.before.design.setup_wns);
   config.set("setup.min_improvement_ns", "0.0001");
   config.set("setup.max_trials", "1");
   config.set("setup.batch_size", "1");
-  result = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, config.setupOptions());
+  result = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, config.setupOptions());
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.attempted_batches, 1);
   EXPECT_EQ(result.accepted_batches, 1);
@@ -2538,7 +2543,7 @@ TEST_F(BufferInserterStaTest, NativeSetupSkipsDuplicateEditsAndDefersRollbackRef
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   options.skip_duplicate_trials = false;
   options.defer_rollback_refresh = false;
-  const auto eager = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+  const auto eager = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(eager.ok) << eager.message;
   ASSERT_EQ(eager.accepted_batches, 0);
   EXPECT_EQ(eager.refreshes, 2 * eager.rejected_batches);
@@ -2546,7 +2551,7 @@ TEST_F(BufferInserterStaTest, NativeSetupSkipsDuplicateEditsAndDefersRollbackRef
   options.skip_duplicate_trials = true;
   options.defer_rollback_refresh = true;
   refresh_count = 0;
-  const auto optimized = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+  const auto optimized = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(optimized.ok) << optimized.message;
   EXPECT_EQ(optimized.accepted_batches, 0);
   EXPECT_GT(optimized.skipped_duplicate_batches, 0);
@@ -2591,7 +2596,7 @@ TEST_F(BufferInserterStaTest, NativeSetupDeferredRollbackSurvivesLaterPrepareFai
     if (++prepares == 2) throw std::runtime_error("later prepare failure");
     ecc::legalizeRepairPlacement(block_, &dp_);
   };
-  const auto result = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+  const auto result = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(prepares, 2);
   EXPECT_EQ(result.rejected_batches, 1);
@@ -2615,11 +2620,11 @@ TEST_F(BufferInserterStaTest, LoadDownsizeRepairsCapWithoutGrowingDriverOrAdding
   const auto nets = block_->getNets().size();
   auto* driver = block_->findInst("driver");
   auto* original = driver->getMaster();
-  ecc::DesignRepairOptions options;
-  options.allow_gate_resize = false;
+  ecc::DrvRepairOptions options;
+  options.actions.resize = false;
   options.max_inserted_buffers = 1;
   options.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  const auto result = ecc::DrvRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(result.converged);
   EXPECT_GT(result.before.capacitance_nets, 0);
@@ -2643,19 +2648,19 @@ TEST_F(BufferInserterStaTest, LoadDownsizeIsConfigurableAndHonorsBatchBudget)
   addLegalRows();
   constrainGateCap();
   refreshRepairTiming();
-  ecc::DesignRepairOptions options;
-  options.allow_load_downsize = false;
-  options.allow_gate_resize = false;
+  ecc::DrvRepairOptions options;
+  options.actions.load_downsize = false;
+  options.actions.resize = false;
   options.max_inserted_buffers = 1;
   auto refresh = [&]() { refreshRepairTiming(); };
-  auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+  auto result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
   EXPECT_EQ(result.downsized_loads, 0);
-  options.allow_load_downsize = true;
+  options.actions.load_downsize = true;
   options.max_load_downsizes_per_pass = 1;
   options.max_passes = 1;
-  result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+  result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.downsized_loads, 1);
   EXPECT_LT(result.after.severity, result.before.severity);
@@ -2675,14 +2680,14 @@ TEST_F(BufferInserterStaTest, LoadDownsizePlannerHonorsProtectionSlackAndEquival
   ecc::RepairCommonOptions options;
   options.excluded_instances.push_back(block_->findInst("load3"));
   options.excluded_masters.push_back(lib_->findMaster("BUF_X1"));
-  ecc::detail::Repair backend(block_, sta_.get(), options);
-  ecc::DesignRepairMetrics metrics;
+  ecc::detail::DesignAnalysis backend(block_, sta_.get(), options);
+  ecc::DesignMetrics metrics;
   const auto states = backend.analyze(metrics, true);
   // Source net is conservatively skipped when it includes a protected load.
   // Query its state from an unprotected snapshot solely to test planner guards.
   block_->findInst("load2")->setDoNotTouch(false);
   ecc::RepairCommonOptions source_options;
-  ecc::detail::Repair source_backend(block_, sta_.get(), source_options);
+  ecc::detail::DesignAnalysis source_backend(block_, sta_.get(), source_options);
   const auto source_states = source_backend.analyze(metrics, true);
   const auto it = std::find_if(source_states.begin(), source_states.end(), [&](const auto& state) {
     return state.driver->getInst() == block_->findInst("driver");
@@ -2718,12 +2723,12 @@ TEST_F(BufferInserterStaTest, LoadDownsizeImprovesSetupAtZeroAreaGrowth)
   auto* master = driver->getMaster();
   auto* critical = block_->findInst("load0")->getMaster();
   ecc::SetupRepairOptions options;
-  options.common.allow_gate_resize = false;
+  options.common.actions.resize = false;
   options.max_inserted_buffers = 0;
   options.max_area_growth = 0;
   options.batch_size = 1;
   options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  const auto result = ecc::SetupRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.downsized_loads, 0);
   EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
@@ -2743,7 +2748,7 @@ TEST_F(BufferInserterStaTest, LoadDownsizeRejectionRestoresCellsAndFallsBackToDr
   addLegalRows();
   constrainGateCap();
   refreshRepairTiming();
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_inserted_buffers = 0;
   options.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   bool saw_downsize = false;
@@ -2758,7 +2763,7 @@ TEST_F(BufferInserterStaTest, LoadDownsizeRejectionRestoresCellsAndFallsBackToDr
     }
     refreshRepairTiming();
   };
-  const auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), refresh, options);
+  const auto result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(saw_downsize);
   EXPECT_GT(result.rejected_load_batches, 0);
@@ -2781,13 +2786,13 @@ TEST_F(BufferInserterStaTest, LoadDownsizeWorksWithGateOnlyChoicesAndTiedInputs)
   small->findLibertyPort("ZN")->setCapacitanceLimit(
       25 * small->findLibertyPort("A1")->capacitance(), sta::MinMax::max());
   refreshRepairTiming();
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.max_inserted_buffers = 0;
   for (auto* master : lib_->getMasters()) {
     auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
     if (cell && cell->isBuffer()) options.excluded_masters.push_back(master);
   }
-  const auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  const auto result = ecc::DrvRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(result.converged);
   EXPECT_EQ(result.downsized_loads, 10);
@@ -2808,15 +2813,15 @@ TEST_F(BufferInserterStaTest, VtSetupUsesExplicitMappingAcrossLibraries)
   constrainSetup(true);
   refreshRepairTiming();
   ecc::SetupRepairOptions options;
-  options.common.allow_load_downsize = false;
+  options.common.actions.load_downsize = false;
   options.max_area_growth = 0;
   options.max_inserted_buffers = 0;
   auto refresh = [&]() { refreshRepairTiming(); };
-  auto disabled = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+  auto disabled = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(disabled.ok);
   EXPECT_EQ(disabled.vt_swaps, 0);
   options.common.vt_suffixes = {"_H", "_L"};
-  const auto result = ecc::OpenDbSetupRepairer::repair(block_, sta_.get(), refresh, options);
+  const auto result = ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.vt_swaps, 1) << result.message << " attempts=" << result.attempted_batches;
   EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
@@ -2832,12 +2837,12 @@ TEST_F(BufferInserterStaTest, VtDesignRepairFixesSlewWithoutAreaGrowth)
   auto* cell = db_network_->libertyCell(driver);
   cell->findLibertyPort("Z")->setSlewLimit(0.04e-9f, sta::MinMax::max());
   refreshRepairTiming();
-  ecc::DesignRepairOptions options;
+  ecc::DrvRepairOptions options;
   options.vt_suffixes = {"_H", "_L"};
-  options.allow_load_downsize = false;
+  options.actions.load_downsize = false;
   options.max_inserted_buffers = 0;
   options.max_passes = 1;
-  const auto result = ecc::OpenDbDesignRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  const auto result = ecc::DrvRepairer::repair(block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.vt_swaps, 1);
   EXPECT_GT(result.before.slew_nets, 0);
@@ -2853,13 +2858,14 @@ TEST_F(BufferInserterStaTest, VtCandidatesRejectWrongFunctionCornerAndProtection
   options.vt_suffixes = {"_H", "_L", "_B", "_X"};
   auto* driver = block_->findInst("driver");
   const auto inspect = [&](const ecc::RepairCommonOptions& common) {
-    ecc::detail::Repair backend(block_, sta_.get(), common);
-    ecc::DesignRepairMetrics metrics;
+    ecc::detail::DesignAnalysis backend(block_, sta_.get(), common);
+    ecc::DesignMetrics metrics;
     const auto states = backend.analyze(metrics, true);
-    std::vector<const ecc::detail::Buffer*> found;
+    ecc::detail::CellCandidates cells(backend, sta_.get(), common);
+    std::vector<const ecc::detail::CellModel*> found;
     for (const auto& state : states)
       if (state.driver->getInst() == driver) {
-        found = backend.resizeCandidates(state, false, true);
+        found = cells.resize(state, false, true);
         EXPECT_LE(found.size(), 1);
         if (!found.empty()) EXPECT_EQ(found.front()->master->getName(), "VTBUF_L");
       }
@@ -3157,4 +3163,109 @@ TEST_F(BufferInserterStaTest,
   EXPECT_EQ(x, mx);
   EXPECT_EQ(y, my);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+}
+
+TEST_F(BufferInserterStaTest, SetupInsertionLimitAndActionSelectionAreIndependent)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  const auto instances = block_->getInsts().size();
+  ecc::SetupRepairOptions options;
+  options.common.actions = {false, true, false};
+  options.max_path_ends = 1;
+  options.max_passes = 1;
+  options.batch_size = 1;
+  options.max_area_growth = 0.5;
+  options.common.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
+  const auto run = [&]() {
+    return ecc::SetupRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  };
+  options.max_inserted_buffers = 0;
+  const auto zero = run();
+  ASSERT_TRUE(zero.ok) << zero.message;
+  EXPECT_EQ(zero.inserted_buffers, 0u);
+  EXPECT_EQ(zero.attempted_batches, 0u);
+  options.max_inserted_buffers.reset();
+  options.common.actions.buffer = false;
+  const auto disabled = run();
+  ASSERT_TRUE(disabled.ok) << disabled.message;
+  EXPECT_EQ(disabled.attempted_batches, 0u);
+  EXPECT_EQ(block_->getInsts().size(), instances);
+  options.common.actions.buffer = true;
+  const auto unlimited = run();
+  ASSERT_TRUE(unlimited.ok) << unlimited.message;
+  EXPECT_GT(unlimited.inserted_buffers, 0u);
+  EXPECT_GT(unlimited.after.design.setup_wns, unlimited.before.design.setup_wns);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+}
+
+TEST_F(BufferInserterStaTest, DrvAndOrdHonorZeroAndDisabledInsertion)
+{
+  readTestDesign("fanout_repair_sta.v");
+  refreshRepairTiming();
+  const auto instances = block_->getInsts().size();
+  ecc::DrvRepairOptions options;
+  options.max_fanout = 3;
+  options.actions = {false, true, false};
+  for(bool zero_limit : {true, false}) {
+    options.max_inserted_buffers = zero_limit ? std::optional<unsigned>{0} : std::nullopt;
+    options.actions.buffer = zero_limit;
+    const auto drv = ecc::DrvRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+    ASSERT_TRUE(drv.ok) << drv.message;
+    EXPECT_EQ(drv.inserted_buffers, 0u);
+    EXPECT_FALSE(drv.converged);
+    const auto ord = ecc::OrdDrvRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+    ASSERT_TRUE(ord.ok) << ord.message;
+    EXPECT_EQ(ord.inserted_buffers, 0u);
+    EXPECT_EQ(block_->getInsts().size(), instances);
+  }
+  options.actions.buffer = true;
+  const auto unlimited = ecc::DrvRepairer::repair(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, options);
+  ASSERT_TRUE(unlimited.ok) << unlimited.message;
+  EXPECT_GT(unlimited.inserted_buffers, 0u);
+  EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+}
+
+TEST_F(BufferInserterStaTest, BufferSolversHonorZeroAndDisabledInsertion)
+{
+  readTestDesign("gate_repair_sta.v");
+  addLegalRows();
+  constrainSetup(true);
+  refreshRepairTiming();
+  const auto instances = block_->getInsts().size();
+  const auto nets = block_->getNets().size();
+  for(bool zero_limit : {true, false}) {
+    const auto limit = zero_limit ? std::optional<unsigned>{0} : std::nullopt;
+    ecc::PathRepairOptions path;
+    path.max_inserted_buffers = limit;
+    path.common.actions.buffer = zero_limit;
+    const auto p = ecc::OpenDbPathRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, path);
+    ASSERT_TRUE(p.ok) << p.message;
+    EXPECT_EQ(p.attempted_trials, 0u);
+    EXPECT_EQ(p.inserted_buffers, 0u);
+    ecc::VgRepairOptions vg;
+    vg.max_buffers = limit;
+    vg.common.actions.buffer = zero_limit;
+    const auto v = ecc::OpenDbVgRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, &resizer_, vg);
+    ASSERT_TRUE(v.ok) << v.message;
+    EXPECT_FALSE(v.committed);
+    ecc::GobiRepairOptions gobi;
+    gobi.max_buffers = limit;
+    gobi.common.actions.buffer = zero_limit;
+    const auto g = ecc::OpenDbGobiRepairer::repair(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, &resizer_, gobi);
+    ASSERT_TRUE(g.ok) << g.message;
+    EXPECT_FALSE(g.committed);
+    EXPECT_EQ(block_->getInsts().size(), instances);
+    EXPECT_EQ(block_->getNets().size(), nets);
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  }
 }

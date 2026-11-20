@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_vg.h"
-#include "repair_buffer_budget.h"
+#include "repair_config.h"
 #include "repair_vg_cuda.h"
 
-#include "design_edit.h"
-#include "repair_backend.h"
+#include "actions/netlist.h"
+#include "design_analysis.h"
 
 #include "BufferedNet.hh"
 #include "est/EstimateParasitics.h"
@@ -93,7 +93,7 @@ struct Timer {
     }
 };
 
-VgRepairMetrics metrics(const DesignRepairMetrics& m) {
+VgRepairMetrics metrics(const DesignMetrics& m) {
     return {.severity = m.severity,
             .setup_wns = m.setup_wns,
             .setup_tns = m.setup_tns,
@@ -128,7 +128,7 @@ bool better(const VgRepairMetrics& before, const VgRepairMetrics& after,
     return strict_drv || strict_timing;
 }
 
-std::vector< Plan > collectPlans(detail::Repair& backend,
+std::vector< Plan > collectPlans(detail::DesignAnalysis& analysis,
                                  const std::vector< NetState >& states,
                                  const VgRepairOptions& options,
                                  unsigned& nets_collected) {
@@ -163,11 +163,11 @@ std::vector< Plan > collectPlans(detail::Repair& backend,
         for(size_t begin = 0; begin < loads.size();) {
             size_t end = begin;
             float cap = 0;
-            const detail::Buffer* selected = nullptr;
+            const detail::CellModel* selected = nullptr;
             while(end < loads.size() && end - begin < group_limit) {
                 const float next_cap = cap + loads[end].capacitance + extra;
                 const auto* candidate =
-                    backend.select(next_cap, state.slew_limit, input_slew);
+                    analysis.select(next_cap, state.slew_limit, input_slew);
                 if(candidate == nullptr)
                     break;
                 cap = next_cap;
@@ -200,8 +200,8 @@ std::vector< Plan > collectPlans(detail::Repair& backend,
     std::stable_sort(
         plans.begin(), plans.end(),
         [](const Plan& a, const Plan& b) { return a.gain > b.gain; });
-    if(options.max_buffers != 0 && plans.size() > options.max_buffers)
-        plans.resize(options.max_buffers);
+    if(options.max_buffers && plans.size() > *options.max_buffers)
+        plans.resize(*options.max_buffers);
     return plans;
 }
 
@@ -614,18 +614,24 @@ VgRepairResult OpenDbVgRepairer::repair(
         result.message = "VG setup scope requires the Steiner-tree solver";
         return result;
     }
-    detail::Repair backend(block, sta, options.common);
-    if(!backend.hasCells()) {
+    detail::DesignAnalysis analysis(block, sta, options.common);
+    if(!analysis.hasCells()) {
         result.message = "VG found no usable combinational cells";
         return result;
     }
-    DesignRepairMetrics before_design;
+    DesignMetrics before_design;
     std::vector< NetState > states;
     {
         Timer timer{&result.collect_ms};
-        states = backend.analyze(before_design, true);
+        states = analysis.analyze(before_design, true);
     }
     result.before = metrics(before_design);
+    if(!options.common.actions.buffer || remainingBufferBudget(options.max_buffers, 0) == 0) {
+        result.after = result.before;
+        result.ok = true;
+        result.message = "no buffer insertion allowed by actions or count limit";
+        return result;
+    }
     if(resizer) {
         std::vector<VgSolution> solutions;
         {
@@ -650,8 +656,8 @@ VgRepairResult OpenDbVgRepairer::repair(
             }
             refresh();
             ++result.refreshes;
-            DesignRepairMetrics after_design;
-            detail::Repair verify_backend(block, sta, options.common);
+            DesignMetrics after_design;
+            detail::DesignAnalysis verify_backend(block, sta, options.common);
             verify_backend.analyze(after_design, true);
             result.after = metrics(after_design);
             if(!better(result.before, result.after, options)) {
@@ -693,7 +699,7 @@ VgRepairResult OpenDbVgRepairer::repair(
     std::vector< Plan > plans;
     {
         Timer timer{&result.solve_ms};
-        plans = collectPlans(backend, states, options, result.nets_collected);
+        plans = collectPlans(analysis, states, options, result.nets_collected);
     }
     result.plans_collected = plans.size();
     if(plans.empty()) {
@@ -738,8 +744,8 @@ VgRepairResult OpenDbVgRepairer::repair(
         }
         refresh();
         ++result.refreshes;
-        DesignRepairMetrics after_design;
-        backend.analyze(after_design, true);
+        DesignMetrics after_design;
+        analysis.analyze(after_design, true);
         result.after = metrics(after_design);
         if(!better(result.before, result.after, options)) {
             transaction.rollback();

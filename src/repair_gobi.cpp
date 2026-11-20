@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_gobi.h"
-#include "repair_buffer_budget.h"
+#include "repair_config.h"
 
 #include "BufferedNet.hh"
-#include "design_edit.h"
+#include "actions/netlist.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "est/EstimateParasitics.h"
-#include "repair_backend.h"
+#include "design_analysis.h"
 #include "repair_gobi_cuda.h"
 #include "rsz/Resizer.hh"
 
@@ -28,7 +28,7 @@ namespace {
 using detail::NetState;
 using Clock = std::chrono::steady_clock;
 
-GobiRepairMetrics metrics(const DesignRepairMetrics& m)
+GobiRepairMetrics metrics(const DesignMetrics& m)
 {
     return {m.severity,
             m.setup_wns,
@@ -275,12 +275,18 @@ GobiRepairResult OpenDbGobiRepairer::repair(
         result.message = "GOBI STA network does not reference the target block";
         return result;
     }
-    detail::Repair backend(block, sta, options.common);
-    DesignRepairMetrics before_design;
+    detail::DesignAnalysis analysis(block, sta, options.common);
+    DesignMetrics before_design;
     const auto collect_start = Clock::now();
-    const auto states = backend.analyze(before_design, true);
+    const auto states = analysis.analyze(before_design, true);
     result.collect_ms = std::chrono::duration<double, std::milli>(Clock::now() - collect_start).count();
     result.before = metrics(before_design);
+    if(!options.common.actions.buffer || remainingBufferBudget(options.max_buffers, 0) == 0) {
+        result.after = result.before;
+        result.ok = true;
+        result.message = "no buffer insertion allowed by actions or count limit";
+        return result;
+    }
 
     const auto* scene = sta->cmdScene();
     resizer->initBlock();
@@ -397,8 +403,8 @@ GobiRepairResult OpenDbGobiRepairer::repair(
         result.apply_ms = std::chrono::duration<double, std::milli>(Clock::now() - apply_start).count();
         refresh();
         ++result.refreshes;
-        DesignRepairMetrics after_design;
-        detail::Repair verify(block, sta, options.common);
+        DesignMetrics after_design;
+        detail::DesignAnalysis verify(block, sta, options.common);
         verify.analyze(after_design, true);
         result.after = metrics(after_design);
         if(!better(result.before, result.after, options)) {

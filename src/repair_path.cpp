@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "repair_path.h"
 
-#include "design_edit.h"
-#include "repair_backend.h"
+#include "actions/netlist.h"
+#include "design_analysis.h"
+#include "sta/Graph.hh"
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
 #include "sta/Liberty.hh"
-#include "repair_analysis.h"
 #include "repair_path_feedback.h"
 
 #include <algorithm>
@@ -174,7 +174,7 @@ std::vector< PathFanoutCheck > fanoutChecks(
     return result;
 }
 
-float bufferFanoutLimit(sta::dbSta* sta, const detail::Buffer& buffer) {
+float bufferFanoutLimit(sta::dbSta* sta, const detail::CellModel& buffer) {
     auto* network = sta->getDbNetwork();
     float limit = detail::kInf, value;
     bool exists;
@@ -191,7 +191,7 @@ float bufferFanoutLimit(sta::dbSta* sta, const detail::Buffer& buffer) {
     return limit;
 }
 
-float bufferCapLimit(sta::dbSta* sta, const detail::Buffer& buffer) {
+float bufferCapLimit(sta::dbSta* sta, const detail::CellModel& buffer) {
     auto* network = sta->getDbNetwork();
     float limit = buffer.max_cap, value; bool exists;
     for(auto* mode : sta->modes()) {
@@ -205,7 +205,7 @@ float bufferCapLimit(sta::dbSta* sta, const detail::Buffer& buffer) {
     return limit;
 }
 
-float bufferSlewLimit(sta::dbSta* sta, const detail::Buffer& buffer) {
+float bufferSlewLimit(sta::dbSta* sta, const detail::CellModel& buffer) {
     float limit = detail::kInf, value;
     bool exists = false;
     buffer.output->slewLimit(sta::MinMax::max(), value, exists);
@@ -232,7 +232,7 @@ float libertyFanoutWeight(sta::LibertyPort* port) {
 
 // Spatial packing uses Liberty/SDC electrical limits, with no group-size or
 // depth budget. Strict reduction of the frontier guarantees termination.
-PathTree planPathTree(const NetState& state, const detail::Buffer& buffer,
+PathTree planPathTree(const NetState& state, const detail::CellModel& buffer,
                       sta::dbSta* sta, BufferLocation root_location,
                       double cap_per_length, float cap_limit, float fanout_limit) {
     PathTree tree;
@@ -311,8 +311,8 @@ struct PathTreeTiming {
     std::vector<float> delay, slew;
     double max_slew = 0, max_cap = 0;
 };
-PathTreeTiming predictPathTree(detail::Repair& backend, const NetState& state,
-    const detail::Buffer& buffer, const PathTree& tree, float driver_slew,
+PathTreeTiming predictPathTree(detail::DesignAnalysis& analysis, const NetState& state,
+    const detail::CellModel& buffer, const PathTree& tree, float driver_slew,
     double upstream_delay, double resistance_per_length) {
     PathTreeTiming result;
     result.delay.resize(state.loads.size()); result.slew.resize(state.loads.size());
@@ -325,7 +325,7 @@ PathTreeTiming predictPathTree(detail::Repair& backend, const NetState& state,
     slews.back() = wire_slew(driver_slew, upstream_delay);
     for(size_t i = tree.nodes.size(); i-- > 0;) {
         const auto& node = tree.nodes[i];
-        const auto [delay, slew] = backend.predictedTiming(buffer, node.cap, slews[i]);
+        const auto [delay, slew] = analysis.predictedTiming(buffer, node.cap, slews[i]);
         result.max_slew = std::max({result.max_slew, slews[i], double(slew)});
         result.max_cap = std::max(result.max_cap, double(node.cap));
         const double arrival = arrivals[i] + delay;
@@ -504,21 +504,21 @@ bool completeFanoutTrees(
     return violation_count() <= baseline_violations;
 }
 
-std::vector< NetState > analyze(detail::Repair& backend,
-                                DesignRepairMetrics& metrics) {
-    return backend.analyze(metrics, true);
+std::vector< NetState > analyze(detail::DesignAnalysis& analysis,
+                                DesignMetrics& metrics) {
+    return analysis.analyze(metrics, true);
 }
 
-const DesignRepairMetrics& globalGainReference(const PathRepairOptions& options,
-                                               const DesignRepairMetrics& initial,
-                                               const DesignRepairMetrics& current) {
+const DesignMetrics& globalGainReference(const PathRepairOptions& options,
+                                               const DesignMetrics& initial,
+                                               const DesignMetrics& current) {
     return options.gain_scope == ecc::PathGainScope::CurrentGlobal ? current : initial;
 }
 
-std::vector< std::string > rejectionReasons(const DesignRepairMetrics& before,
-                                            const DesignRepairMetrics& after,
+std::vector< std::string > rejectionReasons(const DesignMetrics& before,
+                                            const DesignMetrics& after,
                                             double area_limit,
-                                            const DesignRepairMetrics& initial,
+                                            const DesignMetrics& initial,
                                             const PathRepairOptions& options,
                                             const PathBufferTrial& trial) {
     const auto& tolerance = options.common.tolerances;
@@ -569,7 +569,7 @@ std::vector< std::string > rejectionReasons(const DesignRepairMetrics& before,
 }
 
 CandidateCollection collectSequentialCandidates(
-    detail::Repair& backend, sta::dbSta* sta,
+    detail::DesignAnalysis& analysis, sta::dbSta* sta,
     const std::vector< NetState >& states, const PathRepairOptions& options,
     bool recovery = false) {
     CandidateCollection collection;
@@ -665,21 +665,21 @@ CandidateCollection collectSequentialCandidates(
                 pin_cap += state_load.capacitance;
             const float wire_cap = std::max(0.0f, state.capacitance - pin_cap) /
                                    float(state.loads.size());
-            const auto* buffer = backend.select(
+            const auto* buffer = analysis.select(
                 selected_cap + wire_cap, state.slew_limit, state.input_slew);
             if(buffer == nullptr)
                 continue;
 
-            const auto original = backend.driverModel(state);
+            const auto original = analysis.driverModel(state);
             if(!original.cell)
                 continue;
-            const float before_delay = backend.predictedDelay(
+            const float before_delay = analysis.predictedDelay(
                 original, state.capacitance, state.input_slew);
             const float reduced_cap =
                 std::max(0.0f, state.capacitance - selected_cap - wire_cap) +
                 buffer->input->capacitance();
             const float after_delay =
-                backend.predictedDelay(original, reduced_cap, state.input_slew);
+                analysis.predictedDelay(original, reduced_cap, state.input_slew);
             const float predicted_gain =
                 std::isfinite(before_delay) && std::isfinite(after_delay)
                     ? std::max(0.0f, before_delay - after_delay)
@@ -1007,14 +1007,14 @@ struct PathFeedback {
 };
 
 CandidateCollection collectPathGainCandidates(
-    detail::Repair& backend, sta::dbSta* sta,
+    detail::DesignAnalysis& analysis, sta::dbSta* sta,
     const std::vector< NetState >& states, const PathRepairOptions& options,
-    const DesignRepairMetrics& metrics, PathFeedback* feedback) {
-    backend.beginTimingPredictionEpoch();
+    const DesignMetrics& metrics, PathFeedback* feedback) {
+    analysis.beginTimingPredictionEpoch();
     struct PredictionEpoch {
-        detail::Repair& backend;
-        ~PredictionEpoch() { backend.endTimingPredictionEpoch(); }
-    } prediction_epoch{backend};
+        detail::DesignAnalysis& analysis;
+        ~PredictionEpoch() { analysis.endTimingPredictionEpoch(); }
+    } prediction_epoch{analysis};
     CandidateCollection collection;
     if(feedback) feedback->electrical_reserve.clear();
     auto* network = sta->getDbNetwork();
@@ -1080,7 +1080,7 @@ CandidateCollection collectPathGainCandidates(
         return collection;
     // Cell limits are invariant throughout this STA snapshot.
     std::vector<std::tuple<float, float, float>> buffer_limits;
-    for(const auto& buffer : backend.bufferChoices())
+    for(const auto& buffer : analysis.bufferChoices())
         buffer_limits.emplace_back(bufferCapLimit(sta, buffer) * (1 - options.common.margin),
                                    bufferFanoutLimit(sta, buffer), bufferSlewLimit(sta, buffer));
     // Slack queries may rebuild OpenSTA path groups. Do not issue them while
@@ -1137,9 +1137,9 @@ CandidateCollection collectPathGainCandidates(
         const auto distance = [](int ax, int ay, int bx, int by) {
             return std::abs(double(ax) - bx) + std::abs(double(ay) - by);
         };
-        const auto model = backend.driverModel(state);
+        const auto model = analysis.driverModel(state);
         const auto [before_delay, before_slew] =
-            backend.predictedTiming(model, state.capacitance, state.input_slew);
+            analysis.predictedTiming(model, state.capacitance, state.input_slew);
         if(!std::isfinite(before_delay))
             continue;
         std::unordered_map< odb::dbObject*, size_t > index;
@@ -1216,8 +1216,8 @@ CandidateCollection collectPathGainCandidates(
             add_group({middle, ordered.end()});
         }
         struct GateResponse {
-            detail::Buffer model{};
-            detail::Repair::DelayPrediction delay;
+            detail::CellModel model{};
+            detail::DesignAnalysis::DelayPrediction delay;
             const NetState* state = nullptr;
             float before = 0;
             std::unordered_map< float, float > delay_cache;
@@ -1240,8 +1240,8 @@ CandidateCollection collectPathGainCandidates(
                 continue;
             auto& response = gate_responses[i];
             response.state = next->second;
-            response.model = backend.driverModel(*response.state);
-            response.delay = backend.prepareDelayPrediction(response.model, response.state->capacitance);
+            response.model = analysis.driverModel(*response.state);
+            response.delay = analysis.prepareDelayPrediction(response.model, response.state->capacitance);
             response.before = response.delay(response.state->input_slew);
         }
         std::unordered_map< float, std::pair< float, float > > driver_cache;
@@ -1298,7 +1298,7 @@ CandidateCollection collectPathGainCandidates(
                 const float buffer_cap =
                     selected_cap + cap_per_length * downstream_length;
                 size_t buffer_index = 0;
-                for(const auto& buffer : backend.bufferChoices()) {
+                for(const auto& buffer : analysis.bufferChoices()) {
                     const auto [cap_limit, fanout_limit, cell_slew_limit] = buffer_limits[buffer_index++];
                     std::shared_ptr<const PathTree> tree;
                     // Whole-net trees are a separate physical candidate. Other
@@ -1318,10 +1318,10 @@ CandidateCollection collectPathGainCandidates(
                     auto [driver_it, uncached] = driver_cache.emplace(
                         new_cap, std::pair< float, float >{});
                     if(uncached)
-                        driver_it->second = backend.predictedTiming(model, new_cap, state.input_slew);
+                        driver_it->second = analysis.predictedTiming(model, new_cap, state.input_slew);
                     const auto [driver_delay, driver_slew] = driver_it->second;
                     const auto [buffer_delay, buffer_slew] =
-                        backend.predictedTiming(buffer, tree ? tree->nodes.back().cap : buffer_cap, driver_slew);
+                        analysis.predictedTiming(buffer, tree ? tree->nodes.back().cap : buffer_cap, driver_slew);
                     if(!std::isfinite(driver_delay) ||
                        !std::isfinite(buffer_delay) ||
                        !std::isfinite(buffer_slew) ||
@@ -1343,7 +1343,7 @@ CandidateCollection collectPathGainCandidates(
                         double r = 0;
                         for(double value : wire_resistance) r += value;
                         r /= std::max(size_t(1), wire_resistance.size());
-                        tree_timing = predictPathTree(backend, state, buffer, *tree,
+                        tree_timing = predictPathTree(analysis, state, buffer, *tree,
                             driver_slew, r * upstream_length * new_cap, r);
                         if(std::any_of(tree_timing.delay.begin(), tree_timing.delay.end(),
                                 [](float v) { return !std::isfinite(v); }) ||
@@ -1491,15 +1491,15 @@ CandidateCollection collectPathGainCandidates(
     return collection;
 }
 
-CandidateCollection collectCandidates(detail::Repair& backend, sta::dbSta* sta,
+CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbSta* sta,
                                       const std::vector< NetState >& states,
                                       const PathRepairOptions& options,
-                                      const DesignRepairMetrics& metrics, PathFeedback* feedback) {
+                                      const DesignMetrics& metrics, PathFeedback* feedback) {
     const bool gain = options.strategy != ecc::PathStrategy::Sequential;
-    auto result = gain ? collectPathGainCandidates(backend, sta, states, options, metrics, feedback)
-                       : collectSequentialCandidates(backend, sta, states, options);
+    auto result = gain ? collectPathGainCandidates(analysis, sta, states, options, metrics, feedback)
+                       : collectSequentialCandidates(analysis, sta, states, options);
     if(!gain && options.recovery) {
-        auto async = collectSequentialCandidates(backend, sta, states, options, true);
+        auto async = collectSequentialCandidates(analysis, sta, states, options, true);
         result.duplicate_candidates += async.duplicate_candidates;
         result.candidates.insert(result.candidates.end(),
             std::make_move_iterator(async.candidates.begin()),
@@ -1534,8 +1534,8 @@ PathBufferRepairResult repairWithFinalPlacement(
         result.message = "final path placement requires a legalization callback";
         return result;
     }
-    detail::Repair backend(block, sta, options.common);
-    analyze(backend, result.before);
+    detail::DesignAnalysis analysis(block, sta, options.common);
+    analyze(analysis, result.before);
     result.after = result.before;
     const auto authoritative_refresh = [&]() {
         PhaseTimer timer{result.refresh_ms};
@@ -1552,7 +1552,7 @@ PathBufferRepairResult repairWithFinalPlacement(
         ++result.rollback_refreshes;
         authoritative_refresh();
         PhaseTimer timer{result.measure_ms};
-        analyze(backend, result.after);
+        analyze(analysis, result.after);
         result.converged = result.after.setup_wns >= 0;
     };
     try {
@@ -1587,7 +1587,7 @@ PathBufferRepairResult repairWithFinalPlacement(
             if(options.verification == ecc::PathVerification::Final) {
                 authoritative_refresh();
                 PhaseTimer timer{result.measure_ms};
-                analyze(backend, result.after);
+                analyze(analysis, result.after);
             }
             parent->commit();
             return result;
@@ -1602,7 +1602,7 @@ PathBufferRepairResult repairWithFinalPlacement(
         authoritative_refresh();
         {
             PhaseTimer timer{result.measure_ms};
-            analyze(backend, result.final_placement.after);
+            analyze(analysis, result.final_placement.after);
         }
         auto acceptance = options;
         // Final acceptance compares the legal result with the legal phase
@@ -1655,7 +1655,7 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
     }
     if(!block || !sta || !refresh || sta->getDbNetwork()->block() != block ||
        sta->scenes().size() != 1) {
-        result.message = "invalid path repair backend (one STA scene required)";
+        result.message = "invalid path repair analysis (one STA scene required)";
         return result;
     }
     if(options.verification == ecc::PathVerification::Final &&
@@ -1670,7 +1670,7 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
     const auto& verify = options.path_verification_refresh
         ? options.path_verification_refresh : options.path_incremental_verification;
     bool needs_refresh = false;
-    detail::Repair backend(block, sta, options.common);
+    detail::DesignAnalysis analysis(block, sta, options.common);
     const auto update = [&](bool restoring) {
         PhaseTimer timer{result.refresh_ms};
         ++result.refreshes;
@@ -1682,19 +1682,19 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
             refresh();
         needs_refresh = false;
     };
-    const auto inspect = [&](DesignRepairMetrics& metrics) {
+    const auto inspect = [&](DesignMetrics& metrics) {
         PhaseTimer timer{result.measure_ms};
         if(options.incremental_analysis && options.path_analysis_changes &&
            !options.path_verification_refresh && options.path_incremental_verification && !options.common.prepare) {
-            auto states = backend.analyzeIncremental(metrics, options.path_analysis_changes());
-            const auto& stats = backend.analysisStatistics();
+            auto states = analysis.analyzeIncremental(metrics, options.path_analysis_changes());
+            const auto& stats = analysis.analysisStatistics();
             result.electrical_full_scans = stats.full_scans;
             result.electrical_net_checks = stats.net_checks;
             result.electrical_instance_checks = stats.instance_checks;
             return states;
         }
         ++result.electrical_full_scans;
-        return analyze(backend, metrics);
+        return analyze(analysis, metrics);
     };
     auto states = inspect(result.before);
     result.after = result.before;
@@ -1777,16 +1777,15 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
         return true;
     };
     try {
-        while(budget_available() &&
+        while(options.common.actions.buffer && budget_available() &&
               trials_available() &&
               result.after.setup_wns < 0 &&
-              (options.max_inserted_buffers == 0 ||
-               result.inserted_buffers <
-                   options.max_inserted_buffers)) {
+              remainingBufferBudget(options.max_inserted_buffers,
+                                    result.inserted_buffers) > 0) {
             CandidateCollection collection;
             {
                 PhaseTimer timer{result.candidate_ms};
-                collection = collectCandidates(backend, sta, states, options, result.after,
+                collection = collectCandidates(analysis, sta, states, options, result.after,
                     options.strategy == ecc::PathStrategy::Feedback ? &feedback : nullptr);
                 if(options.strategy == ecc::PathStrategy::Feedback) {
                     if(options.min_relative_improvement > 0) {
@@ -1903,9 +1902,8 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                        result.after.area + planned_area +
                                count * detail::area(plan.master) >
                            area_limit ||
-                       (options.max_inserted_buffers != 0 &&
-                        result.inserted_buffers + planned_buffers + count >
-                            options.max_inserted_buffers))
+                       (planned_buffers + count > remainingBufferBudget(
+                            options.max_inserted_buffers, result.inserted_buffers)))
                         continue;
                     selected.push_back(i);
                     touched_nets.insert(plan.net);
@@ -2025,7 +2023,7 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                     }
                     if(options.fanout_repair) {
                         PhaseTimer timer{result.candidate_ms};
-                        const auto allowance = detail::remainingBufferBudget(
+                        const auto allowance = remainingBufferBudget(
                             options.max_inserted_buffers, result.inserted_buffers);
                         if(!completeFanoutTrees(sta, roots, original_drivers,
                                 result.after.total_fanout_violations, allowance,
@@ -2050,7 +2048,7 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                         options.common.prepare();
                     }
                     update(false);
-                    DesignRepairMetrics after;
+                    DesignMetrics after;
                     std::vector<NetState> next_states;
                     const auto objective = [&]() {
                         trial.objective_wns_after = trial.objective_tns_after = 0;

@@ -39,7 +39,7 @@ build/src/Sizer design.tcl
 build/src/Sizer design.tcl --flow vg
 build/src/Sizer design.tcl --flow path
 build/src/Sizer design.tcl --flow gobi
-build/src/Sizer design.tcl --flow vg,native,path,power --output results/repaired
+build/src/Sizer design.tcl --flow path,drv,setup,power --output results/repaired
 ```
 
 Alternatively, pass the input files directly:
@@ -54,16 +54,15 @@ Repeat `--lef` and `--lib` as needed, with the technology LEF first. Input Tcl
 paths are relative to the working directory. Direct DEF/ODB input requires
 Liberty and SDC files; ODB does not contain the Liberty timing models.
 
-The default `native` flow runs electrical repair followed by native setup
-repair. `path` invokes Path directly, without implicitly running Native first.
-Use `--flow design,path` to measure Path after native electrical repair, or
-`--flow native,path` to run it after both native phases. Stages share the
-current design; inputs are never reloaded between stages.
+The default flow is `drv,setup`: electrical repair followed by setup repair.
+Stages can be ordered independently: `--flow path,drv,setup` first applies Path,
+then repairs electrical violations and setup timing. Every stage sees the
+preceding committed design. `native` and `design` are no longer stage names.
 
 | Stage | Behavior |
 | --- | --- |
-| native | Native electrical repair, then native setup repair |
-| design / setup | Either native phase independently |
+| drv | Electrical repair using resize/VT, buffer insertion and load downsizing |
+| setup | Setup repair using resize/VT, side-branch buffering and load downsizing |
 | vg | CPU/CUDA Van Ginneken buffer search |
 | path | STA-verified path buffer search |
 | gobi | GOBI CUDA buffer search |
@@ -77,7 +76,7 @@ current design; inputs are never reloaded between stages.
 Repair uses one STA scene. Placed flows require core rows; preplace does not.
 VG/GOBI/Path use placement parasitics. Existing wire RC is retained;
 if absent, physical RC is derived from the lowest usable LEF routing layer.
-Native, ORD, power and hold also support `--spef FILE` (or `read_spef` in input Tcl) for
+DRV, setup, ORD, power and hold also support `--spef FILE` (or `read_spef` in input Tcl) for
 extracted/postroute parasitics and `--global-routing` for routing estimates. Supply routing setup/tracks in
 input Tcl for global routing. Input Tcl controls propagated/ideal clocks.
 Use `--rc rc.tcl` when the technology needs an explicit wire model. An SDC
@@ -92,9 +91,9 @@ cell timing models, parasitic networks and timing propagation. Algorithms
 query these live objects; there is no copied Liberty LUT, RC import graph,
 custom timer or timing-report parser.
 
-Use `--flow native,power` for electrical/setup repair followed by power search.
+Use `--flow drv,setup,power` for electrical/setup repair followed by power search.
 Power tries slack-budgeted moves first. A larger saving can provisionally
-violate setup/DRV and invoke native recovery inside the same ECO transaction.
+violate setup/DRV and invoke DRV/setup recovery inside the same ECO transaction.
 The final design must reduce the chosen STA power objective without increasing
 area or degrading setup, hold or electrical checks. Rejection and exceptions
 undo both the power move and any committed recovery children. All recovery
@@ -116,6 +115,35 @@ Unknown keys and malformed values fail before design loading.
 
 For example, `--set common.max_fanout=32` overrides the default fanout fallback;
 `--set path.max_trials=0` removes the optional Path trial budget.
+Insertion limits are optional for every algorithm: `drv.max_inserted_buffers`,
+`setup.max_inserted_buffers`, `path.max_inserted_buffers`, `vg.max_buffers` and
+`gobi.max_buffers` default to `unlimited` (`std::nullopt` in C++). A number is an
+actual cap: `0` permits zero insertions and `12` permits at most twelve. Limits
+count committed insertions in that stage; rejected ECOs do not consume them.
+VG/GOBI apply complete tree plans and skip plans that do not fit.
+
+Select allowed Sizer repair actions separately with `common.actions`:
+`resize,buffer,load_downsize` (default), any subset, or `none`. `resize` includes
+buffer/gate drive changes and configured VT moves; `load_downsize` independently
+permits shrinking side loads. The setting applies to DRV/ORD, setup, power and
+Path/VG/GOBI; explicit OpenROAD hold/preplace and standalone fanout stages keep
+their own behavior. For example:
+
+```sh
+# Setup through cell replacements only; no buffer insertion or load downsizing.
+build/src/Sizer design.tcl --flow setup --set common.actions=resize
+# Allow all default actions, with an explicit setup insertion cap.
+build/src/Sizer design.tcl --flow drv,setup --set setup.max_inserted_buffers=12
+# No insertion count cap; other timing, area and search constraints still apply.
+build/src/Sizer design.tcl --flow path --set path.max_inserted_buffers=unlimited
+```
+
+The former `common.allow_gate_resize` / `common.allow_load_downsize` switches
+are replaced by this action list. Configurations use the `drv.*` section;
+`design.*` is removed. Old zero-means-unlimited configurations must use
+`unlimited` explicitly. Path scheduling and VG candidate solving remain separate
+implementations; selecting a VG solver inside Path is not yet exposed.
+
 The C++ API uses seconds; text options ending in `_ns` use nanoseconds.
 VT moves still require explicitly configured library suffixes; cell naming
 conventions are not guessed.
@@ -130,31 +158,33 @@ flow instead of allowing acceptance with stale timing.
 - `application.cpp`: CLI, stage ordering, shared repair services and output.
 - `design_io.*`: OpenROAD input/output, checked Tcl calls, RC defaults and
   supply connectivity. There is no additional LEF/Liberty/DEF/SDC parser here.
-- `design_edit.*`: buffer insertion, master replacement, legalization and scoped
-  ECO transactions. Child commits merge into their parent; uncommitted edits
-  roll back on scope exit. Algorithms explicitly control timing refresh.
-- `repair_drv.*`: Native and ORD electrical repair, standalone fanout repair,
-  load downsizing and power recovery. Their acceptance policies remain explicit.
-- `repair_timing.*`: native setup repair and timing interfaces. VG, GOBI and
-  Path retain their separate, substantial solver implementations; Path has
-  independent `path.*` settings and never runs implicitly inside setup repair.
-- `repair_backend.*`: read-only electrical analysis, candidate planning and
-  acceptance helpers. Implementations are compiled once per backend library.
-- `repair_config.*`: typed algorithm policies and a single key/field registry
-  for strict parsing, unit conversion and serialization. `[path]` is supported;
-  `gobi.backend` has been removed because GOBI always uses CUDA.
-- `legalize_core.*`: standalone greedy/Abacus geometry, linked as
-  `sizer_placement`; `design_edit` adapts OpenDB rows and cells. All strategies
-  build as `sizer_algorithms`, directly linked by the application.
+- `actions/netlist.*`: buffer insertion, master replacement and scoped ECO
+  transactions. Child commits merge into their parent; uncommitted edits roll
+  back on scope exit. Algorithms explicitly control timing refresh.
+- `actions/placement.*`: OpenDB placement adaptation, protected cells and
+  legalization. `actions/legalize_core.*` owns standalone greedy/Abacus geometry.
+- `repair_drv.*`: DRV and ORD electrical strategies, standalone fanout repair,
+  and power recovery. DRV owns the replacement-versus-buffer fallback policy.
+- `repair_setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
+  remain independent strategies, not implicit calls inside setup.
+- `design_analysis.*`: shared design metrics, OpenDB/STA queries, incremental
+  analysis and model evaluation; no dependency on a repair goal or edit module.
+- `cell_candidates.*`: shared resize/VT and load-downsize candidate generation.
+- `repair_config.*`: typed policies, optional insertion limits, complete-plan
+  budget selection and a single registry for parsing and serialization.
+  The small former `repair_buffer_budget` and `repair_analysis` headers are merged.
+
+The placement geometry builds as `sizer_placement`; actions and algorithms
+build as `sizer_algorithms`, directly linked by the application.
 
 The former sizing engine has been removed. Its active strategies map to the
-shared native implementation as follows:
+shared repair implementation as follows:
 
 | Former responsibility | Current implementation |
 | --- | --- |
-| Capacitance/slew repair, drive/VT moves | `repair_drv`, shared candidate backend |
-| Negative-slack cell search, side-load relief | `repair_timing` and native STA validation |
-| Leakage reduction followed by timing recovery | Compound trials in native `power` |
+| Capacitance/slew repair, drive/VT moves | `repair_drv`, shared cell candidates |
+| Negative-slack cell search, side-load relief | `repair_setup` and STA validation |
+| Leakage reduction followed by timing recovery | Compound trials in `power` |
 | Best-design snapshots and undo | Scoped OpenDB ECO transactions and strict acceptance |
 | DreamPlace/Abacus placement | Shared placement adapter and `legalize_core` |
 | Liberty/RC import, custom interpolation/timing | OpenROAD/OpenSTA objects and APIs |
@@ -169,7 +199,7 @@ constraints/timing. Algorithm graphs and caches are temporary views. Plans
 must be rebuilt after intervening topology changes or rollback.
 
 Input and output now use the same entry for all retained stages, including
-native, power, preplace, hold and postroute. Old env/cmd experiment launchers and
+DRV/setup, power, preplace, hold and postroute. Old env/cmd experiment launchers and
 submission templates have been deleted. Existing result checkers and OpenROAD
 Tcl evaluators remain useful for stored data; historical experiment formats
 are not a compatibility contract.

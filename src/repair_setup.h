@@ -2,14 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "repair_drv.h"
-#include "repair_path.h"
-#include "repair_vg.h"
-#include "repair_gobi.h"
+#include "design_analysis.h"
 
 namespace ecc {
 struct SetupRepairMetrics {
-    DesignRepairMetrics design;
+    DesignMetrics design;
     float setup_tns = 0;
     float hold_tns = 0;
     unsigned slew_violations = 0;
@@ -45,10 +42,10 @@ struct SetupRepairResult {
 // refresh, STA is refreshed after the next edit or before returning; baseline
 // metrics/plans are reused only while the committed design stays unchanged.
 // Path/VG/GOBI are independent timing strategies selected by the application.
-class OpenDbSetupRepairer {
-   public:
-    static SetupRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
-                                    const std::function< void() >& refresh,
-                                    const SetupRepairOptions& options = {});
+class SetupRepairer {
+  public:
+    static SetupRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
+                                    const std::function<void()> &refresh,
+                                    const SetupRepairOptions &options = {});
 };
-}  // namespace ecc
+} // namespace ecc

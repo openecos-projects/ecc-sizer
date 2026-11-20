@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "../src/legalize_core.h"
+#include "actions/legalize_core.h"
 
 using ecc::LegalizeNode;
 using ecc::LegalizeRowSeg;

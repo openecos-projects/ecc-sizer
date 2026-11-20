@@ -143,7 +143,7 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
 {
   ecc::RepairConfig config;
   config.set("common.max_fanout", "12");
-  config.set("common.allow_gate_resize", "false");
+  config.set("common.actions", "buffer,load_downsize");
   config.set("setup.max_trials", "3");
   config.set("setup.skip_duplicate_trials", "false");
   config.set("setup.defer_rollback_refresh", "false");
@@ -161,9 +161,9 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.set("path.max_refreshes", "16");
   config.set("path.max_inserted_buffers", "6");
   config.set("path.max_area_growth", "0.1");
-  config.set("common.allow_load_downsize", "false");
+  config.set("common.actions", "buffer");
   config.set("common.load_downsize_slack_margin_ns", "0.01");
-  config.set("design.max_load_downsizes_per_pass", "3");
+  config.set("drv.max_load_downsizes_per_pass", "3");
   config.set("common.vt_suffixes", "_R,_L,_SL");
   config.set("power.objective", "total");
   config.set("power.slack_margin_ns", "0.02");
@@ -179,9 +179,9 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_EQ(power.objective, ecc::PowerObjective::Total);
   EXPECT_FLOAT_EQ(power.slack_margin, 2e-11f);
   EXPECT_EQ(power.common.vt_suffixes.size(), 3);
-  config.design.max_passes = 2;
+  config.drv.max_passes = 2;
   unsigned prepares = 0;
-  config.design.prepare = [&]() { ++prepares; };
+  config.drv.prepare = [&]() { ++prepares; };
   auto setup = config.setupOptions();
   const auto path = config.pathOptions();
   EXPECT_EQ(setup.common.max_fanout, 12);
@@ -189,10 +189,10 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_FALSE(path.recovery);
   EXPECT_FALSE(path.tree_candidates);
   EXPECT_EQ(path.gain_scope, ecc::PathGainScope::Global);
-  EXPECT_FALSE(setup.common.allow_gate_resize);
-  EXPECT_FALSE(setup.common.allow_load_downsize);
+  EXPECT_FALSE(setup.common.actions.resize);
+  EXPECT_FALSE(setup.common.actions.load_downsize);
   EXPECT_FLOAT_EQ(setup.common.load_downsize_slack_margin, 1e-11f);
-  EXPECT_EQ(config.design.max_load_downsizes_per_pass, 3);
+  EXPECT_EQ(config.drv.max_load_downsizes_per_pass, 3);
   EXPECT_EQ(setup.max_trials, 3);
   EXPECT_FALSE(setup.skip_duplicate_trials);
   EXPECT_FALSE(setup.defer_rollback_refresh);
@@ -231,7 +231,7 @@ TEST(RepairConfig, SectionsUnitsAndRoundTrip)
   config.set("vg.max_buffers", "3");
   config.set("vg.max_group_loads", "2");
   EXPECT_EQ(config.power.objective, ecc::PowerObjective::Total);
-  EXPECT_EQ(config.design.vt_suffixes.size(), 3);
+  EXPECT_EQ(config.drv.vt_suffixes.size(), 3);
   auto text = serialized(config);
   ecc::RepairConfig restored;
   std::istringstream saved(text);
@@ -261,11 +261,11 @@ TEST(RepairConfig, RejectsMalformedValuesAtomically)
          {"setup.max_area_growth", "inf"},
          {"common.margin", "1"},
          {"common.max_fanout", "1"},
-         {"common.allow_gate_resize", "yes"},
-         {"common.allow_load_downsize", "yes"},
+         {"common.actions.resize", "yes"},
+         {"common.actions.load_downsize", "yes"},
          {"common.load_downsize_slack_margin_ns", "-1"},
          {"common.load_downsize_slack_margin_ns", "nan"},
-         {"design.max_load_downsizes_per_pass", "-1"},
+         {"drv.max_load_downsizes_per_pass", "-1"},
          {"setup.batch_backoff", "0"},
          {"setup.batch_backoff", "1"},
          {"vg.max_group_loads", "1"},
@@ -299,8 +299,8 @@ TEST(RepairConfig, RejectsMalformedValuesAtomically)
 TEST(RepairConfig, ZeroBudgetsAreValidButApiNaNIsNot)
 {
   ecc::RepairConfig config;
-  for (const auto* key : {"design.max_passes",
-                          "design.max_inserted_buffers",
+  for (const auto* key : {"drv.max_passes",
+                          "drv.max_inserted_buffers",
                           "setup.max_passes",
                           "setup.max_trials",
                           "setup.max_inserted_buffers",
@@ -322,4 +322,77 @@ TEST(RepairConfig, VgSetupScopeRoundTripsAndRejectsUnknownScope) {
   ecc::RepairConfig restored;restored.read(in);
   EXPECT_EQ(restored.vg.scope,ecc::VgScope::Setup);
   EXPECT_THROW(c.set("vg.scope","invalid"),std::invalid_argument);
+}
+
+TEST(BufferPlanBudget, NeverTruncatesATreeAndSkipsOversizedPlans)
+{
+    EXPECT_EQ(ecc::selectWholeBufferPlans(std::vector<std::size_t>{65, 40, 30, 24, 1}, 64),
+              (std::vector<std::size_t>{1, 3}));
+}
+TEST(BufferPlanBudget, AbsentLimitIsUnlimitedAndEmptyPlansAreIgnored)
+{
+    EXPECT_EQ(ecc::selectWholeBufferPlans(std::vector<std::size_t>{0, 100, 5, 0, 10}, std::nullopt),
+              (std::vector<std::size_t>{1, 2, 4}));
+    EXPECT_TRUE(ecc::selectWholeBufferPlans(std::vector<std::size_t>{}, std::nullopt).empty());
+    EXPECT_TRUE(ecc::selectWholeBufferPlans(std::vector<std::size_t>{0, 65}, 64).empty());
+}
+TEST(BufferPlanBudget, FitsExactlyAndPreservesNetOrder)
+{
+    EXPECT_EQ(ecc::selectWholeBufferPlans(std::vector<std::size_t>{32, 32, 1}, 64),
+              (std::vector<std::size_t>{0, 1}));
+}
+
+TEST(RepairConfig, OptionalInsertionLimitsRoundTripAcrossEveryAlgorithm) {
+  ecc::RepairConfig config;
+  EXPECT_FALSE(config.drv.max_inserted_buffers);
+  EXPECT_FALSE(config.setup.max_inserted_buffers);
+  EXPECT_FALSE(config.path.max_inserted_buffers);
+  EXPECT_FALSE(config.vg.max_buffers);
+  EXPECT_FALSE(config.gobi.max_buffers);
+  for (const auto* key : {"drv.max_inserted_buffers", "setup.max_inserted_buffers",
+                          "path.max_inserted_buffers", "vg.max_buffers", "gobi.max_buffers"}) {
+    for (const auto* value : {"0", "3", "unlimited"}) {
+      config.set(key, value);
+      std::ostringstream output;
+      config.write(output);
+      EXPECT_NE(output.str().find(std::string(key) + "=" + value + "\n"), std::string::npos);
+      ecc::RepairConfig restored;
+      std::istringstream input(output.str());
+      restored.read(input);
+      std::ostringstream again;
+      restored.write(again);
+      EXPECT_EQ(output.str(), again.str());
+    }
+    for (const auto* value : {"-1", "none", "1.5", "4294967296"})
+      EXPECT_THROW(config.set(key, value), std::invalid_argument);
+  }
+}
+
+TEST(RepairConfig, ActionsAreIndependentOfInsertionLimits) {
+  ecc::RepairConfig config;
+  config.set("common.actions", "resize,load_downsize");
+  config.set("setup.max_inserted_buffers", "unlimited");
+  EXPECT_FALSE(config.setupOptions().common.actions.buffer);
+  EXPECT_TRUE(config.setupOptions().common.actions.resize);
+  config.set("common.actions", "buffer");
+  EXPECT_TRUE(config.pathOptions().common.actions.buffer);
+  EXPECT_FALSE(config.pathOptions().common.actions.resize);
+  EXPECT_FALSE(config.pathOptions().common.actions.load_downsize);
+  config.set("setup.max_inserted_buffers", "0");
+  EXPECT_TRUE(config.setupOptions().common.actions.buffer);
+  EXPECT_EQ(config.setupOptions().max_inserted_buffers, 0u);
+  config.set("common.actions", "none");
+  EXPECT_EQ(config.drv.actions, (ecc::RepairActions{false, false, false}));
+  for (const auto* value : {"resize,resize", "buffer,", "", "bogus", "buffer,,resize"})
+    EXPECT_THROW(config.set("common.actions", value), std::invalid_argument);
+}
+
+TEST(BufferPlanBudget, ZeroAllowsNoInsertionAndExhaustionCannotUnderflow) {
+  EXPECT_EQ(ecc::remainingBufferBudget(std::nullopt, 100),
+            std::numeric_limits<unsigned>::max());
+  EXPECT_EQ(ecc::remainingBufferBudget(0, 0), 0u);
+  EXPECT_EQ(ecc::remainingBufferBudget(3, 2), 1u);
+  EXPECT_EQ(ecc::remainingBufferBudget(3, 4), 0u);
+  const std::vector<std::size_t> counts{0, 1, 2};
+  EXPECT_TRUE(ecc::selectWholeBufferPlans(counts, 0).empty());
 }

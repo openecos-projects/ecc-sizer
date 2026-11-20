@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "design_edit.h"
+#include "actions/netlist.h"
 #include "odb/db.h"
 #include "utl/Logger.h"
 

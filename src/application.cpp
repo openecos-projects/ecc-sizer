@@ -22,8 +22,9 @@
 #include "repair_gobi_cuda.h"
 #include "repair_parasitics.h"
 #include "repair_path.h"
-#include "design_edit.h"
-#include "repair_timing.h"
+#include "actions/netlist.h"
+#include "actions/placement.h"
+#include "repair_setup.h"
 #include "repair_vg.h"
 #include "rsz/Resizer.hh"
 #include "spdlog/sinks/basic_file_sink.h"
@@ -35,8 +36,7 @@
 
 namespace ecc {
 enum class Stage {
-    Native,
-    Design,
+    Drv,
     Setup,
     Path,
     Vg,
@@ -53,8 +53,7 @@ struct StageName {
     std::string_view name;
     Stage stage;
 };
-constexpr StageName stage_names[] = {{"native", Stage::Native},
-                                     {"design", Stage::Design},
+constexpr StageName stage_names[] = {{"drv", Stage::Drv},
                                      {"setup", Stage::Setup},
                                      {"path", Stage::Path},
                                      {"vg", Stage::Vg},
@@ -71,7 +70,7 @@ struct Options {
     DesignInputs inputs;
     PlacementLegalizer legalizer = PlacementLegalizer::OpenDP;
     RepairConfig repair;
-    std::vector< Stage > stages{Stage::Native};
+    std::vector< Stage > stages{Stage::Drv, Stage::Setup};
     std::string output;
     std::string log;
     spdlog::level::level_enum level = spdlog::level::info;
@@ -79,13 +78,13 @@ struct Options {
 };
 
 constexpr auto help = R"(Usage:
-  Sizer design.tcl [--flow native|vg|path|gobi] [--output PREFIX]
+  Sizer design.tcl [--flow drv,setup|vg|path|gobi] [--output PREFIX]
   Sizer --def design.def --lef tech.lef --lef cells.lef --lib cells.lib --sdc design.sdc
   Sizer --odb design.odb --lib cells.lib --sdc design.sdc
 
-The default flow is native (electrical repair followed by setup repair).
---flow accepts comma-separated stages, e.g. vg,native,path,power.
-Stages: native, design, setup, path, vg, gobi, ord, power, fanout, legalize,
+The default flow is drv,setup (electrical repair followed by setup repair).
+--flow accepts comma-separated stages, e.g. path,drv,setup,power.
+Stages: drv, setup, path, vg, gobi, ord, power, fanout, legalize,
         hold, preplace, preplace-gain.
 Inputs are loaded once; every stage sees the preceding committed design.
 
@@ -277,9 +276,9 @@ static void run(Options& options) {
        (!options.inputs.spef.empty() || options.inputs.global_routing ||
         session.hasExtractedParasitics()))
         throw std::invalid_argument(
-            "VG/GOBI/Path require placement RC; use native, power or hold "
+            "VG/GOBI/Path require placement RC; use drv, setup, power or hold "
             "for postroute/global-routing repair");
-    auto common = options.repair.design;
+    auto common = options.repair.drv;
     for(auto* inst : block->getInsts())
         if(inst->isDoNotTouch())
             common.excluded_instances.push_back(inst);
@@ -334,18 +333,15 @@ static void run(Options& options) {
                 ->name;
         spdlog::info("Starting {}", name);
         switch(stage) {
-            case Stage::Native:
-            case Stage::Design:
-                report("design", OpenDbDesignRepairer::repair(block, sta,
+            case Stage::Drv:
+                report("drv", DrvRepairer::repair(block, sta,
                                                               refresh, common));
-                if(stage == Stage::Design)
-                    break;
-                [[fallthrough]];
+                break;
             case Stage::Setup: {
                 auto setup = options.repair.setupOptions();
                 setup.common = common;
                 report("setup",
-                       OpenDbSetupRepairer::repair(block, sta, refresh, setup));
+                       SetupRepairer::repair(block, sta, refresh, setup));
                 break;
             }
             case Stage::Path: {
@@ -403,7 +399,7 @@ static void run(Options& options) {
                 break;
             }
             case Stage::Ord:
-                report("ord", OpenDbOrdDesignRepairer::repair(block, sta,
+                report("ord", OrdDrvRepairer::repair(block, sta,
                                                               refresh, common));
                 break;
             case Stage::Power: {

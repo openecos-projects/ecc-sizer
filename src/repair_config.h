@@ -5,13 +5,15 @@
 #include <functional>
 #include <iosfwd>
 #include <optional>
+#include <span>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace odb {
 class dbMaster;
 class dbInst;
-}  // namespace odb
+} // namespace odb
 namespace ecc {
 enum class PathStrategy { Sequential, PathGain, Feedback };
 enum class PathPlacement { Trial, Final };
@@ -31,32 +33,40 @@ struct RepairTolerances {
     float tns_relative = 1e-6f;
     double drv_severity = 1e-6;
 };
+// An absent limit is unbounded. Zero is an actual count, never an enable switch.
+unsigned remainingBufferBudget(std::optional<unsigned> limit, unsigned used);
+std::vector<std::size_t> selectWholeBufferPlans(std::span<const std::size_t> counts,
+                                                std::optional<unsigned> limit);
+
+struct RepairActions {
+    bool resize = true;
+    bool buffer = true;
+    bool load_downsize = true;
+    bool operator==(const RepairActions &) const = default;
+};
 struct RepairCommonOptions {
     unsigned max_fanout = 64;
     float margin = 0.1f;
     float recovered_slew_fraction = 0.25f;
     double overload_group_fraction = 0.5;
-    bool allow_gate_resize = true;
-    bool allow_load_downsize = true;
+    RepairActions actions;
     // Explicit same-drive VT suffixes, e.g. {"_R", "_L", "_SL"}.
     // Empty disables VT moves; no technology naming is guessed.
-    std::vector< std::string > vt_suffixes;
+    std::vector<std::string> vt_suffixes;
     float load_downsize_slack_margin = 0;
     RepairTolerances tolerances;
     // Runtime hooks/constraints are not serialized as text configuration.
-    std::function< void() > prepare;
-    std::vector< odb::dbMaster* > excluded_masters;
-    std::vector< odb::dbInst* > excluded_instances;
+    std::function<void()> prepare;
+    std::vector<odb::dbMaster *> excluded_masters;
+    std::vector<odb::dbInst *> excluded_instances;
     // Preserve selected cell masters during compound ECO recovery, while
     // retaining their nets and timing cones in analysis. Not a CLI setting.
-    std::vector< odb::dbInst* > excluded_resize_instances;
+    std::vector<odb::dbInst *> excluded_resize_instances;
     void validate() const;
 };
-struct DesignRepairOptions : RepairCommonOptions {
-    // Zero means unlimited. A positive value is an optional total buffer
-    // insertion cap used to bound runtime and memory during experiments.
+struct DrvRepairOptions : RepairCommonOptions {
     unsigned max_passes = 8;
-    unsigned max_inserted_buffers = 0;
+    std::optional<unsigned> max_inserted_buffers;
     unsigned max_load_downsizes_per_pass = 64;
     // OpenROAD-style repair commits driver edits in bounded traversal batches.
     unsigned ord_driver_batch_size = 10000;
@@ -75,7 +85,7 @@ struct SetupRepairSettings {
     // Both optimizations operate only while the committed design is unchanged.
     bool skip_duplicate_trials = true;
     bool defer_rollback_refresh = true;
-    unsigned max_inserted_buffers = 64;
+    std::optional<unsigned> max_inserted_buffers;
     unsigned min_side_loads = 2;
     double max_area_growth = 0.02;
     float min_improvement = 1e-13f;
@@ -153,8 +163,7 @@ struct PathRepairSettings {
     // Default one preserves sequential greedy behavior; larger values enable
     // buffer-only ECO batching for throughput experiments.
     unsigned batch_size = 1;
-    // Zero means unlimited, subject to the area/trial budgets.
-    unsigned max_inserted_buffers = 0;
+    std::optional<unsigned> max_inserted_buffers;
     // -1 disables the area budget; zero permits no area growth.
     double max_area_growth = 0.02;
     void validate() const;
@@ -162,15 +171,15 @@ struct PathRepairSettings {
 struct PathRepairOptions : PathRepairSettings {
     RepairCommonOptions common;
     // Called after commit/rollback; rejected trials can have deferred STA.
-    std::function< void(unsigned, const PathBufferTrial&) > path_trial_observer;
-    std::function< void(const PathFanoutCheck&) > path_fanout_observer;
+    std::function<void(unsigned, const PathBufferTrial &)> path_trial_observer;
+    std::function<void(const PathFanoutCheck &)> path_fanout_observer;
     // Authoritative refresh for trial verification or final phase validation.
     // Final mode uses it after legalization, before committing the parent ECO.
-    std::function< void() > path_verification_refresh;
+    std::function<void()> path_verification_refresh;
     // Refresh accumulated edited timing cones for a promising incremental
     // trial. Final-phase mode still requires authoritative final RC/STA.
-    std::function< void() > path_incremental_verification;
-    std::function< RepairAnalysisChanges() > path_analysis_changes;
+    std::function<void()> path_incremental_verification;
+    std::function<RepairAnalysisChanges()> path_analysis_changes;
     void validate() const;
 };
 
@@ -194,7 +203,7 @@ struct VgRepairSettings {
     // falls back to CPU if unavailable or over the GPU memory budget.
     VgBackend backend = VgBackend::Cpu;
     unsigned cuda_max_memory_mb = 512;
-    unsigned max_buffers = 64;
+    std::optional<unsigned> max_buffers;
     unsigned max_nets = 0;
     unsigned max_group_loads = 0;
     float min_gain = 0;
@@ -203,7 +212,7 @@ struct VgRepairSettings {
 };
 struct GobiRepairSettings {
     // GOBI uses its CUDA solver; backend availability is checked at runtime.
-    unsigned max_buffers = 64;
+    std::optional<unsigned> max_buffers;
     unsigned max_nets = 0;
     bool require_drv_reduction = true;
 };
@@ -212,10 +221,10 @@ struct PowerRepairOptions : PowerRepairSettings {
     void validate() const;
 };
 
-// A single source of effective policy for the native DRV -> setup pipeline.
+// A single source of effective policy for the DRV -> setup pipeline.
 // Algorithms also accept their own default-initialized options independently.
 struct RepairConfig {
-    DesignRepairOptions design;
+    DrvRepairOptions drv;
     SetupRepairSettings setup;
     PathRepairSettings path;
     PowerRepairSettings power;
@@ -228,11 +237,11 @@ struct RepairConfig {
     PowerRepairOptions powerOptions() const;
     void validate() const;
     // Strict key/value parsing. Unknown keys, malformed values and NaN fail.
-    void set(const std::string& key, const std::string& value);
+    void set(const std::string &key, const std::string &value);
     // Atomic load: a malformed file never partially changes this object.
-    void read(std::istream& input, const std::string& source = "repair config");
-    void readFile(const std::string& path);
-    void write(std::ostream& output) const;
+    void read(std::istream &input, const std::string &source = "repair config");
+    void readFile(const std::string &path);
+    void write(std::ostream &output) const;
 };
 
-}  // namespace ecc
+} // namespace ecc

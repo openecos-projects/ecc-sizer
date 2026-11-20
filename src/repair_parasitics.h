@@ -15,7 +15,7 @@
 #include "sta/Scene.hh"
 #include "sta/Graph.hh"
 #include "sta/TimingRole.hh"
-#include "repair_analysis.h"
+#include "design_analysis.h"
 
 namespace ecc {
 

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "repair_config.h"
-#include "design_edit.h"
+#include "actions/netlist.h"
+#include "design_analysis.h"
 #include <functional>
 #include <string>
 #include <vector>
@@ -13,23 +14,20 @@ namespace sta {
 class dbSta;
 }
 namespace ecc {
-struct DesignRepairMetrics {
-    unsigned fanout_nets = 0;
-    unsigned capacitance_nets = 0;
-    unsigned slew_nets = 0;
-    unsigned skipped_nets = 0;
-    double severity = 0.0;
-    double area = 0.0;       // OpenDB area units (DBU squared).
-    float setup_wns = 0.0f;  // STA internal seconds.
-    float hold_wns = 0.0f;
-    float setup_tns = 0.0f;
-    float hold_tns = 0.0f;
-    unsigned total_slew_violations = 0;
-    unsigned total_cap_violations = 0;
-    unsigned total_fanout_violations = 0;
+namespace detail {
+class CellCandidates;
+}
+// Alternatives planned against one measured design snapshot.
+struct DrvNetPlan {
+    std::optional<CellReplacement> replacement;
+    std::vector<BufferInsertion> buffers;
 };
+DrvNetPlan planDrvNetRepair(detail::DesignAnalysis &analysis,
+                            detail::CellCandidates &cells, sta::dbSta *sta,
+                            const detail::NetState &input, unsigned available,
+                            bool allow_resize, const RepairCommonOptions &options);
 
-struct DesignRepairResult {
+struct DrvRepairResult {
     bool ok = false;
     bool converged = false;
     std::string message;
@@ -41,26 +39,26 @@ struct DesignRepairResult {
     unsigned vt_swaps = 0;
     unsigned downsized_loads = 0;
     unsigned rejected_load_batches = 0;
-    DesignRepairMetrics before;
-    DesignRepairMetrics after;
+    DesignMetrics before;
+    DesignMetrics after;
 };
 
 // Native DRV decisions on an OpenDB/dbSta backend. No Resizer repair/move
 // calls. refresh must re-estimate placement parasitics and update STA after
 // both edits and rollback. Single STA scene; invoke at a topology
 // synchronization boundary.
-class OpenDbDesignRepairer {
-   public:
-    static DesignRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
-                                     const std::function< void() >& refresh,
-                                     const DesignRepairOptions& options = {});
+class DrvRepairer {
+  public:
+    static DrvRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
+                                  const std::function<void()> &refresh,
+                                  const DrvRepairOptions &options = {});
 };
 
 // OpenROAD-style DRV repair: drivers are visited in the reverse levelized
 // order used by RepairDesign::repairDriver().  The implementation keeps the
 // Sizer transaction/acceptance boundary and OpenDB inserter, while exposing a
 // separate strategy for A/B evaluation against Native repair.
-struct OrdDesignRepairResult {
+struct OrdDrvRepairResult {
     bool ok = false;
     bool converged = false;
     std::string message;
@@ -71,23 +69,22 @@ struct OrdDesignRepairResult {
     unsigned resized_gates = 0;
     unsigned vt_swaps = 0;
     unsigned rejected_passes = 0;
-    DesignRepairMetrics before;
-    DesignRepairMetrics after;
+    DesignMetrics before;
+    DesignMetrics after;
 };
 
-class OpenDbOrdDesignRepairer {
-   public:
-    static OrdDesignRepairResult repair(
-        odb::dbBlock* block, sta::dbSta* sta,
-        const std::function< void() >& refresh,
-        const DesignRepairOptions& options = {});
+class OrdDrvRepairer {
+  public:
+    static OrdDrvRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
+                                     const std::function<void()> &refresh,
+                                     const DrvRepairOptions &options = {});
 };
 
 struct FanoutRepairOptions {
     unsigned max_fanout = 64;
     unsigned max_levels = 32;
     bool repair_clock_nets = false;
-    std::vector< odb::dbNet* > excluded_nets;
+    std::vector<odb::dbNet *> excluded_nets;
     BufferInsertionOptions insertion;
 };
 
@@ -107,31 +104,25 @@ struct FanoutRepairResult {
     unsigned violating_nets = 0;
     unsigned before_max_fanout = 0;
     unsigned after_max_fanout = 0;
-    std::vector< odb::dbInst* > inserted_buffers;
-    std::vector< odb::dbNet* > affected_nets;
+    std::vector<odb::dbInst *> inserted_buffers;
+    std::vector<odb::dbNet *> affected_nets;
 
-    bool ok() const {
-        return status == FanoutRepairStatus::kSuccess;
-    }
-    explicit operator bool() const {
-        return ok();
-    }
+    bool ok() const { return status == FanoutRepairStatus::kSuccess; }
+    explicit operator bool() const { return ok(); }
 };
 
 class OpenDbFanoutRepairer {
-   public:
-    static FanoutRepairResult repair(odb::dbBlock* block,
-                                     odb::dbMaster* buffer_master,
-                                     const FanoutRepairOptions& options = {});
+  public:
+    static FanoutRepairResult repair(odb::dbBlock *block, odb::dbMaster *buffer_master,
+                                     const FanoutRepairOptions &options = {});
 
-    static unsigned loadCount(odb::dbNet* net);
-    static unsigned maxFanout(odb::dbBlock* block,
-                              bool include_clock_nets = false);
+    static unsigned loadCount(odb::dbNet *net);
+    static unsigned maxFanout(odb::dbBlock *block, bool include_clock_nets = false);
 };
 
 struct PowerRepairMetrics {
-    DesignRepairMetrics design;
-    double leakage = 0, internal = 0, switching = 0, total = 0;  // watts
+    DesignMetrics design;
+    double leakage = 0, internal = 0, switching = 0, total = 0; // watts
 };
 struct PowerRepairResult {
     bool ok = false;
@@ -149,9 +140,9 @@ struct PowerRepairResult {
 // power without worsening area, setup/hold or DRV versus the committed design.
 // Uses the caller's STA activity assumptions. No Resizer strategy calls.
 class OpenDbPowerRepairer {
-   public:
-    static PowerRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
-                                    const std::function< void() >& refresh,
-                                    const PowerRepairOptions& options = {});
+  public:
+    static PowerRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
+                                    const std::function<void()> &refresh,
+                                    const PowerRepairOptions &options = {});
 };
-}  // namespace ecc
+} // namespace ecc
