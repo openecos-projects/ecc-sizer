@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <vector>
 namespace odb {
@@ -7,8 +8,6 @@ class dbBlock;
 namespace ecc::replay {
 bool enabled() noexcept;
 void initialize() noexcept;
-// Synchronous copy at a stable repair/commit boundary. Never throws into EDA.
-void capture(odb::dbBlock* block, const char* phase) noexcept;
 }  // namespace ecc::replay
 
 namespace rsz {
@@ -17,12 +16,15 @@ class Resizer;
 namespace ecc::replay {
 class Session {
    public:
-    explicit Session(rsz::Resizer* resizer, odb::dbBlock* block);
+    explicit Session(rsz::Resizer* resizer, odb::dbBlock* block) noexcept;
     ~Session();
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
+    void capture(const char* phase) noexcept;
 
    private:
+    class Changes;
+    std::unique_ptr<Changes> changes_;
     rsz::Resizer* resizer_ = nullptr;
 };
 }  // namespace ecc::replay

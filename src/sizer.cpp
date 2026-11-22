@@ -5519,7 +5519,6 @@ void *static_poweropt_driver(void *void_thread_args) {
 void Sizer::runPreplace() {
     ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
                                         _ckt->_ord_design->getBlock());
-    ecc::replay::capture(_ckt->_ord_design->getBlock(), "runPreplace_input");
     // Cap pre-place repair fanout at 32 and preserve a stricter design-level
     // SDC max_fanout when present.
 
@@ -5572,8 +5571,7 @@ void Sizer::runPreplace() {
     _ckt->_ord_design->evalTclString(
         "report_check_types -max_slew -max_capacitance -max_fanout -digits 3");
 
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "preplace_repair_complete");
+    replay_session.capture("preplace_repair_complete");
     _ckt->_ord_design->evalTclString(
         "puts [format {preplace_after_repair resistance=%g capacitance=%g estimated=%d} "
         "[est::wire_signal_resistance [sta::cmd_scene]] "
@@ -5601,13 +5599,12 @@ void Sizer::runPreplace() {
 void Sizer::runHoldOnly() {
     ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
                                         _ckt->_ord_design->getBlock());
-    ecc::replay::capture(_ckt->_ord_design->getBlock(), "runHoldOnly_input");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
         "repair_timing -hold -hold_margin " + to_string(hold_margin) +
         " -skip_pin_swap -verbose");
-    ecc::replay::capture(_ckt->_ord_design->getBlock(), "hold_repair_complete");
+    replay_session.capture("hold_repair_complete");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: hold buffering must not have broken setup
@@ -5625,8 +5622,7 @@ void Sizer::runHoldOnly() {
     // placement before exporting it so downstream legalization sees a legal
     // starting geometry rather than overlapping inserted instances.
     legalizePlacement();
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "legalization_complete");
+    replay_session.capture("legalization_complete");
     // Rebuild parasitics on the legalized geometry before a second hold pass.
     refreshOpenStaParasitics(true);
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
@@ -5634,7 +5630,7 @@ void Sizer::runHoldOnly() {
     _ckt->_ord_design->evalTclString(
         "repair_timing -hold -hold_margin " + to_string(hold_margin) +
         " -skip_pin_swap -verbose");
-    ecc::replay::capture(_ckt->_ord_design->getBlock(), "hold_repair_complete");
+    replay_session.capture("hold_repair_complete");
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     // guard: the second hold pass must not have broken setup
@@ -5651,8 +5647,7 @@ void Sizer::runHoldOnly() {
     // The second hold pass can insert another set of movable buffers; make
     // the exported geometry legal once more before the final RC refresh.
     legalizePlacement();
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "legalization_complete");
+    replay_session.capture("legalization_complete");
     refreshOpenStaParasitics(true);
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
@@ -5670,11 +5665,9 @@ void Sizer::runHoldOnly() {
 // Legalize-only mode: load, legalizePlacement, write out. No repair, no
 // sizing loop. Fast legality verification for a design state.
 void Sizer::runLegalizeOnly() {
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "runLegalizeOnly_input");
+    ecc::replay::Session replay_session(nullptr, _ckt->_ord_design->getBlock());
     legalizePlacement();
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "legalization_complete");
+    replay_session.capture("legalization_complete");
     if(resultDefFile == "") {
         resultDefFile = benchname + ".size.def";
     }
@@ -5802,7 +5795,6 @@ void Sizer::legalizePlacement() {
 void Sizer::runOrdTO() {
     ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
                                         _ckt->_ord_design->getBlock());
-    ecc::replay::capture(_ckt->_ord_design->getBlock(), "runOrdTO_input");
     _ckt->assertNoIllegalExternalPadBoundaryChain();
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
@@ -5818,18 +5810,16 @@ void Sizer::runOrdTO() {
     // _ckt->_ord_design->evalTclString("set_max_fanout 32 [current_design]");
     _ckt->_ord_design->evalTclString(
         "repair_design -slew_margin 10 -cap_margin 10 -verbose");
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "design_repair_complete");
+    replay_session.capture("design_repair_complete");
     // Repair hold in the setup corner before setup optimization consumes slack.
     _ckt->_ord_design->evalTclString(
         "repair_timing -hold -hold_margin " + to_string(hold_margin) +
         " -skip_pin_swap -verbose");
-    ecc::replay::capture(_ckt->_ord_design->getBlock(), "hold_repair_complete");
+    replay_session.capture("hold_repair_complete");
     _ckt->_ord_design->evalTclString("repair_timing -setup -setup_margin " +
                                      to_string(setup_margin) +
                                      " -skip_pin_swap -verbose");
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "setup_repair_complete");
+    replay_session.capture("setup_repair_complete");
     const int connected_special_pins
         = ecc::connectMissingWildcardSpecialNetPins(
             _ckt->_ord_design->getBlock());
@@ -5846,8 +5836,7 @@ void Sizer::runOrdTO() {
         _ckt->_ord_design->writeDef(pre_final_legalization_def);
     }
     legalizePlacement();
-    ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                         "legalization_complete");
+    replay_session.capture("legalization_complete");
     // Legalization moves degrade the repaired timing state. Rebuild placement
     // parasitics, run a margin-free recovery pass, then re-legalize any cells
     // inserted by the recovery.
@@ -6390,6 +6379,7 @@ void Sizer::FinalReport() {
     auto _ord_design = _ckt->_ord_design;
     auto block = _ord_design->getBlock();
     auto _sta = ord::OpenRoad::openRoad()->getSta();
+    ecc::replay::Session replay_session(nullptr, block);
     applyOpenStaDbChanges([&]() {
         for(unsigned i = 0; i < numcells; i++) {
             LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
@@ -6430,9 +6420,8 @@ void Sizer::FinalReport() {
         }
 
         legalizePlacement();
-        ecc::replay::capture(_ckt->_ord_design->getBlock(),
-                             "legalization_complete");
     });
+    replay_session.capture("final_sizing_applied");
 
     if(!noSPEF && spefFile != "") {
         return;

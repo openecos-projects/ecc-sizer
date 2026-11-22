@@ -1,13 +1,16 @@
 #include "replay_capture.h"
 #include "odb/db.h"
-#include <chrono>
+#include "odb/dbBlockCallBackObj.h"
+#include "rsz/Resizer.hh"
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <set>
 
 namespace ecc::replay {
 namespace {
@@ -139,23 +142,6 @@ void initialize() noexcept {
     }
 }
 
-void capture(odb::dbBlock* block, const char* phase) noexcept {
-    if(!enabled())
-        return;
-    write(phase, "native_committed", "instances",
-          [block](std::ostream& stream) {
-              stream << ",\"objects\":{";
-              bool first = true;
-              for(auto* inst : block->getInsts()) {
-                  if(!first)
-                      stream << ',';
-                  first = false;
-                  instance(stream, inst);
-              }
-              stream << '}';
-          });
-}
-
 Decisions::Decisions(const char* algorithm, unsigned worker) noexcept
     : active_(enabled()), algorithm_(algorithm), worker_(worker) {
 }
@@ -208,19 +194,92 @@ void Decisions::flush() noexcept {
     rows_.clear();
 }
 
-}  // namespace ecc::replay
+class Session::Changes : public odb::dbBlockCallBackObj {
+   public:
+    explicit Changes(odb::dbBlock* block) : block_(block) { addOwner(block); }
 
-#include "rsz/Resizer.hh"
-namespace ecc::replay {
-Session::Session(rsz::Resizer* resizer, odb::dbBlock* block) {
-    if(enabled()) {
-        resizer_ = resizer;
-        resizer_->setCommittedStateObserver(
-            [block](const char* phase) noexcept { capture(block, phase); });
+    void capture(const char* phase) noexcept {
+        if(dirty_.empty())
+            return;
+        auto dirty = std::move(dirty_);
+        dirty_.clear();
+        // Resolve names after the commit or undo, when the database is stable.
+        write(phase, "native_committed", "patch", [&](std::ostream& stream) {
+            stream << ",\"objects\":{";
+            bool first = true;
+            for(const auto& name : dirty) {
+                if(auto* inst = block_->findInst(name.c_str())) {
+                    if(!first)
+                        stream << ',';
+                    first = false;
+                    instance(stream, inst);
+                }
+            }
+            stream << "},\"remove\":[";
+            first = true;
+            for(const auto& name : dirty) {
+                if(!block_->findInst(name.c_str())) {
+                    if(!first)
+                        stream << ',';
+                    first = false;
+                    quote(stream, "inst:" + name);
+                }
+            }
+            stream << ']';
+        });
+    }
+
+   private:
+    template <typename GetName>
+    void mark(GetName get_name) noexcept {
+        try {
+            dirty_.insert(get_name());
+        } catch(const std::exception& error) {
+            std::cerr << "Replay change tracking failed: " << error.what() << '\n';
+        }
+    }
+
+    void mark(odb::dbInst* inst) noexcept {
+        mark([&] { return inst->getName(); });
+    }
+
+    void inDbInstCreate(odb::dbInst* inst) override { mark(inst); }
+    void inDbInstDestroy(odb::dbInst* inst) override { mark(inst); }
+    void inDbInstPlacementStatusBefore(odb::dbInst* inst, const odb::dbPlacementStatus&) override { mark(inst); }
+    void inDbInstSwapMasterAfter(odb::dbInst* inst) override { mark(inst); }
+    void inDbPostMoveInst(odb::dbInst* inst) override { mark(inst); }
+    void inDbPostInstRename(odb::dbInst* inst, const char* old_name) override {
+        mark([&] { return old_name; });
+        mark(inst);
+    }
+    void inDbITermPostConnect(odb::dbITerm* term) override { mark(term->getInst()); }
+    void inDbITermPostDisconnect(odb::dbITerm* term, odb::dbNet*) override { mark(term->getInst()); }
+
+    odb::dbBlock* block_;
+    std::set<std::string> dirty_;
+};
+
+Session::Session(rsz::Resizer* resizer, odb::dbBlock* block) noexcept {
+    if(!enabled() || !block)
+        return;
+    try {
+        changes_ = std::make_unique<Changes>(block);
+        if(resizer) {
+            resizer->setCommittedStateObserver(
+                [this](const char* phase) noexcept { capture(phase); });
+            resizer_ = resizer;
+        }
+    } catch(const std::exception& error) {
+        std::cerr << "Replay observer unavailable: " << error.what() << '\n';
     }
 }
 Session::~Session() {
     if(resizer_)
         resizer_->setCommittedStateObserver({});
+}
+
+void Session::capture(const char* phase) noexcept {
+    if(changes_)
+        changes_->capture(phase);
 }
 }  // namespace ecc::replay
