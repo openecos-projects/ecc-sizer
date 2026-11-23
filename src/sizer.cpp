@@ -655,9 +655,6 @@ void Sizer::ReportOptions() {
     if(lefFiles.size() == 0)
         cout << endl;
 
-    cout << "SUFFIX NVT     : " << suffixNVT << endl;
-    cout << "SUFFIX LVT     : " << suffixLVT << endl;
-    cout << "SUFFIX HVT     : " << suffixHVT << endl;
     cout << "SUFFIX         : " << suffix << endl;
     cout << "EQUIV CELL SORT: " << equivCellSortModeName() << endl;
     cout << "--------------------------------------" << endl;
@@ -9415,11 +9412,9 @@ void Sizer::readEnvFile(string envFileStr) {
     string line;
     string tmp_str;
 
-    // Process settings are explicit; an unspecified configuration is single-VT.
-    suffixHVT = "";
-    suffixLVT = "";
-    suffixNVT = "";
     suffix = "";
+    // Overwritten by Circuit::assign_vt_groups() from the loaded Liberty;
+    // single-VT until then, and for a library set that declares one group.
     numVt = 1;
 
     dontTouchFile = "";
@@ -9458,8 +9453,6 @@ void Sizer::readEnvFile(string envFileStr) {
                 tmp_str.erase(tmp_str.find_last_of("]"), 1);
             libSuffix.push_back(tmp_str);
         }
-        if(line.find("-num_vt ") != string::npos)
-            numVt = getTokenI(line, "-num_vt ");
         if(line.find("-num_modes ") != string::npos)
             numModes = getTokenI(line, "-num_modes ");
         if(line.find("-num_corners ") != string::npos)
@@ -9489,15 +9482,6 @@ void Sizer::readEnvFile(string envFileStr) {
         }
         if(line.find("-tclFile ") != string::npos)
             util_tcl_file = getTokenS(line, "-tclFile ");
-        if(line.find("-suffix_nvt ") != string::npos) {
-            suffixNVT = getTokenS(line, "-suffix_nvt ");
-        }
-        if(line.find("-suffix_lvt ") != string::npos) {
-            suffixLVT = getTokenS(line, "-suffix_lvt ");
-        }
-        if(line.find("-suffix_hvt ") != string::npos) {
-            suffixHVT = getTokenS(line, "-suffix_hvt ");
-        }
         if(line.find("-suffix_all ") != string::npos) {
             suffix = getTokenS(line, "-suffix_all ");
         }
@@ -9506,15 +9490,6 @@ void Sizer::readEnvFile(string envFileStr) {
         }
     }
     file.close();
-    if(numVt < 1 || numVt > 3) {
-        throw std::runtime_error("Sizer supports one to three explicitly configured VT groups");
-    }
-    if(numVt >= 2 && (suffixHVT.empty() || suffixNVT.empty() || suffixHVT == suffixNVT)) {
-        throw std::runtime_error("Multi-VT sizing requires distinct nonempty HVT/NVT suffixes");
-    }
-    if(numVt == 3 && (suffixLVT.empty() || suffixLVT == suffixHVT || suffixLVT == suffixNVT)) {
-        throw std::runtime_error("Three-VT sizing requires a distinct nonempty LVT suffix");
-    }
 }
 
 void Sizer::readCmdFile(string cmdFileStr) {
@@ -10768,12 +10743,6 @@ void Sizer::Profile() {
 }
 
 int main(int argc, char **argv) {
-    // Machine-readable contract probe must not initialize OpenROAD or a design.
-    if(argc == 2 && std::string(argv[1]) == "--ecc-capabilities") {
-        std::cout << "{\"schema_version\":1,\"tool\":\"ecc-sizer\","
-                     "\"contracts\":{\"explicit_vt_groups\":1}}\n";
-        return 0;
-    }
     int agc = 0;
     char **arv = nullptr;
     // omp_set_num_threads(8);

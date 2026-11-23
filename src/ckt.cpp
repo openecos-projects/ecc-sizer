@@ -402,6 +402,9 @@ void Circuit::Parser(string benchmark) {
             _sizer->func2id.clear();
         }
     }
+
+    assign_vt_groups();
+
     // _sizer->runOrdTO();
     // find_resize_slacks();
     // exit(0);
@@ -1050,6 +1053,47 @@ map< string, unsigned > Circuit::generateLibCellTable() {
     return check_map;
 }
 
+void Circuit::assign_vt_groups() {
+    // Each corner reads its own Liberty files, so the library names -- and
+    // therefore the axis -- are per corner. The group count must agree across
+    // corners: the VT index is per cell but the table width is global.
+    int resolved = 0;
+    for(unsigned corner = 0; corner < _sizer->libs.size(); ++corner) {
+        std::vector< std::pair< std::string, double > > observations;
+        observations.reserve(_sizer->libs[corner].size());
+        for(const auto& name_cell : _sizer->libs[corner]) {
+            observations.emplace_back(name_cell.second.libname,
+                                      name_cell.second.leakagePower);
+        }
+        if(observations.empty()) {
+            continue;
+        }
+
+        const VtGroups groups = derive_vt_groups(observations, f + 1);
+        for(auto& name_cell : _sizer->libs[corner]) {
+            name_cell.second.c_vtype = static_cast< cell_vtypes >(
+                groups.vt_of(name_cell.second.libname));
+        }
+
+        if(resolved != 0 && resolved != groups.count) {
+            throw std::runtime_error(
+                "corners disagree on the number of threshold-voltage "
+                "libraries; every corner must describe the same cell set");
+        }
+        resolved = groups.count;
+
+        printf("Derived %d threshold-voltage group(s) for corner %u:\n",
+               groups.count, corner);
+        for(const auto& lib_rank : groups.rank) {
+            printf("  vt %d (slowest first): %s\n", lib_rank.second,
+                   lib_rank.first.c_str());
+        }
+    }
+    if(resolved != 0) {
+        _sizer->numVt = resolved;
+    }
+}
+
 // may have a bug
 // pankit 01/22/2013
 void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
@@ -1065,73 +1109,47 @@ void Circuit::createLibCellTable(LibCellTable& lib_cell_table,
         // exit(0);
     }
     // If multiple equivalent cells exist, use the configured candidate order.
-    // list size first
-    std::unordered_map< string, int > lib_cell_size_index;
+    std::map< DriveKey, int > lib_cell_size_index;
     printf("sort by %s candidate_cell_info->name list: ",
            _sizer->equivCellSortModeName().c_str());
-    for(auto candidate_cell_info : candidate_list) {
-        // slowest vt first
-        // if((*it)->c_vtype != 0) {
-        //     continue;
-        // }
+
+    // Drive identity and VT both come from Liberty -- area plus leakage rank
+    // for the drive, the source library for the threshold -- so the VT
+    // variants of one drive share a size row without parsing a cell name.
+    const std::vector< LibCellInfo* > candidates(candidate_list.begin(),
+                                                 candidate_list.end());
+    std::vector< FamilyCell > family;
+    family.reserve(candidates.size());
+    for(unsigned i = 0; i < candidates.size(); ++i) {
+        FamilyCell entry;
+        entry.libname = candidates[i]->libname;
+        entry.area = candidates[i]->area;
+        entry.leakage = candidates[i]->leakagePower;
+        family.push_back(entry);
+    }
+    const std::vector< DriveKey > drive_keys = derive_drive_keys(family);
+
+    for(unsigned i = 0; i < candidates.size(); ++i) {
+        LibCellInfo* candidate_cell_info = candidates[i];
         cout << candidate_cell_info->name << "/"
              << candidate_cell_info->leakagePower << " ";
-        int vt = 0;
-        string newCellName = candidate_cell_info->name;
-        if(_sizer->numVt == 3) {
-            if(newCellName.find(_sizer->suffixHVT.c_str()) !=
-               std::string::npos) {
-                size_t start = newCellName.find(_sizer->suffixHVT.c_str());
-                newCellName.erase(start, _sizer->suffixHVT.size());
-                vt = 0;
-            }
-            else if(newCellName.find(_sizer->suffixNVT.c_str()) !=
-                    std::string::npos) {
-                size_t start = newCellName.find(_sizer->suffixNVT.c_str());
-                newCellName.erase(start, _sizer->suffixNVT.size());
-                vt = 1;
-            }
-            else if(newCellName.find(_sizer->suffixLVT.c_str()) !=
-                    std::string::npos) {
-                size_t start = newCellName.find(_sizer->suffixLVT.c_str());
-                newCellName.erase(start, _sizer->suffixLVT.size());
-                vt = 2;
-            }
-            else {
-                // SMIC 110 RVT NOT HAVE SUFIX
-                vt = 1;
-                printf("Warning: Cell %s has only 1 vt!\n",
-                       newCellName.c_str());
-                // exit(0);
-            }
+
+        const int vt = static_cast< int >(candidate_cell_info->c_vtype);
+        if(vt < 0 || vt >= _sizer->numVt) {
+            printf("\nWarning: Cell %s has no derived VT group; skipping\n",
+                   candidate_cell_info->name.c_str());
+            continue;
         }
-        else if(_sizer->numVt == 2) {
-            if(newCellName.find(_sizer->suffixHVT.c_str()) !=
-               std::string::npos) {
-                size_t start = newCellName.find(_sizer->suffixHVT.c_str());
-                newCellName.erase(start, _sizer->suffixHVT.size());
-                vt = 0;
-            }
-            else if(newCellName.find(_sizer->suffixNVT.c_str()) !=
-                    std::string::npos) {
-                size_t start = newCellName.find(_sizer->suffixNVT.c_str());
-                newCellName.erase(start, _sizer->suffixNVT.size());
-                vt = 1;
-            }
-            else {
-                vt = 0;
-                printf("Warning: Cell %s has only 1 vt!\n",
-                       newCellName.c_str());
-            }
-        }
-        auto size_iter = lib_cell_size_index.find(newCellName);
+
+        const DriveKey& drive = drive_keys[i];
+        std::map< DriveKey, int >::iterator size_iter =
+            lib_cell_size_index.find(drive);
         if(size_iter == lib_cell_size_index.end()) {
             const int c_size = lib_cell_table.lib_vt_size_table.size();
             vector< LibCellInfo* > lib_size_table;
             lib_size_table.resize(_sizer->numVt, nullptr);
             lib_cell_table.lib_vt_size_table.push_back(lib_size_table);
-            size_iter =
-                lib_cell_size_index.emplace(newCellName, c_size).first;
+            size_iter = lib_cell_size_index.emplace(drive, c_size).first;
         }
         // Register every VT variant under the same size row so that
         // cell_retype() can swap VT; without this the other slots stay
@@ -2409,36 +2427,17 @@ void Circuit::readDesign_opensta(sta::dbSta* _sta) {
             tmpCell.isChanged = 0;
         }
 
-        if(_sizer->numVt == 3) {
-            if(str_cell_name.find(_sizer->suffixLVT.c_str()) !=
-               std::string::npos) {
-                tmpCell.c_vtype = f;
-                // tmpCell.orig_c_vtype = f;
-            }
-            else if(str_cell_name.find(_sizer->suffixHVT.c_str()) !=
-                    std::string::npos) {
-                tmpCell.c_vtype = s;
-                // tmpCell.orig_c_vtype = s;
-            }
-            else {
-                tmpCell.c_vtype = m;
-                // tmpCell.orig_c_vtype = m;
-            }
-        }
-        else if(_sizer->numVt == 2) {
-            if(str_cell_name.find(_sizer->suffixHVT.c_str()) !=
-               std::string::npos) {
-                tmpCell.c_vtype = s;
-                // tmpCell.orig_c_vtype = s;
-            }
-            else {
-                tmpCell.c_vtype = m;
-                // tmpCell.orig_c_vtype = m;
-            }
-        }
-        else {
-            tmpCell.c_vtype = s;
-            // tmpCell.orig_c_vtype = s;
+        // The VT of an instance is the VT of its library cell, which
+        // assign_vt_groups() already derived; deciding it from the name here
+        // would disagree with the sizing tables.
+        {
+            const unordered_map< string, LibCellInfo >& corner_libs =
+                _sizer->libs[0];
+            unordered_map< string, LibCellInfo >::const_iterator lib_iter =
+                corner_libs.find(str_cell_name);
+            tmpCell.c_vtype = lib_iter != corner_libs.end()
+                                  ? lib_iter->second.c_vtype
+                                  : default_vtype;
         }
 
         unsigned tmpCellId = _sizer->_ckt->g_cells.size();

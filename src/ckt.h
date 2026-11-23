@@ -51,6 +51,7 @@
 #include "tcl.h"
 #include "utils.h"
 #include "liberty_lut.h"
+#include "vt_groups.h"
 #include <queue>
 #include <pthread.h>
 #include <signal.h>
@@ -874,6 +875,10 @@ class Circuit {
     void sdc_parser(string filename, unsigned mode = 0);
     void spef_parser(string filename, unsigned corner = 0);
     void lib_parser(string filename, unsigned corner = 0);
+    // Rank the parsed Liberty libraries into threshold-voltage groups
+    // and label every cell. Must run after every library is parsed,
+    // because the axis is the libraries ranked against each other.
+    void assign_vt_groups();
     // OpenSTA
     void readDesign_opensta(sta::dbSta* _sta);
     void init_opensta();
