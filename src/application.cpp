@@ -21,7 +21,6 @@
 #include "algorithms/gobi.h"
 #include "algorithms/gobi_cuda.h"
 #include "parasitics.h"
-#include "repair/path.h"
 #include "actions/netlist.h"
 #include "actions/placement.h"
 #include "repair/setup.h"
@@ -151,7 +150,7 @@ static void validateFlow(const Options& options) {
     if (placement_only &&
         (!options.inputs.spef.empty() || options.inputs.global_routing)) {
         throw std::invalid_argument(
-            "VG/GOBI/Path require placement RC; use drv, setup, power or hold for "
+            "buffer requires placement RC; use drv, setup, power or hold for "
             "postroute/global-routing repair");
     }
 }
@@ -284,8 +283,8 @@ template <class Result> void report(const std::string& stage, const Result& resu
     spdlog::info("{}: {}", stage, result.message);
 }
 
-static void logPathEvent(const PathEvent& event) {
-    using Kind = PathEvent::Kind;
+static void logBufferEvent(const BufferEvent& event) {
+    using Kind = BufferEvent::Kind;
     switch (event.kind) {
     case Kind::SearchStarted:
         spdlog::info("Path search started: WNS={:.6f}ns TNS={:.6f}ns provisional={}",
@@ -368,7 +367,7 @@ class ApplicationFlow {
             (!options.inputs.spef.empty() || options.inputs.global_routing ||
              session.hasExtractedParasitics())) {
             throw std::invalid_argument(
-                "VG/GOBI/Path require placement RC; use drv, setup, power or hold "
+                "buffer requires placement RC; use drv, setup, power or hold "
                 "for postroute/global-routing repair");
         }
         const auto& common = options.repair.common;
@@ -402,11 +401,24 @@ class ApplicationFlow {
         }
     }
 
-    void runPath() {
+    void runBuffer(Stage strategy) {
+        BufferRuntime buffer_runtime;
+        static_cast<RepairRuntime&>(buffer_runtime) = runtime;
+        if (strategy == Stage::Vg) {
+            report("vg", BufferRepairer::run(
+                             block, sta, refresh, session.design().getResizer(),
+                             options.repair.vgOptions(), buffer_runtime));
+            return;
+        }
+        if (strategy == Stage::Gobi) {
+            report("gobi", BufferRepairer::run(
+                               block, sta, refresh, session.design().getResizer(),
+                               options.repair.gobiOptions(), buffer_runtime));
+            return;
+        }
         auto path = options.repair.pathOptions();
-        PathRuntime path_runtime;
-        static_cast<RepairRuntime&>(path_runtime) = runtime;
-        path_runtime.trial_observer = [](unsigned index, const PathTrialResult& trial) {
+        buffer_runtime.trial_observer = [](unsigned index,
+                                           const BufferTrialResult& trial) {
             if (trial.rejection_reasons.empty()) {
                 spdlog::info("Path commit: trial={} buffers=+{} WNS={:.6f}ns "
                              "TNS={:.6f}ns provisional={}",
@@ -422,6 +434,7 @@ class ApplicationFlow {
                 "full_rc_rechecked={} metrics_complete={} reasons=[{}]; global gain "
                 "WNS={:+.6f}ns "
                 "TNS={:+.6f}ns; objective gain WNS={:+.6f}ns TNS={:+.6f}ns; "
+                "required gain WNS={:.6f}ns TNS={:.6f}ns; "
                 "prepare={:.1f}ms refresh={:.1f}ms measure={:.1f}ms",
                 index, trial.rejection_reasons.empty(), trial.buffers,
                 trial.placement_provisional, trial.rechecked_full_rc,
@@ -430,28 +443,37 @@ class ApplicationFlow {
                 (double(trial.after.setup_tns) - trial.before.setup_tns) * 1e9,
                 (trial.objective_wns_after - trial.objective_wns_before) * 1e9,
                 (trial.objective_tns_after - trial.objective_tns_before) * 1e9,
+                trial.required_wns_gain * 1e9, trial.required_tns_gain * 1e9,
                 trial.prepare_ms, trial.refresh_ms, trial.measure_ms);
+            for (const auto& candidate : trial.candidates) {
+                spdlog::debug("Path candidate: trial={} net={} master={} loads={} "
+                              "planned_buffers={} position=({}, {}) generation={}",
+                              index, candidate.net, candidate.master, candidate.loads,
+                              candidate.planned_buffers, candidate.x, candidate.y,
+                              candidate.generation);
+            }
         };
-        path_runtime.event_observer = logPathEvent;
+        buffer_runtime.event_observer = logBufferEvent;
         if (path.incremental_parasitics) {
             PlacementParasiticUpdater incremental(
                 block, sta, session.design().getResizer()->getEstimateParasitics());
-            path_runtime.verification_refresh = refresh;
-            path_runtime.incremental_verification = [&]() {
+            buffer_runtime.verification_refresh = refresh;
+            buffer_runtime.incremental_verification = [&]() {
                 incremental.verifyTiming();
             };
-            path_runtime.analysis_changes = [&]() {
+            buffer_runtime.analysis_changes = [&]() {
                 return incremental.takeAnalysisChanges();
             };
-            report("path", PathRepairer::run(
+            report("path", BufferRepairer::run(
                                block, sta,
                                [&]() {
                                    session.reconnectSupplies();
                                    incremental.update();
                                },
-                               path, path_runtime));
+                               path, buffer_runtime));
         } else {
-            report("path", PathRepairer::run(block, sta, refresh, path, path_runtime));
+            report("path",
+                   BufferRepairer::run(block, sta, refresh, path, buffer_runtime));
         }
     }
 
@@ -509,17 +531,9 @@ class ApplicationFlow {
                                                options.repair.setupOptions(), runtime));
             break;
         case Stage::Path:
-            runPath();
-            break;
         case Stage::Vg:
-            report("vg", VgRepairer::run(block, sta, placeAndRefresh,
-                                         session.design().getResizer(),
-                                         options.repair.vgOptions(), runtime));
-            break;
         case Stage::Gobi:
-            report("gobi", GobiRepairer::run(block, sta, placeAndRefresh,
-                                             session.design().getResizer(),
-                                             options.repair.gobiOptions(), runtime));
+            runBuffer(stage);
             break;
         case Stage::Ord:
             report("ord", OrdDrvRepairer::run(block, sta, refresh,

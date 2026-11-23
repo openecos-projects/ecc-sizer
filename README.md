@@ -2,7 +2,7 @@
 # ECC Sizer
 
 ECC Sizer repairs a placed design using OpenDB and OpenSTA. The primary
-baselines are **Native**, **VG** and **Path**. **GOBI** is retained as an
+baselines are **DRV + Setup**, **VG** and **Path**. **GOBI** is retained as an
 additional CUDA algorithm. PBBI has been removed.
 
 ## Build
@@ -26,7 +26,7 @@ cmake -S . -B build -DENABLE_GOBI_CUDA=ON -DENABLE_VG_CUDA=ON
 ```
 
 GOBI requires a usable CUDA device; requesting it without one is an error.
-VG defaults to CPU and can use CUDA with `--set vg.backend=cuda`; its existing
+VG defaults to CPU and can use CUDA with `--set buffer.vg.backend=cuda`; its existing
 CPU fallback policy remains available.
 
 ## C++ checks
@@ -85,19 +85,21 @@ preceding committed design. `native` and `design` are no longer stage names.
 The benchmark runner uses `drv-setup` for `drv,setup` and `path-drv-setup` for
 `path,drv,setup`; these profile names describe ordered stage combinations.
 
-VG and GOBI run only when explicitly listed in `--flow`; setup does not invoke
-Path, VG or GOBI. For example, `--flow setup,vg` runs setup before VG, while
-`--flow vg,drv,setup` runs VG first. `--set vg.scope=setup` changes VG's eligible
-nets and scoring; it does not embed VG in the setup stage. GOBI currently
-collects electrically violating nets. Both standalone stages apply whole-tree
-plans and verify timing/DRV acceptance.
+The flow retains `path`, `vg` and `gobi`, including mixed sequences such as
+`--flow path,vg,setup`. All three use the shared buffer repair architecture;
+there is no separate `buffer` stage or strategy switch. Setup does not invoke
+these algorithms implicitly. VG setup scope (`--set buffer.vg.scope=setup`)
+changes eligible nets and solver scoring; GOBI currently collects electrically
+violating nets. Path iterates with measured feedback; VG/GOBI retain one-shot
+whole-tree acceptance. Proposal application, insertion-budget checks,
+preparation, refresh and rollback handling are shared.
 
 | Stage | Behavior |
 | --- | --- |
 | drv | Electrical repair using resize/VT, buffer insertion and load downsizing |
 | setup | Setup repair using resize/VT, side-branch buffering and load downsizing |
-| vg | CPU/CUDA Van Ginneken buffer search |
 | path | STA-verified path buffer search |
+| vg | CPU/CUDA Van Ginneken buffer search |
 | gobi | GOBI CUDA buffer search |
 | ord | OpenROAD-style driver traversal using Sizer edits/acceptance |
 | power | Cell resizing/VT power search with bounded DRV/setup recovery |
@@ -147,10 +149,9 @@ explicit overrides then win regardless of their position on the command line.
 Unknown keys and malformed values fail before design loading.
 
 For example, `--set common.max_fanout=32` overrides the default fanout fallback;
-`--set path.max_trials=unlimited` removes the optional Path trial budget.
+`--set buffer.path.max_trials=unlimited` removes the optional Path trial budget.
 Insertion limits are optional for every algorithm: `drv.max_inserted_buffers`,
-`setup.max_inserted_buffers`, `path.max_inserted_buffers`, `vg.max_buffers` and
-`gobi.max_buffers` default to `unlimited` (`std::nullopt` in C++). A number is an
+`setup.max_inserted_buffers` and `buffer.max_inserted_buffers` default to `unlimited` (`std::nullopt` in C++). A number is an
 actual cap: `0` permits zero insertions and `12` permits at most twelve. Limits
 count committed insertions in that stage; rejected ECOs do not consume them.
 VG/GOBI apply complete tree plans and skip plans that do not fit.
@@ -168,7 +169,7 @@ build/src/Sizer design.tcl --flow setup --set common.actions=resize
 # Allow all default actions, with an explicit setup insertion cap.
 build/src/Sizer design.tcl --flow drv,setup --set setup.max_inserted_buffers=12
 # No insertion count cap; other timing, area and search constraints still apply.
-build/src/Sizer design.tcl --flow path --set path.max_inserted_buffers=unlimited
+build/src/Sizer design.tcl --flow path --set buffer.max_inserted_buffers=unlimited
 ```
 
 The former `common.allow_gate_resize` / `common.allow_load_downsize` switches
@@ -191,7 +192,8 @@ outcomes at info level. Logs are triggered by these events, without a timer or
 per-candidate traversal output. `provisional=true` means final legalization and
 verification are still pending. Debug logs add each candidate wave's counts,
 batch-to-single retry decisions, each measured trial's rejection reasons, signed
-global and objective WNS/TNS gains in ns, and placement/refresh/measurement times.
+global and objective WNS/TNS gains in ns, required gains, candidate net/master,
+planned buffer count, and placement/refresh/measurement times.
 
 GOBI debug reports show pre-pruning solution slots, peak layer slots, frontier
 reserved capacity, traceback history and savings against retaining load/slack
@@ -222,10 +224,11 @@ other users of the device; they are not GOBI's allocation totals. All sizes use 
   grouped in one header and implementation. `PathPolicy` ranks candidates
   and learns from measurements; `PathSchedule` owns queue and batch decisions.
   Neither edits the design or decides acceptance.
-- `repair/path.*`: `PathRepairer` executes candidates through ECO transactions,
-  STA verification, rollback and final placement, returning `PathRepairResult`.
-- `repair/buffer.*`: standalone VG/GOBI stages share net selection, insertion
-  budgets, ECO application, global acceptance and rollback.
+- `repair/buffer.*`: `BufferRepairer` executes Path/VG/GOBI proposals through
+  a shared `BufferTrial` and `BufferExecution` lifecycle. Algorithms own search
+  decisions; repair owns edits, acceptance, budgets, STA restoration and final
+  legalization. `BufferRepairResult` contains common execution metrics plus
+  separate Path search statistics; it does not inherit algorithm state.
 - `algorithms/van_ginneken.*`, `gobi.*`: read-only buffer-tree solvers; CUDA
   implementations live beside their algorithms.
 - `design_analysis.*`: shared design metrics, OpenDB/STA queries, incremental
@@ -237,7 +240,7 @@ other users of the device; they are not GOBI's allocation totals. All sizes use 
   `RepairConfig::common` is independent of DRV and all stage settings.
 - `repair/runtime.h`: per-run callbacks and design-object exclusions, passed
   separately from configuration. Solvers receive only `DesignConstraints`.
-  Path callbacks live in `PathRuntime`; the required refresh callback remains an
+  Buffer callbacks live in `BufferRuntime`; the required refresh callback remains an
   explicit argument of `repair`/`run`. Copying or loading config carries no hooks
   or OpenDB object pointers.
 
@@ -248,7 +251,7 @@ Algorithms expose search separately from execution. `VanGinneken::solve` and
 `Gobi::solve` take caller-selected net snapshots and return buffer-tree plans;
 `PathSearch::generateCandidates` returns an initial path candidate frontier.
 These calls do not edit the netlist, open an ECO or invoke placement/refresh
-callbacks. `PathRepairer::run` combines the Path scheduling policy with ECO
+callbacks. `BufferRepairer::run` combines the Path scheduling policy with ECO
 execution; action permissions, insertion limits, STA acceptance and rollback
 remain enforced by the runner. The CLI uses these runners; Path does not
 automatically invoke VG.
@@ -334,7 +337,7 @@ tail; it does not prove optimality. Setup defaults to 24 trials; Path time/refre
 limits and VG/GOBI net limits are absent. Path requires an absolute improvement
 of 0.0001 ns and a relative WNS or TNS improvement of 0.1% of the initial global
 violation, with timing/electrical non-regression guards. The default area growth
-limit remains 2%. `--set path.max_consecutive_rejections=unlimited` disables
-the stagnation limit; an explicit `path.max_trials` remains a total hard budget.
+limit remains 2%. `--set buffer.path.max_consecutive_rejections=unlimited` disables
+the stagnation limit; an explicit `buffer.path.max_trials` remains a total hard budget.
 VG/GOBI's `require_drv_non_regression` guards electrical violation counts;
 strict improvement may be timing or electrical, so it is not named “reduction.”

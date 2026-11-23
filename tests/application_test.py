@@ -130,7 +130,7 @@ set_max_fanout 4 [current_design]
             "--set", "common.actions=resize",
             "--set", "drv.max_inserted_buffers=0",
             "--set", "setup.max_inserted_buffers=unlimited",
-            "--set", "path.max_inserted_buffers=2",
+            "--set", "buffer.max_inserted_buffers=2",
             "--output", self.work / "composed")
         self.assertLess(output.index("Starting path"), output.index("Starting drv"))
         self.assertLess(output.index("Starting drv"), output.index("Starting setup"))
@@ -149,7 +149,7 @@ set_output_delay 0.49 -clock clk [get_ports out0]
                 output = self.run_sizer(
                     self.script, "--flow", "path", "--threads", "1",
                     "--log-level", level, "--log", log,
-                    "--set", "path.max_area_growth=1", "--set", "path.max_trials=3",
+                    "--set", "buffer.path.max_area_growth=1", "--set", "buffer.path.max_trials=3",
                     "--output", self.work / level)
                 if level == "debug":
                     self.assertIn("accepted=true", output)

@@ -17,7 +17,7 @@ set(SOURCES
     actions/netlist.cpp actions/placement.cpp special_net.cpp lef_layer_rc.cpp
     repair/config.cpp design_analysis.cpp algorithms/cell_candidates.cpp
     repair/drv.cpp repair/setup.cpp repair/buffer.cpp
-    repair/path.cpp algorithms/path.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
+    algorithms/path.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
     algorithms/gobi.cpp algorithms/gobi_cuda.cpp)
 
 add_library(sizer_placement STATIC actions/legalize_core.cpp
@@ -192,7 +192,6 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi_cuda.cpp
 
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair/path.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/path.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair/setup.cpp
 

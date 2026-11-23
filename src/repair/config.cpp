@@ -239,17 +239,17 @@ static void visitSettings(Config& c, Visitor&& visit) {
     visit("power.slack_margin_ns", c.power.slack_margin, 1e9);
     visit("power.min_relative_improvement", c.power.min_relative_improvement, 1.0);
     visit("power.min_absolute_improvement_w", c.power.min_absolute_improvement, 1.0);
-    visit("vg.backend", c.vg.backend, 1.0);
-    visit("vg.scope", c.vg.scope, 1.0);
-    visit("vg.cuda_max_memory_mb", c.vg.cuda_max_memory_mb, 1.0);
-    visit("vg.max_buffers", c.vg.max_buffers, 1.0);
-    visit("vg.max_nets", c.vg.max_nets, 1.0);
-    visit("vg.max_group_loads", c.vg.max_group_loads, 1.0);
-    visit("vg.min_gain", c.vg.min_gain, 1.0);
-    visit("vg.require_drv_non_regression", c.vg.require_drv_non_regression, 1.0);
-    visit("gobi.max_buffers", c.gobi.max_buffers, 1.0);
-    visit("gobi.max_nets", c.gobi.max_nets, 1.0);
-    visit("gobi.require_drv_non_regression", c.gobi.require_drv_non_regression, 1.0);
+    visit("buffer.vg.backend", c.buffer.vg.backend, 1.0);
+    visit("buffer.vg.scope", c.buffer.vg.scope, 1.0);
+    visit("buffer.vg.cuda_max_memory_mb", c.buffer.vg.cuda_max_memory_mb, 1.0);
+    visit("buffer.vg.max_nets", c.buffer.vg.max_nets, 1.0);
+    visit("buffer.vg.max_group_loads", c.buffer.vg.max_group_loads, 1.0);
+    visit("buffer.vg.min_gain", c.buffer.vg.min_gain, 1.0);
+    visit("buffer.vg.require_drv_non_regression",
+          c.buffer.vg.require_drv_non_regression, 1.0);
+    visit("buffer.gobi.max_nets", c.buffer.gobi.max_nets, 1.0);
+    visit("buffer.gobi.require_drv_non_regression",
+          c.buffer.gobi.require_drv_non_regression, 1.0);
     visit("common.actions", c.common.actions, 1.0);
     visit("common.load_downsize_slack_margin_ns", c.common.load_downsize_slack_margin,
           1e9);
@@ -257,9 +257,11 @@ static void visitSettings(Config& c, Visitor&& visit) {
     visit("drv.max_passes", c.drv.max_passes, 1.0);
     visit("drv.max_inserted_buffers", c.drv.max_inserted_buffers, 1.0);
     visit("drv.ord_driver_batch_size", c.drv.ord_driver_batch_size, 1.0);
-    visit("path.paths_per_endpoint", c.path.paths_per_endpoint, 1.0);
-    visit("path.min_improvement_ns", c.path.min_improvement, 1e9);
-    visit("path.defer_rollback_refresh", c.path.defer_rollback_refresh, 1.0);
+    visit("buffer.max_inserted_buffers", c.buffer.max_inserted_buffers, 1.0);
+    visit("buffer.path.paths_per_endpoint", c.buffer.path.paths_per_endpoint, 1.0);
+    visit("buffer.path.min_improvement_ns", c.buffer.path.min_improvement, 1e9);
+    visit("buffer.path.defer_rollback_refresh", c.buffer.path.defer_rollback_refresh,
+          1.0);
     visit("setup.max_passes", c.setup.max_passes, 1.0);
     visit("setup.skip_duplicate_trials", c.setup.skip_duplicate_trials, 1.0);
     visit("setup.defer_rollback_refresh", c.setup.defer_rollback_refresh, 1.0);
@@ -273,32 +275,34 @@ static void visitSettings(Config& c, Visitor&& visit) {
     visit("setup.min_side_loads", c.setup.min_side_loads, 1.0);
     visit("setup.max_area_growth", c.setup.max_area_growth, 1.0);
     visit("setup.min_improvement_ns", c.setup.min_improvement, 1e9);
-    visit("path.recovery", c.path.recovery, 1.0);
-    visit("path.tree_candidates", c.path.tree_candidates, 1.0);
-    visit("path.gain_scope", c.path.gain_scope, 1.0);
-    visit("path.fanout_repair", c.path.fanout_repair, 1.0);
-    visit("path.failure_cache", c.path.failure_cache, 1.0);
-    visit("path.adaptive_search", c.path.adaptive_search, 1.0);
-    visit("path.timing_precheck", c.path.timing_precheck, 1.0);
-    visit("path.calibrate", c.path.calibrate, 1.0);
-    visit("path.diversify", c.path.diversify, 1.0);
-    visit("path.endpoint_coverage", c.path.endpoint_coverage, 1.0);
-    visit("path.group_schedule", c.path.group_schedule, 1.0);
-    visit("path.incremental_parasitics", c.path.incremental_parasitics, 1.0);
-    visit("path.incremental_analysis", c.path.incremental_analysis, 1.0);
-    visit("path.reuse_rejections", c.path.reuse_rejections, 1.0);
-    visit("path.placement", c.path.placement, 1.0);
-    visit("path.verification", c.path.verification, 1.0);
-    visit("path.min_relative_improvement", c.path.min_relative_improvement, 1.0);
-    visit("path.max_seconds", c.path.max_seconds, 1.0);
-    visit("path.max_refreshes", c.path.max_refreshes, 1.0);
-    visit("path.max_paths", c.path.max_paths, 1.0);
-    visit("path.max_candidates", c.path.max_candidates, 1.0);
-    visit("path.max_trials", c.path.max_trials, 1.0);
-    visit("path.max_consecutive_rejections", c.path.max_consecutive_rejections, 1.0);
-    visit("path.batch_size", c.path.batch_size, 1.0);
-    visit("path.max_inserted_buffers", c.path.max_inserted_buffers, 1.0);
-    visit("path.max_area_growth", c.path.max_area_growth, 1.0);
+    visit("buffer.path.recovery", c.buffer.path.recovery, 1.0);
+    visit("buffer.path.tree_candidates", c.buffer.path.tree_candidates, 1.0);
+    visit("buffer.path.gain_scope", c.buffer.path.gain_scope, 1.0);
+    visit("buffer.path.fanout_repair", c.buffer.path.fanout_repair, 1.0);
+    visit("buffer.path.failure_cache", c.buffer.path.failure_cache, 1.0);
+    visit("buffer.path.adaptive_search", c.buffer.path.adaptive_search, 1.0);
+    visit("buffer.path.timing_precheck", c.buffer.path.timing_precheck, 1.0);
+    visit("buffer.path.calibrate", c.buffer.path.calibrate, 1.0);
+    visit("buffer.path.diversify", c.buffer.path.diversify, 1.0);
+    visit("buffer.path.endpoint_coverage", c.buffer.path.endpoint_coverage, 1.0);
+    visit("buffer.path.group_schedule", c.buffer.path.group_schedule, 1.0);
+    visit("buffer.path.incremental_parasitics", c.buffer.path.incremental_parasitics,
+          1.0);
+    visit("buffer.path.incremental_analysis", c.buffer.path.incremental_analysis, 1.0);
+    visit("buffer.path.reuse_rejections", c.buffer.path.reuse_rejections, 1.0);
+    visit("buffer.path.placement", c.buffer.path.placement, 1.0);
+    visit("buffer.path.verification", c.buffer.path.verification, 1.0);
+    visit("buffer.path.min_relative_improvement",
+          c.buffer.path.min_relative_improvement, 1.0);
+    visit("buffer.path.max_seconds", c.buffer.path.max_seconds, 1.0);
+    visit("buffer.path.max_refreshes", c.buffer.path.max_refreshes, 1.0);
+    visit("buffer.path.max_paths", c.buffer.path.max_paths, 1.0);
+    visit("buffer.path.max_candidates", c.buffer.path.max_candidates, 1.0);
+    visit("buffer.path.max_trials", c.buffer.path.max_trials, 1.0);
+    visit("buffer.path.max_consecutive_rejections",
+          c.buffer.path.max_consecutive_rejections, 1.0);
+    visit("buffer.path.batch_size", c.buffer.path.batch_size, 1.0);
+    visit("buffer.path.max_area_growth", c.buffer.path.max_area_growth, 1.0);
     visit("tolerances.wns_absolute_ns", c.common.tolerances.wns_absolute, 1e9);
     visit("tolerances.tns_absolute_ns", c.common.tolerances.tns_absolute, 1e9);
     visit("tolerances.tns_relative", c.common.tolerances.tns_relative, 1.0);
@@ -377,23 +381,23 @@ void SetupRepairSettings::validate() const {
             "setup.min_improvement_ns > 0");
 }
 void PathSearchSettings::validate() const {
-    require(paths_per_endpoint > 0, "path.paths_per_endpoint > 0");
+    require(paths_per_endpoint > 0, "buffer.path.paths_per_endpoint > 0");
     require(std::isfinite(min_improvement) && min_improvement > 0,
-            "path.min_improvement_ns > 0");
-    require(max_paths > 0, "path.max_paths > 0");
-    require(max_candidates > 0, "path.max_candidates > 0");
-    require(batch_size > 0, "path.batch_size > 0");
+            "buffer.path.min_improvement_ns > 0");
+    require(max_paths > 0, "buffer.path.max_paths > 0");
+    require(max_candidates > 0, "buffer.path.max_candidates > 0");
+    require(batch_size > 0, "buffer.path.batch_size > 0");
     (void)enumName(gain_scope);
     (void)enumName(placement);
     (void)enumName(verification);
     require(std::isfinite(min_relative_improvement) && min_relative_improvement >= 0 &&
                 min_relative_improvement <= 1,
-            "path.min_relative_improvement in [0,1]");
+            "buffer.path.min_relative_improvement in [0,1]");
     require(!max_seconds || (std::isfinite(*max_seconds) && *max_seconds >= 0),
-            "path.max_seconds >= 0 or unlimited");
+            "buffer.path.max_seconds >= 0 or unlimited");
     require(!max_area_growth ||
                 (std::isfinite(*max_area_growth) && *max_area_growth >= 0),
-            "path.max_area_growth >= 0 or unlimited");
+            "buffer.path.max_area_growth >= 0 or unlimited");
 }
 void SetupRepairOptions::validate() const {
     common.validate();
@@ -407,7 +411,7 @@ void PathSearchOptions::validate() const {
     PathSearchSettings::validate();
 }
 PathSearchOptions RepairConfig::pathOptions() const {
-    return {path, common};
+    return {buffer.path, common, buffer.max_inserted_buffers};
 }
 void PowerRepairSettings::validate() const {
     (void)enumName(objective);
@@ -428,11 +432,11 @@ void PowerRepairOptions::validate() const {
 }
 void VgSettings::validate() const {
     (void)enumName(scope);
-    require(cuda_max_memory_mb > 0, "vg.cuda_max_memory_mb > 0");
+    require(cuda_max_memory_mb > 0, "buffer.vg.cuda_max_memory_mb > 0");
     (void)enumName(backend);
-    require(std::isfinite(min_gain) && min_gain >= 0, "vg.min_gain >= 0");
+    require(std::isfinite(min_gain) && min_gain >= 0, "buffer.vg.min_gain >= 0");
     require(max_group_loads == 0 || max_group_loads >= 2,
-            "vg.max_group_loads is zero or >= 2");
+            "buffer.vg.max_group_loads is zero or >= 2");
 }
 PowerRepairOptions RepairConfig::powerOptions() const {
     return {power, common};
@@ -445,18 +449,18 @@ void GobiOptions::validate() const {
     common.validate();
 }
 VgOptions RepairConfig::vgOptions() const {
-    return {vg, common};
+    return {buffer.vg, common, buffer.max_inserted_buffers};
 }
 GobiOptions RepairConfig::gobiOptions() const {
-    return {gobi, common};
+    return {buffer.gobi, common, buffer.max_inserted_buffers};
 }
 void RepairConfig::validate() const {
     common.validate();
     drv.validate();
     setup.validate();
-    path.validate();
+    buffer.path.validate();
     power.validate();
-    vg.validate();
+    buffer.vg.validate();
     require(sta_threads > 0 && sta_threads <= unsigned(std::numeric_limits<int>::max()),
             "runtime.sta_threads > 0");
 }
@@ -489,7 +493,7 @@ void RepairConfig::read(std::istream& input, const std::string& source) {
                 section = trim(line.substr(1, line.size() - 2));
                 bool known = false;
                 visitSettings(next, [&](std::string_view key, const auto&, double) {
-                    known |= key.substr(0, key.find('.')) == section;
+                    known |= key.starts_with(section + '.');
                 });
                 require(known, "unknown section " + section);
                 continue;

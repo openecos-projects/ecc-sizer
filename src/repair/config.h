@@ -149,13 +149,13 @@ struct PathSearchSettings {
     // Default one validates each candidate independently; larger values enable
     // buffer-only ECO batching for throughput experiments.
     unsigned batch_size = 1;
-    std::optional<unsigned> max_inserted_buffers;
     // Absence disables the area budget; zero permits no area growth.
     std::optional<double> max_area_growth = 0.02;
     void validate() const;
 };
 struct PathSearchOptions : PathSearchSettings {
     RepairCommonOptions common;
+    std::optional<unsigned> max_inserted_buffers;
     void validate() const;
 };
 
@@ -179,7 +179,6 @@ struct VgSettings {
     // falls back to CPU if unavailable or over the GPU memory budget.
     VgBackend backend = VgBackend::Cpu;
     unsigned cuda_max_memory_mb = 512;
-    std::optional<unsigned> max_buffers;
     std::optional<unsigned> max_nets;
     unsigned max_group_loads = 0;
     float min_gain = 0;
@@ -188,21 +187,29 @@ struct VgSettings {
 };
 struct VgOptions : VgSettings {
     RepairCommonOptions common;
+    std::optional<unsigned> max_buffers;
     void validate() const;
 };
 struct GobiSettings {
     // GOBI uses its CUDA solver; backend availability is checked at runtime.
-    std::optional<unsigned> max_buffers;
     std::optional<unsigned> max_nets;
     bool require_drv_non_regression = true;
 };
 struct GobiOptions : GobiSettings {
     RepairCommonOptions common;
+    std::optional<unsigned> max_buffers;
     void validate() const;
 };
 struct PowerRepairOptions : PowerRepairSettings {
     RepairCommonOptions common;
     void validate() const;
+};
+
+struct BufferSettings {
+    std::optional<unsigned> max_inserted_buffers;
+    PathSearchSettings path;
+    VgSettings vg;
+    GobiSettings gobi;
 };
 
 // Serializable policy shared by independently ordered repair stages.
@@ -211,10 +218,8 @@ struct RepairConfig {
     RepairCommonOptions common;
     DrvRepairSettings drv;
     SetupRepairSettings setup;
-    PathSearchSettings path;
+    BufferSettings buffer;
     PowerRepairSettings power;
-    VgSettings vg;
-    GobiSettings gobi;
     unsigned sta_threads = 32;
 
     DrvRepairOptions drvOptions() const;

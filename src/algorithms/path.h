@@ -22,9 +22,7 @@ class dbNetwork;
 namespace ecc {
 // Mutable progress shared by the candidate policy and the repair runner.
 // Repair owns the committed metrics; scheduling only updates its counters.
-struct PathSearchState {
-    DesignMetrics before, after;
-    unsigned inserted_buffers = 0;
+struct PathSearchStatistics {
     unsigned candidate_count = 0;
     unsigned duplicate_candidates = 0;
     unsigned screened_candidates = 0;
@@ -40,6 +38,14 @@ struct PathSearchState {
     unsigned frontier_audits = 0;
     unsigned frontier_reopened = 0;
     unsigned fanout_precheck_rejections = 0;
+};
+// Borrowed view of one repair run. The algorithm updates only its statistics;
+// committed metrics and buffer accounting belong to the execution layer.
+struct PathSearchState {
+    const DesignMetrics& before;
+    const DesignMetrics& after;
+    const unsigned& inserted_buffers;
+    PathSearchStatistics& statistics;
 };
 // Initial candidate frontier for the current STA snapshot. Forecasts rank
 // candidates only; callers still own global timing/DRV acceptance after editing.
@@ -261,7 +267,7 @@ class EndpointFailures {
 // This policy never edits the design or accepts an ECO.
 class PathPolicy {
   public:
-    PathPolicy(const PathSearchOptions& options, PathSearchState& result);
+    PathPolicy(const PathSearchOptions& options, PathSearchState result);
     ~PathPolicy();
     PathPolicy(const PathPolicy&) = delete;
     PathPolicy& operator=(const PathPolicy&) = delete;
@@ -295,7 +301,7 @@ class PathPolicy {
     path_detail::FamilyCoverage coverage;
     unsigned generation = 0;
     const PathSearchOptions& options;
-    PathSearchState& result;
+    PathSearchState result;
     std::unordered_map<std::string, path_detail::ExplorationFrontier> frontiers;
     path_detail::ContextCoverage group_coverage;
     // One unselected representative per load set/master, not every position
@@ -303,6 +309,16 @@ class PathPolicy {
     // with sufficient actual timing gain, on this committed STA snapshot.
     std::vector<PathBufferCandidate> electrical_reserve;
 };
+
+struct PathGainThreshold {
+    double wns = 0, tns = 0;
+};
+// Shared by ranking, screening and acceptance. Numerical non-regression
+// tolerances remain separate from the minimum useful objective improvement.
+PathGainThreshold gainThreshold(const PathSearchOptions& options,
+                                const DesignMetrics& initial,
+                                const DesignMetrics& current, double endpoint_wns = 0,
+                                double endpoint_tns = 0);
 
 const DesignMetrics& globalGainReference(const PathSearchOptions& options,
                                          const DesignMetrics& initial,
@@ -375,7 +391,7 @@ struct PathBatch {
 class PathSchedule {
   public:
     PathSchedule(std::vector<PathBufferCandidate> candidates,
-                 const PathSearchOptions& options, PathSearchState& result,
+                 const PathSearchOptions& options, PathSearchState result,
                  PathPolicy& policy);
     const std::vector<PathBufferCandidate>& candidates() const { return plans; }
     bool hasNext() const { return cursor < plans.size(); }
@@ -395,7 +411,7 @@ class PathSchedule {
     void reopen();
     std::vector<PathBufferCandidate> plans, suspended;
     const PathSearchOptions& options;
-    PathSearchState& result;
+    PathSearchState result;
     PathPolicy& policy;
     std::unordered_set<std::string> infeasible_topologies;
     size_t cursor = 0, width = 0;

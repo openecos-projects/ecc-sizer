@@ -575,11 +575,11 @@ struct PathSamples {
 };
 
 CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
-                                            sta::dbSta* sta,
-                                            const std::vector<NetState>& states,
-                                            const PathSearchOptions& options,
-                                            const DesignMetrics& metrics,
-                                            PathPolicy& feedback) {
+                                           sta::dbSta* sta,
+                                           const std::vector<NetState>& states,
+                                           const PathSearchOptions& options,
+                                           const DesignMetrics& metrics,
+                                           PathPolicy& feedback) {
     analysis.beginTimingPredictionEpoch();
     struct PredictionEpoch {
         detail::DesignAnalysis& analysis;
@@ -1023,8 +1023,8 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
                                       const PathSearchOptions& options,
                                       const DesignMetrics& metrics,
                                       PathPolicy& feedback) {
-    auto result = generatePathCandidates(analysis, sta, states, options, metrics,
-                                            feedback);
+    auto result =
+        generatePathCandidates(analysis, sta, states, options, metrics, feedback);
     // Keep the best-ranked objective for an identical physical action. Pins
     // from either query remain valid; PathEnd pointers would not survive it.
     std::unordered_set<std::string> actions;
@@ -1056,8 +1056,9 @@ PathSearch::generateCandidates(odb::dbBlock* block, sta::dbSta* sta,
     detail::DesignAnalysis analysis(block, sta, options.common, constraints);
     DesignMetrics metrics;
     const auto states = analysis.analyze(metrics, true);
-    PathSearchState snapshot;
-    snapshot.before = snapshot.after = metrics;
+    unsigned inserted_buffers = 0;
+    PathSearchStatistics statistics;
+    PathSearchState snapshot{metrics, metrics, inserted_buffers, statistics};
     PathPolicy policy{options, snapshot};
     const auto candidates = policy.collect(analysis, sta, states, metrics);
     std::vector<PathCandidate> result;
@@ -1110,6 +1111,20 @@ const DesignMetrics& globalGainReference(const PathSearchOptions& options,
     return options.gain_scope == ecc::PathGainScope::CurrentGlobal ? current : initial;
 }
 
+PathGainThreshold gainThreshold(const PathSearchOptions& options,
+                                const DesignMetrics& initial,
+                                const DesignMetrics& current, double endpoint_wns,
+                                double endpoint_tns) {
+    const auto& reference = globalGainReference(options, initial, current);
+    const bool local = options.gain_scope == PathGainScope::Endpoints;
+    const auto floor = [&](double value) {
+        return std::max(double(options.min_improvement),
+                        std::abs(value) * options.min_relative_improvement);
+    };
+    return {floor(local ? endpoint_wns : double(reference.setup_wns)),
+            floor(local ? endpoint_tns : double(reference.setup_tns))};
+}
+
 bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
     if (a.predicted_wns_gain != b.predicted_wns_gain) {
         return a.predicted_wns_gain > b.predicted_wns_gain;
@@ -1144,14 +1159,13 @@ bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
                            b.location.y, b.loads);
 }
 
-PathPolicy::PathPolicy(const PathSearchOptions& policy, PathSearchState& statistics)
+PathPolicy::PathPolicy(const PathSearchOptions& policy, PathSearchState statistics)
     : options(policy), result(statistics) {
 }
 PathPolicy::~PathPolicy() = default;
 
 bool PathPolicy::reuseRejections() const {
-    return options.reuse_rejections && options.failure_cache &&
-           options.batch_size == 1;
+    return options.reuse_rejections && options.failure_cache && options.batch_size == 1;
 }
 
 CandidateCollection PathPolicy::collect(detail::DesignAnalysis& analysis,
@@ -1185,17 +1199,13 @@ PathPolicy::explore(const PathBufferCandidate& c) {
         return Decision::Explore;
     }
     const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
-    const auto& reference = globalGainReference(options, result.before, result.after);
-    const double wns_floor =
-        std::max(double(options.min_improvement),
-                 std::abs(local ? c.objective_wns : double(reference.setup_wns)) *
-                     options.min_relative_improvement);
+    const auto floor = gainThreshold(options, result.before, result.after,
+                                     c.objective_wns, c.objective_tns);
+    const double wns_floor = floor.wns;
     const double tns_floor = std::max(
-        {double(options.min_improvement),
-         std::abs(local ? c.objective_tns : double(reference.setup_tns)) *
-             options.min_relative_improvement,
-         double(detail::tnsTolerance(local ? c.objective_tns : result.after.setup_tns,
-                                     options.common.tolerances))});
+        floor.tns,
+        double(detail::tnsTolerance(local ? c.objective_tns : result.after.setup_tns,
+                                    options.common.tolerances)));
     return frontiers[c.group_key].decide({c.predicted_wns_gain, c.predicted_tns_gain},
                                          {wns_floor, tns_floor});
 }
@@ -1226,20 +1236,13 @@ void PathPolicy::rank(PathBufferCandidate& candidate, bool count) {
             candidate.ranked_tns_gain =
                 found->second.tns.predict(tnsEstimate(candidate));
             if (count) {
-                ++result.calibrated_candidates;
+                ++result.statistics.calibrated_candidates;
             }
         }
     }
-    const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
-    const auto& reference = globalGainReference(options, result.before, result.after);
-    const double wns_floor = std::max(
-        double(options.min_improvement),
-        std::abs(local ? candidate.objective_wns : double(reference.setup_wns)) *
-            options.min_relative_improvement);
-    const double tns_floor = std::max(
-        double(options.min_improvement),
-        std::abs(local ? candidate.objective_tns : double(reference.setup_tns)) *
-            options.min_relative_improvement);
+    const auto [wns_floor, tns_floor] =
+        gainThreshold(options, result.before, result.after, candidate.objective_wns,
+                      candidate.objective_tns);
     candidate.rank_score =
         std::max(wns_floor > 0 ? candidate.ranked_wns_gain / wns_floor
                                : candidate.ranked_wns_gain,
@@ -1284,23 +1287,23 @@ void PathPolicy::select(std::vector<PathBufferCandidate>& variants) {
     std::unordered_set<std::string> actions;
     const auto end = std::remove_if(variants.begin(), variants.end(), [&](auto& c) {
         if (!actions.insert(c.feedback_key).second) {
-            ++result.duplicate_candidates;
+            ++result.statistics.duplicate_candidates;
             return true;
         }
         if (options.failure_cache) {
             const auto retry =
                 failures.status(c.feedback_key, *c.feedback_context, generation);
             if (retry == path_detail::Retry::Duplicate) {
-                ++result.failure_cache_hits;
+                ++result.statistics.failure_cache_hits;
                 return true;
             }
             if (retry == path_detail::Retry::Invalidated) {
-                ++result.invalidated_failures;
+                ++result.statistics.invalidated_failures;
             }
         }
         rank(c, true);
         if (c.deferred_retry) {
-            ++result.deferred_candidates;
+            ++result.statistics.deferred_candidates;
         }
         return false;
     });
@@ -1408,7 +1411,7 @@ void PathPolicy::observe(const PathBufferCandidate& plan,
         }
         model.wns.observe(plan.predicted_wns_gain, wns);
         model.tns.observe(tnsEstimate(plan), tns);
-        ++result.feedback_updates;
+        ++result.statistics.feedback_updates;
     }
     if (!trial.rejection_reasons.empty() && options.failure_cache) {
         failures.record(plan.feedback_key,
@@ -1419,27 +1422,12 @@ void PathPolicy::observe(const PathBufferCandidate& plan,
 
 void PathPolicy::screen(std::vector<PathBufferCandidate>& candidates) {
     if (options.min_relative_improvement > 0) {
-        const auto& reference =
-            globalGainReference(options, result.before, result.after);
-        const double wns_floor = std::max(double(options.min_improvement),
-                                          std::abs(double(reference.setup_wns)) *
-                                              options.min_relative_improvement);
-        const double tns_floor = std::max(double(options.min_improvement),
-                                          std::abs(double(reference.setup_tns)) *
-                                              options.min_relative_improvement);
         const auto end = std::remove_if(
             candidates.begin(), candidates.end(), [&](const auto& candidate) {
                 const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
-                const double candidate_wns_floor =
-                    local ? std::max(double(options.min_improvement),
-                                     std::abs(candidate.objective_wns) *
-                                         options.min_relative_improvement)
-                          : wns_floor;
-                const double candidate_tns_floor =
-                    local ? std::max(double(options.min_improvement),
-                                     std::abs(candidate.objective_tns) *
-                                         options.min_relative_improvement)
-                          : tns_floor;
+                const auto [candidate_wns_floor, candidate_tns_floor] =
+                    gainThreshold(options, result.before, result.after,
+                                  candidate.objective_wns, candidate.objective_tns);
                 // The largest possible improvement is reaching
                 // zero negative slack. Sampled forecasts are
                 // NOT upper bounds and must not prune actions.
@@ -1450,13 +1438,13 @@ void PathPolicy::screen(std::vector<PathBufferCandidate>& candidates) {
                 return !(wns_bound > candidate_wns_floor ||
                          tns_bound > candidate_tns_floor);
             });
-        result.screened_candidates += std::distance(end, candidates.end());
+        result.statistics.screened_candidates += std::distance(end, candidates.end());
         candidates.erase(end, candidates.end());
     }
 }
 
 PathSchedule::PathSchedule(std::vector<PathBufferCandidate> candidates,
-                           const PathSearchOptions& policy, PathSearchState& statistics,
+                           const PathSearchOptions& policy, PathSearchState statistics,
                            PathPolicy& learning)
     : plans(std::move(candidates)), options(policy), result(statistics),
       policy(learning), width(std::min(size_t(options.batch_size), plans.size())) {
@@ -1480,7 +1468,7 @@ void PathSchedule::reopen() {
                 return false;
             }
             plans.push_back(std::move(plan));
-            ++result.frontier_reopened;
+            ++result.statistics.frontier_reopened;
             return true;
         });
     suspended.erase(end, suspended.end());
@@ -1524,7 +1512,7 @@ bool PathSchedule::prepareNext() {
     if (width == 1) {
         const auto decision = policy.explore(plans[cursor]);
         if (decision == ExplorationFrontier::Decision::Suspend) {
-            ++result.frontier_suspended;
+            ++result.statistics.frontier_suspended;
             suspended.push_back(std::move(plans[cursor]));
             backoff();
             return false;
@@ -1544,7 +1532,7 @@ PathBatch PathSchedule::selectBatch(double area_limit) {
         const unsigned count = plan.tree ? plan.tree->nodes.size() : 1;
         if (options.fanout_repair &&
             infeasible_topologies.contains(topologyKey(plan))) {
-            ++result.fanout_precheck_rejections;
+            ++result.statistics.fanout_precheck_rejections;
             continue;
         }
         const bool conflict =

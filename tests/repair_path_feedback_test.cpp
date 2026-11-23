@@ -315,7 +315,10 @@ class PathScheduleTest : public ::testing::Test {
     odb::dbBlock* block = nullptr;
     odb::dbMaster* master = nullptr;
     ecc::PathSearchOptions options;
-    ecc::PathSearchState state;
+    ecc::DesignMetrics before, after;
+    unsigned inserted_buffers = 0;
+    ecc::PathSearchStatistics statistics;
+    ecc::PathSearchState state{before, after, inserted_buffers, statistics};
 };
 
 TEST_F(PathScheduleTest, EqualTimingForecastPrefersFewerBuffers) {
@@ -377,7 +380,7 @@ TEST_F(PathScheduleTest, BudgetsCountWholeTreesAndDistinguishZeroFromUnlimited) 
     options.max_inserted_buffers = 0;
     EXPECT_TRUE(select(INFINITY).indices.empty());
     options.max_inserted_buffers = 2;
-    state.inserted_buffers = 1;
+    inserted_buffers = 1;
     EXPECT_EQ(select(INFINITY).indices, (std::vector<size_t>{1}));
     options.max_inserted_buffers.reset();
     EXPECT_EQ(select(INFINITY).buffers, 3u);
@@ -399,14 +402,39 @@ TEST_F(PathScheduleTest, FeedbackLearnsOnlyFromSingleCandidateMeasurements) {
     const std::vector<std::string> reasons{"setup_wns"};
     const PathObservation rejected{-.5, -1, -.5, -1, reasons};
     schedule.observe(schedule.selectBatch(INFINITY), rejected);
-    EXPECT_EQ(state.feedback_updates, 0u);
+    EXPECT_EQ(state.statistics.feedback_updates, 0u);
     EXPECT_FALSE(policy.hasFailure(first));
     schedule.backoff();
     schedule.observe(schedule.selectBatch(INFINITY), rejected);
-    EXPECT_EQ(state.feedback_updates, 1u);
+    EXPECT_EQ(state.statistics.feedback_updates, 1u);
     EXPECT_TRUE(policy.hasFailure(first));
     options.batch_size = 1;
     EXPECT_TRUE(policy.reuseRejections());
     options.failure_cache = false;
     EXPECT_FALSE(policy.reuseRejections());
+}
+
+TEST(PathGainThreshold, FixedCurrentAndEndpointScopesUseTheSameAbsoluteFloor) {
+    ecc::PathSearchOptions options;
+    options.min_improvement = 1e-13f;
+    options.min_relative_improvement = .001;
+    ecc::DesignMetrics initial, current;
+    initial.setup_wns = -100e-9f;
+    initial.setup_tns = -10000e-9f;
+    current.setup_wns = -1e-9f;
+    current.setup_tns = -100e-9f;
+    const auto fixed = gainThreshold(options, initial, current);
+    EXPECT_NEAR(fixed.wns, 0.1e-9, 1e-17);
+    EXPECT_NEAR(fixed.tns, 10e-9, 1e-15);
+    options.gain_scope = ecc::PathGainScope::CurrentGlobal;
+    const auto remaining = gainThreshold(options, initial, current);
+    EXPECT_NEAR(remaining.wns, .001e-9, 1e-19);
+    EXPECT_NEAR(remaining.tns, .1e-9, 1e-17);
+    options.gain_scope = ecc::PathGainScope::Endpoints;
+    const auto endpoint = gainThreshold(options, initial, current, -.2e-9, -10e-9);
+    EXPECT_NEAR(endpoint.wns, .0002e-9, 1e-21);
+    EXPECT_NEAR(endpoint.tns, .01e-9, 1e-19);
+    const auto zero = gainThreshold(options, initial, current, 0, 0);
+    EXPECT_EQ(zero.wns, double(options.min_improvement));
+    EXPECT_EQ(zero.tns, double(options.min_improvement));
 }
