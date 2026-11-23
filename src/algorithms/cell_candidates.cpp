@@ -16,11 +16,8 @@ std::vector<const CellModel *> CellCandidates::resize(const NetState &state,
     auto *driver = state.driver->getInst();
     auto *original = network_->libertyCell(driver);
     if (!original || driver->isFixed() || driver->isDoNotTouch() ||
-        std::ranges::find(opts_.excluded_instances, driver) !=
-            opts_.excluded_instances.end() ||
-        std::ranges::find(opts_.excluded_resize_instances, driver) !=
-            opts_.excluded_resize_instances.end() ||
-        state.fanout_ratio > 1 || (vt_only && analysis_.protectedInputs(driver)))
+        analysis_.resizeExcluded(driver) || state.fanout_ratio > 1 ||
+        (vt_only && analysis_.protectedInputs(driver)))
         return result;
     auto [it, fresh] = equivalents_.try_emplace(original);
     if (fresh) {

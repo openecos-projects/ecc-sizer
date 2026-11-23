@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "algorithms/gobi.h"
-#include "repair_config.h"
+#include "repair/config.h"
 
 #include "BufferedNet.hh"
 #include "actions/netlist.h"
@@ -221,11 +221,10 @@ BufferTreeNode decodeNode(int id, const gobi::HostGraph &graph,
 
 } // namespace gobi_detail
 
-void GobiOptions::validate() const { common.validate(); }
-
 GobiSolutions Gobi::solve(odb::dbBlock *block, sta::dbSta *sta,
                           std::span<const detail::NetState> states,
-                          rsz::Resizer *resizer, const GobiOptions &options) {
+                          rsz::Resizer *resizer, const GobiOptions &options,
+                          const DesignConstraints &constraints) {
     using namespace gobi_detail;
     options.validate();
     if (!block || !sta || !resizer || sta->getDbNetwork()->block() != block ||
@@ -271,9 +270,9 @@ GobiSolutions Gobi::solve(odb::dbBlock *block, sta::dbSta *sta,
         if (!cell || !cell->isBuffer())
             continue;
         auto *master = sta->getDbNetwork()->staToDb(cell);
-        if (std::find(options.common.excluded_masters.begin(),
-                      options.common.excluded_masters.end(),
-                      master) != options.common.excluded_masters.end())
+        if (std::find(constraints.excluded_masters.begin(),
+                      constraints.excluded_masters.end(),
+                      master) != constraints.excluded_masters.end())
             continue;
         forest.cells.push_back(cell);
     }
@@ -333,7 +332,7 @@ GobiSolutions Gobi::solve(odb::dbBlock *block, sta::dbSta *sta,
 
 GobiResult Gobi::run(odb::dbBlock *block, sta::dbSta *sta,
                      const std::function<void()> &refresh, rsz::Resizer *resizer,
-                     const GobiOptions &options) {
+                     const GobiOptions &options, const RepairRuntime &runtime) {
     using namespace gobi_detail;
     GobiResult result;
     std::optional<EcoTransaction> transaction;
@@ -343,7 +342,8 @@ GobiResult Gobi::run(odb::dbBlock *block, sta::dbSta *sta,
             sta->getDbNetwork()->block() != block || sta->scenes().size() != 1)
             throw std::invalid_argument(
                 "GOBI run requires block, resizer, one STA scene and refresh");
-        detail::DesignAnalysis analysis(block, sta, options.common);
+        detail::DesignAnalysis analysis(block, sta, options.common,
+                                        runtime.constraints);
         const auto collect_start = Clock::now();
         std::vector<NetState> states;
         for (auto &state : analysis.analyze(result.before, true)) {
@@ -364,7 +364,8 @@ GobiResult Gobi::run(odb::dbBlock *block, sta::dbSta *sta,
             return result;
         }
         const auto solve_start = Clock::now();
-        auto solutions = solve(block, sta, states, resizer, options);
+        auto solutions =
+            solve(block, sta, states, resizer, options, runtime.constraints);
         result.solve_ms =
             std::chrono::duration<double, std::milli>(Clock::now() - solve_start)
                 .count();
@@ -392,7 +393,7 @@ GobiResult Gobi::run(odb::dbBlock *block, sta::dbSta *sta,
                 .count();
         refresh();
         ++result.refreshes;
-        detail::DesignAnalysis verify(block, sta, options.common);
+        detail::DesignAnalysis verify(block, sta, options.common, runtime.constraints);
         verify.analyze(result.after, true);
         if (!better(result.before, result.after, options)) {
             transaction->rollback();

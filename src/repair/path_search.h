@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "repair_config.h"
+#include "repair/config.h"
 #include "design_analysis.h"
 #include "actions/netlist.h"
 
@@ -140,11 +140,13 @@ class PathSearch {
     // Returned plans expire after edits, placement changes or STA scene changes.
     static std::vector<PathCandidate>
     generateCandidates(odb::dbBlock *block, sta::dbSta *sta,
-                       const PathSearchOptions &options = {});
+                       const PathSearchOptions &options = {},
+                       const DesignConstraints &constraints = {});
 
     static PathSearchResult run(odb::dbBlock *block, sta::dbSta *sta,
                                 const std::function<void()> &refresh,
-                                const PathSearchOptions &options = {});
+                                const PathSearchOptions &options = {},
+                                const PathRuntime &runtime = {});
 };
 
 } // namespace ecc

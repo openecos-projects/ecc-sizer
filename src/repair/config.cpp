@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_config.h"
+#include "repair/config.h"
 
 #include <algorithm>
 #include <array>
@@ -213,10 +213,10 @@ static void writeSetting(std::ostream &out, const Value &value, double scale) {
 // visitor serves parsing, serialization and section recognition.
 template <class Config, class Visitor>
 static void visitSettings(Config &c, Visitor &&visit) {
-    visit("common.max_fanout", c.drv.max_fanout, 1.0);
-    visit("common.margin", c.drv.margin, 1.0);
-    visit("common.recovered_slew_fraction", c.drv.recovered_slew_fraction, 1.0);
-    visit("common.overload_group_fraction", c.drv.overload_group_fraction, 1.0);
+    visit("common.max_fanout", c.common.max_fanout, 1.0);
+    visit("common.margin", c.common.margin, 1.0);
+    visit("common.recovered_slew_fraction", c.common.recovered_slew_fraction, 1.0);
+    visit("common.overload_group_fraction", c.common.overload_group_fraction, 1.0);
     visit("power.objective", c.power.objective, 1.0);
     visit("power.max_passes", c.power.max_passes, 1.0);
     visit("power.max_trials", c.power.max_trials, 1.0);
@@ -237,8 +237,8 @@ static void visitSettings(Config &c, Visitor &&visit) {
     visit("gobi.max_buffers", c.gobi.max_buffers, 1.0);
     visit("gobi.max_nets", c.gobi.max_nets, 1.0);
     visit("gobi.require_drv_reduction", c.gobi.require_drv_reduction, 1.0);
-    visit("common.actions", c.drv.actions, 1.0);
-    visit("common.load_downsize_slack_margin_ns", c.drv.load_downsize_slack_margin,
+    visit("common.actions", c.common.actions, 1.0);
+    visit("common.load_downsize_slack_margin_ns", c.common.load_downsize_slack_margin,
           1e9);
     visit("drv.max_load_downsizes_per_pass", c.drv.max_load_downsizes_per_pass, 1.0);
     visit("drv.max_passes", c.drv.max_passes, 1.0);
@@ -287,12 +287,12 @@ static void visitSettings(Config &c, Visitor &&visit) {
     visit("path.batch_size", c.path.batch_size, 1.0);
     visit("path.max_inserted_buffers", c.path.max_inserted_buffers, 1.0);
     visit("path.max_area_growth", c.path.max_area_growth, 1.0);
-    visit("tolerances.wns_absolute_ns", c.drv.tolerances.wns_absolute, 1e9);
-    visit("tolerances.tns_absolute_ns", c.drv.tolerances.tns_absolute, 1e9);
-    visit("tolerances.tns_relative", c.drv.tolerances.tns_relative, 1.0);
-    visit("tolerances.drv_severity", c.drv.tolerances.drv_severity, 1.0);
+    visit("tolerances.wns_absolute_ns", c.common.tolerances.wns_absolute, 1e9);
+    visit("tolerances.tns_absolute_ns", c.common.tolerances.tns_absolute, 1e9);
+    visit("tolerances.tns_relative", c.common.tolerances.tns_relative, 1.0);
+    visit("tolerances.drv_severity", c.common.tolerances.drv_severity, 1.0);
     visit("runtime.sta_threads", c.sta_threads, 1.0);
-    visit("common.vt_suffixes", c.drv.vt_suffixes, 1.0);
+    visit("common.vt_suffixes", c.common.vt_suffixes, 1.0);
 }
 
 void RepairCommonOptions::validate() const {
@@ -336,10 +336,14 @@ void RepairCommonOptions::validate() const {
     require(std::isfinite(tolerances.drv_severity) && tolerances.drv_severity >= 0,
             "tolerances.drv_severity >= 0");
 }
-void DrvRepairOptions::validate() const {
-    RepairCommonOptions::validate();
+void DrvRepairSettings::validate() const {
     require(ord_driver_batch_size > 0, "drv.ord_driver_batch_size > 0");
 }
+void DrvRepairOptions::validate() const {
+    common.validate();
+    DrvRepairSettings::validate();
+}
+DrvRepairOptions RepairConfig::drvOptions() const { return {drv, common}; }
 void SetupRepairSettings::validate() const {
     require(max_path_ends > 0 &&
                 max_path_ends <= unsigned(std::numeric_limits<int>::max()),
@@ -380,22 +384,12 @@ void SetupRepairOptions::validate() const {
     common.validate();
     SetupRepairSettings::validate();
 }
-SetupRepairOptions RepairConfig::setupOptions() const {
-    SetupRepairOptions result;
-    static_cast<SetupRepairSettings &>(result) = setup;
-    result.common = drv;
-    return result;
-}
+SetupRepairOptions RepairConfig::setupOptions() const { return {setup, common}; }
 void PathSearchOptions::validate() const {
     common.validate();
     PathSearchSettings::validate();
 }
-PathSearchOptions RepairConfig::pathOptions() const {
-    PathSearchOptions result;
-    static_cast<PathSearchSettings &>(result) = path;
-    result.common = drv;
-    return result;
-}
+PathSearchOptions RepairConfig::pathOptions() const { return {path, common}; }
 void PowerRepairSettings::validate() const {
     (void)enumName(objective);
     require(max_candidates > 0 && batch_size > 0, "power candidates/batch size > 0");
@@ -421,13 +415,16 @@ void VgSettings::validate() const {
     require(max_group_loads == 0 || max_group_loads >= 2,
             "vg.max_group_loads is zero or >= 2");
 }
-PowerRepairOptions RepairConfig::powerOptions() const {
-    PowerRepairOptions result;
-    static_cast<PowerRepairSettings &>(result) = power;
-    result.common = drv;
-    return result;
+PowerRepairOptions RepairConfig::powerOptions() const { return {power, common}; }
+void VgOptions::validate() const {
+    common.validate();
+    VgSettings::validate();
 }
+void GobiOptions::validate() const { common.validate(); }
+VgOptions RepairConfig::vgOptions() const { return {vg, common}; }
+GobiOptions RepairConfig::gobiOptions() const { return {gobi, common}; }
 void RepairConfig::validate() const {
+    common.validate();
     drv.validate();
     setup.validate();
     path.validate();

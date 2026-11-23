@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "design_io.h"
+#include "design_session.h"
 
 #include <algorithm>
 #include <chrono>
@@ -16,15 +16,15 @@
 #include "odb/db.h"
 #include "ord/Design.h"
 #include "est/EstimateParasitics.h"
-#include "repair_config.h"
-#include "algorithms/repair_drv.h"
+#include "repair/config.h"
+#include "repair/drv.h"
 #include "algorithms/gobi.h"
 #include "algorithms/gobi_cuda.h"
 #include "parasitics.h"
-#include "algorithms/path_search.h"
+#include "repair/path_search.h"
 #include "actions/netlist.h"
 #include "actions/placement.h"
-#include "algorithms/repair_setup.h"
+#include "repair/setup.h"
 #include "algorithms/van_ginneken.h"
 #include "rsz/Resizer.hh"
 #include "spdlog/sinks/basic_file_sink.h"
@@ -278,13 +278,14 @@ static void run(Options& options) {
         throw std::invalid_argument(
             "VG/GOBI/Path require placement RC; use drv, setup, power or hold "
             "for postroute/global-routing repair");
-    auto common = options.repair.drv;
+    const auto &common = options.repair.common;
+    RepairRuntime runtime;
     for(auto* inst : block->getInsts())
         if(inst->isDoNotTouch())
-            common.excluded_instances.push_back(inst);
-    common.prepare = [&]() {
+            runtime.constraints.excluded_instances.push_back(inst);
+    runtime.prepare = [&]() {
         legalizeRepairPlacement(block, session.design().getOpendp(),
-                                common.excluded_instances, false,
+                                runtime.constraints.excluded_instances, false,
                                 options.legalizer);
     };
     auto* top = sta->network()->cell(sta->network()->topInstance());
@@ -298,7 +299,7 @@ static void run(Options& options) {
                         sta->cmdSdc());
     const auto refresh = [&]() { session.refresh(); };
     const auto placeAndRefresh = [&]() {
-        common.prepare();
+        runtime.prepare();
         refresh();
     };
     const bool preplace = options.stages.front() == Stage::Preplace ||
@@ -334,21 +335,22 @@ static void run(Options& options) {
         spdlog::info("Starting {}", name);
         switch(stage) {
             case Stage::Drv:
-                report("drv", DrvRepairer::repair(block, sta,
-                                                              refresh, common));
+                report("drv",
+                       DrvRepairer::repair(block, sta, refresh,
+                                           options.repair.drvOptions(), runtime));
                 break;
             case Stage::Setup: {
                 auto setup = options.repair.setupOptions();
-                setup.common = common;
                 report("setup",
-                       SetupRepairer::repair(block, sta, refresh, setup));
+                       SetupRepairer::repair(block, sta, refresh, setup, runtime));
                 break;
             }
             case Stage::Path: {
                 auto path = options.repair.pathOptions();
-                path.common = common;
-                path.path_trial_observer = [](unsigned index,
-                                              const PathBufferTrial& trial) {
+                PathRuntime path_runtime;
+                static_cast<RepairRuntime &>(path_runtime) = runtime;
+                path_runtime.trial_observer = [](unsigned index,
+                                                 const PathBufferTrial &trial) {
                     spdlog::debug(
                         "Path trial {}: accepted={} buffers={} provisional={} "
                         "verified={}",
@@ -359,11 +361,11 @@ static void run(Options& options) {
                     PlacementParasiticUpdater incremental(
                         block, sta,
                         session.design().getResizer()->getEstimateParasitics());
-                    path.path_verification_refresh = refresh;
-                    path.path_incremental_verification = [&]() {
+                    path_runtime.verification_refresh = refresh;
+                    path_runtime.incremental_verification = [&]() {
                         incremental.verifyTiming();
                     };
-                    path.path_analysis_changes = [&]() {
+                    path_runtime.analysis_changes = [&]() {
                         return incremental.takeAnalysisChanges();
                     };
                     report("path", PathSearch::run(
@@ -372,41 +374,36 @@ static void run(Options& options) {
                                            session.reconnectSupplies();
                                            incremental.update();
                                        },
-                                       path));
+                                       path, path_runtime));
                 }
                 else {
-                    report("path", PathSearch::run(block, sta,
-                                                              refresh, path));
+                    report("path",
+                           PathSearch::run(block, sta, refresh, path, path_runtime));
                 }
                 break;
             }
             case Stage::Vg: {
-                VgOptions vg;
-                static_cast< VgSettings& >(vg) = options.repair.vg;
-                vg.common = common;
-                report("vg", VanGinneken::run(
-                                 block, sta, placeAndRefresh,
-                                 session.design().getResizer(), vg));
+                const auto vg = options.repair.vgOptions();
+                report("vg",
+                       VanGinneken::run(block, sta, placeAndRefresh,
+                                        session.design().getResizer(), vg, runtime));
                 break;
             }
             case Stage::Gobi: {
-                GobiOptions gobi;
-                static_cast< GobiSettings& >(gobi) = options.repair.gobi;
-                gobi.common = common;
-                report("gobi", Gobi::run(
-                                   block, sta, placeAndRefresh,
-                                   session.design().getResizer(), gobi));
+                const auto gobi = options.repair.gobiOptions();
+                report("gobi", Gobi::run(block, sta, placeAndRefresh,
+                                         session.design().getResizer(), gobi, runtime));
                 break;
             }
             case Stage::Ord:
-                report("ord", OrdDrvRepairer::repair(block, sta,
-                                                              refresh, common));
+                report("ord",
+                       OrdDrvRepairer::repair(block, sta, refresh,
+                                              options.repair.drvOptions(), runtime));
                 break;
             case Stage::Power: {
                 auto power = options.repair.powerOptions();
-                power.common = common;
-                report("power",
-                       OpenDbPowerRepairer::repair(block, sta, refresh, power));
+                report("power", OpenDbPowerRepairer::repair(block, sta, refresh, power,
+                                                            runtime));
                 break;
             }
             case Stage::Fanout: {

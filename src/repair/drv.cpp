@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "algorithms/repair_drv.h"
+#include "repair/drv.h"
 #include "design_analysis.h"
 #include "algorithms/cell_candidates.h"
-#include "algorithms/repair_setup.h"
+#include "repair/setup.h"
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
 #include "sta/Liberty.hh"
@@ -195,7 +195,8 @@ static bool applyNetRepair(DesignAnalysis &analysis, detail::CellCandidates &cel
 
 DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                                     const std::function<void()> &refresh,
-                                    const DrvRepairOptions &options) {
+                                    const DrvRepairOptions &options,
+                                    const RepairRuntime &runtime) {
     DrvRepairResult result;
     try {
         options.validate();
@@ -208,14 +209,14 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
         result.message = "invalid repair analysis (one STA scene required)";
         return result;
     }
-    DesignAnalysis repair(block, sta, options);
-    detail::CellCandidates cells(repair, sta, options);
+    DesignAnalysis repair(block, sta, options.common, runtime.constraints);
+    detail::CellCandidates cells(repair, sta, options.common);
     if (!repair.hasCells()) {
         result.message = "no usable Liberty cell models";
         return result;
     }
     const bool collect_all =
-        options.actions.load_downsize && options.max_load_downsizes_per_pass > 0;
+        options.common.actions.load_downsize && options.max_load_downsizes_per_pass > 0;
     const auto analyze = [&](DesignMetrics &metrics) {
         return repair.analyze(metrics, collect_all);
     };
@@ -234,7 +235,7 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
             });
         std::vector<detail::LoadDownsizeCandidate> load_plans;
         if (allow_load_downsize) {
-            detail::LoadDownsizePlanner planner(repair, sta, states, options);
+            detail::LoadDownsizePlanner planner(repair, sta, states, options.common);
             std::unordered_set<odb::dbInst *> selected;
             for (const auto &state : states) {
                 if (state.fanout_ratio > 1 ||
@@ -273,7 +274,7 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                                    resized_gates,
                                    remainingBufferBudget(options.max_inserted_buffers,
                                                          result.inserted_buffers),
-                                   allow_resize, vt_swaps, options);
+                                   allow_resize, vt_swaps, options.common);
                 }
             }
             if (inserted == 0 && resized == 0 && resized_gates == 0 && downsized == 0) {
@@ -281,17 +282,18 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                 result.message = "no feasible edit for remaining violations";
                 break;
             }
-            if (options.prepare)
-                options.prepare();
+            if (runtime.prepare)
+                runtime.prepare();
             refresh();
             DesignMetrics after;
             auto next_states = analyze(after);
             // Accept only measured DRV improvement without setup/hold WNS
             // regression beyond configured tolerance. Never claim convergence
             // just because a batch or insertion budget has been exhausted.
-            if (after.severity + options.tolerances.drv_severity <
+            if (after.severity + options.common.tolerances.drv_severity <
                     result.after.severity &&
-                detail::timingNonRegressing(result.after, after, options.tolerances) &&
+                detail::timingNonRegressing(result.after, after,
+                                            options.common.tolerances) &&
                 (!(downsized || vt_swaps) || detail::noNewDrv(result.after, after))) {
                 transaction.commit();
                 result.inserted_buffers += inserted;
@@ -348,7 +350,8 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
 
 OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                                           const std::function<void()> &refresh,
-                                          const DrvRepairOptions &options) {
+                                          const DrvRepairOptions &options,
+                                          const RepairRuntime &runtime) {
     OrdDrvRepairResult result;
     try {
         options.validate();
@@ -362,8 +365,8 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
         return result;
     }
 
-    detail::DesignAnalysis analysis(block, sta, options);
-    detail::CellCandidates cells(analysis, sta, options);
+    detail::DesignAnalysis analysis(block, sta, options.common, runtime.constraints);
+    detail::CellCandidates cells(analysis, sta, options.common);
     if (!analysis.hasCells()) {
         result.message = "no usable Liberty cell models";
         return result;
@@ -425,7 +428,7 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                             resized_buffers, resized_gates,
                             remainingBufferBudget(options.max_inserted_buffers,
                                                   result.inserted_buffers),
-                            true, vt_swaps, options))
+                            true, vt_swaps, options.common))
                         ++repaired;
                 }
                 if (repaired == 0) {
@@ -434,8 +437,8 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                         processed.erase(net);
                     break;
                 }
-                if (options.prepare)
-                    options.prepare();
+                if (runtime.prepare)
+                    runtime.prepare();
                 refresh();
                 DesignMetrics after;
                 auto next_states = analyze(after);
@@ -444,7 +447,7 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                 // this acceptance rule separate is essential for a faithful
                 // A/B reference and is the main difference from Native's
                 // timing-preserving transaction policy.
-                if (after.severity + options.tolerances.drv_severity <
+                if (after.severity + options.common.tolerances.drv_severity <
                     result.after.severity) {
                     transaction.commit();
                     result.after = after;
@@ -498,7 +501,7 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
     }
 
     result.ok = true;
-    result.converged = result.after.severity <= options.tolerances.drv_severity;
+    result.converged = result.after.severity <= options.common.tolerances.drv_severity;
     if (result.message.empty())
         result.message = result.converged
                              ? "OpenROAD-style DRV repair converged"
@@ -851,7 +854,8 @@ static bool acceptable(const PowerRepairMetrics &before,
 }
 PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                                               const std::function<void()> &refresh,
-                                              const PowerRepairOptions &options) {
+                                              const PowerRepairOptions &options,
+                                              const RepairRuntime &runtime) {
     PowerRepairResult result;
     const auto start = std::chrono::steady_clock::now();
     std::optional<EcoTransaction> transaction;
@@ -861,7 +865,8 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
             sta->scenes().size() != 1)
             throw std::invalid_argument(
                 "invalid power analysis (one STA scene required)");
-        detail::DesignAnalysis analysis(block, sta, options.common);
+        detail::DesignAnalysis analysis(block, sta, options.common,
+                                        runtime.constraints);
         auto states = measurePower(analysis, sta, result.before);
         result.after = result.before;
         const auto update = [&]() {
@@ -909,8 +914,8 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                         ++downsizes;
                 }
                 ++result.attempted_trials;
-                if (options.common.prepare)
-                    options.common.prepare();
+                if (runtime.prepare)
+                    runtime.prepare();
                 update();
                 PowerRepairMetrics after;
                 auto next = measurePower(analysis, sta, after);
@@ -940,21 +945,21 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                     result.attempted_trials < options.max_trials) {
                     transaction->suspend();
                     ++result.recovery_attempts;
-                    auto recovery_common = options.common;
+                    auto recovery_runtime = runtime;
                     // Retain the proposed saving during recovery. Otherwise
                     // setup can simply undo it and waste the recovery budget.
                     for (const auto i : selected)
-                        recovery_common.excluded_resize_instances.push_back(
-                            plans[i].inst);
+                        recovery_runtime.constraints.excluded_resize_instances
+                            .push_back(plans[i].inst);
                     if (!detail::noNewDrv(result.after.design, after.design) &&
                         result.attempted_trials < options.max_trials) {
                         DrvRepairOptions drv;
-                        static_cast<RepairCommonOptions &>(drv) = recovery_common;
+                        drv.common = options.common;
                         drv.max_passes = options.max_trials - result.attempted_trials;
                         drv.max_inserted_buffers =
                             static_cast<unsigned>(selected.size());
-                        const auto repaired =
-                            DrvRepairer::repair(block, sta, update, drv);
+                        const auto repaired = DrvRepairer::repair(
+                            block, sta, update, drv, recovery_runtime);
                         result.attempted_trials +=
                             repaired.accepted_passes + repaired.rejected_passes;
                         if (!repaired.ok)
@@ -963,7 +968,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                     }
                     if (result.attempted_trials < options.max_trials) {
                         SetupRepairOptions setup;
-                        setup.common = recovery_common;
+                        setup.common = options.common;
                         setup.max_trials = options.max_trials - result.attempted_trials;
                         setup.max_passes = setup.max_trials;
                         setup.max_candidates = options.max_candidates;
@@ -975,8 +980,8 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                             setup.max_area_growth = std::max(
                                 0.0,
                                 result.after.design.area / after.design.area - 1.0);
-                        const auto repaired =
-                            SetupRepairer::repair(block, sta, update, setup);
+                        const auto repaired = SetupRepairer::repair(
+                            block, sta, update, setup, recovery_runtime);
                         spdlog::debug(
                             "Power setup recovery: {} ({} trials, {} accepted)",
                             repaired.message, repaired.attempted_batches,

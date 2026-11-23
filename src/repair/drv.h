@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-#include "repair_config.h"
+#include "repair/config.h"
 #include "actions/netlist.h"
 #include "design_analysis.h"
 #include <functional>
@@ -51,7 +51,8 @@ class DrvRepairer {
   public:
     static DrvRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
                                   const std::function<void()> &refresh,
-                                  const DrvRepairOptions &options = {});
+                                  const DrvRepairOptions &options = {},
+                                  const RepairRuntime &runtime = {});
 };
 
 // OpenROAD-style DRV repair: drivers are visited in the reverse levelized
@@ -77,7 +78,8 @@ class OrdDrvRepairer {
   public:
     static OrdDrvRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
                                      const std::function<void()> &refresh,
-                                     const DrvRepairOptions &options = {});
+                                     const DrvRepairOptions &options = {},
+                                     const RepairRuntime &runtime = {});
 };
 
 struct FanoutRepairOptions {
@@ -143,6 +145,7 @@ class OpenDbPowerRepairer {
   public:
     static PowerRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
                                     const std::function<void()> &refresh,
-                                    const PowerRepairOptions &options = {});
+                                    const PowerRepairOptions &options = {},
+                                    const RepairRuntime &runtime = {});
 };
 } // namespace ecc

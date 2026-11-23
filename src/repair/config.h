@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <functional>
 #include <iosfwd>
 #include <optional>
 #include <span>
@@ -10,10 +9,6 @@
 #include <string>
 #include <vector>
 
-namespace odb {
-class dbMaster;
-class dbInst;
-} // namespace odb
 namespace ecc {
 enum class PathStrategy { Sequential, PathGain, Feedback };
 enum class PathPlacement { Trial, Final };
@@ -23,9 +18,6 @@ enum class PowerObjective { Leakage, Total };
 enum class VgScope { Drv, Setup };
 enum class VgBackend { Cpu, Cuda };
 
-struct PathBufferTrial;
-struct PathFanoutCheck;
-struct RepairAnalysisChanges;
 // All time values in the C++ API are seconds; text configuration uses *_ns.
 struct RepairTolerances {
     float wns_absolute = 1e-15f;
@@ -55,21 +47,18 @@ struct RepairCommonOptions {
     std::vector<std::string> vt_suffixes;
     float load_downsize_slack_margin = 0;
     RepairTolerances tolerances;
-    // Runtime hooks/constraints are not serialized as text configuration.
-    std::function<void()> prepare;
-    std::vector<odb::dbMaster *> excluded_masters;
-    std::vector<odb::dbInst *> excluded_instances;
-    // Preserve selected cell masters during compound ECO recovery, while
-    // retaining their nets and timing cones in analysis. Not a CLI setting.
-    std::vector<odb::dbInst *> excluded_resize_instances;
     void validate() const;
 };
-struct DrvRepairOptions : RepairCommonOptions {
+struct DrvRepairSettings {
     unsigned max_passes = 8;
     std::optional<unsigned> max_inserted_buffers;
     unsigned max_load_downsizes_per_pass = 64;
     // OpenROAD-style repair commits driver edits in bounded traversal batches.
     unsigned ord_driver_batch_size = 10000;
+    void validate() const;
+};
+struct DrvRepairOptions : DrvRepairSettings {
+    RepairCommonOptions common;
     void validate() const;
 };
 struct SetupRepairSettings {
@@ -170,16 +159,6 @@ struct PathSearchSettings {
 };
 struct PathSearchOptions : PathSearchSettings {
     RepairCommonOptions common;
-    // Called after commit/rollback; rejected trials can have deferred STA.
-    std::function<void(unsigned, const PathBufferTrial &)> path_trial_observer;
-    std::function<void(const PathFanoutCheck &)> path_fanout_observer;
-    // Authoritative refresh for trial verification or final phase validation.
-    // Final mode uses it after legalization, before committing the parent ECO.
-    std::function<void()> path_verification_refresh;
-    // Refresh accumulated edited timing cones for a promising incremental
-    // trial. Final-phase mode still requires authoritative final RC/STA.
-    std::function<void()> path_incremental_verification;
-    std::function<RepairAnalysisChanges()> path_analysis_changes;
     void validate() const;
 };
 
@@ -210,21 +189,30 @@ struct VgSettings {
     bool require_drv_reduction = true;
     void validate() const;
 };
+struct VgOptions : VgSettings {
+    RepairCommonOptions common;
+    void validate() const;
+};
 struct GobiSettings {
     // GOBI uses its CUDA solver; backend availability is checked at runtime.
     std::optional<unsigned> max_buffers;
     unsigned max_nets = 0;
     bool require_drv_reduction = true;
 };
+struct GobiOptions : GobiSettings {
+    RepairCommonOptions common;
+    void validate() const;
+};
 struct PowerRepairOptions : PowerRepairSettings {
     RepairCommonOptions common;
     void validate() const;
 };
 
-// A single source of effective policy for the DRV -> setup pipeline.
+// Serializable policy shared by independently ordered repair stages.
 // Algorithms also accept their own default-initialized options independently.
 struct RepairConfig {
-    DrvRepairOptions drv;
+    RepairCommonOptions common;
+    DrvRepairSettings drv;
     SetupRepairSettings setup;
     PathSearchSettings path;
     PowerRepairSettings power;
@@ -232,9 +220,12 @@ struct RepairConfig {
     GobiSettings gobi;
     unsigned sta_threads = 32;
 
+    DrvRepairOptions drvOptions() const;
     SetupRepairOptions setupOptions() const;
     PathSearchOptions pathOptions() const;
     PowerRepairOptions powerOptions() const;
+    VgOptions vgOptions() const;
+    GobiOptions gobiOptions() const;
     void validate() const;
     // Strict key/value parsing. Unknown keys, malformed values and NaN fail.
     void set(const std::string &key, const std::string &value);

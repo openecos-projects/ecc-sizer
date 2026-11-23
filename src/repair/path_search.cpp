@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "algorithms/path_search.h"
+#include "repair/path_search.h"
 
 #include "actions/netlist.h"
 #include "design_analysis.h"
@@ -8,7 +8,7 @@
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
 #include "sta/Liberty.hh"
-#include "algorithms/path_feedback.h"
+#include "repair/path_feedback.h"
 
 #include <algorithm>
 #include <chrono>
@@ -409,12 +409,13 @@ float recoveryConstraintGain(sta::dbSta* sta, odb::dbObject* term, float new_sle
 // Only complete a tree when the original single-buffer proposal increases
 // the violation count. Existing violations may remain, as in STA acceptance.
 // Every added level strictly reduces root fanout; no arbitrary depth budget.
-bool completeFanoutTrees(
-    sta::dbSta* sta, const std::vector< BufferInsertionResult >& roots,
-    const std::vector< odb::dbITerm* >& original_drivers,
-    unsigned baseline_violations, unsigned buffer_allowance,
-    double area_allowance, const PathSearchOptions& options,
-    unsigned& buffer_count, double initial_added_area) {
+bool completeFanoutTrees(sta::dbSta* sta,
+                         const std::vector<BufferInsertionResult>& roots,
+                         const std::vector<odb::dbITerm*>& original_drivers,
+                         unsigned baseline_violations, unsigned buffer_allowance,
+                         double area_allowance, const PathSearchOptions& options,
+                         unsigned& buffer_count, double initial_added_area,
+                         const PathRuntime& runtime) {
     auto* network = sta->getDbNetwork();
     sta->checkFanoutPreamble();
     const auto violation_count = [&]() {
@@ -423,10 +424,10 @@ bool completeFanoutTrees(
     if(violation_count() <= baseline_violations)
         return true;
     const auto report = [&](odb::dbITerm* driver, const char* phase) {
-        if(options.path_fanout_observer)
+        if(runtime.fanout_observer)
             for(const auto& check : fanoutChecks(sta, driver, phase))
                 if(check.slack < 0)
-                    options.path_fanout_observer(check);
+                    runtime.fanout_observer(check);
     };
     for(auto* driver : original_drivers)
         report(driver, "candidate_driver");
@@ -516,7 +517,8 @@ bool completeFanoutTrees(
             for(auto* child : children)
                 for(const auto& check : fanoutChecks(sta, child, "tree_buffer"))
                     if(check.slack < 0) {
-                        if(options.path_fanout_observer) options.path_fanout_observer(check);
+                        if(runtime.fanout_observer)
+                            runtime.fanout_observer(check);
                         return false;
                     }
         }
@@ -1564,21 +1566,23 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
 // Keep all provisional ECOs in one parent journal. Child commits merge into
 // it, so final legalization (including moves of existing cells) can be undone
 // together with every inserted buffer and reconnected load.
-PathSearchResult repairWithFinalPlacement(
-    odb::dbBlock* block, sta::dbSta* sta,
-    const std::function<void()>& refresh, const PathSearchOptions& options) {
+PathSearchResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
+                                          const std::function<void()>& refresh,
+                                          const PathSearchOptions& options,
+                                          const PathRuntime& runtime) {
     PathSearchResult result;
-    if(!options.common.prepare) {
+    if(!runtime.prepare) {
         result.message = "final path placement requires a legalization callback";
         return result;
     }
-    detail::DesignAnalysis analysis(block, sta, options.common);
+    detail::DesignAnalysis analysis(block, sta, options.common, runtime.constraints);
     analyze(analysis, result.before);
     result.after = result.before;
     const auto authoritative_refresh = [&]() {
         PhaseTimer timer{result.refresh_ms};
         ++result.refreshes;
-        if(options.path_verification_refresh) options.path_verification_refresh();
+        if(runtime.verification_refresh)
+            runtime.verification_refresh();
         else refresh();
     };
     std::optional<EcoTransaction> parent, final;
@@ -1597,23 +1601,25 @@ PathSearchResult repairWithFinalPlacement(
         parent.emplace(block);
         parent->suspend();
         auto search_options = options;
+        auto search_runtime = runtime;
         search_options.placement = ecc::PathPlacement::Trial;
-        search_options.common.prepare = {};
+        search_runtime.prepare = {};
         if(options.verification == ecc::PathVerification::Final) {
             // Provisional ECOs still undergo global timing and electrical
             // acceptance. The parent journal makes the final full extraction
             // authoritative for the entire phase, including all child commits.
             search_options.verification = ecc::PathVerification::Trial;
-            search_options.path_verification_refresh = {};
+            search_runtime.verification_refresh = {};
         }
-        search_options.path_trial_observer = [&](unsigned index, const PathBufferTrial& trial) {
-            if(options.path_trial_observer) {
+        search_runtime.trial_observer = [&](unsigned index,
+                                            const PathBufferTrial& trial) {
+            if(runtime.trial_observer) {
                 auto provisional = trial;
                 provisional.placement_provisional = true;
-                options.path_trial_observer(index, provisional);
+                runtime.trial_observer(index, provisional);
             }
         };
-        result = PathSearch::run(block, sta, refresh, search_options);
+        result = PathSearch::run(block, sta, refresh, search_options, search_runtime);
         for(auto& trial : result.trials) trial.placement_provisional = true;
         result.final_placement.provisional_buffers = result.inserted_buffers;
         result.final_placement.before = result.after;
@@ -1635,7 +1641,7 @@ PathSearchResult repairWithFinalPlacement(
         final.emplace(block);
         {
             PhaseTimer timer{result.prepare_ms};
-            options.common.prepare();
+            runtime.prepare();
         }
         authoritative_refresh();
         {
@@ -1681,15 +1687,16 @@ PathSearchResult repairWithFinalPlacement(
 }  // namespace path_detail
 
 std::vector<PathCandidate>
-PathSearch::generateCandidates(odb::dbBlock *block, sta::dbSta *sta,
-                               const PathSearchOptions &options) {
+PathSearch::generateCandidates(odb::dbBlock* block, sta::dbSta* sta,
+                               const PathSearchOptions& options,
+                               const DesignConstraints& constraints) {
     using namespace path_detail;
     options.validate();
     if (!block || !sta || sta->getDbNetwork()->block() != block ||
         sta->scenes().size() != 1)
         throw std::invalid_argument(
             "Path candidates require one live OpenDB/STA scene");
-    detail::DesignAnalysis analysis(block, sta, options.common);
+    detail::DesignAnalysis analysis(block, sta, options.common, constraints);
     DesignMetrics metrics;
     const auto states = analyze(analysis, metrics);
     PathSearchResult snapshot;
@@ -1706,9 +1713,10 @@ PathSearch::generateCandidates(odb::dbBlock *block, sta::dbSta *sta,
     return result;
 }
 
-PathSearchResult PathSearch::run(
-    odb::dbBlock* block, sta::dbSta* sta,
-    const std::function< void() >& refresh, const PathSearchOptions& options) {
+PathSearchResult PathSearch::run(odb::dbBlock* block, sta::dbSta* sta,
+                                 const std::function<void()>& refresh,
+                                 const PathSearchOptions& options,
+                                 const PathRuntime& runtime) {
     using namespace path_detail;
     PathSearchResult result;
     try {
@@ -1724,34 +1732,38 @@ PathSearchResult PathSearch::run(
         return result;
     }
     if(options.verification == ecc::PathVerification::Final &&
-       (options.placement != ecc::PathPlacement::Final || !options.path_verification_refresh)) {
+       (options.placement != ecc::PathPlacement::Final ||
+        !runtime.verification_refresh)) {
         result.message = "final path verification requires final placement and a full RC callback";
         return result;
     }
     if(options.placement == ecc::PathPlacement::Final)
-        return repairWithFinalPlacement(block, sta, refresh, options);
+        return repairWithFinalPlacement(block, sta, refresh, options, runtime);
 
     const auto start = std::chrono::steady_clock::now();
-    const auto& verify = options.path_verification_refresh
-        ? options.path_verification_refresh : options.path_incremental_verification;
+    const auto& verify = runtime.verification_refresh
+                             ? runtime.verification_refresh
+                             : runtime.incremental_verification;
     bool needs_refresh = false;
-    detail::DesignAnalysis analysis(block, sta, options.common);
+    detail::DesignAnalysis analysis(block, sta, options.common, runtime.constraints);
     const auto update = [&](bool restoring) {
         PhaseTimer timer{result.refresh_ms};
         ++result.refreshes;
         if(restoring)
             ++result.rollback_refreshes;
-        if(restoring && options.path_verification_refresh)
-            options.path_verification_refresh();
+        if(restoring && runtime.verification_refresh)
+            runtime.verification_refresh();
         else
             refresh();
         needs_refresh = false;
     };
     const auto inspect = [&](DesignMetrics& metrics) {
         PhaseTimer timer{result.measure_ms};
-        if(options.incremental_analysis && options.path_analysis_changes &&
-           !options.path_verification_refresh && options.path_incremental_verification && !options.common.prepare) {
-            auto states = analysis.analyzeIncremental(metrics, options.path_analysis_changes());
+        if(options.incremental_analysis && runtime.analysis_changes &&
+           !runtime.verification_refresh && runtime.incremental_verification &&
+           !runtime.prepare) {
+            auto states =
+                analysis.analyzeIncremental(metrics, runtime.analysis_changes());
             const auto& stats = analysis.analysisStatistics();
             result.electrical_full_scans = stats.full_scans;
             result.electrical_net_checks = stats.net_checks;
@@ -1805,10 +1817,11 @@ PathSearchResult PathSearch::run(
 
     // No intermediate DP or full RC: only the inserted tree changes physical
     // dependencies. Final placement still receives authoritative global STA.
-    const bool reuse_rejections = options.reuse_rejections && options.failure_cache &&
+    const bool reuse_rejections =
+        options.reuse_rejections && options.failure_cache &&
         options.strategy == ecc::PathStrategy::Feedback && sta->scenes().size() == 1 &&
-        !options.common.prepare && !options.path_verification_refresh && options.path_incremental_verification &&
-        options.batch_size == 1;
+        !runtime.prepare && !runtime.verification_refresh &&
+        runtime.incremental_verification && options.batch_size == 1;
     std::unordered_map<odb::dbNet*, std::shared_ptr<const path_detail::DependencyFailures::Cone>> dependency_cones;
     const auto dependency_cone = [&](odb::dbNet* net) {
         if(const auto it = dependency_cones.find(net); it != dependency_cones.end()) return it->second;
@@ -2047,8 +2060,9 @@ PathSearchResult PathSearch::run(
                     trial.refresh_ms = result.refresh_ms - refresh_start;
                     trial.measure_ms = result.measure_ms - measure_start;
                     result.trials.push_back(std::move(trial));
-                    if(options.path_trial_observer)
-                        options.path_trial_observer(result.attempted_trials, result.trials.back());
+                    if(runtime.trial_observer)
+                        runtime.trial_observer(result.attempted_trials,
+                                               result.trials.back());
                 };
                 std::vector< odb::dbITerm* > original_drivers;
                 for(const auto index : selected)
@@ -2074,8 +2088,10 @@ PathSearchResult PathSearch::run(
                         const auto allowance = remainingBufferBudget(
                             options.max_inserted_buffers, result.inserted_buffers);
                         if(!completeFanoutTrees(sta, roots, original_drivers,
-                                result.after.total_fanout_violations, allowance,
-                                area_limit - result.after.area, options, trial.buffers, planned_area)) {
+                                                result.after.total_fanout_violations,
+                                                allowance,
+                                                area_limit - result.after.area, options,
+                                                trial.buffers, planned_area, runtime)) {
                             transaction.rollback();
                             needs_refresh = true;
                             ++result.fanout_precheck_rejections;
@@ -2091,9 +2107,9 @@ PathSearchResult PathSearch::run(
                     result.frontier_audits += frontier_audit;
                     result.repeated_trials += repeated;
                     result.deferred_trials += deferred;
-                    if(options.common.prepare) {
+                    if(runtime.prepare) {
                         PhaseTimer timer{result.prepare_ms};
-                        options.common.prepare();
+                        runtime.prepare();
                     }
                     update(false);
                     DesignMetrics after;
@@ -2152,7 +2168,7 @@ PathSearchResult PathSearch::run(
                         objective();
                         trial.rejection_reasons = rejectionReasons(
                             result.after, after, area_limit, result.before, options, trial);
-                        trial.full_verified = bool(options.path_verification_refresh);
+                        trial.full_verified = bool(runtime.verification_refresh);
                     }
                     // A failed batch cannot be attributed to its members.
                     if(options.strategy == ecc::PathStrategy::Feedback && selected.size() == 1)

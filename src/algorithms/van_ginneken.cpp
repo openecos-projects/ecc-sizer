@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 #include "algorithms/van_ginneken.h"
-#include "repair_config.h"
+#include "repair/config.h"
 #include "algorithms/vg_cuda.h"
 
 #include "actions/netlist.h"
@@ -221,14 +221,15 @@ void pruneVg(std::vector<VgCandidate> &options) {
 
 std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr &node, rsz::Resizer *resizer,
                                const sta::Scene *scene, const sta::MinMax *min_max,
-                               const VgOptions &options) {
+                               const VgOptions &options,
+                               const DesignConstraints &constraints) {
     if (!node)
         return {};
     switch (node->type()) {
     case rsz::BufferedNetType::load:
         return {{node, node->cap(), 0}};
     case rsz::BufferedNetType::wire: {
-        auto child = runVg(node->ref(), resizer, scene, min_max, options);
+        auto child = runVg(node->ref(), resizer, scene, min_max, options, constraints);
         std::vector<VgCandidate> result;
         double wire_res = 0, wire_cap = 0;
         node->wireRC(scene, resizer, resizer->getEstimateParasitics(), wire_res,
@@ -261,9 +262,9 @@ std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr &node, rsz::Resizer *re
                 if (!buffer || !buffer->isBuffer())
                     continue;
                 auto *master = resizer->dbNetwork()->staToDb(buffer);
-                if (std::find(options.common.excluded_masters.begin(),
-                              options.common.excluded_masters.end(),
-                              master) != options.common.excluded_masters.end())
+                if (std::find(constraints.excluded_masters.begin(),
+                              constraints.excluded_masters.end(),
+                              master) != constraints.excluded_masters.end())
                     continue;
                 sta::LibertyPort *input = nullptr;
                 sta::LibertyPort *output = nullptr;
@@ -287,8 +288,8 @@ std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr &node, rsz::Resizer *re
         return result;
     }
     case rsz::BufferedNetType::junction: {
-        auto left = runVg(node->ref(), resizer, scene, min_max, options);
-        auto right = runVg(node->ref2(), resizer, scene, min_max, options);
+        auto left = runVg(node->ref(), resizer, scene, min_max, options, constraints);
+        auto right = runVg(node->ref2(), resizer, scene, min_max, options, constraints);
         std::vector<VgCandidate> result;
         result.reserve(left.size() * right.size());
         for (const auto &l : left) {
@@ -355,7 +356,8 @@ int flattenVg(const rsz::BufferedNetPtr &node, VgForest &forest, rsz::Resizer *r
 }
 
 void collectCudaBuffers(VgForest &forest, rsz::Resizer *resizer,
-                        const sta::Scene *scene, const VgOptions &options) {
+                        const sta::Scene *scene, const VgOptions &options,
+                        const DesignConstraints &constraints) {
     sta::LibertyCellSeq cells;
     resizer->getBufferList(cells);
     if (cells.empty()) {
@@ -371,9 +373,9 @@ void collectCudaBuffers(VgForest &forest, rsz::Resizer *resizer,
         if (!cell || !cell->isBuffer())
             continue;
         auto *master = resizer->dbNetwork()->staToDb(cell);
-        if (std::find(options.common.excluded_masters.begin(),
-                      options.common.excluded_masters.end(),
-                      master) != options.common.excluded_masters.end())
+        if (std::find(constraints.excluded_masters.begin(),
+                      constraints.excluded_masters.end(),
+                      master) != constraints.excluded_masters.end())
             continue;
         sta::LibertyPort *input = nullptr, *output = nullptr;
         cell->bufferPorts(input, output);
@@ -419,7 +421,8 @@ rsz::BufferedNetPtr tracebackVg(int id, int selected, const VgForest &forest,
 std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
                                            rsz::Resizer *resizer, sta::dbSta *sta,
                                            const VgOptions &options,
-                                           VgSolutions &report) {
+                                           VgSolutions &report,
+                                           const DesignConstraints &constraints) {
     std::vector<VgSolution> solutions;
     if (!resizer)
         return solutions;
@@ -451,7 +454,7 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
     if (options.backend == ecc::VgBackend::Cuda) {
         try {
             VgForest forest;
-            collectCudaBuffers(forest, resizer, scene, options);
+            collectCudaBuffers(forest, resizer, scene, options, constraints);
             for (const auto &input : inputs) {
                 forest.roots.push_back(flattenVg(input.tree, forest, resizer, scene));
                 forest.resistance.push_back(input.resistance);
@@ -492,8 +495,8 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
     if (!used_cuda) {
         report.backend_used = "cpu";
         for (size_t i = 0; i < inputs.size(); ++i) {
-            auto candidates =
-                runVg(inputs[i].tree, resizer, scene, sta::MinMax::max(), options);
+            auto candidates = runVg(inputs[i].tree, resizer, scene, sta::MinMax::max(),
+                                    options, constraints);
             best[i].net = inputs[i].net;
             if (options.scope == ecc::VgScope::Setup)
                 best[i].score = inputs[i].unchanged_score;
@@ -552,14 +555,10 @@ BufferTreeNode decodeVgNode(const rsz::BufferedNetPtr &node, BufferTreePlan &pla
 
 } // namespace vg_detail
 
-void VgOptions::validate() const {
-    common.validate();
-    VgSettings::validate();
-}
-
 VgSolutions VanGinneken::solve(odb::dbBlock *block, sta::dbSta *sta,
                                std::span<const detail::NetState> states,
-                               rsz::Resizer *resizer, const VgOptions &options) {
+                               rsz::Resizer *resizer, const VgOptions &options,
+                               const DesignConstraints &constraints) {
     using namespace vg_detail;
     options.validate();
     if (!block || !sta || sta->getDbNetwork()->block() != block ||
@@ -578,7 +577,8 @@ VgSolutions VanGinneken::solve(odb::dbBlock *block, sta::dbSta *sta,
     if (states.empty())
         return result;
     if (resizer) {
-        auto solutions = collectVgSolutions(states, resizer, sta, options, result);
+        auto solutions =
+            collectVgSolutions(states, resizer, sta, options, result, constraints);
         for (const auto &solution : solutions) {
             BufferTreePlan plan;
             plan.net = solution.net;
@@ -586,7 +586,7 @@ VgSolutions VanGinneken::solve(odb::dbBlock *block, sta::dbSta *sta,
             result.plans.push_back(std::move(plan));
         }
     } else {
-        detail::DesignAnalysis analysis(block, sta, options.common);
+        detail::DesignAnalysis analysis(block, sta, options.common, constraints);
         for (auto &candidate :
              collectPlans(analysis, states, options, result.nets_collected)) {
             BufferTreePlan plan;
@@ -601,13 +601,13 @@ VgSolutions VanGinneken::solve(odb::dbBlock *block, sta::dbSta *sta,
 
 VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
                           const std::function<void()> &refresh,
-                          const VgOptions &options) {
-    return run(block, sta, refresh, nullptr, options);
+                          const VgOptions &options, const RepairRuntime &runtime) {
+    return run(block, sta, refresh, nullptr, options, runtime);
 }
 
 VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
                           const std::function<void()> &refresh, rsz::Resizer *resizer,
-                          const VgOptions &options) {
+                          const VgOptions &options, const RepairRuntime &runtime) {
     using namespace vg_detail;
     VgResult result;
     std::optional<EcoTransaction> transaction;
@@ -620,7 +620,8 @@ VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
         if (options.scope == VgScope::Setup && !resizer)
             throw std::invalid_argument(
                 "VG setup scope requires the Steiner-tree solver");
-        detail::DesignAnalysis analysis(block, sta, options.common);
+        detail::DesignAnalysis analysis(block, sta, options.common,
+                                        runtime.constraints);
         if (!analysis.hasCells())
             throw std::runtime_error("VG found no usable combinational cells");
         std::vector<NetState> states;
@@ -646,7 +647,8 @@ VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
         VgSolutions solutions;
         {
             Timer timer{&result.solve_ms};
-            solutions = solve(block, sta, states, resizer, options);
+            solutions =
+                solve(block, sta, states, resizer, options, runtime.constraints);
         }
         result.nets_collected = solutions.nets_collected;
         result.backend_used = solutions.backend_used;
@@ -675,7 +677,7 @@ VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
         }
         refresh();
         ++result.refreshes;
-        detail::DesignAnalysis verify(block, sta, options.common);
+        detail::DesignAnalysis verify(block, sta, options.common, runtime.constraints);
         verify.analyze(result.after, true);
         if (!better(result.before, result.after, options)) {
             transaction->rollback();

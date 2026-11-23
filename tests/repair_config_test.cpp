@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_config.h"
+#include "repair/config.h"
 
 #include <filesystem>
 #include <fstream>
@@ -180,8 +180,6 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_FLOAT_EQ(power.slack_margin, 2e-11f);
   EXPECT_EQ(power.common.vt_suffixes.size(), 3);
   config.drv.max_passes = 2;
-  unsigned prepares = 0;
-  config.drv.prepare = [&]() { ++prepares; };
   auto setup = config.setupOptions();
   const auto path = config.pathOptions();
   EXPECT_EQ(setup.common.max_fanout, 12);
@@ -214,8 +212,6 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_FALSE(config.vg.require_drv_reduction);
   EXPECT_EQ(config.gobi.max_buffers, 9u);
   EXPECT_EQ(config.gobi.max_nets, 3u);
-  setup.common.prepare();
-  EXPECT_EQ(prepares, 1);
 }
 TEST(RepairConfig, SectionsUnitsAndRoundTrip)
 {
@@ -231,7 +227,7 @@ TEST(RepairConfig, SectionsUnitsAndRoundTrip)
   config.set("vg.max_buffers", "3");
   config.set("vg.max_group_loads", "2");
   EXPECT_EQ(config.power.objective, ecc::PowerObjective::Total);
-  EXPECT_EQ(config.drv.vt_suffixes.size(), 3);
+  EXPECT_EQ(config.common.vt_suffixes.size(), 3);
   auto text = serialized(config);
   ecc::RepairConfig restored;
   std::istringstream saved(text);
@@ -382,7 +378,7 @@ TEST(RepairConfig, ActionsAreIndependentOfInsertionLimits) {
   EXPECT_TRUE(config.setupOptions().common.actions.buffer);
   EXPECT_EQ(config.setupOptions().max_inserted_buffers, 0u);
   config.set("common.actions", "none");
-  EXPECT_EQ(config.drv.actions, (ecc::RepairActions{false, false, false}));
+  EXPECT_EQ(config.common.actions, (ecc::RepairActions{false, false, false}));
   for (const auto* value : {"resize,resize", "buffer,", "", "bogus", "buffer,,resize"})
     EXPECT_THROW(config.set("common.actions", value), std::invalid_argument);
 }
@@ -395,4 +391,34 @@ TEST(BufferPlanBudget, ZeroAllowsNoInsertionAndExhaustionCannotUnderflow) {
   EXPECT_EQ(ecc::remainingBufferBudget(3, 4), 0u);
   const std::vector<std::size_t> counts{0, 1, 2};
   EXPECT_TRUE(ecc::selectWholeBufferPlans(counts, 0).empty());
+}
+
+TEST(RepairConfig, CommonPolicyPropagatesWithoutCouplingStageSettings) {
+  ecc::RepairConfig config;
+  config.set("common.max_fanout", "7");
+  config.set("common.actions", "resize");
+  config.set("drv.max_passes", "2");
+  config.set("setup.max_passes", "5");
+  const auto text = serialized(config);
+  const auto drv = config.drvOptions();
+  const auto setup = config.setupOptions();
+  const auto path = config.pathOptions();
+  const auto power = config.powerOptions();
+  const auto vg = config.vgOptions();
+  const auto gobi = config.gobiOptions();
+  for (const auto *common : {&drv.common, &setup.common, &path.common, &power.common,
+                             &vg.common, &gobi.common}) {
+    EXPECT_EQ(common->max_fanout, 7u);
+    EXPECT_EQ(common->actions, (ecc::RepairActions{true, false, false}));
+  }
+  EXPECT_EQ(drv.max_passes, 2u);
+  EXPECT_EQ(setup.max_passes, 5u);
+  auto trial = config.setupOptions();
+  trial.common.actions.buffer = true;
+  trial.max_passes = 1;
+  EXPECT_EQ(serialized(config), text);
+  config.set("common.max_fanout", "9");
+  EXPECT_EQ(config.drvOptions().common.max_fanout, 9u);
+  EXPECT_EQ(config.setupOptions().common.max_fanout, 9u);
+  EXPECT_EQ(config.setupOptions().max_passes, 5u);
 }

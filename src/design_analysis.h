@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-#include "repair_config.h"
+#include "repair/config.h"
+#include "repair/runtime.h"
 #include "odb/db.h"
 #include <map>
 #include <optional>
@@ -97,7 +98,9 @@ double area(odb::dbMaster *master);
 class DesignAnalysis {
   public:
     DesignAnalysis(odb::dbBlock *block, sta::dbSta *sta,
-                   const RepairCommonOptions &options);
+                   const RepairCommonOptions &options,
+                   const DesignConstraints &constraints = {});
+    bool resizeExcluded(odb::dbInst *inst) const;
 
     const std::vector<CellModel> &cellChoices() const { return cells_; }
     bool hasCells() const { return !cells_.empty(); }
@@ -212,6 +215,7 @@ class DesignAnalysis {
     sta::dbSta *sta_;
     sta::dbNetwork *network_;
     const RepairCommonOptions &opts_;
+    DesignConstraints constraints_;
     std::unordered_set<odb::dbInst *> excluded_;
     std::vector<CellModel> buffers_;
     std::vector<CellModel> cells_;

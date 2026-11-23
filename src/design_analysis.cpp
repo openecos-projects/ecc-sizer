@@ -46,12 +46,21 @@ float DesignAnalysis::DelayPrediction::operator()(float in_slew) const {
     return worst;
 }
 
+bool DesignAnalysis::resizeExcluded(odb::dbInst *inst) const {
+    return excluded_.contains(inst) ||
+           std::find(constraints_.excluded_resize_instances.begin(),
+                     constraints_.excluded_resize_instances.end(),
+                     inst) != constraints_.excluded_resize_instances.end();
+}
+
 DesignAnalysis::DesignAnalysis(odb::dbBlock *block, sta::dbSta *sta,
-                               const RepairCommonOptions &options)
+                               const RepairCommonOptions &options,
+                               const DesignConstraints &constraints)
     : block_(block), sta_(sta), network_(sta->getDbNetwork()), opts_(options),
-      excluded_(options.excluded_instances.begin(), options.excluded_instances.end()) {
-    std::unordered_set<odb::dbMaster *> excluded_masters(opts_.excluded_masters.begin(),
-                                                         opts_.excluded_masters.end());
+      constraints_(constraints), excluded_(constraints.excluded_instances.begin(),
+                                           constraints.excluded_instances.end()) {
+    std::unordered_set<odb::dbMaster *> excluded_masters(
+        constraints_.excluded_masters.begin(), constraints_.excluded_masters.end());
     for (auto *lib : block->getDataBase()->getLibs()) {
         for (auto *master : lib->getMasters()) {
             if (!master->isFrozen() || !master->isCore() ||

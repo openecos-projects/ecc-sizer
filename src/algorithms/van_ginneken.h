@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "repair_config.h"
+#include "repair/config.h"
 #include "design_analysis.h"
 #include "actions/netlist.h"
 #include <span>
@@ -28,12 +28,6 @@ namespace ecc {
 
 // One-shot CPU/CUDA Van Ginneken repair over placement Steiner trees.
 // Both solvers share the same OpenDB apply/rollback path.
-struct VgOptions : VgSettings {
-    RepairCommonOptions common;
-
-    void validate() const;
-};
-
 struct VgSolutions {
     std::vector<BufferTreePlan> plans;
     unsigned nets_collected = 0;
@@ -72,14 +66,17 @@ class VanGinneken {
     // Throws on invalid inputs/solver failures. Plans expire after design edits.
     static VgSolutions solve(odb::dbBlock *block, sta::dbSta *sta,
                              std::span<const detail::NetState> states,
-                             rsz::Resizer *resizer, const VgOptions &options = {});
+                             rsz::Resizer *resizer, const VgOptions &options = {},
+                             const DesignConstraints &constraints = {});
 
     static VgResult run(odb::dbBlock *block, sta::dbSta *sta,
                         const std::function<void()> &refresh,
-                        const VgOptions &options = {});
+                        const VgOptions &options = {},
+                        const RepairRuntime &runtime = {});
     static VgResult run(odb::dbBlock *block, sta::dbSta *sta,
                         const std::function<void()> &refresh, rsz::Resizer *resizer,
-                        const VgOptions &options = {});
+                        const VgOptions &options = {},
+                        const RepairRuntime &runtime = {});
 };
 
 } // namespace ecc

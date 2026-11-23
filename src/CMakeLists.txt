@@ -15,9 +15,9 @@ include_directories(${OPENROAD_HOME}/sta ${OPENROAD_HOME}/sta/include/sta
 # Repair algorithms depend on OpenDB/STA and edit primitives, not cell sizing.
 set(SOURCES
     actions/netlist.cpp actions/placement.cpp special_net.cpp lef_layer_rc.cpp
-    repair_config.cpp design_analysis.cpp algorithms/cell_candidates.cpp
-    algorithms/repair_drv.cpp algorithms/repair_setup.cpp
-    algorithms/path_search.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
+    repair/config.cpp design_analysis.cpp algorithms/cell_candidates.cpp
+    repair/drv.cpp repair/setup.cpp
+    repair/path_search.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
     algorithms/gobi.cpp algorithms/gobi_cuda.cpp)
 
 add_library(sizer_placement STATIC actions/legalize_core.cpp
@@ -54,7 +54,7 @@ else()
 endif()
 
 add_library(sizer_algorithms STATIC ${SOURCES})
-add_executable(Sizer application.cpp design_io.cpp)
+add_executable(Sizer application.cpp design_session.cpp)
 target_include_directories(sizer_algorithms PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sizer_algorithms PUBLIC openroad sizer_placement)
 target_link_libraries(Sizer sizer_algorithms)
@@ -89,7 +89,7 @@ if(BUILD_TESTING)
 
     add_executable(ecc_sizer_repair_config_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_config_test.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair/config.cpp)
     target_include_directories(ecc_sizer_repair_config_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(ecc_sizer_repair_config_test PRIVATE GTest::gtest_main)
     add_test(NAME ecc_sizer_repair_config COMMAND ecc_sizer_repair_config_test)
@@ -179,18 +179,18 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/actions/netlist.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/actions/placement.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/repair_drv.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair/drv.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/design_analysis.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/cell_candidates.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair/config.cpp
 
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/van_ginneken.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/vg_cuda.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi_cuda.cpp
 
-        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/path_search.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/repair_setup.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair/path_search.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair/setup.cpp
 
     )
     target_include_directories(ecc_sizer_buffer_inserter_sta_test PRIVATE

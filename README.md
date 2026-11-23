@@ -59,6 +59,13 @@ Stages can be ordered independently: `--flow path,drv,setup` first applies Path,
 then repairs electrical violations and setup timing. Every stage sees the
 preceding committed design. `native` and `design` are no longer stage names.
 
+VG and GOBI run only when explicitly listed in `--flow`; setup does not invoke
+Path, VG or GOBI. For example, `--flow setup,vg` runs setup before VG, while
+`--flow vg,drv,setup` runs VG first. `--set vg.scope=setup` changes VG's eligible
+nets and scoring; it does not embed VG in the setup stage. GOBI currently
+collects electrically violating nets. Both standalone stages apply whole-tree
+plans and verify timing/DRV acceptance.
+
 | Stage | Behavior |
 | --- | --- |
 | drv | Electrical repair using resize/VT, buffer insertion and load downsizing |
@@ -156,26 +163,36 @@ flow instead of allowing acceptance with stale timing.
 ## Source organization
 
 - `application.cpp`: CLI, stage ordering, shared repair services and output.
-- `design_io.*`: OpenROAD input/output, checked Tcl calls, RC defaults and
+- `design_session.*`: OpenROAD session lifetime, input/output, checked Tcl calls, RC defaults and
   supply connectivity. There is no additional LEF/Liberty/DEF/SDC parser here.
+  `special_net.*` protects external PAD nets and extends wildcard supply connections
+  after insertion; `lef_layer_rc.*` converts already-loaded layer properties and
+  fills missing RC during initialization.
 - `actions/netlist.*`: buffer insertion, master replacement and scoped ECO
   transactions. Child commits merge into their parent; uncommitted edits roll
   back on scope exit. Algorithms explicitly control timing refresh.
 - `actions/placement.*`: OpenDB placement adaptation, protected cells and
   legalization. `actions/legalize_core.*` owns standalone greedy/Abacus geometry.
-- `algorithms/repair_drv.*`: DRV and ORD electrical strategies, standalone fanout repair,
+- `repair/drv.*`: DRV and ORD electrical strategies, standalone fanout repair,
   and power recovery. DRV owns the replacement-versus-buffer fallback policy.
-- `algorithms/repair_setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
+- `repair/setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
   remain independent strategies, not implicit calls inside setup.
-- `algorithms/path_search.*`, `van_ginneken.*`, `gobi.*`: path scheduling and
-  buffer-tree search. CUDA implementations live beside their algorithms.
+- `repair/path_search.*` and `path_feedback.h`: path scheduling, candidate ranking,
+  trial/final placement, feedback and acceptance.
+- `algorithms/van_ginneken.*`, `gobi.*`: buffer-tree solvers with thin standalone
+  stage runners. CUDA implementations live beside their algorithms.
 - `design_analysis.*`: shared design metrics, OpenDB/STA queries, incremental
   analysis and model evaluation; no dependency on a repair goal or edit module.
 - `algorithms/cell_candidates.*`: shared resize/VT and load-downsize candidates.
 - `parasitics.h`: placement RC estimation shared by the application and algorithms.
-- `repair_config.*`: typed policies, optional insertion limits, complete-plan
+- `repair/config.*`: typed policies, optional insertion limits, complete-plan
   budget selection and a single registry for parsing and serialization.
-  The small former `repair_buffer_budget` and `repair_analysis` headers are merged.
+  `RepairConfig::common` is independent of DRV and all stage settings.
+- `repair/runtime.h`: per-run callbacks and design-object exclusions, passed
+  separately from configuration. Solvers receive only `DesignConstraints`.
+  Path callbacks live in `PathRuntime`; the required refresh callback remains an
+  explicit argument of `repair`/`run`. Copying or loading config carries no hooks
+  or OpenDB object pointers.
 
 The placement geometry builds as `sizer_placement`; actions and algorithms
 build as `sizer_algorithms`, directly linked by the application.
@@ -202,8 +219,8 @@ shared repair implementation as follows:
 
 | Former responsibility | Current implementation |
 | --- | --- |
-| Capacitance/slew repair, drive/VT moves | `repair_drv`, shared cell candidates |
-| Negative-slack cell search, side-load relief | `repair_setup` and STA validation |
+| Capacitance/slew repair, drive/VT moves | `repair/drv`, shared cell candidates |
+| Negative-slack cell search, side-load relief | `repair/setup` and STA validation |
 | Leakage reduction followed by timing recovery | Compound trials in `power` |
 | Best-design snapshots and undo | Scoped OpenDB ECO transactions and strict acceptance |
 | DreamPlace/Abacus placement | Shared placement adapter and `legalize_core` |

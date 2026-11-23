@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "algorithms/repair_setup.h"
+#include "repair/setup.h"
 #include "design_analysis.h"
 #include "algorithms/cell_candidates.h"
 #include "actions/netlist.h"
@@ -9,7 +9,7 @@
 #include "odb/db.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
-#include "algorithms/path_search.h"
+#include "repair/path_search.h"
 
 #include <chrono>
 #include <algorithm>
@@ -235,7 +235,8 @@ static bool acceptableSetup(const SetupRepairMetrics &before,
 
 SetupRepairResult SetupRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                                         const std::function<void()> &refresh,
-                                        const SetupRepairOptions &options) {
+                                        const SetupRepairOptions &options,
+                                        const RepairRuntime &runtime) {
     SetupRepairResult result;
     try {
         options.validate();
@@ -248,7 +249,7 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
         result.message = "invalid setup analysis (one STA scene required)";
         return result;
     }
-    DesignAnalysis analysis(block, sta, options.common);
+    DesignAnalysis analysis(block, sta, options.common, runtime.constraints);
     bool needs_refresh = false;
     const auto update = [&](bool restoring) {
         SetupPhaseTimer timer{result.refresh_ms};
@@ -355,9 +356,9 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                     continue;
                 }
                 ++result.attempted_batches;
-                if (options.common.prepare) {
+                if (runtime.prepare) {
                     SetupPhaseTimer timer{result.prepare_ms};
-                    options.common.prepare();
+                    runtime.prepare();
                 }
                 update(false);
                 SetupRepairMetrics after;

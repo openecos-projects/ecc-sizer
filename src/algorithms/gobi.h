@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "repair_config.h"
+#include "repair/config.h"
 #include "design_analysis.h"
 #include "actions/netlist.h"
 #include <span>
@@ -25,12 +25,6 @@ namespace ecc {
 // One-shot OpenDB adapter for the migrated OpenROAD GOBI CUDA kernels.  The
 // graph is collected from the current placement Steiner trees, solved as one
 // CUDA forest, then applied and checked as one ECO.
-struct GobiOptions : GobiSettings {
-    RepairCommonOptions common;
-
-    void validate() const;
-};
-
 struct GobiSolutions {
     std::vector<BufferTreePlan> plans;
     unsigned nets_collected = 0;
@@ -62,11 +56,13 @@ class Gobi {
     // Throws on invalid inputs/solver failures. Plans expire after design edits.
     static GobiSolutions solve(odb::dbBlock *block, sta::dbSta *sta,
                                std::span<const detail::NetState> states,
-                               rsz::Resizer *resizer, const GobiOptions &options = {});
+                               rsz::Resizer *resizer, const GobiOptions &options = {},
+                               const DesignConstraints &constraints = {});
 
     static GobiResult run(odb::dbBlock *block, sta::dbSta *sta,
                           const std::function<void()> &refresh, rsz::Resizer *resizer,
-                          const GobiOptions &options = {});
+                          const GobiOptions &options = {},
+                          const RepairRuntime &runtime = {});
 };
 
 } // namespace ecc

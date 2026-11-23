@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "algorithms/repair_drv.h"
+#include "repair/drv.h"
 #include "odb/db.h"
 #include "utl/Logger.h"
 

@@ -37,7 +37,7 @@ struct SetupRepairResult {
 };
 
 // Setup-only native strategy. Shares OpenDB/STA models with design repair.
-// Input must have current RC/STA; common.prepare legalizes each candidate ECO.
+// Input must have current RC/STA; runtime.prepare legalizes each candidate ECO.
 // Failed trials restore topology and placement immediately. With deferred
 // refresh, STA is refreshed after the next edit or before returning; baseline
 // metrics/plans are reused only while the committed design stays unchanged.
@@ -46,6 +46,7 @@ class SetupRepairer {
   public:
     static SetupRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
                                     const std::function<void()> &refresh,
-                                    const SetupRepairOptions &options = {});
+                                    const SetupRepairOptions &options = {},
+                                    const RepairRuntime &runtime = {});
 };
 } // namespace ecc
