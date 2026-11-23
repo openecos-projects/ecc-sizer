@@ -161,7 +161,21 @@ set_output_delay 0.49 -clock clk [get_ports out0]
                 else:
                     self.assertNotIn("Path trial", output)
                     self.assertNotIn("Path trial", log.read_text())
-                # Short searches have only stage summaries at info level.
+                if level != "off":
+                    self.assertEqual(output.count("Path search started:"), 1)
+                    self.assertEqual(output.count("Path search finished:"), 1)
+                    self.assertIn("Path commit:", output)
+                    self.assertLess(output.index("Path search started:"),
+                                    output.index("Path commit:"))
+                    self.assertLess(output.index("Path commit:"),
+                                    output.index("Path search finished:"))
+                else:
+                    self.assertNotIn("Path search", output)
+                    self.assertNotIn("Path commit:", output)
+                if level == "debug":
+                    self.assertIn("Path candidates: wave=", output)
+                else:
+                    self.assertNotIn("Path candidates:", output)
                 self.assertNotIn("Path progress:", output)
 
     def test_fanout_and_def_input(self):

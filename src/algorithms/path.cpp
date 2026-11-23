@@ -387,8 +387,7 @@ CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis
                                                 sta::dbSta* sta,
                                                 const std::vector<NetState>& states,
                                                 const PathSearchOptions& options,
-                                                bool recovery,
-                                                const std::function<void()>& progress) {
+                                                bool recovery) {
     CandidateCollection collection;
     auto& result = collection.candidates;
     auto* network = sta->getDbNetwork();
@@ -430,9 +429,6 @@ CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis
         paths.push_back(std::move(path));
     }
     for (const auto& path : paths) {
-        if (progress) {
-            progress();
-        }
         if (path.pins.empty()) {
             continue;
         }
@@ -662,8 +658,7 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
                                               const std::vector<NetState>& states,
                                               const PathSearchOptions& options,
                                               const DesignMetrics& metrics,
-                                              PathPolicy* feedback,
-                                              const std::function<void()>& progress) {
+                                              PathPolicy* feedback) {
     analysis.beginTimingPredictionEpoch();
     struct PredictionEpoch {
         detail::DesignAnalysis& analysis;
@@ -815,9 +810,6 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
         }
     }
     for (const auto& state : states) {
-        if (progress) {
-            progress();
-        }
         const auto use_it = uses.find(state.net);
         if (!state.driver || use_it == uses.end()) {
             continue;
@@ -1251,16 +1243,14 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
                                       const std::vector<NetState>& states,
                                       const PathSearchOptions& options,
                                       const DesignMetrics& metrics,
-                                      PathPolicy* feedback,
-                                      const std::function<void()>& progress) {
+                                      PathPolicy* feedback) {
     const bool gain = options.strategy != ecc::PathStrategy::Sequential;
-    auto result = gain ? collectPathGainCandidates(analysis, sta, states, options,
-                                                   metrics, feedback, progress)
-                       : collectSequentialCandidates(analysis, sta, states, options,
-                                                     false, progress);
+    auto result =
+        gain ? collectPathGainCandidates(analysis, sta, states, options, metrics,
+                                         feedback)
+             : collectSequentialCandidates(analysis, sta, states, options, false);
     if (!gain && options.recovery) {
-        auto async =
-            collectSequentialCandidates(analysis, sta, states, options, true, progress);
+        auto async = collectSequentialCandidates(analysis, sta, states, options, true);
         result.duplicate_candidates += async.duplicate_candidates;
         result.candidates.insert(result.candidates.end(),
                                  std::make_move_iterator(async.candidates.begin()),
@@ -1403,10 +1393,9 @@ bool PathPolicy::reuseRejections() const {
 CandidateCollection PathPolicy::collect(detail::DesignAnalysis& analysis,
                                         sta::dbSta* sta,
                                         const std::vector<detail::NetState>& states,
-                                        const DesignMetrics& metrics,
-                                        const std::function<void()>& progress) {
+                                        const DesignMetrics& metrics) {
     auto collection = collectCandidates(analysis, sta, states, options, metrics,
-                                        usesFeedback() ? this : nullptr, progress);
+                                        usesFeedback() ? this : nullptr);
     if (!usesFeedback()) {
         for (auto& candidate : collection.candidates) {
             rank(candidate);

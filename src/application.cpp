@@ -283,6 +283,42 @@ template <class Result> void report(const std::string& stage, const Result& resu
     spdlog::info("{}: {}", stage, result.message);
 }
 
+static void logPathEvent(const PathEvent& event) {
+    using Kind = PathEvent::Kind;
+    switch (event.kind) {
+    case Kind::SearchStarted:
+        spdlog::info("Path search started: WNS={:.6f}ns TNS={:.6f}ns provisional={}",
+                     event.setup_wns * 1e9, event.setup_tns * 1e9,
+                     event.placement_provisional);
+        break;
+    case Kind::CandidatesCollected:
+        spdlog::debug("Path candidates: wave={} total={}", event.wave_candidates,
+                      event.candidates);
+        break;
+    case Kind::BatchBackoff:
+        spdlog::debug("Path batch rejected: retrying candidates individually");
+        break;
+    case Kind::SearchFinished:
+        spdlog::info("Path search finished: trials={} rejected={} buffers={} "
+                     "WNS={:.6f}ns TNS={:.6f}ns provisional={}",
+                     event.attempted_trials, event.rejected_trials,
+                     event.inserted_buffers, event.setup_wns * 1e9,
+                     event.setup_tns * 1e9, event.placement_provisional);
+        break;
+    case Kind::FinalPlacementStarted:
+        spdlog::info("Path final placement started: provisional_buffers={}",
+                     event.inserted_buffers);
+        break;
+    case Kind::FinalPlacementAccepted:
+    case Kind::FinalPlacementRolledBack:
+        spdlog::info(
+            "Path final placement {}: buffers={} WNS={:.6f}ns TNS={:.6f}ns",
+            event.kind == Kind::FinalPlacementAccepted ? "accepted" : "rolled back",
+            event.inserted_buffers, event.setup_wns * 1e9, event.setup_tns * 1e9);
+        break;
+    }
+}
+
 // Application owns the session and stage services. The callbacks capture this
 // stable object and are consumed synchronously by repair/algorithm calls.
 class ApplicationFlow {
@@ -370,6 +406,13 @@ class ApplicationFlow {
         PathRuntime path_runtime;
         static_cast<RepairRuntime&>(path_runtime) = runtime;
         path_runtime.trial_observer = [](unsigned index, const PathBufferTrial& trial) {
+            if (trial.rejection_reasons.empty()) {
+                spdlog::info("Path commit: trial={} buffers=+{} WNS={:.6f}ns "
+                             "TNS={:.6f}ns provisional={}",
+                             index, trial.buffers, double(trial.after.setup_wns) * 1e9,
+                             double(trial.after.setup_tns) * 1e9,
+                             trial.placement_provisional);
+            }
             if (!spdlog::should_log(spdlog::level::debug)) {
                 return;
             }
@@ -388,28 +431,7 @@ class ApplicationFlow {
                 (trial.objective_tns_after - trial.objective_tns_before) * 1e9,
                 trial.prepare_ms, trial.refresh_ms, trial.measure_ms);
         };
-        const auto start = std::chrono::steady_clock::now();
-        auto last_report = start;
-        path_runtime.progress_observer = [start,
-                                          last_report](const PathProgress& p) mutable {
-            if (!spdlog::should_log(spdlog::level::info)) {
-                return;
-            }
-            const auto now = std::chrono::steady_clock::now();
-            // One line at most every 30 seconds, including during candidate
-            // generation. No timer thread or extra STA queries for logging.
-            if (now - last_report < std::chrono::seconds(30)) {
-                return;
-            }
-            last_report = now;
-            spdlog::info("Path progress: {:.0f}s phase={} trials={} rejected={} "
-                         "buffers={} candidates={} WNS={:.6f}ns TNS={:.6f}ns "
-                         "provisional={}",
-                         std::chrono::duration<double>(now - start).count(), p.phase,
-                         p.attempted_trials, p.rejected_trials, p.inserted_buffers,
-                         p.candidates, p.setup_wns * 1e9, p.setup_tns * 1e9,
-                         p.placement_provisional);
-        };
+        path_runtime.event_observer = logPathEvent;
         if (path.incremental_parasitics) {
             PlacementParasiticUpdater incremental(
                 block, sta, session.design().getResizer()->getEstimateParasitics());

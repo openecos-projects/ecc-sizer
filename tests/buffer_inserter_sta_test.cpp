@@ -603,17 +603,24 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRunsOnceAndReportsLegalFullSta)
     EXPECT_EQ(prepared, 0u);
     ++observed;
   };
-  unsigned progress_reports = 0;
-  runtime_.progress_observer = [&](const ecc::PathProgress& snapshot) {
-    EXPECT_TRUE(snapshot.placement_provisional);
-    ++progress_reports;
+  std::vector<ecc::PathEvent> events;
+  runtime_.event_observer = [&](const ecc::PathEvent& event) {
+    events.push_back(event);
+    EXPECT_EQ(event.placement_provisional,
+              event.kind != ecc::PathEvent::Kind::FinalPlacementAccepted);
   };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
   runtime_.verification_refresh = [&]() { refreshRepairTiming(); };
   const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
-  EXPECT_GT(progress_reports, 0u);
+  ASSERT_GE(events.size(), 4u);
+  EXPECT_EQ(events.front().kind, ecc::PathEvent::Kind::SearchStarted);
+  EXPECT_EQ(events[events.size() - 3].kind, ecc::PathEvent::Kind::SearchFinished);
+  EXPECT_EQ(events[events.size() - 2].kind, ecc::PathEvent::Kind::FinalPlacementStarted);
+  EXPECT_EQ(events.back().kind, ecc::PathEvent::Kind::FinalPlacementAccepted);
+  EXPECT_EQ(events.back().inserted_buffers, result.inserted_buffers);
+  EXPECT_EQ(events.back().setup_wns, result.after.setup_wns);
   EXPECT_GT(result.final_placement.provisional_buffers, 0u);
   EXPECT_GT(result.attempted_trials, 1u);
   EXPECT_EQ(prepared, 1u);
@@ -663,10 +670,20 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRestoresAllProvisionalEditsAndMo
       if(throw_after_move)
         throw std::runtime_error("injected final placement failure");
     };
+    std::vector<ecc::PathEvent> events;
+    runtime_.event_observer = [&](const ecc::PathEvent& event) {
+      events.push_back(event);
+    };
     ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
     const auto result = ecc::PathRepairer::run(
         block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
     EXPECT_EQ(result.ok, !throw_after_move) << result.message;
+    ASSERT_FALSE(events.empty());
+    EXPECT_EQ(events.back().kind, ecc::PathEvent::Kind::FinalPlacementRolledBack);
+    EXPECT_FALSE(events.back().placement_provisional);
+    EXPECT_EQ(events.back().inserted_buffers, 0u);
+    EXPECT_EQ(events.back().setup_wns, result.after.setup_wns);
+    EXPECT_EQ(events.back().setup_tns, result.after.setup_tns);
     ASSERT_TRUE(result.final_placement.attempted);
     EXPECT_GT(result.final_placement.provisional_buffers, 0u);
     EXPECT_TRUE(result.final_placement.rolled_back);
@@ -1573,21 +1590,21 @@ TEST_F(BufferInserterStaTest, PathBufferOnlyRepairUsesVerifiedPathEdit)
   options.max_area_growth = 0.5;
   options.common.actions.resize = false;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  std::vector<ecc::PathProgress> progress;
-  runtime_.progress_observer = [&](const ecc::PathProgress& snapshot) {
+  std::vector<ecc::PathEvent> events;
+  runtime_.event_observer = [&](const ecc::PathEvent& snapshot) {
     EXPECT_FALSE(snapshot.placement_provisional);
-    progress.push_back(snapshot);
+    events.push_back(snapshot);
   };
   const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
-  ASSERT_FALSE(progress.empty());
-  EXPECT_EQ(progress.front().phase, "candidates");
-  EXPECT_EQ(progress.back().phase, "search complete");
-  EXPECT_EQ(progress.back().attempted_trials, result.attempted_trials);
-  EXPECT_EQ(progress.back().inserted_buffers, result.inserted_buffers);
-  EXPECT_EQ(progress.back().setup_wns, result.after.setup_wns);
-  EXPECT_EQ(progress.back().setup_tns, result.after.setup_tns);
+  ASSERT_FALSE(events.empty());
+  EXPECT_EQ(events.front().kind, ecc::PathEvent::Kind::SearchStarted);
+  EXPECT_EQ(events.back().kind, ecc::PathEvent::Kind::SearchFinished);
+  EXPECT_EQ(events.back().attempted_trials, result.attempted_trials);
+  EXPECT_EQ(events.back().inserted_buffers, result.inserted_buffers);
+  EXPECT_EQ(events.back().setup_wns, result.after.setup_wns);
+  EXPECT_EQ(events.back().setup_tns, result.after.setup_tns);
   EXPECT_GT(result.attempted_trials, 0u);
   EXPECT_GT(result.accepted_trials, 0u);
   EXPECT_EQ(result.inserted_buffers, result.accepted_trials);

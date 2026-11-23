@@ -298,13 +298,14 @@ PathObservation observation(const PathBufferTrial& trial) {
             trial.frontier_audit};
 }
 
-void reportProgress(const PathRuntime& runtime, std::string_view phase,
-                    const PathRepairResult& result, bool provisional = false) {
-    if (runtime.progress_observer) {
-        runtime.progress_observer({phase, result.attempted_trials,
-                                   result.rejected_trials, result.inserted_buffers,
-                                   result.candidate_count, result.after.setup_wns,
-                                   result.after.setup_tns, provisional});
+void reportEvent(const PathRuntime& runtime, PathEvent::Kind kind,
+                 const PathRepairResult& result, bool provisional = false,
+                 unsigned wave_candidates = 0) {
+    if (runtime.event_observer) {
+        runtime.event_observer({kind, result.attempted_trials, result.rejected_trials,
+                                result.inserted_buffers, result.candidate_count,
+                                wave_candidates, result.after.setup_wns,
+                                result.after.setup_tns, provisional});
     }
 }
 
@@ -347,6 +348,7 @@ PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
         PhaseTimer timer{result.measure_ms};
         analyze(analysis, result.after);
         result.converged = result.after.setup_wns >= 0;
+        reportEvent(runtime, PathEvent::Kind::FinalPlacementRolledBack, result);
     };
     try {
         parent.emplace(block);
@@ -370,11 +372,11 @@ PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
                 runtime.trial_observer(index, provisional);
             }
         };
-        search_runtime.progress_observer = [&](const PathProgress& progress) {
-            if (runtime.progress_observer) {
-                auto provisional = progress;
+        search_runtime.event_observer = [&](const PathEvent& event) {
+            if (runtime.event_observer) {
+                auto provisional = event;
                 provisional.placement_provisional = true;
-                runtime.progress_observer(provisional);
+                runtime.event_observer(provisional);
             }
         };
         result = PathRepairer::run(block, sta, refresh, search_options, search_runtime);
@@ -397,7 +399,7 @@ PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
             return result;
         }
         result.final_placement.attempted = true;
-        reportProgress(runtime, "final placement", result, true);
+        reportEvent(runtime, PathEvent::Kind::FinalPlacementStarted, result, true);
         PhaseTimer finalize_timer{result.final_placement.elapsed_ms};
         final.emplace(block);
         {
@@ -409,7 +411,6 @@ PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
             PhaseTimer timer{result.measure_ms};
             analyze(analysis, result.final_placement.after);
         }
-        reportProgress(runtime, "final verification", result, true);
         auto acceptance = options;
         // Final acceptance compares the legal result with the legal phase
         // input, even if trial ranking used sampled endpoint objectives.
@@ -428,6 +429,7 @@ PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
             result.final_placement.accepted = true;
             result.converged = result.after.setup_wns >= 0;
             result.message += "; final placement and global STA accepted";
+            reportEvent(runtime, PathEvent::Kind::FinalPlacementAccepted, result);
         } else {
             restore();
             result.message = "final path placement rejected; restored phase input";
@@ -522,9 +524,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     const auto trials_available = [&]() {
         return options.max_trials == 0 || result.attempted_trials < options.max_trials;
     };
-    const auto progress = [&](std::string_view phase) {
-        reportProgress(runtime, phase, result);
-    };
+    reportEvent(runtime, PathEvent::Kind::SearchStarted, result);
     PathPolicy policy{options, result};
     path_detail::DependencyFailures dependency_failures;
     path_detail::EndpointFailures endpoint_failures;
@@ -616,15 +616,15 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                remainingBufferBudget(options.max_inserted_buffers,
                                      result.inserted_buffers) > 0) {
             CandidateCollection collection;
-            progress("candidates");
             {
                 PhaseTimer timer{result.candidate_ms};
-                collection = policy.collect(analysis, sta, states, result.after,
-                                            [&]() { progress("candidates"); });
+                collection = policy.collect(analysis, sta, states, result.after);
                 policy.screen(collection.candidates);
             }
             result.candidate_count += collection.candidates.size();
             result.duplicate_candidates += collection.duplicate_candidates;
+            reportEvent(runtime, PathEvent::Kind::CandidatesCollected, result, false,
+                        collection.candidates.size());
             auto plans = std::move(collection.candidates);
             if (plans.empty()) {
                 break;
@@ -633,7 +633,6 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
             PathSchedule schedule(std::move(plans), options, result, policy);
             const auto& pending = schedule.candidates();
             while (schedule.hasNext() && budget_available() && trials_available()) {
-                progress("search");
                 if (!schedule.prepareNext()) {
                     continue;
                 }
@@ -733,7 +732,6 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                         runtime.trial_observer(result.attempted_trials,
                                                result.trials.back());
                     }
-                    progress("search");
                 };
                 std::vector<odb::dbITerm*> original_drivers;
                 for (const auto index : selected) {
@@ -773,6 +771,10 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                             if (selected.size() == 1) {
                                 schedule.fanoutRejected(pending[selected.front()]);
                             }
+                            if (selected.size() > 1) {
+                                reportEvent(runtime, PathEvent::Kind::BatchBackoff,
+                                            result);
+                            }
                             schedule.backoff();
                             continue;
                         }
@@ -785,11 +787,9 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     result.repeated_trials += repeated;
                     result.deferred_trials += deferred;
                     if (runtime.prepare) {
-                        progress("trial placement");
                         PhaseTimer timer{result.prepare_ms};
                         runtime.prepare();
                     }
-                    progress("trial verification");
                     update(false);
                     DesignMetrics after;
                     std::vector<NetState> next_states;
@@ -920,6 +920,9 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                         result.stopped_on_rejections = true;
                         break; // The common exit path restores RC/STA first.
                     }
+                    if (selected.size() > 1) {
+                        reportEvent(runtime, PathEvent::Kind::BatchBackoff, result);
+                    }
                     schedule.rejected();
                 } catch (...) {
                     if (transaction.active()) {
@@ -944,6 +947,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     std::string("; rollback refresh failed: ") + restore.what();
             }
         }
+        reportEvent(runtime, PathEvent::Kind::SearchFinished, result);
         return result;
     }
     if (needs_refresh) {
@@ -952,12 +956,12 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
             states = inspect(result.after);
         } catch (const std::exception& error) {
             result.message = error.what();
+            reportEvent(runtime, PathEvent::Kind::SearchFinished, result);
             return result;
         }
     }
 
     result.ok = true;
-    progress("search complete");
     result.converged = result.after.setup_wns >= 0;
     result.message =
         result.converged ? "path buffer setup timing met"
@@ -969,6 +973,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
         : result.frontier_suspended
             ? "audited empirical path frontier exhausted; violations remain"
             : "no acceptable path buffer candidate; violations remain";
+    reportEvent(runtime, PathEvent::Kind::SearchFinished, result);
     return result;
 }
 } // namespace ecc

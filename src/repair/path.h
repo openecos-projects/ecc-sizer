@@ -8,7 +8,6 @@
 
 #include <functional>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace odb {
@@ -20,10 +19,19 @@ class dbSta;
 
 namespace ecc {
 
-struct PathProgress {
-    std::string_view phase;
+struct PathEvent {
+    enum class Kind {
+        SearchStarted,
+        CandidatesCollected,
+        BatchBackoff,
+        SearchFinished,
+        FinalPlacementStarted,
+        FinalPlacementAccepted,
+        FinalPlacementRolledBack
+    };
+    Kind kind;
     unsigned attempted_trials = 0, rejected_trials = 0, inserted_buffers = 0;
-    unsigned candidates = 0;
+    unsigned candidates = 0, wave_candidates = 0;
     double setup_wns = 0, setup_tns = 0; // STA seconds, last accepted design.
     bool placement_provisional = false;
 };

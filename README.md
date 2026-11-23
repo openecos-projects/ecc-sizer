@@ -184,12 +184,12 @@ controls them and `--log FILE` adds a file sink. OpenROAD/STA diagnostics use
 OpenROAD's logger and its own controls. Tcl failures are checked and stop the
 flow instead of allowing acceptance with stale timing.
 
-Path reports progress at info level at most once every 30 seconds, at candidate
-generation and trial checkpoints. A single blocking STA/placement call can delay
-the next report. Progress uses the last accepted metrics without querying STA;
-`provisional=true` means final legalization/verification is still pending.
-Debug logs include each measured trial's rejection reasons, signed global and
-objective WNS/TNS gains in ns, and placement/refresh/measurement times.
+Path logs search start/end, accepted commits and final placement/verification
+outcomes at info level. Logs are triggered by these events, without a timer or
+per-candidate traversal output. `provisional=true` means final legalization and
+verification are still pending. Debug logs add each candidate wave's counts,
+batch-to-single retry decisions, each measured trial's rejection reasons, signed
+global and objective WNS/TNS gains in ns, and placement/refresh/measurement times.
 
 GOBI debug reports show pre-pruning solution slots, peak layer slots, frontier
 reserved capacity, traceback history and savings against retaining load/slack

@@ -5,7 +5,6 @@
 #include "actions/netlist.h"
 #include "design_analysis.h"
 #include "repair/config.h"
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -268,8 +267,7 @@ class PathPolicy {
     PathPolicy& operator=(const PathPolicy&) = delete;
     CandidateCollection collect(detail::DesignAnalysis& analysis, sta::dbSta* sta,
                                 const std::vector<detail::NetState>& states,
-                                const DesignMetrics& metrics,
-                                const std::function<void()>& progress = {});
+                                const DesignMetrics& metrics);
     bool reuseRejections() const;
     void beginCollection();
     bool hasFailure(const PathBufferCandidate& candidate) const;
