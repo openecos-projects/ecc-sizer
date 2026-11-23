@@ -5,6 +5,7 @@
 #include "actions/netlist.h"
 #include "design_analysis.h"
 #include "repair/config.h"
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -64,6 +65,7 @@ class PathSearch {
 
 namespace ecc::path_detail {
 struct PathBufferCandidate;
+struct CandidateCollection;
 // Measured changes for one trial. Rejection evidence is borrowed only during
 // observe/recoverElectrical; policies copy any history they retain.
 struct PathObservation {
@@ -255,14 +257,20 @@ class EndpointFailures {
     std::unordered_map<std::string, Evidence> failures_;
 };
 
-// Per-run learning and retry policy. It never edits the design or accepts an ECO;
-// observations come from the search runner after actual STA measurement.
-class PathFeedback {
+// Per-run strategy selection, ranking and feedback. The runner supplies measured
+// observations without needing to branch on sequential/path_gain/feedback.
+// This policy never edits the design or accepts an ECO.
+class PathPolicy {
   public:
-    PathFeedback(const PathSearchOptions& options, PathSearchState& result);
-    ~PathFeedback();
-    PathFeedback(const PathFeedback&) = delete;
-    PathFeedback& operator=(const PathFeedback&) = delete;
+    PathPolicy(const PathSearchOptions& options, PathSearchState& result);
+    ~PathPolicy();
+    PathPolicy(const PathPolicy&) = delete;
+    PathPolicy& operator=(const PathPolicy&) = delete;
+    CandidateCollection collect(detail::DesignAnalysis& analysis, sta::dbSta* sta,
+                                const std::vector<detail::NetState>& states,
+                                const DesignMetrics& metrics,
+                                const std::function<void()>& progress = {});
+    bool reuseRejections() const;
     void beginCollection();
     bool hasFailure(const PathBufferCandidate& candidate) const;
     unsigned generationIndex() const;
@@ -280,6 +288,7 @@ class PathFeedback {
     void observe(const PathBufferCandidate& candidate, const PathObservation& trial);
 
   private:
+    bool usesFeedback() const;
     struct Model {
         std::string context;
         path_detail::GainCalibration wns, tns;
@@ -355,12 +364,6 @@ struct CandidateCollection {
 
 BufferTreePlan bufferPlan(const PathBufferCandidate& candidate);
 float fanoutWeight(sta::dbNetwork* network, odb::dbObject* term);
-CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbSta* sta,
-                                      const std::vector<detail::NetState>& states,
-                                      const PathSearchOptions& options,
-                                      const DesignMetrics& metrics,
-                                      PathFeedback* feedback);
-
 std::string terminalKey(odb::dbObject* term);
 std::string actionKey(const PathBufferCandidate& candidate, bool physical = true);
 bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b);
@@ -377,7 +380,7 @@ class PathSchedule {
   public:
     PathSchedule(std::vector<PathBufferCandidate> candidates,
                  const PathSearchOptions& options, PathSearchState& result,
-                 PathFeedback& feedback);
+                 PathPolicy& policy);
     const std::vector<PathBufferCandidate>& candidates() const { return plans; }
     bool hasNext() const { return cursor < plans.size(); }
     bool prepareNext();
@@ -388,7 +391,8 @@ class PathSchedule {
     void rerank();
     void rejected();
     void fanoutRejected(const PathBufferCandidate& candidate);
-    void recoverElectrical(size_t failed, const PathObservation& trial);
+    void observe(const PathBatch& batch, const PathObservation& trial);
+    void recoverElectrical(const PathBatch& batch, const PathObservation& trial);
 
   private:
     static std::string topologyKey(const PathBufferCandidate& candidate);
@@ -396,7 +400,7 @@ class PathSchedule {
     std::vector<PathBufferCandidate> plans, suspended;
     const PathSearchOptions& options;
     PathSearchState& result;
-    PathFeedback& feedback;
+    PathPolicy& policy;
     std::unordered_set<std::string> infeasible_topologies;
     size_t cursor = 0, width = 0;
     bool single_candidate_mode = false, frontier_audit = false;

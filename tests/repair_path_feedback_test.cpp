@@ -176,14 +176,14 @@ TEST(PathObjective, AffectedMarginIncludesDamagedPathsAndIgnoresUnchangedOnes) {
     EXPECT_DOUBLE_EQ(forecastObjective({{0, -1, -1, false}}, {}, -1).path_gain, 0);
 }
 
-TEST(PathFeedback, ElectricalAlternativesTradeMarginOnlyAfterElectricalRisk) {
+TEST(PathPolicy, ElectricalAlternativesTradeMarginOnlyAfterElectricalRisk) {
     EXPECT_TRUE(betterElectricalAlternative({0, 2}, {.5, 5}));
     EXPECT_FALSE(betterElectricalAlternative({.5, 5}, {0, 2}));
     EXPECT_TRUE(betterElectricalAlternative({0, 5}, {0, 2}));
     EXPECT_FALSE(betterElectricalAlternative({0, 2}, {0, 2}));
 }
 
-TEST(PathFeedback, DistinguishesDuplicateDeferredAndInvalidatedFailures) {
+TEST(PathPolicy, DistinguishesDuplicateDeferredAndInvalidatedFailures) {
     FailureHistory history;
     EXPECT_EQ(history.status("action", "electrical+critical-check", 0), Retry::Fresh);
     history.record("action", {"electrical+critical-check", {"no_setup_gain"}, 0, 0, .02});
@@ -195,7 +195,7 @@ TEST(PathFeedback, DistinguishesDuplicateDeferredAndInvalidatedFailures) {
     EXPECT_DOUBLE_EQ(history.find("action")->tns_gain, .02);
 }
 
-TEST(PathFeedback, CalibratesOverestimatesAndZeroPredictionsFromMeasurements) {
+TEST(PathPolicy, CalibratesOverestimatesAndZeroPredictionsFromMeasurements) {
     GainCalibration gain;
     EXPECT_DOUBLE_EQ(gain.predict(10), 10);
     gain.observe(10, 1); gain.observe(20, 2);
@@ -207,7 +207,7 @@ TEST(PathFeedback, CalibratesOverestimatesAndZeroPredictionsFromMeasurements) {
     EXPECT_EQ(missed.samples, 2u);
 }
 
-TEST(PathFeedback, CoversOtherFamiliesBeforeRepeatingVariantsWithoutACap) {
+TEST(PathPolicy, CoversOtherFamiliesBeforeRepeatingVariantsWithoutACap) {
     FamilyCoverage coverage;
     EXPECT_EQ(coverage.attempts("net/group-a", 0), 0u);
     coverage.observe("net/group-a", 0);
@@ -221,7 +221,7 @@ TEST(PathFeedback, CoversOtherFamiliesBeforeRepeatingVariantsWithoutACap) {
     EXPECT_EQ(coverage.attempts("net/group-a", 1), 1u);
 }
 
-TEST(PathFeedback, ReopensWhenForecastImprovesBeyondExistingAcceptanceScale) {
+TEST(PathPolicy, ReopensWhenForecastImprovesBeyondExistingAcceptanceScale) {
     FailureHistory history;
     history.record("action", {"topology", {"no_setup_gain"}, 0, 0, .02, .1, .2});
     EXPECT_FALSE(history.opportunityChanged("action", .1, .2, .01, .1));
@@ -232,7 +232,7 @@ TEST(PathFeedback, ReopensWhenForecastImprovesBeyondExistingAcceptanceScale) {
     EXPECT_EQ(history.status("action", "changed-topology", 1), Retry::Invalidated);
 }
 
-TEST(PathFeedback, FullyVerifiesEveryAcceptanceAndElectricalOnlyRejection) {
+TEST(PathPolicy, FullyVerifiesEveryAcceptanceAndElectricalOnlyRejection) {
     EXPECT_TRUE(needsFullVerification({}));
     EXPECT_TRUE(needsFullVerification({"drv_severity"}));
     EXPECT_TRUE(needsFullVerification({"cap", "slew", "fanout"}));
@@ -249,7 +249,7 @@ TEST(PathObjective, PreservesTnsOnlyGainWhenAnotherPathRemainsWorst) {
     EXPECT_EQ(result.affected_endpoints, 2u);
 }
 
-TEST(PathFeedback, ReusesTnsRegressionOnlyUntilItsDependencyConeChanges) {
+TEST(PathPolicy, ReusesTnsRegressionOnlyUntilItsDependencyConeChanges) {
     DependencyFailures cache;
     cache.record("same full tree", {1, 2, 3}, -100e-9f, -101e-9f);
     EXPECT_TRUE(cache.rejects("same full tree", -80e-9f, 1e-12));
@@ -262,7 +262,7 @@ TEST(PathFeedback, ReusesTnsRegressionOnlyUntilItsDependencyConeChanges) {
     EXPECT_FALSE(cache.rejects("no gain", -100e-9f, 1e-12));
 }
 
-TEST(PathFeedback, DoesNotReplayTnsLossNearRoundingOrCurrentTolerance) {
+TEST(PathPolicy, DoesNotReplayTnsLossNearRoundingOrCurrentTolerance) {
     DependencyFailures cache;
     const float before = -100e-9f;
     const float after = std::nextafter(before, -INFINITY);
@@ -273,7 +273,7 @@ TEST(PathFeedback, DoesNotReplayTnsLossNearRoundingOrCurrentTolerance) {
     EXPECT_FALSE(cache.rejects("regression", -INFINITY, 0));
 }
 
-TEST(PathFeedback, EndpointWitnessSurvivesUnrelatedEditsAndReopensForFaninChanges) {
+TEST(PathPolicy, EndpointWitnessSurvivesUnrelatedEditsAndReopensForFaninChanges) {
     EndpointFailures cache;
     cache.record("tree", std::make_shared<const DependencyFailures::Cone>(DependencyFailures::Cone{1, 2, 3}), -2e-9f);
     EXPECT_TRUE(cache.rejects("tree", -1e-9f, 1e-12));
@@ -316,7 +316,7 @@ class PathScheduleTest : public ::testing::Test {
 };
 
 TEST_F(PathScheduleTest, RejectedBatchRetriesEveryMemberIndividually) {
-    PathFeedback feedback(options, state);
+    PathPolicy feedback(options, state);
     PathSchedule schedule({candidate("a"), candidate("b"), candidate("c")},
                           options, state, feedback);
     EXPECT_EQ(schedule.selectBatch(INFINITY).indices, (std::vector<size_t>{0, 1, 2}));
@@ -337,7 +337,7 @@ TEST_F(PathScheduleTest, BatchesExcludeSharedNetsAndTimingCones) {
     same_net.cone.clear();
     auto same_cone = candidate("b");
     same_cone.cone = first.cone;
-    PathFeedback feedback(options, state);
+    PathPolicy feedback(options, state);
     PathSchedule schedule({first, same_net, same_cone, candidate("c")},
                           options, state, feedback);
     EXPECT_EQ(schedule.selectBatch(INFINITY).indices, (std::vector<size_t>{0, 3}));
@@ -349,7 +349,7 @@ TEST_F(PathScheduleTest, BudgetsCountWholeTreesAndDistinguishZeroFromUnlimited) 
     tree->nodes.resize(2);
     compound.tree = tree;
     const auto single = candidate("single");
-    PathFeedback feedback(options, state);
+    PathPolicy feedback(options, state);
     const auto select = [&](double area_limit) {
         PathSchedule schedule({compound, single}, options, state, feedback);
         return schedule.selectBatch(area_limit);
@@ -362,4 +362,60 @@ TEST_F(PathScheduleTest, BudgetsCountWholeTreesAndDistinguishZeroFromUnlimited) 
     options.max_inserted_buffers.reset();
     EXPECT_EQ(select(INFINITY).buffers, 3u);
     EXPECT_EQ(select(20000).indices, (std::vector<size_t>{0}));
+}
+
+TEST_F(PathScheduleTest, NonFeedbackStrategiesIgnoreLearningAndFailureReuse) {
+    for (auto strategy : {ecc::PathStrategy::Sequential, ecc::PathStrategy::PathGain}) {
+        options.strategy = strategy;
+        options.adaptive_search = true;
+        options.reuse_rejections = true;
+        options.batch_size = 1;
+        auto plan = candidate(strategy == ecc::PathStrategy::Sequential ? "seq" : "gain");
+        plan.predicted_wns_gain = .25;
+        plan.predicted_tns_gain = .5;
+        // Non-feedback candidates need no feedback context to be observed/ranked.
+        PathPolicy policy(options, state);
+        policy.rank(plan);
+        EXPECT_DOUBLE_EQ(plan.ranked_wns_gain, .25);
+        EXPECT_DOUBLE_EQ(plan.ranked_tns_gain, .5);
+        EXPECT_FALSE(policy.reuseRejections());
+        const std::vector<std::string> reasons{"setup_wns"};
+        const PathObservation rejected{-.5, -1, -.5, -1, reasons};
+        PathSchedule schedule({plan}, options, state, policy);
+        const auto batch = schedule.selectBatch(INFINITY);
+        ASSERT_EQ(batch.indices.size(), 1u);
+        schedule.observe(batch, rejected);
+        schedule.recoverElectrical(batch, rejected);
+        EXPECT_EQ(state.feedback_updates, 0u);
+        EXPECT_FALSE(policy.hasFailure(plan));
+        EXPECT_EQ(policy.explore(plan), ExplorationFrontier::Decision::Explore);
+    }
+}
+
+TEST_F(PathScheduleTest, FeedbackLearnsOnlyFromSingleCandidateMeasurements) {
+    options.strategy = ecc::PathStrategy::Feedback;
+    options.reuse_rejections = true;
+    options.batch_size = 2;
+    auto first = candidate("a");
+    first.feedback_key = "a";
+    first.group_key = "a";
+    first.load_group_key = "a";
+    first.feedback_context = std::make_shared<const std::string>("context");
+    auto second = candidate("b");
+    PathPolicy policy(options, state);
+    EXPECT_FALSE(policy.reuseRejections());
+    PathSchedule schedule({first, second}, options, state, policy);
+    const std::vector<std::string> reasons{"setup_wns"};
+    const PathObservation rejected{-.5, -1, -.5, -1, reasons};
+    schedule.observe(schedule.selectBatch(INFINITY), rejected);
+    EXPECT_EQ(state.feedback_updates, 0u);
+    EXPECT_FALSE(policy.hasFailure(first));
+    schedule.backoff();
+    schedule.observe(schedule.selectBatch(INFINITY), rejected);
+    EXPECT_EQ(state.feedback_updates, 1u);
+    EXPECT_TRUE(policy.hasFailure(first));
+    options.batch_size = 1;
+    EXPECT_TRUE(policy.reuseRejections());
+    options.failure_cache = false;
+    EXPECT_FALSE(policy.reuseRejections());
 }

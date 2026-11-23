@@ -1528,10 +1528,10 @@ void verify(const Graph& g, const Payload& p, Layout& l, int start, int count,
 namespace gobi {
 
 // ==========================================================
-// Main VG Solve Function
+// Solve diagnostics and host orchestration
 // ==========================================================
 
-void print_gpu_memory(const char* label) {
+void reportGpuMemory(const char* label) {
     if (!spdlog::should_log(spdlog::level::debug)) {
         return;
     }
@@ -1540,15 +1540,60 @@ void print_gpu_memory(const char* label) {
     cudaError_t cuda_status = cudaMemGetInfo(&free_byte, &total_byte);
 
     if (cuda_status != cudaSuccess) {
-        spdlog::debug("GOBI {}: {}", label, cudaGetErrorString(cuda_status));
+        spdlog::debug("GOBI GPU memory ({}): query failed: {}", label,
+                      cudaGetErrorString(cuda_status));
         return;
     }
 
     double free_mb = static_cast<double>(free_byte) / (1024.0 * 1024.0);
     double used_mb = static_cast<double>(total_byte - free_byte) / (1024.0 * 1024.0);
 
-    spdlog::debug("GOBI {}: used {:.2f} MB, free {:.2f} MB", label, used_mb, free_mb);
+    spdlog::debug("GOBI GPU memory (device-wide, {}): used={:.2f} MiB free={:.2f} MiB "
+                  "total={:.2f} MiB",
+                  label, used_mb, free_mb, double(total_byte) / (1024 * 1024));
 }
+
+// Layout slots are counted before pruning, including unused reserved slots.
+// Capacity totals exclude allocator overhead and transient reallocations.
+struct FrontierStatistics {
+    size_t active_levels = 0, total_slots = 0, peak_layer_slots = 0;
+
+    void recordLayer(size_t slots) {
+        ++active_levels;
+        total_slots += slots;
+        peak_layer_slots = std::max(peak_layer_slots, slots);
+    }
+
+    void report(const Payload& a, const Payload& b, const History& history) const {
+        if (!spdlog::should_log(spdlog::level::debug)) {
+            return;
+        }
+        constexpr double mib = 1024.0 * 1024.0;
+        // Frontier capacities only grow, so their final sum is the reserved
+        // capacity high-water mark. Baseline retains load/slack for ALL layers.
+        const size_t reserved = (a.load.capacity() + a.slack.capacity() +
+                                 b.load.capacity() + b.slack.capacity()) *
+                                sizeof(double);
+        const size_t baseline = total_slots * 2 * sizeof(double);
+        // Signed savings expose allocation overhead on small graphs as well.
+        const double saved = double(baseline) - double(reserved);
+        const double saved_percent = baseline ? saved * 100.0 / double(baseline) : 0;
+        const size_t history_reserved =
+            (history.left_idx.capacity() + history.right_idx.capacity() +
+             history.buffer_id.capacity()) *
+            sizeof(int);
+        spdlog::debug("GOBI frontier: levels={} solution_slots={} peak_layer_slots={} "
+                      "reserved_peak={:.2f} MiB all_layers_baseline={:.2f} MiB "
+                      "saved={:+.2f} MiB ({:+.2f}%)",
+                      active_levels, total_slots, peak_layer_slots,
+                      double(reserved) / mib, double(baseline) / mib, saved / mib,
+                      saved_percent);
+        spdlog::debug("GOBI traceback history: slots={} reserved={:.2f} MiB; "
+                      "frontier+history reserved={:.2f} MiB",
+                      history.current_offset, double(history_reserved) / mib,
+                      double(reserved + history_reserved) / mib);
+    }
+};
 
 struct SortedRoots {
     std::vector<int> sorted_indexs; // The re-ordered root indices
@@ -1581,7 +1626,7 @@ bool gobiCudaAvailable() {
 }
 
 void gobiCudaSolve(const CudaContext& ctx) {
-    print_gpu_memory("Start of Solve");
+    reportGpuMemory("Start of Solve");
     if (ctx.results.empty()) {
         return;
     }
@@ -1607,16 +1652,7 @@ void gobiCudaSolve(const CudaContext& ctx) {
     Payload frontier_A(1024);
     Payload frontier_B(1024);
 
-    const auto payload_bytes = [](const Payload& payload) {
-        return (payload.load.capacity() + payload.slack.capacity()) * sizeof(double);
-    };
-    const auto frontier_bytes = [&](const Payload& lhs, const Payload& rhs) {
-        return payload_bytes(lhs) + payload_bytes(rhs);
-    };
-
-    size_t frontier_active_levels = 0;
-    size_t frontier_total_solutions = 0;
-    size_t frontier_peak_layer_total = 0;
+    FrontierStatistics frontier_stats;
 
     History history;
     history.layer_offsets.resize(max_level + 1);
@@ -1651,8 +1687,6 @@ void gobiCudaSolve(const CudaContext& ctx) {
             continue;
         }
 
-        frontier_active_levels++;
-
         int blocks = (meta.size() + threads - 1) / threads;
 
         // 1. Calculate Layout count from children
@@ -1669,9 +1703,7 @@ void gobiCudaSolve(const CudaContext& ctx) {
         int total = 0;
         cudaMemcpy(&total, raw_ptr(layout.start, meta.start_node + meta.size()),
                    sizeof(int), cudaMemcpyDeviceToHost);
-        frontier_total_solutions += static_cast<size_t>(total);
-        frontier_peak_layer_total =
-            std::max(frontier_peak_layer_total, static_cast<size_t>(total));
+        frontier_stats.recordLayer(static_cast<size_t>(total));
         // 3. Alloc
         next->ensure_capacity(total);
         size_t h_base = history.append_layer(level, total);
@@ -1730,33 +1762,9 @@ void gobiCudaSolve(const CudaContext& ctx) {
     }
 
     run_traceback_gpu(graph, history, layout, ctx, d_root_sols, metas, max_level);
-    print_gpu_memory("End of Solve");
+    reportGpuMemory("End of Solve");
 
-    const size_t frontier_peak_bytes = frontier_bytes(frontier_A, frontier_B);
-    const size_t frontier_baseline_bytes =
-        frontier_total_solutions * 2 * sizeof(double);
-    const size_t frontier_saved_bytes =
-        frontier_baseline_bytes > frontier_peak_bytes
-            ? frontier_baseline_bytes - frontier_peak_bytes
-            : 0;
-    const double frontier_saved_ratio =
-        frontier_baseline_bytes == 0 ? 0.0
-                                     : static_cast<double>(frontier_saved_bytes) /
-                                           static_cast<double>(frontier_baseline_bytes);
-
-    spdlog::debug("GOBI frontier: levels={} solutions={} peak={:.2f} MB saved={:.2f}%",
-                  frontier_active_levels, frontier_total_solutions,
-                  double(frontier_peak_bytes) / (1024 * 1024),
-                  frontier_saved_ratio * 100);
-
-    //  exit(0);
-    // std::cout << "Total offset: " << history.current_offset << "\n";
-    // int total_count = 0;
-    // thrust::host_vector<int> h_count = layout.count;
-    // for (int i = 0; i < graph.num_nodes; ++i) {
-    //   total_count += h_count[i];
-    // }
-    // std::cout << "Total count: " << total_count << "\n";
+    frontier_stats.report(frontier_A, frontier_B, history);
 }
 
 } // namespace gobi

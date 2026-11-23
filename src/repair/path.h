@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace odb {
@@ -18,6 +19,14 @@ class dbSta;
 }
 
 namespace ecc {
+
+struct PathProgress {
+    std::string_view phase;
+    unsigned attempted_trials = 0, rejected_trials = 0, inserted_buffers = 0;
+    unsigned candidates = 0;
+    double setup_wns = 0, setup_tns = 0; // STA seconds, last accepted design.
+    bool placement_provisional = false;
+};
 
 struct PathFanoutCheck {
     std::string phase, net, pin, mode;
@@ -74,7 +83,7 @@ struct PathFinalPlacement {
     std::vector<std::string> rejection_reasons;
 };
 
-struct PathSearchResult : PathSearchState {
+struct PathRepairResult : PathSearchState {
     bool ok = false;
     bool converged = false;
     std::string message;
@@ -104,7 +113,7 @@ struct PathSearchResult : PathSearchState {
 // Applies Path candidates through ECOs, STA acceptance and optional final placement.
 class PathRepairer {
   public:
-    static PathSearchResult run(odb::dbBlock* block, sta::dbSta* sta,
+    static PathRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
                                 const std::function<void()>& refresh,
                                 const PathSearchOptions& options = {},
                                 const PathRuntime& runtime = {});

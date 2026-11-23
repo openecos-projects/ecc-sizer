@@ -298,14 +298,24 @@ PathObservation observation(const PathBufferTrial& trial) {
             trial.frontier_audit};
 }
 
+void reportProgress(const PathRuntime& runtime, std::string_view phase,
+                    const PathRepairResult& result, bool provisional = false) {
+    if (runtime.progress_observer) {
+        runtime.progress_observer({phase, result.attempted_trials,
+                                   result.rejected_trials, result.inserted_buffers,
+                                   result.candidate_count, result.after.setup_wns,
+                                   result.after.setup_tns, provisional});
+    }
+}
+
 // Keep all provisional ECOs in one parent journal. Child commits merge into
 // it, so final legalization (including moves of existing cells) can be undone
 // together with every inserted buffer and reconnected load.
-PathSearchResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
+PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
                                           const std::function<void()>& refresh,
                                           const PathSearchOptions& options,
                                           const PathRuntime& runtime) {
-    PathSearchResult result;
+    PathRepairResult result;
     if (!runtime.prepare) {
         result.message = "final path placement requires a legalization callback";
         return result;
@@ -360,6 +370,13 @@ PathSearchResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
                 runtime.trial_observer(index, provisional);
             }
         };
+        search_runtime.progress_observer = [&](const PathProgress& progress) {
+            if (runtime.progress_observer) {
+                auto provisional = progress;
+                provisional.placement_provisional = true;
+                runtime.progress_observer(provisional);
+            }
+        };
         result = PathRepairer::run(block, sta, refresh, search_options, search_runtime);
         for (auto& trial : result.trials) {
             trial.placement_provisional = true;
@@ -380,6 +397,7 @@ PathSearchResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
             return result;
         }
         result.final_placement.attempted = true;
+        reportProgress(runtime, "final placement", result, true);
         PhaseTimer finalize_timer{result.final_placement.elapsed_ms};
         final.emplace(block);
         {
@@ -391,6 +409,7 @@ PathSearchResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
             PhaseTimer timer{result.measure_ms};
             analyze(analysis, result.final_placement.after);
         }
+        reportProgress(runtime, "final verification", result, true);
         auto acceptance = options;
         // Final acceptance compares the legal result with the legal phase
         // input, even if trial ranking used sampled endpoint objectives.
@@ -432,12 +451,12 @@ PathSearchResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
 
 } // namespace path_detail
 
-PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
+PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                                    const std::function<void()>& refresh,
                                    const PathSearchOptions& options,
                                    const PathRuntime& runtime) {
     using namespace path_detail;
-    PathSearchResult result;
+    PathRepairResult result;
     try {
         options.validate();
     } catch (const std::exception& error) {
@@ -503,7 +522,10 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     const auto trials_available = [&]() {
         return options.max_trials == 0 || result.attempted_trials < options.max_trials;
     };
-    PathFeedback feedback{options, result};
+    const auto progress = [&](std::string_view phase) {
+        reportProgress(runtime, phase, result);
+    };
+    PathPolicy policy{options, result};
     path_detail::DependencyFailures dependency_failures;
     path_detail::EndpointFailures endpoint_failures;
     const auto endpoint_fanin = [&](sta::Vertex* endpoint) {
@@ -547,10 +569,8 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     // No intermediate DP or full RC: only the inserted tree changes physical
     // dependencies. Final placement still receives authoritative global STA.
     const bool reuse_rejections =
-        options.reuse_rejections && options.failure_cache &&
-        options.strategy == ecc::PathStrategy::Feedback && sta->scenes().size() == 1 &&
-        !runtime.prepare && !runtime.verification_refresh &&
-        runtime.incremental_verification && options.batch_size == 1;
+        policy.reuseRejections() && sta->scenes().size() == 1 && !runtime.prepare &&
+        !runtime.verification_refresh && runtime.incremental_verification;
     std::unordered_map<odb::dbNet*,
                        std::shared_ptr<const path_detail::DependencyFailures::Cone>>
         dependency_cones;
@@ -596,15 +616,12 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                remainingBufferBudget(options.max_inserted_buffers,
                                      result.inserted_buffers) > 0) {
             CandidateCollection collection;
+            progress("candidates");
             {
                 PhaseTimer timer{result.candidate_ms};
-                collection = collectCandidates(
-                    analysis, sta, states, options, result.after,
-                    options.strategy == ecc::PathStrategy::Feedback ? &feedback
-                                                                    : nullptr);
-                if (options.strategy == PathStrategy::Feedback) {
-                    feedback.screen(collection.candidates);
-                }
+                collection = policy.collect(analysis, sta, states, result.after,
+                                            [&]() { progress("candidates"); });
+                policy.screen(collection.candidates);
             }
             result.candidate_count += collection.candidates.size();
             result.duplicate_candidates += collection.duplicate_candidates;
@@ -613,9 +630,10 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                 break;
             }
             bool accepted = false;
-            PathSchedule schedule(std::move(plans), options, result, feedback);
+            PathSchedule schedule(std::move(plans), options, result, policy);
             const auto& pending = schedule.candidates();
             while (schedule.hasNext() && budget_available() && trials_available()) {
+                progress("search");
                 if (!schedule.prepareNext()) {
                     continue;
                 }
@@ -642,7 +660,7 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     // turn just like a measured rejection. Advance coverage,
                     // but do not train calibration/frontiers using an old
                     // global delta: other commits may have changed that delta.
-                    feedback.covered(pending[selected.front()]);
+                    policy.covered(pending[selected.front()]);
                     if (options.max_consecutive_rejections &&
                         result.consecutive_rejections >=
                             options.max_consecutive_rejections) {
@@ -664,7 +682,7 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                 bool repeated = false, deferred = false;
                 for (const auto index : selected) {
                     const auto& plan = pending[index];
-                    repeated |= feedback.hasFailure(plan);
+                    repeated |= policy.hasFailure(plan);
                     deferred |= plan.deferred_retry;
                     trial.candidates.push_back(
                         {plan.net->getName(),
@@ -679,17 +697,13 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                          plan.recovery,
                          unsigned(plan.tree ? plan.tree->nodes.size() : 1),
                          actionKey(plan),
-                         options.strategy == ecc::PathStrategy::Feedback
-                             ? plan.ranked_wns_gain
-                             : plan.predicted_wns_gain,
-                         options.strategy == ecc::PathStrategy::Feedback
-                             ? plan.ranked_tns_gain
-                             : plan.predicted_tns_gain,
+                         plan.ranked_wns_gain,
+                         plan.ranked_tns_gain,
                          plan.deferred_retry,
                          plan.covered_tns_gain,
                          plan.covered_endpoints,
                          plan.family_attempts,
-                         feedback.generationIndex(),
+                         policy.generationIndex(),
                          plan.load_group_key,
                          plan.quality.path_gain,
                          plan.quality.electrical_excess,
@@ -719,6 +733,7 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                         runtime.trial_observer(result.attempted_trials,
                                                result.trials.back());
                     }
+                    progress("search");
                 };
                 std::vector<odb::dbITerm*> original_drivers;
                 for (const auto index : selected) {
@@ -770,9 +785,11 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     result.repeated_trials += repeated;
                     result.deferred_trials += deferred;
                     if (runtime.prepare) {
+                        progress("trial placement");
                         PhaseTimer timer{result.prepare_ms};
                         runtime.prepare();
                     }
+                    progress("trial verification");
                     update(false);
                     DesignMetrics after;
                     std::vector<NetState> next_states;
@@ -842,11 +859,7 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                                              result.before, options, trial);
                         trial.full_verified = bool(runtime.verification_refresh);
                     }
-                    // A failed batch cannot be attributed to its members.
-                    if (options.strategy == ecc::PathStrategy::Feedback &&
-                        selected.size() == 1) {
-                        feedback.observe(pending[selected.front()], observation(trial));
-                    }
+                    schedule.observe(batch, observation(trial));
                     if (trial.rejection_reasons.empty()) {
                         transaction.commit();
                         result.accepted_trials += trial.buffers;
@@ -860,7 +873,7 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                                 pending[selected.front()].net->getId());
                             dependency_cones.clear();
                         }
-                        feedback.committed();
+                        policy.committed();
                         accepted = true;
                         record_trial();
                         break;
@@ -899,11 +912,7 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                         update(true);
                         states = inspect(result.after);
                     }
-                    if (options.strategy == ecc::PathStrategy::Feedback &&
-                        selected.size() == 1) {
-                        schedule.recoverElectrical(selected.front(),
-                                                   observation(trial));
-                    }
+                    schedule.recoverElectrical(batch, observation(trial));
                     record_trial();
                     if (options.max_consecutive_rejections &&
                         result.consecutive_rejections >=
@@ -948,6 +957,7 @@ PathSearchResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     }
 
     result.ok = true;
+    progress("search complete");
     result.converged = result.after.setup_wns >= 0;
     result.message =
         result.converged ? "path buffer setup timing met"

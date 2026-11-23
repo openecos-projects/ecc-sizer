@@ -387,7 +387,8 @@ CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis
                                                 sta::dbSta* sta,
                                                 const std::vector<NetState>& states,
                                                 const PathSearchOptions& options,
-                                                bool recovery = false) {
+                                                bool recovery,
+                                                const std::function<void()>& progress) {
     CandidateCollection collection;
     auto& result = collection.candidates;
     auto* network = sta->getDbNetwork();
@@ -429,6 +430,9 @@ CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis
         paths.push_back(std::move(path));
     }
     for (const auto& path : paths) {
+        if (progress) {
+            progress();
+        }
         if (path.pins.empty()) {
             continue;
         }
@@ -658,7 +662,8 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
                                               const std::vector<NetState>& states,
                                               const PathSearchOptions& options,
                                               const DesignMetrics& metrics,
-                                              PathFeedback* feedback) {
+                                              PathPolicy* feedback,
+                                              const std::function<void()>& progress) {
     analysis.beginTimingPredictionEpoch();
     struct PredictionEpoch {
         detail::DesignAnalysis& analysis;
@@ -810,6 +815,9 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
         }
     }
     for (const auto& state : states) {
+        if (progress) {
+            progress();
+        }
         const auto use_it = uses.find(state.net);
         if (!state.driver || use_it == uses.end()) {
             continue;
@@ -1226,7 +1234,7 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
     // Diversify nets before retrying another cell/location on the same net.
     if (options.strategy == ecc::PathStrategy::Feedback) {
         std::stable_sort(collection.candidates.begin(), collection.candidates.end(),
-                         PathFeedback::order);
+                         PathPolicy::order);
     } else {
         std::sort(collection.candidates.begin(), collection.candidates.end(),
                   [](const auto& a, const auto& b) {
@@ -1243,13 +1251,16 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
                                       const std::vector<NetState>& states,
                                       const PathSearchOptions& options,
                                       const DesignMetrics& metrics,
-                                      PathFeedback* feedback) {
+                                      PathPolicy* feedback,
+                                      const std::function<void()>& progress) {
     const bool gain = options.strategy != ecc::PathStrategy::Sequential;
     auto result = gain ? collectPathGainCandidates(analysis, sta, states, options,
-                                                   metrics, feedback)
-                       : collectSequentialCandidates(analysis, sta, states, options);
+                                                   metrics, feedback, progress)
+                       : collectSequentialCandidates(analysis, sta, states, options,
+                                                     false, progress);
     if (!gain && options.recovery) {
-        auto async = collectSequentialCandidates(analysis, sta, states, options, true);
+        auto async =
+            collectSequentialCandidates(analysis, sta, states, options, true, progress);
         result.duplicate_candidates += async.duplicate_candidates;
         result.candidates.insert(result.candidates.end(),
                                  std::make_move_iterator(async.candidates.begin()),
@@ -1296,10 +1307,8 @@ PathSearch::generateCandidates(odb::dbBlock* block, sta::dbSta* sta,
     const auto states = analysis.analyze(metrics, true);
     PathSearchState snapshot;
     snapshot.before = snapshot.after = metrics;
-    PathFeedback feedback{options, snapshot};
-    const auto candidates = collectCandidates(
-        analysis, sta, states, options, metrics,
-        options.strategy == PathStrategy::Feedback ? &feedback : nullptr);
+    PathPolicy policy{options, snapshot};
+    const auto candidates = policy.collect(analysis, sta, states, metrics);
     std::vector<PathCandidate> result;
     result.reserve(candidates.candidates.size());
     for (const auto& candidate : candidates.candidates) {
@@ -1377,22 +1386,46 @@ bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
                            b.location.y, b.loads);
 }
 
-PathFeedback::PathFeedback(const PathSearchOptions& policy, PathSearchState& statistics)
+PathPolicy::PathPolicy(const PathSearchOptions& policy, PathSearchState& statistics)
     : options(policy), result(statistics) {
 }
-PathFeedback::~PathFeedback() = default;
+PathPolicy::~PathPolicy() = default;
 
-void PathFeedback::beginCollection() {
+bool PathPolicy::usesFeedback() const {
+    return options.strategy == PathStrategy::Feedback;
+}
+
+bool PathPolicy::reuseRejections() const {
+    return usesFeedback() && options.reuse_rejections && options.failure_cache &&
+           options.batch_size == 1;
+}
+
+CandidateCollection PathPolicy::collect(detail::DesignAnalysis& analysis,
+                                        sta::dbSta* sta,
+                                        const std::vector<detail::NetState>& states,
+                                        const DesignMetrics& metrics,
+                                        const std::function<void()>& progress) {
+    auto collection = collectCandidates(analysis, sta, states, options, metrics,
+                                        usesFeedback() ? this : nullptr, progress);
+    if (!usesFeedback()) {
+        for (auto& candidate : collection.candidates) {
+            rank(candidate);
+        }
+    }
+    return collection;
+}
+
+void PathPolicy::beginCollection() {
     electrical_reserve.clear();
 }
-bool PathFeedback::hasFailure(const PathBufferCandidate& candidate) const {
+bool PathPolicy::hasFailure(const PathBufferCandidate& candidate) const {
     return failures.find(candidate.feedback_key) != nullptr;
 }
-unsigned PathFeedback::generationIndex() const {
+unsigned PathPolicy::generationIndex() const {
     return generation;
 }
 
-double PathFeedback::tnsEstimate(const PathBufferCandidate& c) const {
+double PathPolicy::tnsEstimate(const PathBufferCandidate& c) const {
     return options.endpoint_coverage &&
                    options.gain_scope != ecc::PathGainScope::Endpoints
                ? c.covered_tns_gain
@@ -1400,9 +1433,9 @@ double PathFeedback::tnsEstimate(const PathBufferCandidate& c) const {
 }
 
 path_detail::ExplorationFrontier::Decision
-PathFeedback::explore(const PathBufferCandidate& c) {
+PathPolicy::explore(const PathBufferCandidate& c) {
     using Decision = path_detail::ExplorationFrontier::Decision;
-    if (!options.adaptive_search || options.batch_size != 1) {
+    if (!usesFeedback() || !options.adaptive_search || options.batch_size != 1) {
         return Decision::Explore;
     }
     const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
@@ -1421,7 +1454,7 @@ PathFeedback::explore(const PathBufferCandidate& c) {
                                          {wns_floor, tns_floor});
 }
 
-void PathFeedback::committed() {
+void PathPolicy::committed() {
     ++generation;
     // Even a distant commit can change an alternative path or placement.
     // Reopen every frontier rather than treating a structural hint as an
@@ -1429,7 +1462,12 @@ void PathFeedback::committed() {
     frontiers.clear();
 }
 
-void PathFeedback::rank(PathBufferCandidate& candidate, bool count) {
+void PathPolicy::rank(PathBufferCandidate& candidate, bool count) {
+    if (!usesFeedback()) {
+        candidate.ranked_wns_gain = candidate.predicted_wns_gain;
+        candidate.ranked_tns_gain = candidate.predicted_tns_gain;
+        return;
+    }
     candidate.family_attempts =
         options.diversify ? (options.group_schedule
                                  ? group_coverage.attempts(candidate.load_group_key,
@@ -1480,7 +1518,7 @@ void PathFeedback::rank(PathBufferCandidate& candidate, bool count) {
     candidate.feedback_priority =
         (candidate.deferred_retry ? 2 : 0) + unsigned(regression);
 }
-bool PathFeedback::order(const PathBufferCandidate& a, const PathBufferCandidate& b) {
+bool PathPolicy::order(const PathBufferCandidate& a, const PathBufferCandidate& b) {
     if (a.feedback_priority != b.feedback_priority) {
         return a.feedback_priority < b.feedback_priority;
     }
@@ -1501,7 +1539,7 @@ bool PathFeedback::order(const PathBufferCandidate& a, const PathBufferCandidate
     }
     return gainOrder(a, b);
 }
-void PathFeedback::select(std::vector<PathBufferCandidate>& variants) {
+void PathPolicy::select(std::vector<PathBufferCandidate>& variants) {
     std::unordered_set<std::string> actions;
     const auto end = std::remove_if(variants.begin(), variants.end(), [&](auto& c) {
         if (!actions.insert(c.feedback_key).second) {
@@ -1564,11 +1602,11 @@ void PathFeedback::select(std::vector<PathBufferCandidate>& variants) {
     variants = std::move(selected);
     std::stable_sort(variants.begin(), variants.end(), order);
 }
-void PathFeedback::recoverElectrical(const PathBufferCandidate& failed,
-                                     const PathObservation& trial,
-                                     std::vector<PathBufferCandidate>& pending,
-                                     size_t next) {
-    if (trial.rejection_reasons.empty() || !trial.metrics_complete ||
+void PathPolicy::recoverElectrical(const PathBufferCandidate& failed,
+                                   const PathObservation& trial,
+                                   std::vector<PathBufferCandidate>& pending,
+                                   size_t next) {
+    if (!usesFeedback() || trial.rejection_reasons.empty() || !trial.metrics_complete ||
         !path_detail::needsFullVerification(trial.rejection_reasons)) {
         return;
     }
@@ -1607,12 +1645,15 @@ void PathFeedback::recoverElectrical(const PathBufferCandidate& failed,
         electrical_reserve.erase(electrical_reserve.begin() + reserve_index);
     }
 }
-void PathFeedback::covered(const PathBufferCandidate& plan) {
+void PathPolicy::covered(const PathBufferCandidate& plan) {
     coverage.observe(plan.group_key, generation);
     group_coverage.observe(plan.load_group_key, *plan.feedback_context);
 }
-void PathFeedback::observe(const PathBufferCandidate& plan,
-                           const PathObservation& trial) {
+void PathPolicy::observe(const PathBufferCandidate& plan,
+                         const PathObservation& trial) {
+    if (!usesFeedback()) {
+        return;
+    }
     covered(plan);
     const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
     const double wns = local ? trial.objective_wns_gain : trial.wns_gain;
@@ -1638,8 +1679,8 @@ void PathFeedback::observe(const PathBufferCandidate& plan,
     }
 }
 
-void PathFeedback::screen(std::vector<PathBufferCandidate>& candidates) {
-    if (options.min_relative_improvement > 0) {
+void PathPolicy::screen(std::vector<PathBufferCandidate>& candidates) {
+    if (usesFeedback() && options.min_relative_improvement > 0) {
         const auto& reference =
             globalGainReference(options, result.before, result.after);
         const double wns_floor = std::max(double(options.min_improvement),
@@ -1678,9 +1719,9 @@ void PathFeedback::screen(std::vector<PathBufferCandidate>& candidates) {
 
 PathSchedule::PathSchedule(std::vector<PathBufferCandidate> candidates,
                            const PathSearchOptions& policy, PathSearchState& statistics,
-                           PathFeedback& learning)
+                           PathPolicy& learning)
     : plans(std::move(candidates)), options(policy), result(statistics),
-      feedback(learning), width(std::min(size_t(options.batch_size), plans.size())) {
+      policy(learning), width(std::min(size_t(options.batch_size), plans.size())) {
 }
 
 std::string PathSchedule::topologyKey(const PathBufferCandidate& plan) {
@@ -1697,7 +1738,7 @@ void PathSchedule::fanoutRejected(const PathBufferCandidate& plan) {
 void PathSchedule::reopen() {
     const auto end =
         std::remove_if(suspended.begin(), suspended.end(), [&](auto& plan) {
-            if (feedback.explore(plan) == ExplorationFrontier::Decision::Suspend) {
+            if (policy.explore(plan) == ExplorationFrontier::Decision::Suspend) {
                 return false;
             }
             plans.push_back(std::move(plan));
@@ -1712,9 +1753,9 @@ void PathSchedule::rerank() {
         return;
     }
     for (size_t i = cursor; i < plans.size(); ++i) {
-        feedback.rank(plans[i]);
+        policy.rank(plans[i]);
     }
-    std::stable_sort(plans.begin() + cursor, plans.end(), PathFeedback::order);
+    std::stable_sort(plans.begin() + cursor, plans.end(), PathPolicy::order);
 }
 
 void PathSchedule::backoff() {
@@ -1743,7 +1784,7 @@ void PathSchedule::skipBatch() {
 bool PathSchedule::prepareNext() {
     frontier_audit = false;
     if (options.strategy == PathStrategy::Feedback && width == 1) {
-        const auto decision = feedback.explore(plans[cursor]);
+        const auto decision = policy.explore(plans[cursor]);
         if (decision == ExplorationFrontier::Decision::Suspend) {
             ++result.frontier_suspended;
             suspended.push_back(std::move(plans[cursor]));
@@ -1787,8 +1828,19 @@ PathBatch PathSchedule::selectBatch(double area_limit) {
     return batch;
 }
 
-void PathSchedule::recoverElectrical(size_t failed, const PathObservation& trial) {
-    feedback.recoverElectrical(plans[failed], trial, plans, cursor + 1);
+void PathSchedule::observe(const PathBatch& batch, const PathObservation& trial) {
+    // Aggregate gains cannot be attributed to individual candidates.
+    if (batch.indices.size() == 1) {
+        policy.observe(plans[batch.indices.front()], trial);
+    }
+}
+
+void PathSchedule::recoverElectrical(const PathBatch& batch,
+                                     const PathObservation& trial) {
+    if (batch.indices.size() == 1) {
+        policy.recoverElectrical(plans[batch.indices.front()], trial, plans,
+                                 cursor + 1);
+    }
 }
 
 void PathSchedule::rejected() {

@@ -184,6 +184,20 @@ controls them and `--log FILE` adds a file sink. OpenROAD/STA diagnostics use
 OpenROAD's logger and its own controls. Tcl failures are checked and stop the
 flow instead of allowing acceptance with stale timing.
 
+Path reports progress at info level at most once every 30 seconds, at candidate
+generation and trial checkpoints. A single blocking STA/placement call can delay
+the next report. Progress uses the last accepted metrics without querying STA;
+`provisional=true` means final legalization/verification is still pending.
+Debug logs include each measured trial's rejection reasons, signed global and
+objective WNS/TNS gains in ns, and placement/refresh/measurement times.
+
+GOBI debug reports show pre-pruning solution slots, peak layer slots, frontier
+reserved capacity, traceback history and savings against retaining load/slack
+for all layers. Negative savings indicate reservation overhead on small graphs.
+These capacity estimates exclude allocator/reallocation overhead and other GPU
+arrays. Separate device-wide used/free/total memory snapshots include CUDA and
+other users of the device; they are not GOBI's allocation totals. All sizes use MiB.
+
 ## Source organization
 
 - `application.cpp`: CLI and flow validation, session initialization, stage
@@ -203,10 +217,11 @@ flow instead of allowing acceptance with stale timing.
 - `repair/setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
   remain independent strategies, not implicit calls inside setup.
 - `algorithms/path.*`: path candidates, forecasts, feedback and queue scheduling,
-  grouped in one header and implementation. Feedback observes trial measurements
-  without editing the design or deciding acceptance.
+  grouped in one header and implementation. `PathPolicy` selects the strategy
+  and handles measurements; `PathSchedule` owns queue and batch decisions.
+  Neither edits the design or decides acceptance.
 - `repair/path.*`: `PathRepairer` executes candidates through ECO transactions,
-  STA verification, rollback and final placement.
+  STA verification, rollback and final placement, returning `PathRepairResult`.
 - `algorithms/van_ginneken.*`, `gobi.*`: buffer-tree solvers with thin standalone
   stage runners. CUDA implementations live beside their algorithms.
 - `design_analysis.*`: shared design metrics, OpenDB/STA queries, incremental

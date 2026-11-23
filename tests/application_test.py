@@ -136,6 +136,34 @@ set_max_fanout 4 [current_design]
         self.assertLess(output.index("Starting drv"), output.index("Starting setup"))
         self.assertTrue((self.work / "composed.odb").is_file())
 
+    def test_path_trial_logging_respects_level_and_reports_measured_gains(self):
+        self.script.write_text(self.script.read_text().replace(
+            "fanout_repair_sta.v", "gate_repair_sta.v") + """
+create_clock -name clk -period 0.5 [get_ports clk]
+set_input_delay 0 -clock clk [get_ports {in enable}]
+set_output_delay 0.49 -clock clk [get_ports out0]
+""")
+        for level in ("debug", "info", "off"):
+            with self.subTest(level=level):
+                log = self.work / f"{level}.log"
+                output = self.run_sizer(
+                    self.script, "--flow", "path", "--threads", "1",
+                    "--log-level", level, "--log", log,
+                    "--set", "path.max_area_growth=1", "--set", "path.max_trials=3",
+                    "--output", self.work / level)
+                if level == "debug":
+                    self.assertIn("accepted=true", output)
+                    self.assertIn("accepted=false", output)
+                    self.assertIn("reasons=[no_setup_gain", output)
+                    self.assertIn("global gain WNS=+", output)
+                    self.assertIn("global gain WNS=-", output)
+                    self.assertIn("objective gain WNS=", log.read_text())
+                else:
+                    self.assertNotIn("Path trial", output)
+                    self.assertNotIn("Path trial", log.read_text())
+                # Short searches have only stage summaries at info level.
+                self.assertNotIn("Path progress:", output)
+
     def test_fanout_and_def_input(self):
         prefix = self.work / "fanout"
         output = self.run_sizer(self.script, "--threads", "1", "--flow", "fanout",

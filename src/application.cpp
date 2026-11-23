@@ -29,6 +29,7 @@
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/spdlog.h"
+#include <fmt/ranges.h>
 #include "sta/Liberty.hh"
 #include "sta/Mode.hh"
 #include "sta/Sdc.hh"
@@ -369,10 +370,45 @@ class ApplicationFlow {
         PathRuntime path_runtime;
         static_cast<RepairRuntime&>(path_runtime) = runtime;
         path_runtime.trial_observer = [](unsigned index, const PathBufferTrial& trial) {
-            spdlog::debug("Path trial {}: accepted={} buffers={} provisional={} "
-                          "verified={}",
-                          index, trial.rejection_reasons.empty(), trial.buffers,
-                          trial.placement_provisional, trial.full_verified);
+            if (!spdlog::should_log(spdlog::level::debug)) {
+                return;
+            }
+            spdlog::debug(
+                "Path trial {}: accepted={} buffers={} provisional={} "
+                "full_rc_verified={} metrics_complete={} reasons=[{}]; global gain "
+                "WNS={:+.6f}ns "
+                "TNS={:+.6f}ns; objective gain WNS={:+.6f}ns TNS={:+.6f}ns; "
+                "prepare={:.1f}ms refresh={:.1f}ms measure={:.1f}ms",
+                index, trial.rejection_reasons.empty(), trial.buffers,
+                trial.placement_provisional, trial.full_verified,
+                trial.metrics_complete, fmt::join(trial.rejection_reasons, ","),
+                (double(trial.after.setup_wns) - trial.before.setup_wns) * 1e9,
+                (double(trial.after.setup_tns) - trial.before.setup_tns) * 1e9,
+                (trial.objective_wns_after - trial.objective_wns_before) * 1e9,
+                (trial.objective_tns_after - trial.objective_tns_before) * 1e9,
+                trial.prepare_ms, trial.refresh_ms, trial.measure_ms);
+        };
+        const auto start = std::chrono::steady_clock::now();
+        auto last_report = start;
+        path_runtime.progress_observer = [start,
+                                          last_report](const PathProgress& p) mutable {
+            if (!spdlog::should_log(spdlog::level::info)) {
+                return;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            // One line at most every 30 seconds, including during candidate
+            // generation. No timer thread or extra STA queries for logging.
+            if (now - last_report < std::chrono::seconds(30)) {
+                return;
+            }
+            last_report = now;
+            spdlog::info("Path progress: {:.0f}s phase={} trials={} rejected={} "
+                         "buffers={} candidates={} WNS={:.6f}ns TNS={:.6f}ns "
+                         "provisional={}",
+                         std::chrono::duration<double>(now - start).count(), p.phase,
+                         p.attempted_trials, p.rejected_trials, p.inserted_buffers,
+                         p.candidates, p.setup_wns * 1e9, p.setup_tns * 1e9,
+                         p.placement_provisional);
         };
         if (path.incremental_parasitics) {
             PlacementParasiticUpdater incremental(

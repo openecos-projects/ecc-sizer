@@ -11,6 +11,7 @@ class dbMaster;
 namespace ecc {
 struct PathBufferTrial;
 struct PathFanoutCheck;
+struct PathProgress;
 struct RepairAnalysisChanges;
 
 // Object references belong to the current design, never to serialized policy.
@@ -31,6 +32,9 @@ struct PathRuntime : RepairRuntime {
     // A rejected trial may still have deferred timing refresh.
     std::function<void(unsigned, const PathBufferTrial&)> trial_observer;
     std::function<void(const PathFanoutCheck&)> fanout_observer;
+    // Checkpoint notification, not a timer thread. Observers must not mutate
+    // the design or query live STA; the snapshot uses last accepted metrics.
+    std::function<void(const PathProgress&)> progress_observer;
     // Full RC/STA verification, including after final legalization.
     std::function<void()> verification_refresh;
     std::function<void()> incremental_verification;
