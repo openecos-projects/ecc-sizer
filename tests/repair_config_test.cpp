@@ -19,16 +19,17 @@ std::string serialized(const ecc::RepairConfig& config)
 }
 TEST(RepairConfig, PathSectionAndRemovedBackend) {
   ecc::RepairConfig config;
-  std::istringstream input("[path]\nstrategy=feedback\nplacement=final\nverification=final\n");
+  std::istringstream input("[path]\nplacement=final\nverification=final\n");
   config.read(input);
-  EXPECT_EQ(config.path.strategy, ecc::PathStrategy::Feedback);
+  EXPECT_THROW(config.set("path.strategy", "sequential"), std::invalid_argument);
+  EXPECT_FALSE(config.path.max_trials);
+  EXPECT_EQ(config.path.gain_scope, ecc::PathGainScope::Global);
+  EXPECT_DOUBLE_EQ(config.path.min_relative_improvement, 0.001);
   EXPECT_EQ(config.path.placement, ecc::PathPlacement::Final);
   EXPECT_EQ(config.path.verification, ecc::PathVerification::Final);
   EXPECT_EQ(serialized(config).find("gobi.backend"), std::string::npos);
   EXPECT_THROW(config.set("gobi.backend", "cuda"), std::invalid_argument);
   EXPECT_THROW(config.set("path.min_improvement_ns", "1e100"), std::invalid_argument);
-  config.path.strategy = static_cast<ecc::PathStrategy>(99);
-  EXPECT_THROW(config.validate(), std::invalid_argument);
 }
 
 TEST(RepairConfig, PathUnlimitedBudgetsPreserveZeroAreaConstraint)
@@ -52,7 +53,7 @@ TEST(RepairConfig, PathUnlimitedBudgetsPreserveZeroAreaConstraint)
     EXPECT_NE(serialized(config).find(std::string(key) + "=0\n"), std::string::npos);
   }
   EXPECT_THROW(config.set("path.max_area_growth", "-1"), std::invalid_argument);
-  EXPECT_NO_THROW(config.set("path.strategy", "feedback"));
+  EXPECT_THROW(config.set("path.strategy", "feedback"), std::invalid_argument);
   config.set("path.min_relative_improvement", "0.001");
   EXPECT_NE(serialized(config).find("path.min_relative_improvement="),
             std::string::npos);
@@ -86,6 +87,8 @@ TEST(RepairConfig, PathGainScopesRoundTrip)
 TEST(RepairConfig, PathRejectionStopIsOptionalAndRoundTrips)
 {
   ecc::RepairConfig config;
+  EXPECT_EQ(config.pathOptions().max_consecutive_rejections, 32u);
+  config.set("path.max_consecutive_rejections", "unlimited");
   EXPECT_FALSE(config.pathOptions().max_consecutive_rejections);
   config.set("path.max_consecutive_rejections", "32");
   EXPECT_EQ(config.pathOptions().max_consecutive_rejections, 32u);
@@ -160,7 +163,6 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   config.set("path.max_candidates", "3");
   config.set("path.max_trials", "4");
   config.set("path.batch_size", "3");
-  config.set("path.strategy", "sequential");
   config.set("path.fanout_repair", "false");
   config.set("path.recovery", "false");
   config.set("path.tree_candidates", "false");
@@ -207,7 +209,6 @@ TEST(RepairConfig, SharesCommonConstraintsAndRuntimeHooks)
   EXPECT_EQ(path.max_candidates, 3u);
   EXPECT_EQ(path.max_trials, 4u);
   EXPECT_EQ(path.batch_size, 3u);
-  EXPECT_EQ(path.strategy, ecc::PathStrategy::Sequential);
   ASSERT_TRUE(path.max_seconds);
   EXPECT_DOUBLE_EQ(*path.max_seconds, 1.5);
   EXPECT_EQ(path.max_refreshes, 16u);

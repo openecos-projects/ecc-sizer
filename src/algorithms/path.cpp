@@ -32,26 +32,6 @@
 namespace ecc {
 namespace path_detail {
 using detail::NetState;
-struct CandidateKey {
-    odb::dbNet* net = nullptr;
-    std::vector<odb::dbObject*> loads;
-
-    bool operator==(const CandidateKey& other) const {
-        return net == other.net && loads == other.loads;
-    }
-};
-
-struct CandidateKeyHash {
-    size_t operator()(const CandidateKey& key) const {
-        size_t hash = std::hash<const void*>{}(key.net);
-        for (auto* load : key.loads) {
-            hash ^= std::hash<const void*>{}(load) + 0x9e3779b9u + (hash << 6) +
-                    (hash >> 2);
-        }
-        return hash;
-    }
-};
-
 BufferTreePlan bufferPlan(const PathBufferCandidate& candidate) {
     BufferTreePlan plan;
     plan.net = candidate.net;
@@ -420,189 +400,6 @@ std::vector<SampledPath> samplePaths(sta::dbSta* sta, const PathSearchOptions& o
     return paths;
 }
 
-bool sequentialOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
-    if (a.slack != b.slack) {
-        return a.slack < b.slack;
-    }
-    if (a.path_index != b.path_index) {
-        return a.path_index > b.path_index;
-    }
-    if (a.predicted_gain != b.predicted_gain) {
-        return a.predicted_gain > b.predicted_gain;
-    }
-    return a.net->getName() < b.net->getName();
-}
-
-CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis,
-                                                sta::dbSta* sta,
-                                                const std::vector<NetState>& states,
-                                                const PathSearchOptions& options,
-                                                bool recovery) {
-    CandidateCollection collection;
-    auto& result = collection.candidates;
-    auto* network = sta->getDbNetwork();
-    std::unordered_map<odb::dbNet*, const NetState*> by_net;
-    by_net.reserve(states.size());
-    for (const auto& state : states) {
-        by_net.emplace(state.net, &state);
-    }
-
-    const auto paths = samplePaths(sta, options, recovery);
-    for (const auto& path : paths) {
-        if (path.pins.empty()) {
-            continue;
-        }
-        const float slack = path.slack;
-        const auto* endpoint = path.pins.back();
-        const float pin_slack =
-            std::min(0.0f, float(sta->slack(endpoint, sta::RiseFallBoth::riseFall(),
-                                            sta->scenes(), sta::MinMax::max())));
-        std::unordered_set<odb::dbNet*> seen_nets;
-        std::vector<PathBufferCandidate> path_candidates;
-        for (size_t i = path.start; i + 1 < path.pins.size(); ++i) {
-            auto* output_object = network->staToDb(path.pins[i]);
-            if (!output_object || output_object->getObjectType() != odb::dbITermObj) {
-                continue;
-            }
-            auto* output = static_cast<odb::dbITerm*>(output_object);
-            if (output->getIoType() != odb::dbIoType::OUTPUT || !output->getNet()) {
-                continue;
-            }
-            auto* net = output->getNet();
-            if (net->isSpecial() || net->isDoNotTouch() ||
-                sta->isClock(network->dbToSta(net), sta->cmdMode()) ||
-                !seen_nets.insert(net).second) {
-                continue;
-            }
-
-            auto* load = network->staToDb(path.pins[i + 1]);
-            if (!load || (load->getObjectType() != odb::dbITermObj &&
-                          load->getObjectType() != odb::dbBTermObj)) {
-                continue;
-            }
-            const auto load_net = load->getObjectType() == odb::dbITermObj
-                                      ? static_cast<odb::dbITerm*>(load)->getNet()
-                                      : static_cast<odb::dbBTerm*>(load)->getNet();
-            if (load_net != net) {
-                continue;
-            }
-            const bool is_load = load->getObjectType() == odb::dbITermObj
-                                     ? (static_cast<odb::dbITerm*>(load)->getIoType() ==
-                                            odb::dbIoType::INPUT ||
-                                        static_cast<odb::dbITerm*>(load)->getIoType() ==
-                                            odb::dbIoType::INOUT)
-                                     : (static_cast<odb::dbBTerm*>(load)->getIoType() ==
-                                            odb::dbIoType::OUTPUT ||
-                                        static_cast<odb::dbBTerm*>(load)->getIoType() ==
-                                            odb::dbIoType::INOUT);
-            if (!is_load) {
-                continue;
-            }
-
-            const auto state_it = by_net.find(net);
-            if (state_it == by_net.end() || state_it->second->driver == nullptr) {
-                continue;
-            }
-            const auto& state = *state_it->second;
-            std::vector<odb::dbObject*> selected_loads;
-            float selected_cap = 0;
-            for (const auto& state_load : state.loads) {
-                if (state_load.term != load) {
-                    selected_loads.push_back(state_load.term);
-                    selected_cap += state_load.capacitance;
-                }
-            }
-            // A net without side loads may still benefit from a buffer on a
-            // wire-dominated path.  Otherwise use split-load semantics.
-            if (selected_loads.empty()) {
-                for (const auto& state_load : state.loads) {
-                    if (state_load.term == load) {
-                        selected_loads.push_back(state_load.term);
-                        selected_cap += state_load.capacitance;
-                        break;
-                    }
-                }
-            }
-            if (selected_loads.empty() || state.loads.empty()) {
-                continue;
-            }
-            float pin_cap = 0;
-            for (const auto& state_load : state.loads) {
-                pin_cap += state_load.capacitance;
-            }
-            const float wire_cap =
-                std::max(0.0f, state.capacitance - pin_cap) / float(state.loads.size());
-            const auto* buffer = analysis.select(selected_cap + wire_cap,
-                                                 state.slew_limit, state.input_slew);
-            if (buffer == nullptr) {
-                continue;
-            }
-
-            const auto original = analysis.driverModel(state);
-            if (!original.cell) {
-                continue;
-            }
-            const float before_delay =
-                analysis.predictedDelay(original, state.capacitance, state.input_slew);
-            const float reduced_cap =
-                std::max(0.0f, state.capacitance - selected_cap - wire_cap) +
-                buffer->input->capacitance();
-            const float after_delay =
-                analysis.predictedDelay(original, reduced_cap, state.input_slew);
-            const float predicted_gain =
-                std::isfinite(before_delay) && std::isfinite(after_delay)
-                    ? std::max(0.0f, before_delay - after_delay)
-                    : 0.0f;
-
-            long long x = 0, y = 0;
-            for (auto* selected : selected_loads) {
-                if (selected->getObjectType() == odb::dbITermObj) {
-                    int sx = 0, sy = 0;
-                    static_cast<odb::dbITerm*>(selected)->getInst()->getLocation(sx,
-                                                                                 sy);
-                    x += sx;
-                    y += sy;
-                } else {
-                    const auto box = static_cast<odb::dbBTerm*>(selected)->getBBox();
-                    x += box.xCenter();
-                    y += box.yCenter();
-                }
-            }
-            const BufferLocation location{int(x / selected_loads.size()),
-                                          int(y / selected_loads.size())};
-            std::sort(selected_loads.begin(), selected_loads.end(),
-                      [](const auto* lhs, const auto* rhs) {
-                          return std::less<const void*>{}(lhs, rhs);
-                      });
-            path_candidates.push_back({net, std::move(selected_loads), buffer->master,
-                                       location, slack, predicted_gain, i});
-            auto& candidate = path_candidates.back();
-            candidate.recovery = recovery;
-            candidate.endpoints.emplace_back(endpoint, pin_slack);
-            candidate.objective_wns = candidate.objective_tns = pin_slack;
-        }
-        std::sort(path_candidates.begin(), path_candidates.end(), sequentialOrder);
-        if (path_candidates.size() > options.max_candidates) {
-            path_candidates.resize(options.max_candidates);
-        }
-        result.insert(result.end(), path_candidates.begin(), path_candidates.end());
-    }
-    std::sort(result.begin(), result.end(), sequentialOrder);
-    std::unordered_set<CandidateKey, CandidateKeyHash> unique;
-    unique.reserve(result.size());
-    std::vector<PathBufferCandidate> deduplicated;
-    deduplicated.reserve(result.size());
-    for (auto& candidate : result) {
-        CandidateKey key{candidate.net, candidate.loads};
-        if (unique.insert(std::move(key)).second) {
-            deduplicated.push_back(std::move(candidate));
-        } else {
-            ++collection.duplicate_candidates;
-        }
-    }
-    result = std::move(deduplicated);
-    return collection;
-}
 // The model is a ranking heuristic. Real placement, RC and global STA remain
 // the acceptance authority; a negative estimate does not prune an ECO.
 struct PathUse {
@@ -777,21 +574,19 @@ struct PathSamples {
     }
 };
 
-CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
-                                              sta::dbSta* sta,
-                                              const std::vector<NetState>& states,
-                                              const PathSearchOptions& options,
-                                              const DesignMetrics& metrics,
-                                              PathPolicy* feedback) {
+CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
+                                            sta::dbSta* sta,
+                                            const std::vector<NetState>& states,
+                                            const PathSearchOptions& options,
+                                            const DesignMetrics& metrics,
+                                            PathPolicy& feedback) {
     analysis.beginTimingPredictionEpoch();
     struct PredictionEpoch {
         detail::DesignAnalysis& analysis;
         ~PredictionEpoch() { analysis.endTimingPredictionEpoch(); }
     } prediction_epoch{analysis};
     CandidateCollection collection;
-    if (feedback) {
-        feedback->beginCollection();
-    }
+    feedback.beginCollection();
     auto* network = sta->getDbNetwork();
     const PathSamples samples(sta, options);
     const auto& [uses, endpoint_pins, sampled_paths, actual_endpoint_slacks,
@@ -941,31 +736,30 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
         }
         std::unordered_map<float, std::pair<float, float>> driver_cache;
         std::ostringstream boundary;
-        if (options.strategy == ecc::PathStrategy::Feedback) {
-            // SOFT transfer between structurally identical families. Global
-            // legalization and RC extraction can perturb numerical boundaries
-            // after any ECO; treating those as entirely new families repeatedly
-            // forgets measured failures. Fresh forecasts include the new RC/
-            // slew/placement state and can reopen an improved opportunity.
-            // Cross-generation evidence NEVER skips the final STA trial.
-            boundary << terminalKey(state.driver) << ':'
-                     << state.driver->getInst()->getMaster()->getName();
-            std::vector<std::string> topology_loads;
-            for (const auto& load : state.loads) {
-                std::string entry = terminalKey(load.term);
-                if (load.term->getObjectType() == odb::dbITermObj) {
-                    entry += '/' + std::string(static_cast<odb::dbITerm*>(load.term)
-                                                   ->getInst()
-                                                   ->getMaster()
-                                                   ->getName());
-                }
-                topology_loads.push_back(std::move(entry));
+        // SOFT transfer between structurally identical families. Global
+        // legalization and RC extraction can perturb numerical boundaries
+        // after any ECO; treating those as entirely new families repeatedly
+        // forgets measured failures. Fresh forecasts include the new RC/
+        // slew/placement state and can reopen an improved opportunity.
+        // Cross-generation evidence NEVER skips the final STA trial.
+        boundary << terminalKey(state.driver) << ':'
+                 << state.driver->getInst()->getMaster()->getName();
+        std::vector<std::string> topology_loads;
+        for (const auto& load : state.loads) {
+            std::string entry = terminalKey(load.term);
+            if (load.term->getObjectType() == odb::dbITermObj) {
+                entry += '/' + std::string(static_cast<odb::dbITerm*>(load.term)
+                                               ->getInst()
+                                               ->getMaster()
+                                               ->getName());
             }
-            std::sort(topology_loads.begin(), topology_loads.end());
-            for (const auto& entry : topology_loads) {
-                boundary << ':' << entry.size() << ':' << entry;
-            }
+            topology_loads.push_back(std::move(entry));
         }
+        std::sort(topology_loads.begin(), topology_loads.end());
+        for (const auto& entry : topology_loads) {
+            boundary << ':' << entry.size() << ':' << entry;
+        }
+
         // This is a dependency hint for deferring retries, not proof that all
         // global timing/placement dependencies are unchanged across commits.
         const auto boundary_key = std::make_shared<const std::string>(boundary.str());
@@ -1192,9 +986,8 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
                               [](auto* a, auto* b) {
                                   return std::less<const void*>{}(a, b);
                               });
-                    if (options.strategy == ecc::PathStrategy::Feedback) {
-                        candidate.feedback_key = actionKey(candidate);
-                    }
+                    candidate.feedback_key = actionKey(candidate);
+
                     candidate.feedback_context = boundary_key;
                     candidate.group_key = actionKey(candidate, false);
                     // All tree shapes/strengths/positions for one load set
@@ -1210,14 +1003,7 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
                 }
             }
         }
-        if (feedback) {
-            feedback->select(variants);
-        } else {
-            std::sort(variants.begin(), variants.end(), gainOrder);
-            if (variants.size() > options.max_candidates) {
-                variants.resize(options.max_candidates);
-            }
-        }
+        feedback.select(variants);
         const auto cone = options.batch_size > 1 ? downstreamCone(state.net, network)
                                                  : std::vector<odb::dbInst*>{};
         for (size_t i = 0; i < variants.size(); ++i) {
@@ -1227,18 +1013,8 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
         }
     }
     // Diversify nets before retrying another cell/location on the same net.
-    if (options.strategy == ecc::PathStrategy::Feedback) {
-        std::stable_sort(collection.candidates.begin(), collection.candidates.end(),
-                         PathPolicy::order);
-    } else {
-        std::sort(collection.candidates.begin(), collection.candidates.end(),
-                  [](const auto& a, const auto& b) {
-                      if (a.variant_rank != b.variant_rank) {
-                          return a.variant_rank < b.variant_rank;
-                      }
-                      return gainOrder(a, b);
-                  });
-    }
+    std::stable_sort(collection.candidates.begin(), collection.candidates.end(),
+                     PathPolicy::order);
     return collection;
 }
 
@@ -1246,22 +1022,9 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
                                       const std::vector<NetState>& states,
                                       const PathSearchOptions& options,
                                       const DesignMetrics& metrics,
-                                      PathPolicy* feedback) {
-    const bool gain = options.strategy != ecc::PathStrategy::Sequential;
-    auto result =
-        gain ? collectPathGainCandidates(analysis, sta, states, options, metrics,
-                                         feedback)
-             : collectSequentialCandidates(analysis, sta, states, options, false);
-    if (!gain && options.recovery) {
-        auto async = collectSequentialCandidates(analysis, sta, states, options, true);
-        result.duplicate_candidates += async.duplicate_candidates;
-        result.candidates.insert(result.candidates.end(),
-                                 std::make_move_iterator(async.candidates.begin()),
-                                 std::make_move_iterator(async.candidates.end()));
-        std::stable_sort(
-            result.candidates.begin(), result.candidates.end(),
-            [](const auto& a, const auto& b) { return a.slack < b.slack; });
-    }
+                                      PathPolicy& feedback) {
+    auto result = generatePathCandidates(analysis, sta, states, options, metrics,
+                                            feedback);
     // Keep the best-ranked objective for an identical physical action. Pins
     // from either query remain valid; PathEnd pointers would not survive it.
     std::unordered_set<std::string> actions;
@@ -1274,11 +1037,6 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
                                   return true;
                               });
     result.candidates.erase(end, result.candidates.end());
-    if (!gain && options.batch_size > 1) {
-        for (auto& candidate : result.candidates) {
-            candidate.cone = downstreamCone(candidate.net, sta->getDbNetwork());
-        }
-    }
     return result;
 }
 
@@ -1359,6 +1117,13 @@ bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
     if (a.predicted_tns_gain != b.predicted_tns_gain) {
         return a.predicted_tns_gain > b.predicted_tns_gain;
     }
+    // Equal endpoint forecasts do not justify a larger edit. Prefer a smaller
+    // tree before secondary proxy gains; STA still validates every proposal.
+    const auto count_a = a.tree ? a.tree->nodes.size() : 1;
+    const auto count_b = b.tree ? b.tree->nodes.size() : 1;
+    if (count_a != count_b) {
+        return count_a < count_b;
+    }
     // The RC/slew proxy may be optimistic for long, weakly driven trees.
     // Preserve path-margin information before using that proxy to break a
     // global-objective tie; neither estimate is an electrical proof.
@@ -1368,8 +1133,8 @@ bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
     if (a.quality.electrical_excess != b.quality.electrical_excess) {
         return a.quality.electrical_excess < b.quality.electrical_excess;
     }
-    const double area_a = detail::area(a.master) * (a.tree ? a.tree->nodes.size() : 1);
-    const double area_b = detail::area(b.master) * (b.tree ? b.tree->nodes.size() : 1);
+    const double area_a = detail::area(a.master) * count_a;
+    const double area_b = detail::area(b.master) * count_b;
     if (area_a != area_b) {
         return area_a < area_b;
     }
@@ -1384,12 +1149,8 @@ PathPolicy::PathPolicy(const PathSearchOptions& policy, PathSearchState& statist
 }
 PathPolicy::~PathPolicy() = default;
 
-bool PathPolicy::usesFeedback() const {
-    return options.strategy == PathStrategy::Feedback;
-}
-
 bool PathPolicy::reuseRejections() const {
-    return usesFeedback() && options.reuse_rejections && options.failure_cache &&
+    return options.reuse_rejections && options.failure_cache &&
            options.batch_size == 1;
 }
 
@@ -1397,14 +1158,7 @@ CandidateCollection PathPolicy::collect(detail::DesignAnalysis& analysis,
                                         sta::dbSta* sta,
                                         const std::vector<detail::NetState>& states,
                                         const DesignMetrics& metrics) {
-    auto collection = collectCandidates(analysis, sta, states, options, metrics,
-                                        usesFeedback() ? this : nullptr);
-    if (!usesFeedback()) {
-        for (auto& candidate : collection.candidates) {
-            rank(candidate);
-        }
-    }
-    return collection;
+    return collectCandidates(analysis, sta, states, options, metrics, *this);
 }
 
 void PathPolicy::beginCollection() {
@@ -1427,7 +1181,7 @@ double PathPolicy::tnsEstimate(const PathBufferCandidate& c) const {
 path_detail::ExplorationFrontier::Decision
 PathPolicy::explore(const PathBufferCandidate& c) {
     using Decision = path_detail::ExplorationFrontier::Decision;
-    if (!usesFeedback() || !options.adaptive_search || options.batch_size != 1) {
+    if (!options.adaptive_search || options.batch_size != 1) {
         return Decision::Explore;
     }
     const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
@@ -1455,11 +1209,6 @@ void PathPolicy::committed() {
 }
 
 void PathPolicy::rank(PathBufferCandidate& candidate, bool count) {
-    if (!usesFeedback()) {
-        candidate.ranked_wns_gain = candidate.predicted_wns_gain;
-        candidate.ranked_tns_gain = candidate.predicted_tns_gain;
-        return;
-    }
     candidate.family_attempts =
         options.diversify ? (options.group_schedule
                                  ? group_coverage.attempts(candidate.load_group_key,
@@ -1598,7 +1347,7 @@ void PathPolicy::recoverElectrical(const PathBufferCandidate& failed,
                                    const PathObservation& trial,
                                    std::vector<PathBufferCandidate>& pending,
                                    size_t next) {
-    if (!usesFeedback() || trial.rejection_reasons.empty() || !trial.metrics_complete ||
+    if (trial.rejection_reasons.empty() || !trial.metrics_complete ||
         !path_detail::needsFullVerification(trial.rejection_reasons)) {
         return;
     }
@@ -1643,9 +1392,6 @@ void PathPolicy::covered(const PathBufferCandidate& plan) {
 }
 void PathPolicy::observe(const PathBufferCandidate& plan,
                          const PathObservation& trial) {
-    if (!usesFeedback()) {
-        return;
-    }
     covered(plan);
     const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
     const double wns = local ? trial.objective_wns_gain : trial.wns_gain;
@@ -1672,7 +1418,7 @@ void PathPolicy::observe(const PathBufferCandidate& plan,
 }
 
 void PathPolicy::screen(std::vector<PathBufferCandidate>& candidates) {
-    if (usesFeedback() && options.min_relative_improvement > 0) {
+    if (options.min_relative_improvement > 0) {
         const auto& reference =
             globalGainReference(options, result.before, result.after);
         const double wns_floor = std::max(double(options.min_improvement),
@@ -1741,7 +1487,7 @@ void PathSchedule::reopen() {
 }
 
 void PathSchedule::rerank() {
-    if (options.strategy != PathStrategy::Feedback || !hasNext()) {
+    if (!hasNext()) {
         return;
     }
     for (size_t i = cursor; i < plans.size(); ++i) {
@@ -1775,7 +1521,7 @@ void PathSchedule::skipBatch() {
 
 bool PathSchedule::prepareNext() {
     frontier_audit = false;
-    if (options.strategy == PathStrategy::Feedback && width == 1) {
+    if (width == 1) {
         const auto decision = policy.explore(plans[cursor]);
         if (decision == ExplorationFrontier::Decision::Suspend) {
             ++result.frontier_suspended;

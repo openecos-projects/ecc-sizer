@@ -125,7 +125,7 @@ void legalizeRepairPlacement(odb::dbBlock* block, dpl::Opendp* placer,
                              bool incremental, PlacementLegalizer legalizer) {
     if (!block || !placer || block->getRows().empty()) {
         throw std::runtime_error(
-            "native repair legalization requires a placer and core rows");
+            "repair legalization requires a placer and core rows");
     }
     const std::unordered_set<odb::dbInst*> protected_set(protected_instances.begin(),
                                                          protected_instances.end());

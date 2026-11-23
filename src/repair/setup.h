@@ -27,7 +27,8 @@ struct SetupRepairResult {
     DesignMetrics after;
 };
 
-// Setup-only native strategy. Shares OpenDB/STA models with design repair.
+// Setup repair with cell replacement and side-load buffering. Shares
+// OpenDB/STA models with DRV repair.
 // Input must have current RC/STA; runtime.prepare legalizes each candidate ECO.
 // Failed trials restore topology and placement immediately. With deferred
 // refresh, STA is refreshed after the next edit or before returning; baseline

@@ -10,7 +10,6 @@
 #include <vector>
 
 namespace ecc {
-enum class PathStrategy { Sequential, PathGain, Feedback };
 enum class PathPlacement { Trial, Final };
 enum class PathVerification { Trial, Final };
 enum class PathGainScope { Global, CurrentGlobal, Endpoints };
@@ -89,8 +88,6 @@ struct PathSearchSettings {
     unsigned paths_per_endpoint = 1;
     float min_improvement = 1e-13f;
     bool defer_rollback_refresh = true;
-    // Sequential is the measured reference; path_gain ranks multi-path ECOs.
-    PathStrategy strategy = PathStrategy::PathGain;
     // Feedback ablations; none changes the global STA acceptance tolerances.
     bool failure_cache = true;
     bool calibrate = true;
@@ -128,13 +125,13 @@ struct PathSearchSettings {
     // ECO. "global" uses initial full-design scaling; "current_global"
     // uses the committed remaining full-design violation, recomputed after
     // each acceptance. Neither changes global hold/DRV/non-regression guards.
-    PathGainScope gain_scope = PathGainScope::Endpoints;
+    PathGainScope gain_scope = PathGainScope::Global;
     // Relative to the selected gain scope.
     // Zero preserves the existing absolute improvement requirement.
     // Default search only screens with the zero-negative-slack upper bound.
     // Optional adaptive search additionally uses audited empirical evidence;
     // its stopping condition is heuristic, not a proof of global optimality.
-    double min_relative_improvement = 0;
+    double min_relative_improvement = 0.001;
     // Optional wall time / actual refresh limits. Absence means unlimited.
     // An in-flight STA/rollback always completes before returning.
     std::optional<double> max_seconds;
@@ -143,13 +140,13 @@ struct PathSearchSettings {
     unsigned max_candidates = 8;
     // Counts STA-verified ECO batches, including a batch that is rolled back.
     // Absence means unlimited; zero permits no trials.
-    std::optional<unsigned> max_trials = 8;
+    std::optional<unsigned> max_trials;
     // Optional early exit after this many rejected single-candidate STA
     // trials (including reused rejection verdicts) without an acceptance.
     // Absence disables it. Batch failures and
     // cheap prechecks do not count; final legalization/STA still runs.
-    std::optional<unsigned> max_consecutive_rejections;
-    // Default one preserves sequential greedy behavior; larger values enable
+    std::optional<unsigned> max_consecutive_rejections = 32;
+    // Default one validates each candidate independently; larger values enable
     // buffer-only ECO batching for throughput experiments.
     unsigned batch_size = 1;
     std::optional<unsigned> max_inserted_buffers;

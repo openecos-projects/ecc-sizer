@@ -256,8 +256,8 @@ class EndpointFailures {
     std::unordered_map<std::string, Evidence> failures_;
 };
 
-// Per-run strategy selection, ranking and feedback. The runner supplies measured
-// observations without needing to branch on sequential/path_gain/feedback.
+// Per-run ranking and feedback. The runner supplies measured
+// observations without needing to branch on candidate ordering or feedback.
 // This policy never edits the design or accepts an ECO.
 class PathPolicy {
   public:
@@ -286,7 +286,6 @@ class PathPolicy {
     void observe(const PathBufferCandidate& candidate, const PathObservation& trial);
 
   private:
-    bool usesFeedback() const;
     struct Model {
         std::string context;
         path_detail::GainCalibration wns, tns;
@@ -330,7 +329,6 @@ struct PathBufferCandidate {
     BufferLocation location;
     float slack = 0;
     float predicted_gain = 0;
-    size_t path_index = 0;
     float predicted_wns_gain = 0;
     float predicted_tns_gain = 0;
     path_detail::CandidateQuality quality;

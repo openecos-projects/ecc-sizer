@@ -58,7 +58,7 @@ class DrvRepairer {
 // OpenROAD-style DRV repair: drivers are visited in the reverse levelized
 // order used by RepairDesign::repairDriver().  The implementation keeps the
 // Sizer transaction/acceptance boundary and OpenDB inserter, while exposing a
-// separate strategy for A/B evaluation against Native repair.
+// separate traversal policy for comparison with DrvRepairer.
 struct OrdDrvRepairResult {
     bool ok = false;
     bool converged = false;

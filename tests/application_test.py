@@ -105,7 +105,7 @@ set_max_fanout 4 [current_design]
         self.assertFalse(list(self.work.glob("*.odb")))
 
     def test_drv_setup_default_and_odb_round_trip(self):
-        prefix = self.work / "native result"
+        prefix = self.work / "drv setup result"
         log = self.work / "sizer.log"
         output = self.run_sizer(self.script, "--threads", "1", "--output", prefix,
                                 "--log", log)
@@ -156,7 +156,7 @@ set_output_delay 0.49 -clock clk [get_ports out0]
                     self.assertIn("accepted=false", output)
                     self.assertIn("reasons=[no_setup_gain", output)
                     self.assertIn("global gain WNS=+", output)
-                    self.assertIn("global gain WNS=-", output)
+                    self.assertRegex(output, r"global gain WNS=[+-]\d+\.\d+ns TNS=[+-]\d+\.\d+ns")
                     self.assertIn("objective gain WNS=", log.read_text())
                 else:
                     self.assertNotIn("Path trial", output)
@@ -231,7 +231,7 @@ read_spef {{{spef}}}
                                 "--output", self.work / "script-spef")
         self.assertIn("hold finished", output)
         output = self.run_sizer(extracted_script, "--flow", "drv,setup,power",
-                                "--threads", "1", "--output", self.work / "native-spef")
+                                "--threads", "1", "--output", self.work / "drv-setup-spef")
         self.assertIn("setup finished", output)
         self.assertIn("power finished", output)
         self.assertEqual(spef.read_bytes(), original)
@@ -248,9 +248,9 @@ read_spef {{{spef}}}
             script.write("set_input_delay 0 -clock clk [get_ports in]\n"
                          "set_output_delay 1 -clock clk [get_ports out*]\n")
         output = self.run_sizer(self.script, "--flow", "drv,setup,power", "--legalizer", "abacus", "--threads", "1",
-                                "--output", self.work / "native-power")
+                                "--output", self.work / "drv-setup-power")
         self.assertIn("power finished", output)
-        self.assertTrue((self.work / "native-power.odb").is_file())
+        self.assertTrue((self.work / "drv-setup-power.odb").is_file())
 
 
 if __name__ == "__main__":

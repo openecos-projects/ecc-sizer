@@ -984,6 +984,9 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     result.converged = result.after.setup_wns >= 0;
     result.message =
         result.converged ? "path buffer setup timing met"
+        : remainingBufferBudget(options.max_inserted_buffers,
+                                result.inserted_buffers) == 0
+            ? "path buffer insertion budget exhausted; violations remain"
         : result.stopped_on_rejections
             ? "path buffer stopped after consecutive rejections; search not exhausted"
         : !budget_available()

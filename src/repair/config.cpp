@@ -82,12 +82,6 @@ static std::pair<std::string, std::string> assignment(const std::string& text) {
     return {key, value};
 }
 
-static constexpr auto enumValues(PathStrategy) {
-    using enum PathStrategy;
-    return std::array{std::pair{std::string_view{"sequential"}, Sequential},
-                      std::pair{std::string_view{"path_gain"}, PathGain},
-                      std::pair{std::string_view{"feedback"}, Feedback}};
-}
 static constexpr auto enumValues(PathPlacement) {
     using enum PathPlacement;
     return std::array{std::pair{std::string_view{"trial"}, Trial},
@@ -283,7 +277,6 @@ static void visitSettings(Config& c, Visitor&& visit) {
     visit("path.tree_candidates", c.path.tree_candidates, 1.0);
     visit("path.gain_scope", c.path.gain_scope, 1.0);
     visit("path.fanout_repair", c.path.fanout_repair, 1.0);
-    visit("path.strategy", c.path.strategy, 1.0);
     visit("path.failure_cache", c.path.failure_cache, 1.0);
     visit("path.adaptive_search", c.path.adaptive_search, 1.0);
     visit("path.timing_precheck", c.path.timing_precheck, 1.0);
@@ -390,7 +383,6 @@ void PathSearchSettings::validate() const {
     require(max_paths > 0, "path.max_paths > 0");
     require(max_candidates > 0, "path.max_candidates > 0");
     require(batch_size > 0, "path.batch_size > 0");
-    (void)enumName(strategy);
     (void)enumName(gain_scope);
     (void)enumName(placement);
     (void)enumName(verification);

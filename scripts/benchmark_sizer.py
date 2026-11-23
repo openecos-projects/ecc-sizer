@@ -15,12 +15,10 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = {
     "baseline": ("legalize", {}),
-    "native": ("drv,setup", {}),
+    "drv-setup": ("drv,setup", {}),
     "vg": ("vg", {}),
     "path": ("path", {}),
-    "path-sequential": ("path", {"path.strategy": "sequential"}),
-    "path-feedback": ("path", {"path.strategy": "feedback"}),
-    "path-native": ("path,drv,setup", {}),
+    "path-drv-setup": ("path,drv,setup", {}),
 }
 
 
@@ -37,13 +35,16 @@ def tcl(value):
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('[', '\\[') + '"'
 
 
-def loader(benchmark, design, input_def, threads):
+def loader(benchmark, design, input_def, threads, dont_use=()):
+    restrictions = ""
+    if dont_use:
+        restrictions = "set_dont_use [list " + " ".join(tcl(p) for p in dont_use) + "]\n"
     return f"""set platform_dir {tcl(benchmark / 'platform')}
 set design_path {tcl(benchmark / 'design' / design)}
 source $design_path/lib_setup.tcl
 foreach lef $lefs {{ read_lef $lef }}
 foreach lib $libbest {{ read_liberty $lib }}
-read_def {tcl(input_def)}
+{restrictions}read_def {tcl(input_def)}
 read_sdc $design_path/contest.sdc
 set_ideal_network [all_clocks]
 source $rc_file
@@ -121,7 +122,7 @@ def run_case(args, design, profile, identity):
     source = args.benchmark / "design" / design / "contest.def"
     prefix = directory / "repaired"
     input_script = directory / "input.tcl"
-    input_script.write_text(loader(args.benchmark, design, source, args.threads))
+    input_script.write_text(loader(args.benchmark, design, source, args.threads, args.dont_use))
     command = [str(args.sizer), str(input_script), "--flow", flow,
                "--threads", str(args.threads), "--output", str(prefix),
                "--log-level", "debug"]
@@ -135,7 +136,7 @@ def run_case(args, design, profile, identity):
         script = directory / "evaluate.tcl"
         # A fresh process of the same binary, terminating from the Tcl loader
         # before the application runs repair stages. No re-legalization here.
-        body = loader(args.benchmark, design, prefix.with_suffix('.def'), args.threads) + METRICS
+        body = loader(args.benchmark, design, prefix.with_suffix('.def'), args.threads, args.dont_use) + METRICS
         script.write_text("if {[catch {\n" + body + "\n} message options]} {\n"
                           "    puts stderr [dict get $options -errorinfo]\n    exit 1\n}\nexit 0\n")
         result["evaluation"] = execute([str(args.sizer), str(script)],
@@ -162,16 +163,19 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--designs", nargs="+", required=True)
     parser.add_argument("--profiles", nargs="+", choices=PROFILES,
-                        default=["baseline", "native", "vg", "path"])
+                        default=["baseline", "drv-setup", "vg", "path"])
     parser.add_argument("--threads", type=int, default=32)
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("--set", action="append", default=[])
+    parser.add_argument("--dont-use", action="append", default=[],
+                        help="Liberty cell pattern excluded through OpenROAD set_dont_use; repeatable")
     args = parser.parse_args()
     for key in ("benchmark", "sizer", "output"):
         setattr(args, key, getattr(args, key).resolve())
     args.output.mkdir(parents=True, exist_ok=True)
     identity = {"binary_sha256": digest(args.sizer), "threads": args.threads,
-                "overrides": args.set, "benchmark": str(args.benchmark),
+                "overrides": args.set, "dont_use": args.dont_use,
+                "benchmark": str(args.benchmark),
                 "runner_sha256": digest(Path(__file__))}
     manifest = {"identity": identity,
                 "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),

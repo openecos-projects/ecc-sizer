@@ -998,7 +998,7 @@ PowerRepairResult PowerRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     return local_slack_ok;
                 };
                 // Migrate the old power -> timing recovery strategy onto the
-                // same OpenDB journal and STA models as native repair. A child
+                // same OpenDB journal and STA models as DRV/setup repair. A child
                 // commit remains provisional until whole-design acceptance.
                 if (powerImproves(result.after, after, options) &&
                     (!localSlackOk() || !acceptable(result.after, after, options)) &&

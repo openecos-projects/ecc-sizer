@@ -297,7 +297,6 @@ class PathScheduleTest : public ::testing::Test {
         master->setType(odb::dbMasterType::CORE);
         master->setFrozen();
         block = odb::dbBlock::create(odb::dbChip::create(db, tech), "top");
-        options.strategy = ecc::PathStrategy::Sequential;
         options.batch_size = 4;
         options.fanout_repair = false;
     }
@@ -306,6 +305,10 @@ class PathScheduleTest : public ::testing::Test {
         PathBufferCandidate result;
         result.net = odb::dbNet::create(block, name);
         result.master = master;
+        result.feedback_key = name;
+        result.group_key = name;
+        result.load_group_key = name;
+        result.feedback_context = std::make_shared<const std::string>("context");
         return result;
     }
     odb::dbDatabase* db = nullptr;
@@ -314,6 +317,23 @@ class PathScheduleTest : public ::testing::Test {
     ecc::PathSearchOptions options;
     ecc::PathSearchState state;
 };
+
+TEST_F(PathScheduleTest, EqualTimingForecastPrefersFewerBuffers) {
+    auto small = candidate("small");
+    auto large = candidate("large");
+    auto tree = std::make_shared<PathTree>();
+    tree->nodes.resize(8);
+    large.tree = tree;
+    small.predicted_wns_gain = large.predicted_wns_gain = .25;
+    small.predicted_tns_gain = large.predicted_tns_gain = .5;
+    // A larger secondary path proxy does not override equal endpoint gains.
+    large.quality.path_gain = 10;
+    EXPECT_TRUE(gainOrder(small, large));
+    EXPECT_FALSE(gainOrder(large, small));
+    // Buffer count does not override a strictly better timing forecast.
+    large.predicted_wns_gain = .5;
+    EXPECT_TRUE(gainOrder(large, small));
+}
 
 TEST_F(PathScheduleTest, RejectedBatchRetriesEveryMemberIndividually) {
     PathPolicy feedback(options, state);
@@ -364,36 +384,7 @@ TEST_F(PathScheduleTest, BudgetsCountWholeTreesAndDistinguishZeroFromUnlimited) 
     EXPECT_EQ(select(20000).indices, (std::vector<size_t>{0}));
 }
 
-TEST_F(PathScheduleTest, NonFeedbackStrategiesIgnoreLearningAndFailureReuse) {
-    for (auto strategy : {ecc::PathStrategy::Sequential, ecc::PathStrategy::PathGain}) {
-        options.strategy = strategy;
-        options.adaptive_search = true;
-        options.reuse_rejections = true;
-        options.batch_size = 1;
-        auto plan = candidate(strategy == ecc::PathStrategy::Sequential ? "seq" : "gain");
-        plan.predicted_wns_gain = .25;
-        plan.predicted_tns_gain = .5;
-        // Non-feedback candidates need no feedback context to be observed/ranked.
-        PathPolicy policy(options, state);
-        policy.rank(plan);
-        EXPECT_DOUBLE_EQ(plan.ranked_wns_gain, .25);
-        EXPECT_DOUBLE_EQ(plan.ranked_tns_gain, .5);
-        EXPECT_FALSE(policy.reuseRejections());
-        const std::vector<std::string> reasons{"setup_wns"};
-        const PathObservation rejected{-.5, -1, -.5, -1, reasons};
-        PathSchedule schedule({plan}, options, state, policy);
-        const auto batch = schedule.selectBatch(INFINITY);
-        ASSERT_EQ(batch.indices.size(), 1u);
-        schedule.observe(batch, rejected);
-        schedule.recoverElectrical(batch, rejected);
-        EXPECT_EQ(state.feedback_updates, 0u);
-        EXPECT_FALSE(policy.hasFailure(plan));
-        EXPECT_EQ(policy.explore(plan), ExplorationFrontier::Decision::Explore);
-    }
-}
-
 TEST_F(PathScheduleTest, FeedbackLearnsOnlyFromSingleCandidateMeasurements) {
-    options.strategy = ecc::PathStrategy::Feedback;
     options.reuse_rejections = true;
     options.batch_size = 2;
     auto first = candidate("a");

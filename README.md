@@ -82,6 +82,8 @@ The default flow is `drv,setup`: electrical repair followed by setup repair.
 Stages can be ordered independently: `--flow path,drv,setup` first applies Path,
 then repairs electrical violations and setup timing. Every stage sees the
 preceding committed design. `native` and `design` are no longer stage names.
+The benchmark runner uses `drv-setup` for `drv,setup` and `path-drv-setup` for
+`path,drv,setup`; these profile names describe ordered stage combinations.
 
 VG and GOBI run only when explicitly listed in `--flow`; setup does not invoke
 Path, VG or GOBI. For example, `--flow setup,vg` runs setup before VG, while
@@ -98,7 +100,7 @@ plans and verify timing/DRV acceptance.
 | path | STA-verified path buffer search |
 | gobi | GOBI CUDA buffer search |
 | ord | OpenROAD-style driver traversal using Sizer edits/acceptance |
-| power | Native resizing/VT power search with bounded DRV/setup recovery |
+| power | Cell resizing/VT power search with bounded DRV/setup recovery |
 | fanout | Standalone fanout buffer insertion |
 | legalize | Legalize the current placement and refresh timing |
 | hold | OpenROAD hold repair with legalization and a second repair pass |
@@ -217,8 +219,8 @@ other users of the device; they are not GOBI's allocation totals. All sizes use 
 - `repair/setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
   remain independent strategies, not implicit calls inside setup.
 - `algorithms/path.*`: path candidates, forecasts, feedback and queue scheduling,
-  grouped in one header and implementation. `PathPolicy` selects the strategy
-  and handles measurements; `PathSchedule` owns queue and batch decisions.
+  grouped in one header and implementation. `PathPolicy` ranks candidates
+  and learns from measurements; `PathSchedule` owns queue and batch decisions.
   Neither edits the design or decides acceptance.
 - `repair/path.*`: `PathRepairer` executes candidates through ECO transactions,
   STA verification, rollback and final placement, returning `PathRepairResult`.
@@ -251,9 +253,11 @@ execution; action permissions, insertion limits, STA acceptance and rollback
 remain enforced by the runner. The CLI uses these runners; Path does not
 automatically invoke VG.
 
-Path defaults to predicted path-gain ordering. `--set path.strategy=feedback`
-uses measured trial gains to calibrate later forecasts, diversify candidate
-families and defer failed variants. Rejection history is scoped to the design
+Path combines path-gain forecasts with measured trial feedback to calibrate
+later forecasts, diversify candidate families and defer failed variants.
+There is one Path strategy; the old `path.strategy` selector and sequential
+implementation have been removed. Equal WNS/TNS forecasts prefer fewer buffers
+before secondary ranking criteria. Rejection history is scoped to the design
 generation and structural context; committed edits reopen affected opportunities.
 Optional adaptive exploration also audits empirical failures before suspending
 similar candidates. Forecasts guide scheduling, never replace full STA
@@ -323,7 +327,14 @@ are not instructions for the current CLI.
 Path execution limits (`max_trials`, `max_seconds`, `max_refreshes`,
 `max_consecutive_rejections`), setup's `max_trials`, both stages'
 `max_area_growth`, and VG/GOBI `max_nets` also accept `unlimited`. Zero is an
-actual cap, including zero area growth. Default trial caps remain Path=8 and
-setup=24; Path time/refresh/rejection limits and VG/GOBI net limits are absent.
+actual cap, including zero area growth. Path has no default total trial cap:
+it stops after 32 consecutive rejected single-candidate trials, resetting that
+count only after an accepted improvement. This heuristic bounds an unproductive
+tail; it does not prove optimality. Setup defaults to 24 trials; Path time/refresh
+limits and VG/GOBI net limits are absent. Path requires an absolute improvement
+of 0.0001 ns and a relative WNS or TNS improvement of 0.1% of the initial global
+violation, with timing/electrical non-regression guards. The default area growth
+limit remains 2%. `--set path.max_consecutive_rejections=unlimited` disables
+the stagnation limit; an explicit `path.max_trials` remains a total hard budget.
 VG/GOBI's `require_drv_non_regression` guards electrical violation counts;
 strict improvement may be timing or electrical, so it is not named “reduction.”
