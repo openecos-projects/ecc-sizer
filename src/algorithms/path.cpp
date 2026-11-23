@@ -383,20 +383,14 @@ float recoveryConstraintGain(sta::dbSta* sta, odb::dbObject* term, float new_sle
                                                                 : 0;
 }
 
-CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis,
-                                                sta::dbSta* sta,
-                                                const std::vector<NetState>& states,
-                                                const PathSearchOptions& options,
-                                                bool recovery) {
-    CandidateCollection collection;
-    auto& result = collection.candidates;
-    auto* network = sta->getDbNetwork();
-    std::unordered_map<odb::dbNet*, const NetState*> by_net;
-    by_net.reserve(states.size());
-    for (const auto& state : states) {
-        by_net.emplace(state.net, &state);
-    }
+struct SampledPath {
+    float slack;
+    size_t start;
+    std::vector<const sta::Pin*> pins;
+};
 
+std::vector<SampledPath> samplePaths(sta::dbSta* sta, const PathSearchOptions& options,
+                                     bool recovery) {
     sta::StringSeq groups;
     const auto ends = sta->findPathEnds(
         nullptr, nullptr, nullptr, false, sta->scenes(), sta::MinMaxAll::max(),
@@ -404,11 +398,6 @@ CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis
         true, groups, !recovery, false, recovery, false, false, false);
     // STA slack queries may invalidate PathEnd and PathExpanded objects. Copy
     // every path before evaluating candidates or querying endpoint slack.
-    struct SampledPath {
-        float slack;
-        size_t start;
-        std::vector<const sta::Pin*> pins;
-    };
     std::vector<SampledPath> paths;
     unsigned path_count = 0;
     for (auto* end : ends) {
@@ -428,6 +417,37 @@ CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis
         }
         paths.push_back(std::move(path));
     }
+    return paths;
+}
+
+bool sequentialOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
+    if (a.slack != b.slack) {
+        return a.slack < b.slack;
+    }
+    if (a.path_index != b.path_index) {
+        return a.path_index > b.path_index;
+    }
+    if (a.predicted_gain != b.predicted_gain) {
+        return a.predicted_gain > b.predicted_gain;
+    }
+    return a.net->getName() < b.net->getName();
+}
+
+CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis,
+                                                sta::dbSta* sta,
+                                                const std::vector<NetState>& states,
+                                                const PathSearchOptions& options,
+                                                bool recovery) {
+    CandidateCollection collection;
+    auto& result = collection.candidates;
+    auto* network = sta->getDbNetwork();
+    std::unordered_map<odb::dbNet*, const NetState*> by_net;
+    by_net.reserve(states.size());
+    for (const auto& state : states) {
+        by_net.emplace(state.net, &state);
+    }
+
+    const auto paths = samplePaths(sta, options, recovery);
     for (const auto& path : paths) {
         if (path.pins.empty()) {
             continue;
@@ -561,37 +581,13 @@ CandidateCollection collectSequentialCandidates(detail::DesignAnalysis& analysis
             candidate.endpoints.emplace_back(endpoint, pin_slack);
             candidate.objective_wns = candidate.objective_tns = pin_slack;
         }
-        std::sort(path_candidates.begin(), path_candidates.end(),
-                  [](const PathBufferCandidate& a, const PathBufferCandidate& b) {
-                      if (a.slack != b.slack) {
-                          return a.slack < b.slack;
-                      }
-                      if (a.path_index != b.path_index) {
-                          return a.path_index > b.path_index;
-                      }
-                      if (a.predicted_gain != b.predicted_gain) {
-                          return a.predicted_gain > b.predicted_gain;
-                      }
-                      return a.net->getName() < b.net->getName();
-                  });
+        std::sort(path_candidates.begin(), path_candidates.end(), sequentialOrder);
         if (path_candidates.size() > options.max_candidates) {
             path_candidates.resize(options.max_candidates);
         }
         result.insert(result.end(), path_candidates.begin(), path_candidates.end());
     }
-    std::sort(result.begin(), result.end(),
-              [](const PathBufferCandidate& a, const PathBufferCandidate& b) {
-                  if (a.slack != b.slack) {
-                      return a.slack < b.slack;
-                  }
-                  if (a.path_index != b.path_index) {
-                      return a.path_index > b.path_index;
-                  }
-                  if (a.predicted_gain != b.predicted_gain) {
-                      return a.predicted_gain > b.predicted_gain;
-                  }
-                  return a.net->getName() < b.net->getName();
-              });
+    std::sort(result.begin(), result.end(), sequentialOrder);
     std::unordered_set<CandidateKey, CandidateKeyHash> unique;
     unique.reserve(result.size());
     std::vector<PathBufferCandidate> deduplicated;
@@ -653,6 +649,139 @@ std::vector<odb::dbInst*> downstreamCone(odb::dbNet* net, sta::dbNetwork* networ
     return {instances.begin(), instances.end()};
 }
 
+// One committed STA snapshot shared by every candidate forecast. Own no
+// Path/PathEnd pointers: querying slack can rebuild STA's path groups.
+struct PathSamples {
+    std::unordered_map<odb::dbNet*, std::vector<PathUse>> uses;
+    std::vector<float> endpoint_slacks;
+    std::vector<const sta::Pin*> endpoint_pins;
+    std::vector<path_detail::PathForecast> sampled_paths;
+    std::map<size_t, double> actual_endpoint_slacks;
+    std::unordered_map<
+        odb::dbNet*,
+        std::unordered_map<odb::dbObject*, path_detail::EndpointSlackProfile>>
+        endpoint_profiles;
+    PathSamples(sta::dbSta* sta, const PathSearchOptions& options) {
+        auto* network = sta->getDbNetwork();
+        std::unordered_map<const sta::Pin*, size_t> endpoints;
+        // Preserve each sampled path, including competing checks/paths at the
+        // same endpoint. Generate physical actions once for their union.
+        for (bool recovery : {false, true}) {
+            if (recovery && !options.recovery) {
+                continue;
+            }
+            for (const auto& path : samplePaths(sta, options, recovery)) {
+                const float slack = path.slack;
+                if (!std::isfinite(slack) || path.pins.empty()) {
+                    continue;
+                }
+                const auto* endpoint = path.pins.back();
+                const auto [it, added] = endpoints.emplace(endpoint, endpoints.size());
+                if (added) {
+                    endpoint_slacks.push_back(slack);
+                    endpoint_pins.push_back(endpoint);
+                } else {
+                    endpoint_slacks[it->second] =
+                        std::min(endpoint_slacks[it->second], slack);
+                }
+                const auto path_index = sampled_paths.size();
+                sampled_paths.push_back({it->second, slack, slack, false});
+                for (size_t i = path.start; i + 1 < path.pins.size(); ++i) {
+                    auto* output = network->staToDb(path.pins[i]);
+                    auto* load = network->staToDb(path.pins[i + 1]);
+                    if (!output || output->getObjectType() != odb::dbITermObj ||
+                        !load) {
+                        continue;
+                    }
+                    auto* driver = static_cast<odb::dbITerm*>(output);
+                    if (driver->getIoType() != odb::dbIoType::OUTPUT ||
+                        !driver->getNet()) {
+                        continue;
+                    }
+                    auto* load_net = load->getObjectType() == odb::dbITermObj
+                                         ? static_cast<odb::dbITerm*>(load)->getNet()
+                                     : load->getObjectType() == odb::dbBTermObj
+                                         ? static_cast<odb::dbBTerm*>(load)->getNet()
+                                         : nullptr;
+                    if (load_net == driver->getNet()) {
+                        uses[load_net].push_back(
+                            {it->second, load, slack, path_index, recovery});
+                    }
+                }
+            }
+        }
+        if (endpoint_slacks.empty()) {
+            return;
+        }
+        // Slack queries may rebuild OpenSTA path groups. Do not issue them while
+        // iterating the PathEnd objects returned by findPathEnds().
+        for (size_t i = 0; i < endpoint_pins.size(); ++i) {
+            actual_endpoint_slacks.emplace(
+                i, std::min(0.0, double(sta->slack(
+                                     endpoint_pins[i], sta::RiseFallBoth::riseFall(),
+                                     sta->scenes(), sta::MinMax::max()))));
+        }
+        collectEndpointProfiles(sta, options);
+    }
+
+    void collectEndpointProfiles(sta::dbSta* sta, const PathSearchOptions& options) {
+        auto* network = sta->getDbNetwork();
+        // Index the CURRENT worst max path of every endpoint once per committed
+        // design, retaining only nets already chosen by the critical-path search.
+        // This does not expand the candidate-net search or the acceptance scope.
+        // Each endpoint contributes at most once per net, including reconvergence.
+        // It is a scheduling forecast: competing paths after the ECO still require
+        // global STA, and these profiles are never used to skip a trial.
+        if (options.endpoint_coverage &&
+            options.gain_scope != ecc::PathGainScope::Endpoints) {
+            sta->findRequireds();
+            std::unordered_map<const sta::Pin*, sta::Path*> worst_paths;
+            for (auto* vertex : sta->endpoints()) {
+                auto* path = sta->vertexWorstSlackPath(vertex, sta::MinMax::max());
+                if (!path || !std::isfinite(double(path->slack(sta))) ||
+                    std::abs(double(path->slack(sta))) >= detail::kInf) {
+                    continue;
+                }
+                auto [it, added] = worst_paths.emplace(vertex->pin(), path);
+                if (!added && path->slack(sta) < it->second->slack(sta)) {
+                    it->second = path;
+                }
+            }
+            for (const auto& [endpoint, worst] : worst_paths) {
+                sta::PathExpanded path(worst, sta);
+                std::unordered_set<odb::dbNet*> seen;
+                for (size_t i = path.startIndex(); i + 1 < path.size(); ++i) {
+                    auto* output = network->staToDb(path.path(i)->pin(sta));
+                    auto* load = network->staToDb(path.path(i + 1)->pin(sta));
+                    if (!output || output->getObjectType() != odb::dbITermObj ||
+                        !load) {
+                        continue;
+                    }
+                    auto* driver = static_cast<odb::dbITerm*>(output);
+                    auto* net = driver->getNet();
+                    if (driver->getIoType() != odb::dbIoType::OUTPUT ||
+                        !uses.contains(net)) {
+                        continue;
+                    }
+                    auto* load_net = load->getObjectType() == odb::dbITermObj
+                                         ? static_cast<odb::dbITerm*>(load)->getNet()
+                                     : load->getObjectType() == odb::dbBTermObj
+                                         ? static_cast<odb::dbBTerm*>(load)->getNet()
+                                         : nullptr;
+                    if (load_net == net && seen.insert(net).second) {
+                        endpoint_profiles[net][load].add(double(worst->slack(sta)));
+                    }
+                }
+            }
+            for (auto& [net, profiles] : endpoint_profiles) {
+                for (auto& [load, profile] : profiles) {
+                    profile.finish();
+                }
+            }
+        }
+    }
+};
+
 CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
                                               sta::dbSta* sta,
                                               const std::vector<NetState>& states,
@@ -669,74 +798,17 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
         feedback->beginCollection();
     }
     auto* network = sta->getDbNetwork();
-    std::unordered_map<odb::dbNet*, std::vector<PathUse>> uses;
+    const PathSamples samples(sta, options);
+    const auto& [uses, endpoint_slacks, endpoint_pins, sampled_paths,
+                 actual_endpoint_slacks, endpoint_profiles] = samples;
+    if (endpoint_slacks.empty()) {
+        return collection;
+    }
     std::unordered_map<odb::dbInst*, const NetState*> driven;
     for (const auto& state : states) {
         if (state.driver) {
             driven.emplace(state.driver->getInst(), &state);
         }
-    }
-    std::vector<float> endpoint_slacks;
-    std::vector<const sta::Pin*> endpoint_pins;
-    std::unordered_map<const sta::Pin*, size_t> endpoints;
-    std::vector<path_detail::PathForecast> sampled_paths;
-    std::map<size_t, double> actual_endpoint_slacks;
-    sta::StringSeq groups;
-    // Preserve each sampled path, including competing checks/paths at the
-    // same endpoint. Generate physical actions once for their union.
-    for (bool recovery : {false, true}) {
-        if (recovery && !options.recovery) {
-            continue;
-        }
-        const auto ends = sta->findPathEnds(
-            nullptr, nullptr, nullptr, false, sta->scenes(), sta::MinMaxAll::max(),
-            options.max_paths, options.paths_per_endpoint, true, false, -detail::kInf,
-            0, true, groups, !recovery, false, recovery, false, false, false);
-        unsigned count = 0;
-        for (auto* end : ends) {
-            if (count++ >= options.max_paths) {
-                break;
-            }
-            const float slack = float(end->slack(sta));
-            if (!std::isfinite(slack) || slack >= 0) {
-                continue;
-            }
-            const auto* endpoint = end->path()->pin(sta);
-            const auto [it, added] = endpoints.emplace(endpoint, endpoints.size());
-            if (added) {
-                endpoint_slacks.push_back(slack);
-                endpoint_pins.push_back(endpoint);
-            } else {
-                endpoint_slacks[it->second] =
-                    std::min(endpoint_slacks[it->second], slack);
-            }
-            const auto path_index = sampled_paths.size();
-            sampled_paths.push_back({it->second, slack, slack, false});
-            sta::PathExpanded path(end->path(), sta);
-            for (size_t i = path.startIndex(); i + 1 < path.size(); ++i) {
-                auto* output = network->staToDb(path.path(i)->pin(sta));
-                auto* load = network->staToDb(path.path(i + 1)->pin(sta));
-                if (!output || output->getObjectType() != odb::dbITermObj || !load) {
-                    continue;
-                }
-                auto* driver = static_cast<odb::dbITerm*>(output);
-                if (driver->getIoType() != odb::dbIoType::OUTPUT || !driver->getNet()) {
-                    continue;
-                }
-                auto* load_net = load->getObjectType() == odb::dbITermObj
-                                     ? static_cast<odb::dbITerm*>(load)->getNet()
-                                 : load->getObjectType() == odb::dbBTermObj
-                                     ? static_cast<odb::dbBTerm*>(load)->getNet()
-                                     : nullptr;
-                if (load_net == driver->getNet()) {
-                    uses[load_net].push_back(
-                        {it->second, load, slack, path_index, recovery});
-                }
-            }
-        }
-    }
-    if (endpoint_slacks.empty()) {
-        return collection;
     }
     // Cell limits are invariant throughout this STA snapshot.
     std::vector<std::tuple<float, float, float>> buffer_limits;
@@ -744,70 +816,6 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
         buffer_limits.emplace_back(
             bufferCapLimit(sta, buffer) * (1 - options.common.margin),
             bufferFanoutLimit(sta, buffer), bufferSlewLimit(sta, buffer));
-    }
-    // Slack queries may rebuild OpenSTA path groups. Do not issue them while
-    // iterating the PathEnd objects returned by findPathEnds().
-    for (size_t i = 0; i < endpoint_pins.size(); ++i) {
-        actual_endpoint_slacks.emplace(
-            i, std::min(0.0, double(sta->slack(endpoint_pins[i],
-                                               sta::RiseFallBoth::riseFall(),
-                                               sta->scenes(), sta::MinMax::max()))));
-    }
-    // Index the CURRENT worst max path of every endpoint once per committed
-    // design, retaining only nets already chosen by the critical-path search.
-    // This does not expand the candidate-net search or the acceptance scope.
-    // Each endpoint contributes at most once per net, including reconvergence.
-    // It is a scheduling forecast: competing paths after the ECO still require
-    // global STA, and these profiles are never used to skip a trial.
-    std::unordered_map<
-        odb::dbNet*,
-        std::unordered_map<odb::dbObject*, path_detail::EndpointSlackProfile>>
-        endpoint_profiles;
-    if (options.endpoint_coverage &&
-        options.gain_scope != ecc::PathGainScope::Endpoints) {
-        sta->findRequireds();
-        std::unordered_map<const sta::Pin*, sta::Path*> worst_paths;
-        for (auto* vertex : sta->endpoints()) {
-            auto* path = sta->vertexWorstSlackPath(vertex, sta::MinMax::max());
-            if (!path || !std::isfinite(double(path->slack(sta))) ||
-                std::abs(double(path->slack(sta))) >= detail::kInf) {
-                continue;
-            }
-            auto [it, added] = worst_paths.emplace(vertex->pin(), path);
-            if (!added && path->slack(sta) < it->second->slack(sta)) {
-                it->second = path;
-            }
-        }
-        for (const auto& [endpoint, worst] : worst_paths) {
-            sta::PathExpanded path(worst, sta);
-            std::unordered_set<odb::dbNet*> seen;
-            for (size_t i = path.startIndex(); i + 1 < path.size(); ++i) {
-                auto* output = network->staToDb(path.path(i)->pin(sta));
-                auto* load = network->staToDb(path.path(i + 1)->pin(sta));
-                if (!output || output->getObjectType() != odb::dbITermObj || !load) {
-                    continue;
-                }
-                auto* driver = static_cast<odb::dbITerm*>(output);
-                auto* net = driver->getNet();
-                if (driver->getIoType() != odb::dbIoType::OUTPUT ||
-                    !uses.contains(net)) {
-                    continue;
-                }
-                auto* load_net = load->getObjectType() == odb::dbITermObj
-                                     ? static_cast<odb::dbITerm*>(load)->getNet()
-                                 : load->getObjectType() == odb::dbBTermObj
-                                     ? static_cast<odb::dbBTerm*>(load)->getNet()
-                                     : nullptr;
-                if (load_net == net && seen.insert(net).second) {
-                    endpoint_profiles[net][load].add(double(worst->slack(sta)));
-                }
-            }
-        }
-        for (auto& [net, profiles] : endpoint_profiles) {
-            for (auto& [load, profile] : profiles) {
-                profile.finish();
-            }
-        }
     }
     for (const auto& state : states) {
         const auto use_it = uses.find(state.net);

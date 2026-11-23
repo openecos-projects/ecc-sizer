@@ -222,8 +222,10 @@ other users of the device; they are not GOBI's allocation totals. All sizes use 
   Neither edits the design or decides acceptance.
 - `repair/path.*`: `PathRepairer` executes candidates through ECO transactions,
   STA verification, rollback and final placement, returning `PathRepairResult`.
-- `algorithms/van_ginneken.*`, `gobi.*`: buffer-tree solvers with thin standalone
-  stage runners. CUDA implementations live beside their algorithms.
+- `repair/buffer.*`: standalone VG/GOBI stages share net selection, insertion
+  budgets, ECO application, global acceptance and rollback.
+- `algorithms/van_ginneken.*`, `gobi.*`: read-only buffer-tree solvers; CUDA
+  implementations live beside their algorithms.
 - `design_analysis.*`: shared design metrics, OpenDB/STA queries, incremental
   analysis and model evaluation; no dependency on a repair goal or edit module.
 - `algorithms/cell_candidates.*`: shared resize/VT and load-downsize candidates.

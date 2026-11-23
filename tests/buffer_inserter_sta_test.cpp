@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
 
+#include "repair/buffer.h"
 #include <fstream>
 #include <array>
 #include <iostream>
@@ -949,7 +950,7 @@ TEST_F(BufferInserterStaTest, VgOneShotLeavesCleanDesignUnchanged)
   ecc::VgOptions options;
   options.common.max_fanout = 64;
   options.max_buffers = 4;
-  const auto result = ecc::VanGinneken::run(
+  const auto result = ecc::VgRepairer::run(
       block_, sta_.get(), [this]() { refreshRepairTiming(); }, &resizer_, options,
       runtime_);
   EXPECT_TRUE(result.ok) << result.message;
@@ -985,7 +986,7 @@ TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
   options.max_buffers = 64;
   options.max_group_loads = 3;
   options.require_drv_reduction = true;
-  const auto result = ecc::VanGinneken::run(
+  const auto result = ecc::VgRepairer::run(
       block_, sta_.get(), [this]() { refreshRepairTiming(); }, &cold_resizer, options,
       runtime_);
   ASSERT_TRUE(result.ok) << result.message;
@@ -1046,7 +1047,7 @@ TEST_F(BufferInserterStaTest, VgOneShotRollsBackWhenTimingGetsWorse)
     sta_->updateTiming(true);
   };
   const auto result =
-      ecc::VanGinneken::run(block_, sta_.get(), refresh, options, runtime_);
+      ecc::VgRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_FALSE(result.committed);
   EXPECT_EQ(block_->getInsts().size(), instances_before);
@@ -3163,7 +3164,7 @@ TEST_F(BufferInserterStaTest, VgSetupScopeCollectsCleanNegativeSlackNets)
   addLegalRows();placeTestPorts(block_);constrainSetup(true);refreshRepairTiming();
   ecc::VgOptions o;o.max_buffers=64;o.common.max_fanout=64;
   auto run = [&]() {
-    return ecc::VanGinneken::run(
+    return ecc::VgRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, &resizer_, o, runtime_);
   };
   auto drv=run();ASSERT_TRUE(drv.ok)<<drv.message;
@@ -3177,7 +3178,7 @@ TEST_F(BufferInserterStaTest, VgSetupScopeCollectsCleanNegativeSlackNets)
   EXPECT_GE(setup.after.setup_tns+o.common.tolerances.tns_absolute,setup.before.setup_tns);
   EXPECT_EQ(setup.after.total_slew_violations,0u);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));db_network_->checkAxioms();
-  auto missing = ecc::VanGinneken::run(
+  auto missing = ecc::VgRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, o, runtime_);
   EXPECT_FALSE(missing.ok);
   EXPECT_NE(missing.message.find("Steiner"),std::string::npos);
@@ -3341,14 +3342,14 @@ TEST_F(BufferInserterStaTest, BufferSolversHonorZeroAndDisabledInsertion)
     ecc::VgOptions vg;
     vg.max_buffers = limit;
     vg.common.actions.buffer = zero_limit;
-    const auto v = ecc::VanGinneken::run(
+    const auto v = ecc::VgRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, &resizer_, vg, runtime_);
     ASSERT_TRUE(v.ok) << v.message;
     EXPECT_FALSE(v.committed);
     ecc::GobiOptions gobi;
     gobi.max_buffers = limit;
     gobi.common.actions.buffer = zero_limit;
-    const auto g = ecc::Gobi::run(
+    const auto g = ecc::GobiRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, &resizer_, gobi,
         runtime_);
     ASSERT_TRUE(g.ok) << g.message;

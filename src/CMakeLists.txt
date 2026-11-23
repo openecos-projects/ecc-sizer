@@ -16,7 +16,7 @@ include_directories(${OPENROAD_HOME}/sta ${OPENROAD_HOME}/sta/include/sta
 set(SOURCES
     actions/netlist.cpp actions/placement.cpp special_net.cpp lef_layer_rc.cpp
     repair/config.cpp design_analysis.cpp algorithms/cell_candidates.cpp
-    repair/drv.cpp repair/setup.cpp
+    repair/drv.cpp repair/setup.cpp repair/buffer.cpp
     repair/path.cpp algorithms/path.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
     algorithms/gobi.cpp algorithms/gobi_cuda.cpp)
 
@@ -181,6 +181,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/actions/netlist.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/actions/placement.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair/buffer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair/drv.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/design_analysis.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/cell_candidates.cpp

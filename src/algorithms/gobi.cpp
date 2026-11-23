@@ -12,7 +12,6 @@
 #include "rsz/Resizer.hh"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -27,30 +26,6 @@ namespace ecc {
 namespace gobi_detail {
 
 using detail::NetState;
-using Clock = std::chrono::steady_clock;
-
-bool better(const DesignMetrics& before, const DesignMetrics& after,
-            const GobiOptions& options) {
-    const auto& t = options.common.tolerances;
-    if (after.setup_wns + t.wns_absolute < before.setup_wns ||
-        after.setup_tns + t.tns_absolute < before.setup_tns) {
-        return false;
-    }
-    const bool drv_non_worse =
-        after.total_slew_violations <= before.total_slew_violations &&
-        after.total_cap_violations <= before.total_cap_violations &&
-        after.total_fanout_violations <= before.total_fanout_violations;
-    if (options.require_drv_reduction && !drv_non_worse) {
-        return false;
-    }
-    return after.total_slew_violations < before.total_slew_violations ||
-           after.total_cap_violations < before.total_cap_violations ||
-           after.total_fanout_violations < before.total_fanout_violations ||
-           after.severity + t.drv_severity < before.severity ||
-           after.setup_wns > before.setup_wns + t.wns_absolute ||
-           after.setup_tns > before.setup_tns + t.tns_absolute;
-}
-
 struct RawNode {
     gobi::HostNode host;
     const rsz::BufferedNet* source = nullptr;
@@ -359,107 +334,4 @@ GobiSolutions Gobi::solve(odb::dbBlock* block, sta::dbSta* sta,
     return result;
 }
 
-GobiResult Gobi::run(odb::dbBlock* block, sta::dbSta* sta,
-                     const std::function<void()>& refresh, rsz::Resizer* resizer,
-                     const GobiOptions& options, const RepairRuntime& runtime) {
-    using namespace gobi_detail;
-    GobiResult result;
-    std::optional<EcoTransaction> transaction;
-    try {
-        options.validate();
-        if (!block || !sta || !resizer || !refresh ||
-            sta->getDbNetwork()->block() != block || sta->scenes().size() != 1) {
-            throw std::invalid_argument(
-                "GOBI run requires block, resizer, one STA scene and refresh");
-        }
-        detail::DesignAnalysis analysis(block, sta, options.common,
-                                        runtime.constraints);
-        const auto collect_start = Clock::now();
-        std::vector<NetState> states;
-        for (auto& state : analysis.analyze(result.before, true)) {
-            if (!state.driver || !state.violating()) {
-                continue;
-            }
-            if (options.max_nets && states.size() >= options.max_nets) {
-                break;
-            }
-            states.push_back(std::move(state));
-        }
-        result.collect_ms =
-            std::chrono::duration<double, std::milli>(Clock::now() - collect_start)
-                .count();
-        result.after = result.before;
-        if (!options.common.actions.buffer ||
-            remainingBufferBudget(options.max_buffers, 0) == 0) {
-            result.ok = true;
-            result.message = "no buffer insertion allowed by actions or count limit";
-            return result;
-        }
-        const auto solve_start = Clock::now();
-        auto solutions =
-            solve(block, sta, states, resizer, options, runtime.constraints);
-        result.solve_ms =
-            std::chrono::duration<double, std::milli>(Clock::now() - solve_start)
-                .count();
-        result.nets_collected = solutions.nets_collected;
-        std::vector<std::size_t> counts;
-        counts.reserve(solutions.plans.size());
-        for (const auto& plan : solutions.plans) {
-            counts.push_back(plan.nodes.size());
-        }
-        const auto selected = selectWholeBufferPlans(counts, options.max_buffers);
-        result.plans_collected = selected.size();
-        if (selected.empty()) {
-            result.ok = true;
-            result.message = "GOBI produced no applicable buffer insertion";
-            return result;
-        }
-        transaction.emplace(block);
-        const auto apply_start = Clock::now();
-        BufferInsertionOptions naming;
-        naming.buffer_name_prefix = "sizer_gobi_buf";
-        naming.net_name_prefix = "sizer_gobi_net";
-        for (auto i : selected) {
-            result.attempted_buffers +=
-                applyBufferTree(solutions.plans[i], naming).insertions.size();
-        }
-        result.apply_ms =
-            std::chrono::duration<double, std::milli>(Clock::now() - apply_start)
-                .count();
-        refresh();
-        ++result.refreshes;
-        detail::DesignAnalysis verify(block, sta, options.common, runtime.constraints);
-        verify.analyze(result.after, true);
-        if (!better(result.before, result.after, options)) {
-            transaction->rollback();
-            refresh();
-            ++result.refreshes;
-            result.after = result.before;
-            result.ok = true;
-            result.message = "GOBI plan rejected by timing/DRV acceptance";
-            return result;
-        }
-        transaction->commit();
-        result.ok = true;
-        result.committed = true;
-        result.inserted_buffers = result.attempted_buffers;
-        result.converged =
-            result.after.severity <= options.common.tolerances.drv_severity;
-        result.message = "GOBI CUDA plan applied";
-    } catch (const std::exception& error) {
-        result.message = error.what();
-        if (transaction && transaction->active()) {
-            transaction->rollback();
-            try {
-                refresh();
-                ++result.refreshes;
-            } catch (const std::exception& restore_error) {
-                result.message +=
-                    std::string("; rollback refresh failed: ") + restore_error.what();
-            }
-        }
-        result.after = result.before;
-    }
-    return result;
-}
 } // namespace ecc

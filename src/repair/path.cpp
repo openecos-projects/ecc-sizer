@@ -298,6 +298,142 @@ PathObservation observation(const PathBufferTrial& trial) {
             trial.frontier_audit};
 }
 
+// A trial owns reporting and objective measurement. The repair loop owns
+// the ECO lifetime; the algorithm schedule owns candidate/retry decisions.
+struct TrialMeasurement {
+    PathBufferTrial trial;
+    std::unordered_map<const sta::Pin*, float> objective_pins;
+    bool repeated = false, deferred = false;
+    double prepare_start = 0, refresh_start = 0, measure_start = 0;
+
+    TrialMeasurement(const std::vector<PathBufferCandidate>& pending,
+                     const std::vector<size_t>& selected, const PathPolicy& policy,
+                     const PathRepairResult& result, bool frontier_audit) {
+        trial.frontier_audit = frontier_audit;
+        trial.before = result.after;
+        for (const auto index : selected) {
+            const auto& plan = pending[index];
+            repeated |= policy.hasFailure(plan);
+            deferred |= plan.deferred_retry;
+            trial.candidates.push_back(
+                {plan.net->getName(),
+                 plan.master->getName(),
+                 unsigned(plan.loads.size()),
+                 plan.predicted_gain,
+                 plan.predicted_wns_gain,
+                 plan.predicted_tns_gain,
+                 plan.affected_endpoints,
+                 plan.location.x,
+                 plan.location.y,
+                 plan.recovery,
+                 unsigned(plan.tree ? plan.tree->nodes.size() : 1),
+                 actionKey(plan),
+                 plan.ranked_wns_gain,
+                 plan.ranked_tns_gain,
+                 plan.deferred_retry,
+                 plan.covered_tns_gain,
+                 plan.covered_endpoints,
+                 plan.family_attempts,
+                 policy.generationIndex(),
+                 plan.load_group_key,
+                 plan.quality.path_gain,
+                 plan.quality.electrical_excess,
+                 plan.electrical_retry});
+        }
+        for (const auto index : selected) {
+            for (const auto& [pin, slack] : pending[index].endpoints) {
+                objective_pins.emplace(pin, slack);
+            }
+        }
+        trial.objective_endpoints = objective_pins.size();
+        for (const auto& [pin, slack] : objective_pins) {
+            trial.objective_wns_before =
+                std::min(trial.objective_wns_before, double(slack));
+            trial.objective_tns_before += slack;
+        }
+        prepare_start = result.prepare_ms;
+        refresh_start = result.refresh_ms;
+        measure_start = result.measure_ms;
+    }
+
+    template <typename Inspect>
+    std::vector<NetState> measure(sta::dbSta* sta, const PathSearchOptions& options,
+                                  const PathRuntime& runtime, PathRepairResult& result,
+                                  double area_limit, Inspect inspect,
+                                  const std::function<void()>& verify) {
+        DesignMetrics after;
+        std::vector<NetState> next_states;
+        const auto objective = [&]() {
+            trial.objective_wns_after = trial.objective_tns_after = 0;
+            for (const auto& [pin, old_slack] : objective_pins) {
+                const double slack = std::min(
+                    0.0, double(sta->slack(pin, sta::RiseFallBoth::riseFall(),
+                                           sta->scenes(), sta::MinMax::max())));
+                trial.objective_wns_after = std::min(trial.objective_wns_after, slack);
+                trial.objective_tns_after += slack;
+            }
+        };
+        if (options.timing_precheck) {
+            PhaseTimer timer{result.measure_ms};
+            sta->findRequireds();
+            // Placeholder electrical fields are used only by the
+            // timing rejection predicate and never exported as
+            // measured values or used to accept an ECO.
+            after = result.after;
+            after.setup_wns =
+                std::min(0.0f, float(sta->worstSlack(sta::MinMax::max())));
+            after.setup_tns = float(sta->totalNegativeSlack(sta::MinMax::max()));
+            after.hold_wns = std::min(0.0f, float(sta->worstSlack(sta::MinMax::min())));
+            after.hold_tns = float(sta->totalNegativeSlack(sta::MinMax::min()));
+            objective();
+            trial.rejection_reasons = rejectionReasons(result.after, after, area_limit,
+                                                       result.before, options, trial);
+        }
+        // Survivors are refreshed and inspected below (full RC or
+        // the accumulated timing cone). Do not scan electrical
+        // states twice before the same acceptance decision.
+        const bool verify_next =
+            options.timing_precheck && verify && trial.rejection_reasons.empty();
+        if (trial.rejection_reasons.empty() && !verify_next) {
+            next_states = inspect(after);
+            objective();
+            trial.rejection_reasons = rejectionReasons(result.after, after, area_limit,
+                                                       result.before, options, trial);
+        } else if (!trial.rejection_reasons.empty()) {
+            trial.metrics_complete = false;
+            ++result.timing_precheck_rejections;
+        } else {
+            trial.metrics_complete = false;
+        }
+        trial.after = after;
+        if (verify && path_detail::needsFullVerification(trial.rejection_reasons)) {
+            {
+                PhaseTimer timer{result.refresh_ms};
+                ++result.refreshes;
+                verify();
+            }
+            next_states = inspect(after);
+            trial.metrics_complete = true;
+            trial.after = after;
+            objective();
+            trial.rejection_reasons = rejectionReasons(result.after, after, area_limit,
+                                                       result.before, options, trial);
+            trial.full_verified = bool(runtime.verification_refresh);
+        }
+        return next_states;
+    }
+
+    void record(PathRepairResult& result, const PathRuntime& runtime) {
+        trial.prepare_ms = result.prepare_ms - prepare_start;
+        trial.refresh_ms = result.refresh_ms - refresh_start;
+        trial.measure_ms = result.measure_ms - measure_start;
+        result.trials.push_back(std::move(trial));
+        if (runtime.trial_observer) {
+            runtime.trial_observer(result.attempted_trials, result.trials.back());
+        }
+    }
+};
+
 void reportEvent(const PathRuntime& runtime, PathEvent::Kind kind,
                  const PathRepairResult& result, bool provisional = false,
                  unsigned wave_candidates = 0) {
@@ -675,64 +811,9 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                 if (reuse_rejections && selected.size() == 1) {
                     dependencies = dependency_cone(pending[selected.front()].net);
                 }
-                PathBufferTrial trial;
-                trial.frontier_audit = frontier_audit;
-                trial.before = result.after;
-                bool repeated = false, deferred = false;
-                for (const auto index : selected) {
-                    const auto& plan = pending[index];
-                    repeated |= policy.hasFailure(plan);
-                    deferred |= plan.deferred_retry;
-                    trial.candidates.push_back(
-                        {plan.net->getName(),
-                         plan.master->getName(),
-                         unsigned(plan.loads.size()),
-                         plan.predicted_gain,
-                         plan.predicted_wns_gain,
-                         plan.predicted_tns_gain,
-                         plan.affected_endpoints,
-                         plan.location.x,
-                         plan.location.y,
-                         plan.recovery,
-                         unsigned(plan.tree ? plan.tree->nodes.size() : 1),
-                         actionKey(plan),
-                         plan.ranked_wns_gain,
-                         plan.ranked_tns_gain,
-                         plan.deferred_retry,
-                         plan.covered_tns_gain,
-                         plan.covered_endpoints,
-                         plan.family_attempts,
-                         policy.generationIndex(),
-                         plan.load_group_key,
-                         plan.quality.path_gain,
-                         plan.quality.electrical_excess,
-                         plan.electrical_retry});
-                }
-                std::unordered_map<const sta::Pin*, float> objective_pins;
-                for (const auto index : selected) {
-                    for (const auto& [pin, slack] : pending[index].endpoints) {
-                        objective_pins.emplace(pin, slack);
-                    }
-                }
-                trial.objective_endpoints = objective_pins.size();
-                for (const auto& [pin, slack] : objective_pins) {
-                    trial.objective_wns_before =
-                        std::min(trial.objective_wns_before, double(slack));
-                    trial.objective_tns_before += slack;
-                }
-                const double prepare_start = result.prepare_ms;
-                const double refresh_start = result.refresh_ms;
-                const double measure_start = result.measure_ms;
-                const auto record_trial = [&]() {
-                    trial.prepare_ms = result.prepare_ms - prepare_start;
-                    trial.refresh_ms = result.refresh_ms - refresh_start;
-                    trial.measure_ms = result.measure_ms - measure_start;
-                    result.trials.push_back(std::move(trial));
-                    if (runtime.trial_observer) {
-                        runtime.trial_observer(result.attempted_trials,
-                                               result.trials.back());
-                    }
-                };
+                TrialMeasurement measurement(pending, selected, policy, result,
+                                             frontier_audit);
+                auto& trial = measurement.trial;
                 std::vector<odb::dbITerm*> original_drivers;
                 for (const auto index : selected) {
                     for (auto* term : pending[index].net->getITerms()) {
@@ -784,81 +865,16 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     }
                     ++result.attempted_trials;
                     result.frontier_audits += frontier_audit;
-                    result.repeated_trials += repeated;
-                    result.deferred_trials += deferred;
+                    result.repeated_trials += measurement.repeated;
+                    result.deferred_trials += measurement.deferred;
                     if (runtime.prepare) {
                         PhaseTimer timer{result.prepare_ms};
                         runtime.prepare();
                     }
                     update(false);
-                    DesignMetrics after;
-                    std::vector<NetState> next_states;
-                    const auto objective = [&]() {
-                        trial.objective_wns_after = trial.objective_tns_after = 0;
-                        for (const auto& [pin, old_slack] : objective_pins) {
-                            const double slack = std::min(
-                                0.0,
-                                double(sta->slack(pin, sta::RiseFallBoth::riseFall(),
-                                                  sta->scenes(), sta::MinMax::max())));
-                            trial.objective_wns_after =
-                                std::min(trial.objective_wns_after, slack);
-                            trial.objective_tns_after += slack;
-                        }
-                    };
-                    if (options.timing_precheck) {
-                        PhaseTimer timer{result.measure_ms};
-                        sta->findRequireds();
-                        // Placeholder electrical fields are used only by the
-                        // timing rejection predicate and never exported as
-                        // measured values or used to accept an ECO.
-                        after = result.after;
-                        after.setup_wns =
-                            std::min(0.0f, float(sta->worstSlack(sta::MinMax::max())));
-                        after.setup_tns =
-                            float(sta->totalNegativeSlack(sta::MinMax::max()));
-                        after.hold_wns =
-                            std::min(0.0f, float(sta->worstSlack(sta::MinMax::min())));
-                        after.hold_tns =
-                            float(sta->totalNegativeSlack(sta::MinMax::min()));
-                        objective();
-                        trial.rejection_reasons =
-                            rejectionReasons(result.after, after, area_limit,
-                                             result.before, options, trial);
-                    }
-                    // Survivors are refreshed and inspected below (full RC or
-                    // the accumulated timing cone). Do not scan electrical
-                    // states twice before the same acceptance decision.
-                    const bool verify_next = options.timing_precheck && verify &&
-                                             trial.rejection_reasons.empty();
-                    if (trial.rejection_reasons.empty() && !verify_next) {
-                        next_states = inspect(after);
-                        objective();
-                        trial.rejection_reasons =
-                            rejectionReasons(result.after, after, area_limit,
-                                             result.before, options, trial);
-                    } else if (!trial.rejection_reasons.empty()) {
-                        trial.metrics_complete = false;
-                        ++result.timing_precheck_rejections;
-                    } else {
-                        trial.metrics_complete = false;
-                    }
-                    trial.after = after;
-                    if (verify &&
-                        path_detail::needsFullVerification(trial.rejection_reasons)) {
-                        {
-                            PhaseTimer timer{result.refresh_ms};
-                            ++result.refreshes;
-                            verify();
-                        }
-                        next_states = inspect(after);
-                        trial.metrics_complete = true;
-                        trial.after = after;
-                        objective();
-                        trial.rejection_reasons =
-                            rejectionReasons(result.after, after, area_limit,
-                                             result.before, options, trial);
-                        trial.full_verified = bool(runtime.verification_refresh);
-                    }
+                    auto next_states = measurement.measure(
+                        sta, options, runtime, result, area_limit, inspect, verify);
+                    const auto& after = trial.after;
                     schedule.observe(batch, observation(trial));
                     if (trial.rejection_reasons.empty()) {
                         transaction.commit();
@@ -875,7 +891,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                         }
                         policy.committed();
                         accepted = true;
-                        record_trial();
+                        measurement.record(result, runtime);
                         break;
                     }
                     if (reuse_rejections && selected.size() == 1 &&
@@ -913,7 +929,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                         states = inspect(result.after);
                     }
                     schedule.recoverElectrical(batch, observation(trial));
-                    record_trial();
+                    measurement.record(result, runtime);
                     if (options.max_consecutive_rejections &&
                         result.consecutive_rejections >=
                             options.max_consecutive_rejections) {

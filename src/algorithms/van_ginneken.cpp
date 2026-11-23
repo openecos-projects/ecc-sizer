@@ -12,7 +12,6 @@
 #include "rsz/Resizer.hh"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -27,21 +26,6 @@ namespace ecc {
 namespace vg_detail {
 
 using detail::NetState;
-
-bool eligible(const NetState& state, sta::dbSta* sta, const VgOptions& options) {
-    if (!state.driver) {
-        return false;
-    }
-    if (state.violating()) {
-        return true;
-    }
-    if (options.scope != ecc::VgScope::Setup) {
-        return false;
-    }
-    auto* pin = sta->getDbNetwork()->dbToSta(state.driver);
-    return sta->slack(pin, sta::RiseFallBoth::riseFall(),
-                      sta::SceneSeq{sta->cmdScene()}, sta::MinMax::max()) < 0;
-}
 
 struct Plan {
     odb::dbNet* net = nullptr;
@@ -85,40 +69,6 @@ std::pair<double, double> unchangedVg(const rsz::BufferedNetPtr& node,
     return {left.first + length * capacitance,
             left.second -
                 length * resistance * (left.first + length * capacitance / 2)};
-}
-
-struct Timer {
-    double* elapsed;
-    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-    ~Timer() {
-        *elapsed += std::chrono::duration<double, std::milli>(
-                        std::chrono::steady_clock::now() - start)
-                        .count();
-    }
-};
-
-bool better(const DesignMetrics& before, const DesignMetrics& after,
-            const VgOptions& options) {
-    const auto& tolerance = options.common.tolerances;
-    const bool no_timing_loss =
-        after.setup_wns + tolerance.wns_absolute >= before.setup_wns &&
-        after.setup_tns + tolerance.tns_absolute >= before.setup_tns;
-    const bool no_drv_loss =
-        after.total_slew_violations <= before.total_slew_violations &&
-        after.total_cap_violations <= before.total_cap_violations &&
-        after.total_fanout_violations <= before.total_fanout_violations;
-    if (!no_timing_loss || (options.require_drv_reduction && !no_drv_loss)) {
-        return false;
-    }
-    const bool strict_drv =
-        after.severity + tolerance.drv_severity < before.severity ||
-        after.total_slew_violations < before.total_slew_violations ||
-        after.total_cap_violations < before.total_cap_violations ||
-        after.total_fanout_violations < before.total_fanout_violations;
-    const bool strict_timing =
-        after.setup_wns > before.setup_wns + tolerance.wns_absolute ||
-        after.setup_tns > before.setup_tns + tolerance.tns_absolute;
-    return strict_drv || strict_timing;
 }
 
 std::vector<Plan> collectPlans(detail::DesignAnalysis& analysis,
@@ -638,125 +588,4 @@ VgSolutions VanGinneken::solve(odb::dbBlock* block, sta::dbSta* sta,
     return result;
 }
 
-VgResult VanGinneken::run(odb::dbBlock* block, sta::dbSta* sta,
-                          const std::function<void()>& refresh,
-                          const VgOptions& options, const RepairRuntime& runtime) {
-    return run(block, sta, refresh, nullptr, options, runtime);
-}
-
-VgResult VanGinneken::run(odb::dbBlock* block, sta::dbSta* sta,
-                          const std::function<void()>& refresh, rsz::Resizer* resizer,
-                          const VgOptions& options, const RepairRuntime& runtime) {
-    using namespace vg_detail;
-    VgResult result;
-    std::optional<EcoTransaction> transaction;
-    try {
-        options.validate();
-        if (!block || !sta || !refresh || sta->getDbNetwork()->block() != block ||
-            sta->scenes().size() != 1) {
-            throw std::invalid_argument(
-                "VG run requires block, one STA scene and refresh");
-        }
-        if (options.scope == VgScope::Setup && !resizer) {
-            throw std::invalid_argument(
-                "VG setup scope requires the Steiner-tree solver");
-        }
-        detail::DesignAnalysis analysis(block, sta, options.common,
-                                        runtime.constraints);
-        if (!analysis.hasCells()) {
-            throw std::runtime_error("VG found no usable combinational cells");
-        }
-        std::vector<NetState> states;
-        {
-            Timer timer{&result.collect_ms};
-            for (auto& state : analysis.analyze(result.before, true)) {
-                if (!eligible(state, sta, options)) {
-                    continue;
-                }
-                if (!resizer && state.loads.size() < 2) {
-                    continue;
-                }
-                if (options.max_nets && states.size() >= options.max_nets) {
-                    break;
-                }
-                states.push_back(std::move(state));
-            }
-        }
-        result.after = result.before;
-        if (!options.common.actions.buffer ||
-            remainingBufferBudget(options.max_buffers, 0) == 0) {
-            result.ok = true;
-            result.message = "no buffer insertion allowed by actions or count limit";
-            return result;
-        }
-        VgSolutions solutions;
-        {
-            Timer timer{&result.solve_ms};
-            solutions =
-                solve(block, sta, states, resizer, options, runtime.constraints);
-        }
-        result.nets_collected = solutions.nets_collected;
-        result.backend_used = solutions.backend_used;
-        result.cuda_fallback = std::move(solutions.cuda_fallback);
-        std::vector<std::size_t> counts;
-        counts.reserve(solutions.plans.size());
-        for (const auto& plan : solutions.plans) {
-            counts.push_back(plan.nodes.size());
-        }
-        const auto selected = selectWholeBufferPlans(counts, options.max_buffers);
-        result.plans_collected = selected.size();
-        if (selected.empty()) {
-            result.ok = true;
-            result.converged =
-                result.before.severity <= options.common.tolerances.drv_severity;
-            result.message = "VG found no applicable buffer plan";
-            return result;
-        }
-        transaction.emplace(block);
-        {
-            Timer timer{&result.apply_ms};
-            BufferInsertionOptions naming;
-            naming.buffer_name_prefix = "sizer_vg_buf";
-            naming.net_name_prefix = "sizer_vg_net";
-            for (auto i : selected) {
-                result.attempted_buffers +=
-                    applyBufferTree(solutions.plans[i], naming).insertions.size();
-            }
-        }
-        refresh();
-        ++result.refreshes;
-        detail::DesignAnalysis verify(block, sta, options.common, runtime.constraints);
-        verify.analyze(result.after, true);
-        if (!better(result.before, result.after, options)) {
-            transaction->rollback();
-            refresh();
-            ++result.refreshes;
-            result.after = result.before;
-            result.ok = true;
-            result.message = "VG plan rejected by timing/DRV acceptance";
-            return result;
-        }
-        transaction->commit();
-        result.ok = true;
-        result.committed = true;
-        result.inserted_buffers = result.attempted_buffers;
-        result.converged =
-            result.after.severity <= options.common.tolerances.drv_severity;
-        result.message = "VG one-shot plan applied";
-    } catch (const std::exception& error) {
-        result.message = error.what();
-        if (transaction && transaction->active()) {
-            transaction->rollback();
-            try {
-                refresh();
-                ++result.refreshes;
-            } catch (const std::exception& restore_error) {
-                result.message +=
-                    std::string("; rollback refresh failed: ") + restore_error.what();
-            }
-        }
-        result.after = result.before;
-    }
-    return result;
-}
 } // namespace ecc

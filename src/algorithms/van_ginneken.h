@@ -7,7 +7,6 @@
 #include "actions/netlist.h"
 #include <span>
 
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -26,8 +25,7 @@ class Resizer;
 
 namespace ecc {
 
-// One-shot CPU/CUDA Van Ginneken repair over placement Steiner trees.
-// Both solvers share the same OpenDB apply/rollback path.
+// CPU/CUDA Van Ginneken candidates over placement Steiner trees.
 struct VgSolutions {
     std::vector<BufferTreePlan> plans;
     unsigned nets_collected = 0;
@@ -35,48 +33,16 @@ struct VgSolutions {
     std::string cuda_fallback;
 };
 
-struct VgResult {
-    bool ok = false;
-    bool committed = false;
-    bool converged = false;
-    std::string message;
-    std::string backend_used = "cpu";
-    std::string cuda_fallback;
-    unsigned nets_collected = 0;
-    unsigned plans_collected = 0;
-    unsigned attempted_buffers = 0;
-    unsigned inserted_buffers = 0;
-    unsigned refreshes = 0;
-    double collect_ms = 0;
-    double solve_ms = 0;
-    double apply_ms = 0;
-    DesignMetrics before;
-    DesignMetrics after;
-};
-
-// Collects all candidates from the current OpenDB/STA snapshot, solves the
-// independent net problems, and applies the accepted plan in one ECO.  The
-// refresh callback must rebuild placement parasitics and update STA.  A failed
-// acceptance check undoes the complete ECO and refreshes the restored design.
 class VanGinneken {
   public:
-    // Solve exactly the supplied net snapshots; goal scheduling belongs to run
-    // or its caller. Does not edit OpenDB, open an ECO, refresh STA or commit.
-    // max_buffers is an execution limit and is deliberately not applied here.
-    // Throws on invalid inputs/solver failures. Plans expire after design edits.
+    // Solve exactly the supplied net snapshots; goal scheduling belongs to the repair
+    // layer. Does not edit OpenDB, open an ECO, refresh STA or commit. max_buffers is
+    // an execution limit and is deliberately not applied here. Throws on invalid
+    // inputs/solver failures. Plans expire after design edits.
     static VgSolutions solve(odb::dbBlock* block, sta::dbSta* sta,
                              std::span<const detail::NetState> states,
                              rsz::Resizer* resizer, const VgOptions& options = {},
                              const DesignConstraints& constraints = {});
-
-    static VgResult run(odb::dbBlock* block, sta::dbSta* sta,
-                        const std::function<void()>& refresh,
-                        const VgOptions& options = {},
-                        const RepairRuntime& runtime = {});
-    static VgResult run(odb::dbBlock* block, sta::dbSta* sta,
-                        const std::function<void()>& refresh, rsz::Resizer* resizer,
-                        const VgOptions& options = {},
-                        const RepairRuntime& runtime = {});
 };
 
 } // namespace ecc

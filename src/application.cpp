@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "repair/buffer.h"
 #include "design_session.h"
 
 #include <algorithm>
@@ -512,14 +513,14 @@ class ApplicationFlow {
             runPath();
             break;
         case Stage::Vg:
-            report("vg", VanGinneken::run(block, sta, placeAndRefresh,
-                                          session.design().getResizer(),
-                                          options.repair.vgOptions(), runtime));
+            report("vg", VgRepairer::run(block, sta, placeAndRefresh,
+                                         session.design().getResizer(),
+                                         options.repair.vgOptions(), runtime));
             break;
         case Stage::Gobi:
-            report("gobi",
-                   Gobi::run(block, sta, placeAndRefresh, session.design().getResizer(),
-                             options.repair.gobiOptions(), runtime));
+            report("gobi", GobiRepairer::run(block, sta, placeAndRefresh,
+                                             session.design().getResizer(),
+                                             options.repair.gobiOptions(), runtime));
             break;
         case Stage::Ord:
             report("ord", OrdDrvRepairer::repair(block, sta, refresh,
