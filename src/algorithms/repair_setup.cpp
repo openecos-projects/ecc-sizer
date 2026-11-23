@@ -1,15 +1,15 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_setup.h"
+#include "algorithms/repair_setup.h"
 #include "design_analysis.h"
-#include "cell_candidates.h"
+#include "algorithms/cell_candidates.h"
 #include "actions/netlist.h"
 #include "sta/Graph.hh"
 #include "sta/Liberty.hh"
 #include "odb/db.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
-#include "repair_path.h"
+#include "algorithms/path_search.h"
 
 #include <chrono>
 #include <algorithm>

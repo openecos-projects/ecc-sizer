@@ -357,7 +357,7 @@ void SetupRepairSettings::validate() const {
     require(std::isfinite(min_improvement) && min_improvement > 0,
             "setup.min_improvement_ns > 0");
 }
-void PathRepairSettings::validate() const {
+void PathSearchSettings::validate() const {
     require(paths_per_endpoint > 0, "path.paths_per_endpoint > 0");
     require(std::isfinite(min_improvement) && min_improvement > 0,
             "path.min_improvement_ns > 0");
@@ -386,13 +386,13 @@ SetupRepairOptions RepairConfig::setupOptions() const {
     result.common = drv;
     return result;
 }
-void PathRepairOptions::validate() const {
+void PathSearchOptions::validate() const {
     common.validate();
-    PathRepairSettings::validate();
+    PathSearchSettings::validate();
 }
-PathRepairOptions RepairConfig::pathOptions() const {
-    PathRepairOptions result;
-    static_cast<PathRepairSettings &>(result) = path;
+PathSearchOptions RepairConfig::pathOptions() const {
+    PathSearchOptions result;
+    static_cast<PathSearchSettings &>(result) = path;
     result.common = drv;
     return result;
 }
@@ -413,7 +413,7 @@ void PowerRepairOptions::validate() const {
     common.validate();
     PowerRepairSettings::validate();
 }
-void VgRepairSettings::validate() const {
+void VgSettings::validate() const {
     (void)enumName(scope);
     require(cuda_max_memory_mb > 0, "vg.cuda_max_memory_mb > 0");
     (void)enumName(backend);

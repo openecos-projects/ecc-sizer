@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_path.h"
+#include "algorithms/path_search.h"
 
 #include "actions/netlist.h"
 #include "design_analysis.h"
@@ -8,7 +8,7 @@
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
 #include "sta/Liberty.hh"
-#include "repair_path_feedback.h"
+#include "algorithms/path_feedback.h"
 
 #include <algorithm>
 #include <chrono>
@@ -32,7 +32,7 @@
 #include "sta/TimingRole.hh"
 
 namespace ecc {
-namespace {
+namespace path_detail {
 using detail::NetState;
 
 struct PhaseTimer {
@@ -136,6 +136,26 @@ std::string actionKey(const PathBufferCandidate& candidate, bool physical = true
         nodes.push_back(std::move(out));
     }
     return path_detail::actionFingerprint(std::to_string(candidate.net->getId()), nodes, physical);
+}
+
+BufferTreePlan bufferPlan(const PathBufferCandidate &candidate) {
+    BufferTreePlan plan;
+    plan.net = candidate.net;
+    if (candidate.tree) {
+        for (const auto &source : candidate.tree->nodes) {
+            BufferTreeNode node;
+            node.master = candidate.master;
+            node.location = source.location;
+            node.children = source.children;
+            for (auto i : source.loads)
+                node.loads.push_back(candidate.tree->terminals.at(i));
+            plan.nodes.push_back(std::move(node));
+        }
+    } else {
+        plan.nodes.push_back(
+            {candidate.master, candidate.location, candidate.loads, {}});
+    }
+    return plan;
 }
 
 // Match OpenSTA's fanout-load semantics: output ports do not contribute;
@@ -393,7 +413,7 @@ bool completeFanoutTrees(
     sta::dbSta* sta, const std::vector< BufferInsertionResult >& roots,
     const std::vector< odb::dbITerm* >& original_drivers,
     unsigned baseline_violations, unsigned buffer_allowance,
-    double area_allowance, const PathRepairOptions& options,
+    double area_allowance, const PathSearchOptions& options,
     unsigned& buffer_count, double initial_added_area) {
     auto* network = sta->getDbNetwork();
     sta->checkFanoutPreamble();
@@ -509,7 +529,7 @@ std::vector< NetState > analyze(detail::DesignAnalysis& analysis,
     return analysis.analyze(metrics, true);
 }
 
-const DesignMetrics& globalGainReference(const PathRepairOptions& options,
+const DesignMetrics& globalGainReference(const PathSearchOptions& options,
                                                const DesignMetrics& initial,
                                                const DesignMetrics& current) {
     return options.gain_scope == ecc::PathGainScope::CurrentGlobal ? current : initial;
@@ -519,7 +539,7 @@ std::vector< std::string > rejectionReasons(const DesignMetrics& before,
                                             const DesignMetrics& after,
                                             double area_limit,
                                             const DesignMetrics& initial,
-                                            const PathRepairOptions& options,
+                                            const PathSearchOptions& options,
                                             const PathBufferTrial& trial) {
     const auto& tolerance = options.common.tolerances;
     const float improvement = options.min_improvement;
@@ -570,7 +590,7 @@ std::vector< std::string > rejectionReasons(const DesignMetrics& before,
 
 CandidateCollection collectSequentialCandidates(
     detail::DesignAnalysis& analysis, sta::dbSta* sta,
-    const std::vector< NetState >& states, const PathRepairOptions& options,
+    const std::vector< NetState >& states, const PathSearchOptions& options,
     bool recovery = false) {
     CandidateCollection collection;
     auto& result = collection.candidates;
@@ -586,21 +606,42 @@ CandidateCollection collectSequentialCandidates(
         options.max_paths, options.paths_per_endpoint, true, false,
         -detail::kInf, 0, true, groups, !recovery, false, recovery, false, false,
         false);
+    // STA slack queries may invalidate PathEnd and PathExpanded objects. Copy
+    // every path before evaluating candidates or querying endpoint slack.
+    struct SampledPath {
+        float slack;
+        size_t start;
+        std::vector<const sta::Pin *> pins;
+    };
+    std::vector<SampledPath> paths;
     unsigned path_count = 0;
-    for(auto* end : ends) {
-        if(path_count++ >= options.max_paths)
+    for (auto *end : ends) {
+        if (path_count++ >= options.max_paths)
             break;
         const float slack = float(end->slack(sta));
-        if(slack >= 0)
+        if (slack >= 0)
             continue;
 
         sta::PathExpanded expanded(end->path(), sta);
-        std::unordered_set< odb::dbNet* > seen_nets;
-        std::vector< PathBufferCandidate > path_candidates;
-        for(size_t i = expanded.startIndex(); i + 1 < expanded.size(); ++i) {
-            auto* output_object = network->staToDb(expanded.path(i)->pin(sta));
-            if(!output_object ||
-               output_object->getObjectType() != odb::dbITermObj)
+        SampledPath path{slack, expanded.startIndex(), {}};
+        path.pins.reserve(expanded.size());
+        for (size_t i = 0; i < expanded.size(); ++i)
+            path.pins.push_back(expanded.path(i)->pin(sta));
+        paths.push_back(std::move(path));
+    }
+    for (const auto &path : paths) {
+        if (path.pins.empty())
+            continue;
+        const float slack = path.slack;
+        const auto *endpoint = path.pins.back();
+        const float pin_slack =
+            std::min(0.0f, float(sta->slack(endpoint, sta::RiseFallBoth::riseFall(),
+                                            sta->scenes(), sta::MinMax::max())));
+        std::unordered_set<odb::dbNet *> seen_nets;
+        std::vector<PathBufferCandidate> path_candidates;
+        for (size_t i = path.start; i + 1 < path.pins.size(); ++i) {
+            auto *output_object = network->staToDb(path.pins[i]);
+            if (!output_object || output_object->getObjectType() != odb::dbITermObj)
                 continue;
             auto* output = static_cast< odb::dbITerm* >(output_object);
             if(output->getIoType() != odb::dbIoType::OUTPUT ||
@@ -612,7 +653,7 @@ CandidateCollection collectSequentialCandidates(
                !seen_nets.insert(net).second)
                 continue;
 
-            auto* load = network->staToDb(expanded.path(i + 1)->pin(sta));
+            auto* load = network->staToDb(path.pins[i + 1]);
             if(!load || (load->getObjectType() != odb::dbITermObj &&
                          load->getObjectType() != odb::dbBTermObj))
                 continue;
@@ -713,9 +754,6 @@ CandidateCollection collectSequentialCandidates(
                                        predicted_gain, i});
             auto& candidate = path_candidates.back();
             candidate.recovery = recovery;
-            const auto* endpoint = end->path()->pin(sta);
-            const float pin_slack = std::min(0.0f, float(sta->slack(endpoint,
-                sta::RiseFallBoth::riseFall(), sta->scenes(), sta::MinMax::max())));
             candidate.endpoints.emplace_back(endpoint, pin_slack);
             candidate.objective_wns = candidate.objective_tns = pin_slack;
         }
@@ -829,8 +867,8 @@ struct PathFeedback {
     std::unordered_map<std::string, Model> models;
     path_detail::FamilyCoverage coverage;
     unsigned generation = 0;
-    const PathRepairOptions& options;
-    PathBufferRepairResult& result;
+    const PathSearchOptions& options;
+    PathSearchResult& result;
     std::unordered_map<std::string, path_detail::ExplorationFrontier> frontiers;
     path_detail::ContextCoverage group_coverage;
     // One unselected representative per load set/master, not every position
@@ -1008,7 +1046,7 @@ struct PathFeedback {
 
 CandidateCollection collectPathGainCandidates(
     detail::DesignAnalysis& analysis, sta::dbSta* sta,
-    const std::vector< NetState >& states, const PathRepairOptions& options,
+    const std::vector< NetState >& states, const PathSearchOptions& options,
     const DesignMetrics& metrics, PathFeedback* feedback) {
     analysis.beginTimingPredictionEpoch();
     struct PredictionEpoch {
@@ -1493,7 +1531,7 @@ CandidateCollection collectPathGainCandidates(
 
 CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbSta* sta,
                                       const std::vector< NetState >& states,
-                                      const PathRepairOptions& options,
+                                      const PathSearchOptions& options,
                                       const DesignMetrics& metrics, PathFeedback* feedback) {
     const bool gain = options.strategy != ecc::PathStrategy::Sequential;
     auto result = gain ? collectPathGainCandidates(analysis, sta, states, options, metrics, feedback)
@@ -1526,10 +1564,10 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
 // Keep all provisional ECOs in one parent journal. Child commits merge into
 // it, so final legalization (including moves of existing cells) can be undone
 // together with every inserted buffer and reconnected load.
-PathBufferRepairResult repairWithFinalPlacement(
+PathSearchResult repairWithFinalPlacement(
     odb::dbBlock* block, sta::dbSta* sta,
-    const std::function<void()>& refresh, const PathRepairOptions& options) {
-    PathBufferRepairResult result;
+    const std::function<void()>& refresh, const PathSearchOptions& options) {
+    PathSearchResult result;
     if(!options.common.prepare) {
         result.message = "final path placement requires a legalization callback";
         return result;
@@ -1575,7 +1613,7 @@ PathBufferRepairResult repairWithFinalPlacement(
                 options.path_trial_observer(index, provisional);
             }
         };
-        result = OpenDbPathRepairer::repair(block, sta, refresh, search_options);
+        result = PathSearch::run(block, sta, refresh, search_options);
         for(auto& trial : result.trials) trial.placement_provisional = true;
         result.final_placement.provisional_buffers = result.inserted_buffers;
         result.final_placement.before = result.after;
@@ -1640,12 +1678,39 @@ PathBufferRepairResult repairWithFinalPlacement(
     return result;
 }
 
-}  // namespace
+}  // namespace path_detail
 
-PathBufferRepairResult OpenDbPathRepairer::repair(
+std::vector<PathCandidate>
+PathSearch::generateCandidates(odb::dbBlock *block, sta::dbSta *sta,
+                               const PathSearchOptions &options) {
+    using namespace path_detail;
+    options.validate();
+    if (!block || !sta || sta->getDbNetwork()->block() != block ||
+        sta->scenes().size() != 1)
+        throw std::invalid_argument(
+            "Path candidates require one live OpenDB/STA scene");
+    detail::DesignAnalysis analysis(block, sta, options.common);
+    DesignMetrics metrics;
+    const auto states = analyze(analysis, metrics);
+    PathSearchResult snapshot;
+    snapshot.before = snapshot.after = metrics;
+    PathFeedback feedback{{}, {}, {}, 0, options, snapshot};
+    const auto candidates = collectCandidates(
+        analysis, sta, states, options, metrics,
+        options.strategy == PathStrategy::Feedback ? &feedback : nullptr);
+    std::vector<PathCandidate> result;
+    for (const auto &candidate : candidates.candidates)
+        result.push_back({bufferPlan(candidate), candidate.slack,
+                          candidate.predicted_wns_gain, candidate.predicted_tns_gain,
+                          candidate.recovery});
+    return result;
+}
+
+PathSearchResult PathSearch::run(
     odb::dbBlock* block, sta::dbSta* sta,
-    const std::function< void() >& refresh, const PathRepairOptions& options) {
-    PathBufferRepairResult result;
+    const std::function< void() >& refresh, const PathSearchOptions& options) {
+    using namespace path_detail;
+    PathSearchResult result;
     try {
         options.validate();
     }
@@ -1999,27 +2064,10 @@ PathBufferRepairResult OpenDbPathRepairer::repair(
                         insertion.location = plan.location;
                         insertion.buffer_name_prefix = "sizer_path_buf";
                         insertion.net_name_prefix = "sizer_path_net";
-                        if(plan.tree) {
-                            std::vector<BufferInsertionResult> edits;
-                            for(const auto& node : plan.tree->nodes) {
-                                std::vector<odb::dbObject*> terms;
-                                for(auto i : node.loads) terms.push_back(plan.tree->terminals[i]);
-                                for(auto i : node.children) terms.push_back(edits[i].input_pin);
-                                insertion.location = node.location;
-                                auto edit = OpenDbBufferInserter::insertBufferBeforeLoads(
-                                    plan.net, terms, plan.master, insertion);
-                                if(!edit) throw std::runtime_error(edit.message);
-                                edits.push_back(edit);
-                            }
-                            roots.push_back(edits.back());
-                            trial.buffers += edits.size();
-                        } else {
-                            const auto edit = OpenDbBufferInserter::insertBufferBeforeLoads(
-                                plan.net, plan.loads, plan.master, insertion);
-                            if(!edit) throw std::runtime_error(edit.message);
-                            roots.push_back(edit);
-                            ++trial.buffers;
-                        }
+                        const auto edits = applyBufferTree(bufferPlan(plan), insertion);
+                        for(auto root : edits.roots)
+                            roots.push_back(edits.insertions[root]);
+                        trial.buffers += edits.insertions.size();
                     }
                     if(options.fanout_repair) {
                         PhaseTimer timer{result.candidate_ms};

@@ -163,19 +163,39 @@ flow instead of allowing acceptance with stale timing.
   back on scope exit. Algorithms explicitly control timing refresh.
 - `actions/placement.*`: OpenDB placement adaptation, protected cells and
   legalization. `actions/legalize_core.*` owns standalone greedy/Abacus geometry.
-- `repair_drv.*`: DRV and ORD electrical strategies, standalone fanout repair,
+- `algorithms/repair_drv.*`: DRV and ORD electrical strategies, standalone fanout repair,
   and power recovery. DRV owns the replacement-versus-buffer fallback policy.
-- `repair_setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
+- `algorithms/repair_setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
   remain independent strategies, not implicit calls inside setup.
+- `algorithms/path_search.*`, `van_ginneken.*`, `gobi.*`: path scheduling and
+  buffer-tree search. CUDA implementations live beside their algorithms.
 - `design_analysis.*`: shared design metrics, OpenDB/STA queries, incremental
   analysis and model evaluation; no dependency on a repair goal or edit module.
-- `cell_candidates.*`: shared resize/VT and load-downsize candidate generation.
+- `algorithms/cell_candidates.*`: shared resize/VT and load-downsize candidates.
+- `parasitics.h`: placement RC estimation shared by the application and algorithms.
 - `repair_config.*`: typed policies, optional insertion limits, complete-plan
   budget selection and a single registry for parsing and serialization.
   The small former `repair_buffer_budget` and `repair_analysis` headers are merged.
 
 The placement geometry builds as `sizer_placement`; actions and algorithms
 build as `sizer_algorithms`, directly linked by the application.
+
+Algorithms expose search separately from execution. `VanGinneken::solve` and
+`Gobi::solve` take caller-selected net snapshots and return buffer-tree plans;
+`PathSearch::generateCandidates` returns an initial path candidate frontier.
+These calls do not edit the netlist, open an ECO or invoke placement/refresh
+callbacks. Action permissions and insertion limits are enforced by `run`, which
+also owns scheduling, transactions, STA acceptance and rollback. The existing
+CLI stages call `run`; Path does not automatically invoke VG.
+
+All three algorithms use `BufferTreePlan` from `actions/netlist.h`: each node
+specifies its master, location, direct loads and child indices. Children precede
+parents, and a plan can contain multiple roots. `applyBufferTree` validates the
+whole topology before editing, supports different masters within a tree, and
+leaves acceptance and transaction ownership to its caller. Callers can compose
+their own scheduling and solving with these APIs; plans and net snapshots must
+be regenerated after changes to the design or STA scene. VG/GOBI results share
+`DesignMetrics` with DRV, setup and Path.
 
 The former sizing engine has been removed. Its active strategies map to the
 shared repair implementation as follows:

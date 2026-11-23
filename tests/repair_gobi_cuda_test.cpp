@@ -1,4 +1,4 @@
-#include "repair_gobi_cuda.h"
+#include "algorithms/gobi_cuda.h"
 
 #include <gtest/gtest.h>
 

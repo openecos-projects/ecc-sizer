@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_gobi_cuda.h"
+#include "algorithms/gobi_cuda.h"
 
 namespace ecc::gobi {
 

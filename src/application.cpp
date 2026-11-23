@@ -17,15 +17,15 @@
 #include "ord/Design.h"
 #include "est/EstimateParasitics.h"
 #include "repair_config.h"
-#include "repair_drv.h"
-#include "repair_gobi.h"
-#include "repair_gobi_cuda.h"
-#include "repair_parasitics.h"
-#include "repair_path.h"
+#include "algorithms/repair_drv.h"
+#include "algorithms/gobi.h"
+#include "algorithms/gobi_cuda.h"
+#include "parasitics.h"
+#include "algorithms/path_search.h"
 #include "actions/netlist.h"
 #include "actions/placement.h"
-#include "repair_setup.h"
-#include "repair_vg.h"
+#include "algorithms/repair_setup.h"
+#include "algorithms/van_ginneken.h"
 #include "rsz/Resizer.hh"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -366,7 +366,7 @@ static void run(Options& options) {
                     path.path_analysis_changes = [&]() {
                         return incremental.takeAnalysisChanges();
                     };
-                    report("path", OpenDbPathRepairer::repair(
+                    report("path", PathSearch::run(
                                        block, sta,
                                        [&]() {
                                            session.reconnectSupplies();
@@ -375,25 +375,25 @@ static void run(Options& options) {
                                        path));
                 }
                 else {
-                    report("path", OpenDbPathRepairer::repair(block, sta,
+                    report("path", PathSearch::run(block, sta,
                                                               refresh, path));
                 }
                 break;
             }
             case Stage::Vg: {
-                VgRepairOptions vg;
-                static_cast< VgRepairSettings& >(vg) = options.repair.vg;
+                VgOptions vg;
+                static_cast< VgSettings& >(vg) = options.repair.vg;
                 vg.common = common;
-                report("vg", OpenDbVgRepairer::repair(
+                report("vg", VanGinneken::run(
                                  block, sta, placeAndRefresh,
                                  session.design().getResizer(), vg));
                 break;
             }
             case Stage::Gobi: {
-                GobiRepairOptions gobi;
-                static_cast< GobiRepairSettings& >(gobi) = options.repair.gobi;
+                GobiOptions gobi;
+                static_cast< GobiSettings& >(gobi) = options.repair.gobi;
                 gobi.common = common;
-                report("gobi", OpenDbGobiRepairer::repair(
+                report("gobi", Gobi::run(
                                    block, sta, placeAndRefresh,
                                    session.design().getResizer(), gobi));
                 break;

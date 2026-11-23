@@ -4,6 +4,7 @@
 #pragma once
 
 #include <optional>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -97,6 +98,30 @@ struct BufferInsertion {
     odb::dbMaster *master = nullptr;
     BufferInsertionOptions options;
 };
+
+// A forest on one existing net. Nodes are in postorder; children must precede
+// parents and have one parent at most. Direct loads remain on the original net
+// until this plan is applied. Unmentioned loads stay directly on that net.
+// Plans are valid only for the unchanged design snapshot that produced them.
+struct BufferTreeNode {
+    odb::dbMaster* master = nullptr;
+    BufferLocation location;
+    std::vector<odb::dbObject*> loads;
+    std::vector<std::size_t> children;
+};
+struct BufferTreePlan {
+    odb::dbNet *net = nullptr;
+    std::vector<BufferTreeNode> nodes;
+};
+struct BufferTreeEdits {
+    std::vector<BufferInsertionResult> insertions;
+    std::vector<std::size_t> roots;
+};
+// Validate the complete topology before any edit, then apply in postorder.
+// No ranking, timing checks or commit. The caller owns an ECO and must roll
+// back if insertion fails; returned pins are invalid after that rollback.
+BufferTreeEdits applyBufferTree(const BufferTreePlan &plan,
+                                const BufferInsertionOptions &naming = {});
 
 // Apply every supplied insertion; the caller owns rollback on any failure.
 unsigned insertBuffers(const std::vector<BufferInsertion> &insertions);

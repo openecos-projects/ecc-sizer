@@ -15,9 +15,10 @@ include_directories(${OPENROAD_HOME}/sta ${OPENROAD_HOME}/sta/include/sta
 # Repair algorithms depend on OpenDB/STA and edit primitives, not cell sizing.
 set(SOURCES
     actions/netlist.cpp actions/placement.cpp special_net.cpp lef_layer_rc.cpp
-    repair_config.cpp cell_candidates.cpp design_analysis.cpp repair_drv.cpp repair_setup.cpp
-    repair_path.cpp repair_vg.cpp repair_vg_cuda.cpp
-    repair_gobi.cpp repair_gobi_cuda.cpp)
+    repair_config.cpp design_analysis.cpp algorithms/cell_candidates.cpp
+    algorithms/repair_drv.cpp algorithms/repair_setup.cpp
+    algorithms/path_search.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
+    algorithms/gobi.cpp algorithms/gobi_cuda.cpp)
 
 add_library(sizer_placement STATIC actions/legalize_core.cpp
     ../thirdparty/dreamplace-legalize/greedy_legalize/src/greedy_legalize_cpu.cpp
@@ -39,21 +40,22 @@ if(ENABLE_VG_CUDA OR ENABLE_GOBI_CUDA)
 endif()
 
 if(ENABLE_VG_CUDA)
-    list(REMOVE_ITEM SOURCES repair_vg_cuda.cpp)
-    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cu")
+    list(REMOVE_ITEM SOURCES algorithms/vg_cuda.cpp)
+    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/algorithms/vg_cuda.cu")
 else()
     message(STATUS "VG CUDA solver disabled; using CPU VG solver")
 endif()
 
 if(ENABLE_GOBI_CUDA)
-    list(REMOVE_ITEM SOURCES repair_gobi_cuda.cpp)
-    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi_cuda.cu")
+    list(REMOVE_ITEM SOURCES algorithms/gobi_cuda.cpp)
+    list(APPEND SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi_cuda.cu")
 else()
     message(STATUS "GOBI CUDA solver disabled; using the unavailable backend stub")
 endif()
 
 add_library(sizer_algorithms STATIC ${SOURCES})
 add_executable(Sizer application.cpp design_io.cpp)
+target_include_directories(sizer_algorithms PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(sizer_algorithms PUBLIC openroad sizer_placement)
 target_link_libraries(Sizer sizer_algorithms)
 # GUI objects refer back to OpenROAD's Tcl entry symbols. Retain those symbols
@@ -98,10 +100,10 @@ if(BUILD_TESTING)
     add_test(NAME ecc_sizer_repair_path_feedback COMMAND ecc_sizer_repair_path_feedback_test)
 
     set(VG_CUDA_TEST_BACKEND
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/vg_cuda.cpp)
     if(ENABLE_VG_CUDA)
         set(VG_CUDA_TEST_BACKEND
-            ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cu)
+            ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/vg_cuda.cu)
     endif()
     add_executable(ecc_sizer_repair_vg_cuda_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_vg_cuda_test.cpp
@@ -123,10 +125,10 @@ if(BUILD_TESTING)
              COMMAND ecc_sizer_repair_vg_cuda_test)
 
     set(GOBI_CUDA_TEST_BACKEND
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi_cuda.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi_cuda.cpp)
     if(ENABLE_GOBI_CUDA)
         set(GOBI_CUDA_TEST_BACKEND
-            ${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi_cuda.cu)
+            ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi_cuda.cu)
     endif()
     add_executable(ecc_sizer_repair_gobi_cuda_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_gobi_cuda_test.cpp
@@ -177,18 +179,18 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/buffer_inserter_sta_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/actions/netlist.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/actions/placement.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_drv.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/repair_drv.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/design_analysis.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/cell_candidates.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/cell_candidates.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair_config.cpp
 
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_vg_cuda.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_gobi_cuda.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/van_ginneken.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/vg_cuda.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi_cuda.cpp
 
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_path.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair_setup.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/path_search.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/repair_setup.cpp
 
     )
     target_include_directories(ecc_sizer_buffer_inserter_sta_test PRIVATE

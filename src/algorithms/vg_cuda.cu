@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-#include "repair_vg_cuda.h"
+#include "algorithms/vg_cuda.h"
 
 #include <cuda_runtime.h>
 

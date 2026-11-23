@@ -289,6 +289,57 @@ bool replaceCell(const CellReplacement &replacement) {
            compatibleCellMasters(inst->getMaster(), master) && inst->swapMaster(master);
 }
 
+BufferTreeEdits applyBufferTree(const BufferTreePlan &plan,
+                                const BufferInsertionOptions &naming) {
+    BufferTreeEdits result;
+    if (plan.nodes.empty())
+        return result;
+    if (!plan.net || plan.net->isDoNotTouch() || plan.net->isSpecial() ||
+        plan.net->getSigType() != odb::dbSigType::SIGNAL ||
+        !plan.net->getFirstDriverTerm())
+        throw std::invalid_argument(
+            "buffer tree requires an editable driven signal net");
+    std::vector<bool> has_parent(plan.nodes.size(), false);
+    std::unordered_set<odb::dbObject *> terminals;
+    for (std::size_t i = 0; i < plan.nodes.size(); ++i) {
+        const auto &node = plan.nodes[i];
+        const auto valid = validateCommon(plan.net, node.master);
+        if (!valid)
+            throw std::invalid_argument(valid.message);
+        if (node.loads.empty() && node.children.empty())
+            throw std::invalid_argument("buffer tree node has no loads");
+        for (auto *load : node.loads) {
+            if (!isLoad(load) || getNet(load) != plan.net ||
+                !terminals.insert(load).second)
+                throw std::invalid_argument("buffer tree has stale or duplicate loads");
+        }
+        for (auto child : node.children) {
+            if (child >= i || has_parent[child])
+                throw std::invalid_argument(
+                    "buffer tree requires unique postorder children");
+            has_parent[child] = true;
+        }
+    }
+    result.insertions.reserve(plan.nodes.size());
+    auto options = naming;
+    options.loads_on_different_nets = false;
+    for (std::size_t i = 0; i < plan.nodes.size(); ++i) {
+        const auto &node = plan.nodes[i];
+        auto loads = node.loads;
+        for (auto child : node.children)
+            loads.push_back(result.insertions[child].input_pin);
+        options.location = node.location;
+        auto edit = OpenDbBufferInserter::insertBufferBeforeLoads(plan.net, loads,
+                                                                  node.master, options);
+        if (!edit)
+            throw std::runtime_error(edit.message);
+        result.insertions.push_back(std::move(edit));
+        if (!has_parent[i])
+            result.roots.push_back(i);
+    }
+    return result;
+}
+
 unsigned insertBuffers(const std::vector<BufferInsertion> &insertions) {
     unsigned inserted = 0;
     for (const auto &edit : insertions) {

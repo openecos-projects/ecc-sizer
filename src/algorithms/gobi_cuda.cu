@@ -39,7 +39,7 @@
 #include <utility>
 #include <vector>
 
-#include "repair_gobi_cuda.h"
+#include "algorithms/gobi_cuda.h"
 namespace ecc {
 using namespace gobi;
 

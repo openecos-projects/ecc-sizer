@@ -96,7 +96,7 @@ struct SetupRepairOptions : SetupRepairSettings {
     void validate() const;
 };
 
-struct PathRepairSettings {
+struct PathSearchSettings {
     unsigned paths_per_endpoint = 1;
     float min_improvement = 1e-13f;
     bool defer_rollback_refresh = true;
@@ -168,7 +168,7 @@ struct PathRepairSettings {
     double max_area_growth = 0.02;
     void validate() const;
 };
-struct PathRepairOptions : PathRepairSettings {
+struct PathSearchOptions : PathSearchSettings {
     RepairCommonOptions common;
     // Called after commit/rollback; rejected trials can have deferred STA.
     std::function<void(unsigned, const PathBufferTrial &)> path_trial_observer;
@@ -196,7 +196,7 @@ struct PowerRepairSettings {
     double min_absolute_improvement = 0;
     void validate() const;
 };
-struct VgRepairSettings {
+struct VgSettings {
     // setup also includes electrically clean nets on negative-slack paths.
     VgScope scope = VgScope::Drv;
     // VG solver backend. CUDA runs propagation, merge, pruning and selection;
@@ -210,7 +210,7 @@ struct VgRepairSettings {
     bool require_drv_reduction = true;
     void validate() const;
 };
-struct GobiRepairSettings {
+struct GobiSettings {
     // GOBI uses its CUDA solver; backend availability is checked at runtime.
     std::optional<unsigned> max_buffers;
     unsigned max_nets = 0;
@@ -226,14 +226,14 @@ struct PowerRepairOptions : PowerRepairSettings {
 struct RepairConfig {
     DrvRepairOptions drv;
     SetupRepairSettings setup;
-    PathRepairSettings path;
+    PathSearchSettings path;
     PowerRepairSettings power;
-    VgRepairSettings vg;
-    GobiRepairSettings gobi;
+    VgSettings vg;
+    GobiSettings gobi;
     unsigned sta_threads = 32;
 
     SetupRepairOptions setupOptions() const;
-    PathRepairOptions pathOptions() const;
+    PathSearchOptions pathOptions() const;
     PowerRepairOptions powerOptions() const;
     void validate() const;
     // Strict key/value parsing. Unknown keys, malformed values and NaN fail.

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_path_feedback.h"
+#include "algorithms/path_feedback.h"
 #include <gtest/gtest.h>
 
 using namespace ecc::path_detail;

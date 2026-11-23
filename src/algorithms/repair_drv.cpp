@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair_drv.h"
+#include "algorithms/repair_drv.h"
 #include "design_analysis.h"
-#include "cell_candidates.h"
-#include "repair_setup.h"
+#include "algorithms/cell_candidates.h"
+#include "algorithms/repair_setup.h"
 #include "sta/Sdc.hh"
 #include "sta/Mode.hh"
 #include "sta/Liberty.hh"

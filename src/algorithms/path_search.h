@@ -4,6 +4,7 @@
 
 #include "repair_config.h"
 #include "design_analysis.h"
+#include "actions/netlist.h"
 
 #include <functional>
 #include <string>
@@ -56,8 +57,8 @@ struct PathBufferTrial {
         double predicted_path_gain = 0, predicted_electrical_excess = 0;
         bool electrical_retry = false;
     };
-    std::vector< Candidate > candidates;
-    std::vector< std::string > rejection_reasons;
+    std::vector<Candidate> candidates;
+    std::vector<std::string> rejection_reasons;
     DesignMetrics before;
     DesignMetrics after;
     double prepare_ms = 0;
@@ -73,7 +74,7 @@ struct PathFinalPlacement {
     std::vector<std::string> rejection_reasons;
 };
 
-struct PathBufferRepairResult {
+struct PathSearchResult {
     bool ok = false;
     bool converged = false;
     std::string message;
@@ -112,22 +113,38 @@ struct PathBufferRepairResult {
     double prepare_ms = 0;
     double refresh_ms = 0;
     double measure_ms = 0;
-    std::vector< PathBufferTrial > trials;
+    std::vector<PathBufferTrial> trials;
     DesignMetrics before;
     DesignMetrics after;
     PathFinalPlacement final_placement;
+};
+
+// Initial candidate frontier for the current STA snapshot. Forecasts rank
+// candidates only; callers still own global timing/DRV acceptance after editing.
+struct PathCandidate {
+    BufferTreePlan plan;
+    float slack = 0;
+    float predicted_wns_gain = 0;
+    float predicted_tns_gain = 0;
+    bool recovery = false;
 };
 
 // Independent path-level buffer repair.  Candidates are collected from the
 // current STA paths and every topology edit is globally STA-verified before
 // it is committed.  The caller supplies refresh so the path module remains
 // independent of Sizer's placement/parasitic implementation.
-class OpenDbPathRepairer {
-   public:
-    static PathBufferRepairResult repair(
-        odb::dbBlock* block, sta::dbSta* sta,
-        const std::function< void() >& refresh,
-        const PathRepairOptions& options = {});
+class PathSearch {
+  public:
+    // No edits, legalization, refresh callback or execution-budget consumption.
+    // Feedback starts empty here; run owns feedback across successive ECOs.
+    // Returned plans expire after edits, placement changes or STA scene changes.
+    static std::vector<PathCandidate>
+    generateCandidates(odb::dbBlock *block, sta::dbSta *sta,
+                       const PathSearchOptions &options = {});
+
+    static PathSearchResult run(odb::dbBlock *block, sta::dbSta *sta,
+                                const std::function<void()> &refresh,
+                                const PathSearchOptions &options = {});
 };
 
-}  // namespace ecc
+} // namespace ecc

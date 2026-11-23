@@ -1,4 +1,4 @@
-#include "repair_vg_cuda.h"
+#include "algorithms/vg_cuda.h"
 
 #include <gtest/gtest.h>
 
