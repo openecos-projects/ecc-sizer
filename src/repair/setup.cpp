@@ -9,7 +9,6 @@
 #include "odb/db.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
-#include "repair/path.h"
 
 #include <chrono>
 #include <algorithm>
@@ -52,17 +51,6 @@ struct SetupCandidate {
     float slack;
     bool downsize_load = false;
 };
-
-static std::vector<NetState> measureSetup(DesignAnalysis& analysis, sta::dbSta* sta,
-                                          SetupRepairMetrics& metrics) {
-    auto states = analysis.analyze(metrics.design, true);
-    metrics.setup_tns = metrics.design.setup_tns;
-    metrics.hold_tns = metrics.design.hold_tns;
-    metrics.slew_violations = metrics.design.total_slew_violations;
-    metrics.cap_violations = metrics.design.total_cap_violations;
-    metrics.fanout_violations = metrics.design.total_fanout_violations;
-    return states;
-}
 
 static std::vector<SetupCandidate> setupCandidates(DesignAnalysis& analysis,
                                                    sta::dbSta* sta,
@@ -239,25 +227,24 @@ static std::vector<SetupCandidate> setupCandidates(DesignAnalysis& analysis,
     return result;
 }
 
-static bool acceptableSetup(const SetupRepairMetrics& before,
-                            const SetupRepairMetrics& after, double area_limit,
-                            const SetupRepairOptions& options) {
+static bool acceptableSetup(const DesignMetrics& before, const DesignMetrics& after,
+                            double area_limit, const SetupRepairOptions& options) {
     const auto& tolerance = options.common.tolerances;
     const float improvement = options.min_improvement;
     const float tns_tolerance = detail::tnsTolerance(before.setup_tns, tolerance);
-    return after.design.area <= area_limit &&
-           detail::timingNonRegressing(before.design, after.design, tolerance) &&
-           (after.design.setup_wns > before.design.setup_wns + improvement ||
+    return after.area <= area_limit &&
+           detail::timingNonRegressing(before, after, tolerance) &&
+           (after.setup_wns > before.setup_wns + improvement ||
             after.setup_tns >
                 before.setup_tns + std::max(improvement, tns_tolerance)) &&
-           detail::noNewDrv(before.design, after.design) &&
-           after.design.severity <= before.design.severity + tolerance.drv_severity;
+           detail::noNewDrv(before, after) &&
+           after.severity <= before.severity + tolerance.drv_severity;
 }
 
-SetupRepairResult SetupRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
-                                        const std::function<void()>& refresh,
-                                        const SetupRepairOptions& options,
-                                        const RepairRuntime& runtime) {
+SetupRepairResult SetupRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
+                                     const std::function<void()>& refresh,
+                                     const SetupRepairOptions& options,
+                                     const RepairRuntime& runtime) {
     SetupRepairResult result;
     try {
         options.validate();
@@ -281,16 +268,20 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
         refresh();
         needs_refresh = false;
     };
-    const auto inspect = [&](SetupRepairMetrics& metrics) {
+    const auto inspect = [&](DesignMetrics& metrics) {
         SetupPhaseTimer timer{result.measure_ms};
-        return measureSetup(analysis, sta, metrics);
+        return analysis.analyze(metrics, true);
     };
     auto states = inspect(result.before);
     result.after = result.before;
-    const double area_limit = result.before.design.area * (1 + options.max_area_growth);
+    const double area_limit = options.max_area_growth
+                                  ? result.before.area * (1 + *options.max_area_growth)
+                                  : std::numeric_limits<double>::infinity();
+    const auto trials_available = [&]() {
+        return !options.max_trials || result.attempted_batches < *options.max_trials;
+    };
     for (unsigned pass = 0;
-         pass < options.max_passes && result.after.design.setup_wns < 0 &&
-         result.attempted_batches < options.max_trials;
+         pass < options.max_passes && result.after.setup_wns < 0 && trials_available();
          ++pass) {
         std::vector<SetupCandidate> plans;
         {
@@ -313,7 +304,7 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
                 width = std::min(size_t(options.batch_size), plans.size() - cursor);
             }
         };
-        while (cursor < plans.size() && result.attempted_batches < options.max_trials) {
+        while (cursor < plans.size() && trials_available()) {
             // Batch width counts candidates, but alternatives for the same
             // driver collapse to one edit. Compare the selected edit set before
             // touching OpenDB, so duplicate batches never trigger RC/STA work.
@@ -324,8 +315,7 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
             for (size_t i = cursor; i < std::min(cursor + width, plans.size()); ++i) {
                 const auto& plan = plans[i];
                 if (touched.contains(plan.driver) ||
-                    result.after.design.area + planned_area + plan.added_area >
-                        area_limit ||
+                    result.after.area + planned_area + plan.added_area > area_limit ||
                     (!plan.loads.empty() &&
                      planned_buffers >=
                          remainingBufferBudget(options.max_inserted_buffers,
@@ -386,7 +376,7 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
                     runtime.prepare();
                 }
                 update(false);
-                SetupRepairMetrics after;
+                DesignMetrics after;
                 auto next_states = inspect(after);
                 if (acceptableSetup(result.after, after, area_limit, options)) {
                     transaction.commit();
@@ -426,7 +416,7 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
             }
         }
         if (!accepted) {
-            result.message = result.attempted_batches >= options.max_trials
+            result.message = !trials_available()
                                  ? "setup trial budget exhausted; violations remain"
                                  : "no acceptable setup candidate; violations remain";
             break;
@@ -445,7 +435,7 @@ SetupRepairResult SetupRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
         }
     }
     result.ok = true;
-    result.converged = result.after.design.setup_wns >= 0;
+    result.converged = result.after.setup_wns >= 0;
     if (result.message.empty()) {
         result.message = result.converged
                              ? "setup timing met"

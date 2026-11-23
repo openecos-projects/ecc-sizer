@@ -145,7 +145,7 @@ explicit overrides then win regardless of their position on the command line.
 Unknown keys and malformed values fail before design loading.
 
 For example, `--set common.max_fanout=32` overrides the default fanout fallback;
-`--set path.max_trials=0` removes the optional Path trial budget.
+`--set path.max_trials=unlimited` removes the optional Path trial budget.
 Insertion limits are optional for every algorithm: `drv.max_inserted_buffers`,
 `setup.max_inserted_buffers`, `path.max_inserted_buffers`, `vg.max_buffers` and
 `gobi.max_buffers` default to `unlimited` (`std::nullopt` in C++). A number is an
@@ -299,3 +299,31 @@ are not a compatibility contract.
 loading/composition tests. `benchmark/`, `results/` and build directories are
 local data/output. Do not remove them as source cleanup without inspecting
 their contents.
+
+## API vocabulary
+
+Repair workflows use `*Repairer::run`; read-only tree solvers use `solve`, and
+Path uses `generateCandidates`. Edit primitives use `applyBufferTree` and
+`replaceCell` and never decide timing acceptance. `Settings` hold a stage's
+serializable policy, `Options` add common policy, and `Runtime` carries live
+constraints and callbacks. No runtime state is copied into `RepairConfig`.
+
+A `Candidate` is a ranked alternative; a `Plan` describes edits against an
+unchanged design snapshot; `PathTrialResult` records one measured ECO; a
+`RepairResult` describes the completed workflow. Trial counts are batches,
+not buffer counts. `rechecked_full_rc` means an additional authoritative RC
+check occurred; false does not imply that the normal refresh was incremental.
+
+Use `scripts/benchmark_sizer.py --help` for the current ISPD26 runner. It
+loads via OpenROAD Tcl, records input/binary hashes and logs, independently
+reloads the final design to check placement and PPA, and removes generated
+DEF/Verilog/ODB after evaluation. Historical experiment documents/configurations
+are not instructions for the current CLI.
+
+Path execution limits (`max_trials`, `max_seconds`, `max_refreshes`,
+`max_consecutive_rejections`), setup's `max_trials`, both stages'
+`max_area_growth`, and VG/GOBI `max_nets` also accept `unlimited`. Zero is an
+actual cap, including zero area growth. Default trial caps remain Path=8 and
+setup=24; Path time/refresh/rejection limits and VG/GOBI net limits are absent.
+VG/GOBI's `require_drv_non_regression` guards electrical violation counts;
+strict improvement may be timing or electrical, so it is not named “reduction.”

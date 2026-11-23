@@ -653,7 +653,6 @@ std::vector<odb::dbInst*> downstreamCone(odb::dbNet* net, sta::dbNetwork* networ
 // Path/PathEnd pointers: querying slack can rebuild STA's path groups.
 struct PathSamples {
     std::unordered_map<odb::dbNet*, std::vector<PathUse>> uses;
-    std::vector<float> endpoint_slacks;
     std::vector<const sta::Pin*> endpoint_pins;
     std::vector<path_detail::PathForecast> sampled_paths;
     std::map<size_t, double> actual_endpoint_slacks;
@@ -678,11 +677,7 @@ struct PathSamples {
                 const auto* endpoint = path.pins.back();
                 const auto [it, added] = endpoints.emplace(endpoint, endpoints.size());
                 if (added) {
-                    endpoint_slacks.push_back(slack);
                     endpoint_pins.push_back(endpoint);
-                } else {
-                    endpoint_slacks[it->second] =
-                        std::min(endpoint_slacks[it->second], slack);
                 }
                 const auto path_index = sampled_paths.size();
                 sampled_paths.push_back({it->second, slack, slack, false});
@@ -710,7 +705,7 @@ struct PathSamples {
                 }
             }
         }
-        if (endpoint_slacks.empty()) {
+        if (endpoint_pins.empty()) {
             return;
         }
         // Slack queries may rebuild OpenSTA path groups. Do not issue them while
@@ -799,9 +794,9 @@ CandidateCollection collectPathGainCandidates(detail::DesignAnalysis& analysis,
     }
     auto* network = sta->getDbNetwork();
     const PathSamples samples(sta, options);
-    const auto& [uses, endpoint_slacks, endpoint_pins, sampled_paths,
-                 actual_endpoint_slacks, endpoint_profiles] = samples;
-    if (endpoint_slacks.empty()) {
+    const auto& [uses, endpoint_pins, sampled_paths, actual_endpoint_slacks,
+                 endpoint_profiles] = samples;
+    if (endpoint_pins.empty()) {
         return collection;
     }
     std::unordered_map<odb::dbInst*, const NetState*> driven;

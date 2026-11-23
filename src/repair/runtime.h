@@ -9,10 +9,10 @@ class dbInst;
 class dbMaster;
 } // namespace odb
 namespace ecc {
-struct PathBufferTrial;
+struct PathTrialResult;
 struct PathFanoutCheck;
 struct PathEvent;
-struct RepairAnalysisChanges;
+struct AnalysisChanges;
 
 // Object references belong to the current design, never to serialized policy.
 struct DesignConstraints {
@@ -30,7 +30,7 @@ struct RepairRuntime {
 };
 struct PathRuntime : RepairRuntime {
     // A rejected trial may still have deferred timing refresh.
-    std::function<void(unsigned, const PathBufferTrial&)> trial_observer;
+    std::function<void(unsigned, const PathTrialResult&)> trial_observer;
     std::function<void(const PathFanoutCheck&)> fanout_observer;
     // Search lifecycle notification. Observers must not mutate
     // the design or query live STA; the snapshot uses last accepted metrics.
@@ -38,6 +38,6 @@ struct PathRuntime : RepairRuntime {
     // Full RC/STA verification, including after final legalization.
     std::function<void()> verification_refresh;
     std::function<void()> incremental_verification;
-    std::function<RepairAnalysisChanges()> analysis_changes;
+    std::function<AnalysisChanges()> analysis_changes;
 };
 } // namespace ecc

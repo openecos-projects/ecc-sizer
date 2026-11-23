@@ -202,10 +202,10 @@ static bool applyNetRepair(DesignAnalysis& analysis, detail::CellCandidates& cel
     return replaced || buffered != 0;
 }
 
-DrvRepairResult DrvRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
-                                    const std::function<void()>& refresh,
-                                    const DrvRepairOptions& options,
-                                    const RepairRuntime& runtime) {
+DrvRepairResult DrvRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
+                                 const std::function<void()>& refresh,
+                                 const DrvRepairOptions& options,
+                                 const RepairRuntime& runtime) {
     DrvRepairResult result;
     try {
         options.validate();
@@ -367,10 +367,10 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
     return result;
 }
 
-OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
-                                          const std::function<void()>& refresh,
-                                          const DrvRepairOptions& options,
-                                          const RepairRuntime& runtime) {
+OrdDrvRepairResult OrdDrvRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
+                                       const std::function<void()>& refresh,
+                                       const DrvRepairOptions& options,
+                                       const RepairRuntime& runtime) {
     OrdDrvRepairResult result;
     try {
         options.validate();
@@ -606,7 +606,7 @@ maxFanoutWithPolicy(odb::dbBlock* block, bool include_clock_nets,
     }
     for (odb::dbNet* net : block->getNets()) {
         if (shouldRepair(net, include_clock_nets, excluded_nets)) {
-            max_fanout = std::max(max_fanout, OpenDbFanoutRepairer::loadCount(net));
+            max_fanout = std::max(max_fanout, FanoutRepairer::loadCount(net));
         }
     }
     return max_fanout;
@@ -635,17 +635,17 @@ static void addAffectedNet(FanoutRepairResult& result,
     }
 }
 
-unsigned OpenDbFanoutRepairer::loadCount(odb::dbNet* net) {
+unsigned FanoutRepairer::loadCount(odb::dbNet* net) {
     return loads(net).size();
 }
 
-unsigned OpenDbFanoutRepairer::maxFanout(odb::dbBlock* block, bool include_clock_nets) {
+unsigned FanoutRepairer::maxFanout(odb::dbBlock* block, bool include_clock_nets) {
     return maxFanoutWithPolicy(block, include_clock_nets, nullptr);
 }
 
-FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock* block,
-                                                odb::dbMaster* buffer_master,
-                                                const FanoutRepairOptions& options) {
+FanoutRepairResult FanoutRepairer::run(odb::dbBlock* block,
+                                       odb::dbMaster* buffer_master,
+                                       const FanoutRepairOptions& options) {
     if (block == nullptr) {
         return failure(FanoutRepairStatus::kInvalidBlock,
                        "fanout repair requires a block");
@@ -904,10 +904,10 @@ static bool acceptable(const PowerRepairMetrics& before,
            after.design.severity <=
                before.design.severity + options.common.tolerances.drv_severity;
 }
-PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
-                                              const std::function<void()>& refresh,
-                                              const PowerRepairOptions& options,
-                                              const RepairRuntime& runtime) {
+PowerRepairResult PowerRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
+                                     const std::function<void()>& refresh,
+                                     const PowerRepairOptions& options,
+                                     const RepairRuntime& runtime) {
     PowerRepairResult result;
     const auto start = std::chrono::steady_clock::now();
     std::optional<EcoTransaction> transaction;
@@ -1019,8 +1019,8 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock* block, sta::dbSta* s
                         drv.max_passes = options.max_trials - result.attempted_trials;
                         drv.max_inserted_buffers =
                             static_cast<unsigned>(selected.size());
-                        const auto repaired = DrvRepairer::repair(
-                            block, sta, update, drv, recovery_runtime);
+                        const auto repaired =
+                            DrvRepairer::run(block, sta, update, drv, recovery_runtime);
                         result.attempted_trials +=
                             repaired.accepted_passes + repaired.rejected_passes;
                         if (!repaired.ok) {
@@ -1032,7 +1032,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock* block, sta::dbSta* s
                         SetupRepairOptions setup;
                         setup.common = options.common;
                         setup.max_trials = options.max_trials - result.attempted_trials;
-                        setup.max_passes = setup.max_trials;
+                        setup.max_passes = *setup.max_trials;
                         setup.max_candidates = options.max_candidates;
                         setup.batch_size = options.batch_size;
                         setup.batch_backoff = options.batch_backoff;
@@ -1043,7 +1043,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock* block, sta::dbSta* s
                                 0.0,
                                 result.after.design.area / after.design.area - 1.0);
                         }
-                        const auto repaired = SetupRepairer::repair(
+                        const auto repaired = SetupRepairer::run(
                             block, sta, update, setup, recovery_runtime);
                         spdlog::debug(
                             "Power setup recovery: {} ({} trials, {} accepted)",

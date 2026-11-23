@@ -49,10 +49,10 @@ struct DrvRepairResult {
 // synchronization boundary.
 class DrvRepairer {
   public:
-    static DrvRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
-                                  const std::function<void()>& refresh,
-                                  const DrvRepairOptions& options = {},
-                                  const RepairRuntime& runtime = {});
+    static DrvRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
+                               const std::function<void()>& refresh,
+                               const DrvRepairOptions& options = {},
+                               const RepairRuntime& runtime = {});
 };
 
 // OpenROAD-style DRV repair: drivers are visited in the reverse levelized
@@ -76,10 +76,10 @@ struct OrdDrvRepairResult {
 
 class OrdDrvRepairer {
   public:
-    static OrdDrvRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
-                                     const std::function<void()>& refresh,
-                                     const DrvRepairOptions& options = {},
-                                     const RepairRuntime& runtime = {});
+    static OrdDrvRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
+                                  const std::function<void()>& refresh,
+                                  const DrvRepairOptions& options = {},
+                                  const RepairRuntime& runtime = {});
 };
 
 struct FanoutRepairOptions {
@@ -113,10 +113,10 @@ struct FanoutRepairResult {
     explicit operator bool() const { return ok(); }
 };
 
-class OpenDbFanoutRepairer {
+class FanoutRepairer {
   public:
-    static FanoutRepairResult repair(odb::dbBlock* block, odb::dbMaster* buffer_master,
-                                     const FanoutRepairOptions& options = {});
+    static FanoutRepairResult run(odb::dbBlock* block, odb::dbMaster* buffer_master,
+                                  const FanoutRepairOptions& options = {});
 
     static unsigned loadCount(odb::dbNet* net);
     static unsigned maxFanout(odb::dbBlock* block, bool include_clock_nets = false);
@@ -141,11 +141,11 @@ struct PowerRepairResult {
 // Power and recovery trials share max_trials; every compound edit must reduce
 // power without worsening area, setup/hold or DRV versus the committed design.
 // Uses the caller's STA activity assumptions. No Resizer strategy calls.
-class OpenDbPowerRepairer {
+class PowerRepairer {
   public:
-    static PowerRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
-                                    const std::function<void()>& refresh,
-                                    const PowerRepairOptions& options = {},
-                                    const RepairRuntime& runtime = {});
+    static PowerRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
+                                 const std::function<void()>& refresh,
+                                 const PowerRepairOptions& options = {},
+                                 const RepairRuntime& runtime = {});
 };
 } // namespace ecc

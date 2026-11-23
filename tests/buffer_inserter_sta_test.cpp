@@ -526,7 +526,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathSequenceMatchesFinalFullSta)
   ecc::PathSearchOptions options;
   options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 16;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   options.defer_rollback_refresh = true;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
@@ -553,7 +553,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathFullyVerifiesBeforeEveryCommit)
   ecc::PathSearchOptions options;
   options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 16;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   options.defer_rollback_refresh = true;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   unsigned full_refreshes = 0, verified_trials = 0;
@@ -561,11 +561,11 @@ TEST_F(BufferInserterStaTest, IncrementalPathFullyVerifiesBeforeEveryCommit)
     ++full_refreshes;
     refreshRepairTiming();
   };
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &trial) {
-    if(trial.full_verified)
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &trial) {
+    if(trial.rechecked_full_rc)
       ++verified_trials;
     if(trial.rejection_reasons.empty())
-      EXPECT_TRUE(trial.full_verified);
+      EXPECT_TRUE(trial.rechecked_full_rc);
   };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
   const auto result = ecc::PathRepairer::run(
@@ -592,14 +592,14 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRunsOnceAndReportsLegalFullSta)
   options.strategy = ecc::PathStrategy::Feedback;
   options.placement = ecc::PathPlacement::Final;
   options.max_trials = 16;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   unsigned prepared = 0, observed = 0;
   runtime_.prepare = [&]() {
     ++prepared;
     EXPECT_GT(observed, 0u);
     ecc::legalizeRepairPlacement(block_, &dp_);
   };
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &trial) {
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &trial) {
     EXPECT_TRUE(trial.placement_provisional);
     EXPECT_EQ(prepared, 0u);
     ++observed;
@@ -664,7 +664,7 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRestoresAllProvisionalEditsAndMo
     options.verification = verification;
     runtime_.verification_refresh = [&]() { refreshRepairTiming(); };
     options.max_trials = 16;
-    options.max_area_growth = -1;
+    options.max_area_growth = std::nullopt;
     runtime_.prepare = [&]() {
       ecc::legalizeRepairPlacement(block_, &dp_);
       block_->findInst("load9")->setLocation(100000000, 0);
@@ -719,7 +719,7 @@ TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJou
   options.strategy = ecc::PathStrategy::Feedback;
   options.verification = ecc::PathVerification::Final;
   options.max_trials = 16;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   const auto instances = block_->getInsts().size();
   unsigned full_refreshes = 0;
@@ -732,9 +732,9 @@ TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJou
   EXPECT_EQ(full_refreshes, 0u);
   EXPECT_EQ(block_->getInsts().size(), instances);
   runtime_.verification_refresh = full;
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &trial) {
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &trial) {
     EXPECT_TRUE(trial.placement_provisional);
-    EXPECT_FALSE(trial.full_verified);
+    EXPECT_FALSE(trial.rechecked_full_rc);
     EXPECT_EQ(full_refreshes, 0u);
     if(trial.rejection_reasons.empty())
       EXPECT_TRUE(trial.metrics_complete);
@@ -781,9 +781,9 @@ TEST_F(BufferInserterStaTest, PathRejectionStopStillFinalizesAndKeepsAcceptedEdi
   ecc::PathSearchOptions options;
   options.strategy = ecc::PathStrategy::Feedback;
   options.placement = ecc::PathPlacement::Final;
-  options.max_trials = 0;
+  options.max_trials = std::nullopt;
   options.max_consecutive_rejections = 2;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   unsigned prepared = 0;
   runtime_.prepare = [&]() {
     ++prepared;
@@ -827,7 +827,7 @@ TEST_F(BufferInserterStaTest, PathTimingPrecheckMatchesFullMetricsAndNeverAccept
   options.adaptive_search = true;
   options.timing_precheck = true;
   options.max_trials = 32;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   options.defer_rollback_refresh = true;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   ecc::DesignMetrics independently_measured;
@@ -839,7 +839,7 @@ TEST_F(BufferInserterStaTest, PathTimingPrecheckMatchesFullMetricsAndNeverAccept
   };
   unsigned partial = 0;
   runtime_.verification_refresh = refresh;
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &trial) {
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &trial) {
     EXPECT_FLOAT_EQ(trial.after.setup_wns, independently_measured.setup_wns);
     EXPECT_FLOAT_EQ(trial.after.setup_tns, independently_measured.setup_tns);
     EXPECT_FLOAT_EQ(trial.after.hold_wns, independently_measured.hold_wns);
@@ -847,11 +847,11 @@ TEST_F(BufferInserterStaTest, PathTimingPrecheckMatchesFullMetricsAndNeverAccept
     if(!trial.metrics_complete) {
       ++partial;
       EXPECT_FALSE(trial.rejection_reasons.empty());
-      EXPECT_FALSE(trial.full_verified);
+      EXPECT_FALSE(trial.rechecked_full_rc);
     }
     if(trial.rejection_reasons.empty()) {
       EXPECT_TRUE(trial.metrics_complete);
-      EXPECT_TRUE(trial.full_verified);
+      EXPECT_TRUE(trial.rechecked_full_rc);
       EXPECT_EQ(trial.after.total_slew_violations, independently_measured.total_slew_violations);
       EXPECT_DOUBLE_EQ(trial.after.severity, independently_measured.severity);
     }
@@ -881,7 +881,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathRollsBackIfFullVerificationFails)
   ecc::PathSearchOptions options;
   options.strategy = ecc::PathStrategy::Feedback;
   options.max_trials = 16;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   unsigned full_refreshes = 0;
   runtime_.verification_refresh = [&]() {
@@ -985,7 +985,7 @@ TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
   options.common.max_fanout = 3;
   options.max_buffers = 64;
   options.max_group_loads = 3;
-  options.require_drv_reduction = true;
+  options.require_drv_non_regression = true;
   const auto result = ecc::VgRepairer::run(
       block_, sta_.get(), [this]() { refreshRepairTiming(); }, &cold_resizer, options,
       runtime_);
@@ -1007,7 +1007,7 @@ TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
   design_options.common.max_fanout = options.common.max_fanout;
   const auto refresh = [this]() { refreshRepairTiming(); };
   const auto design =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, design_options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, design_options, runtime_);
   ASSERT_TRUE(design.ok) << design.message;
   EXPECT_NEAR(design.before.severity, result.after.severity, 1e-6);
   EXPECT_NEAR(design.before.setup_wns, result.after.setup_wns, 1e-15);
@@ -1017,10 +1017,10 @@ TEST_F(BufferInserterStaTest, VgOneShotAppliesOneAtomicPlan)
   ecc::SetupRepairOptions setup_options;
   setup_options.common = design_options.common;
   const auto setup =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, setup_options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, setup_options, runtime_);
   ASSERT_TRUE(setup.ok) << setup.message;
-  EXPECT_NEAR(setup.before.design.setup_wns, design.after.setup_wns, 1e-15);
-  EXPECT_GE(setup.after.design.setup_wns + 1e-15, setup.before.design.setup_wns);
+  EXPECT_NEAR(setup.before.setup_wns, design.after.setup_wns, 1e-15);
+  EXPECT_GE(setup.after.setup_wns + 1e-15, setup.before.setup_wns);
   EXPECT_EQ(block_->getInsts().size(), after_design + setup.inserted_buffers);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   EXPECT_TRUE(sta_->search()->arrivalsValid());
@@ -1062,7 +1062,7 @@ TEST_F(BufferInserterStaTest, RepairFanoutBuildsTreeAndKeepsStaValid)
   odb::dbMaster* buffer_master = lib_->findMaster("BUF_X1");
   ASSERT_NE(net, nullptr);
   ASSERT_NE(buffer_master, nullptr);
-  ASSERT_EQ(ecc::OpenDbFanoutRepairer::loadCount(net), 10);
+  ASSERT_EQ(ecc::FanoutRepairer::loadCount(net), 10);
 
   ecc::FanoutRepairOptions options;
   options.max_fanout = 3;
@@ -1071,14 +1071,14 @@ TEST_F(BufferInserterStaTest, RepairFanoutBuildsTreeAndKeepsStaValid)
 
   est::IncrementalParasiticsGuard parasitics_guard(&ep_);
   const ecc::FanoutRepairResult result
-      = ecc::OpenDbFanoutRepairer::repair(block_, buffer_master, options);
+      = ecc::FanoutRepairer::run(block_, buffer_master, options);
 
   ASSERT_TRUE(result.ok()) << result.message;
   EXPECT_EQ(result.before_max_fanout, 10);
   EXPECT_EQ(result.after_max_fanout, 3);
   EXPECT_EQ(result.inserted_buffers.size(), 4);
   for (odb::dbNet* result_net : block_->getNets()) {
-    EXPECT_LE(ecc::OpenDbFanoutRepairer::loadCount(result_net), 3)
+    EXPECT_LE(ecc::FanoutRepairer::loadCount(result_net), 3)
         << result_net->getName();
   }
   sta::Graph* graph = sta_->ensureGraph();
@@ -1140,7 +1140,7 @@ TEST_F(BufferInserterStaTest, NetRepairPlanningDoesNotMutateAndActionsCanBeUndon
   EXPECT_FALSE(plan.replacement.has_value());
   EXPECT_EQ(block_->getInsts().size(), instances);
   EXPECT_EQ(block_->getNets().size(), nets);
-  EXPECT_EQ(ecc::OpenDbFanoutRepairer::loadCount(found->net), 10u);
+  EXPECT_EQ(ecc::FanoutRepairer::loadCount(found->net), 10u);
   odb::dbDatabase::beginEco(block_);
   const auto inserted = ecc::insertBuffers(plan.buffers);
   EXPECT_EQ(inserted, plan.buffers.size());
@@ -1149,7 +1149,7 @@ TEST_F(BufferInserterStaTest, NetRepairPlanningDoesNotMutateAndActionsCanBeUndon
   odb::dbDatabase::undoEco(block_);
   EXPECT_EQ(block_->getInsts().size(), instances);
   EXPECT_EQ(block_->getNets().size(), nets);
-  EXPECT_EQ(ecc::OpenDbFanoutRepairer::loadCount(found->net), 10u);
+  EXPECT_EQ(ecc::FanoutRepairer::loadCount(found->net), 10u);
   db_network_->checkAxioms();
 }
 
@@ -1165,7 +1165,7 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairUsesStaAndHonorsBudget)
   };
   refresh();
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_passes, 0);
   EXPECT_LT(result.after.severity, result.before.severity);
@@ -1192,12 +1192,12 @@ TEST_F(BufferInserterStaTest,
     sta_->updateTiming(true);
   };
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.inserted_buffers, 0);
   EXPECT_EQ(block_->getInsts().size(), insts);
   EXPECT_EQ(block_->getNets().size(), nets);
-  EXPECT_EQ(ecc::OpenDbFanoutRepairer::loadCount(net), 10);
+  EXPECT_EQ(ecc::FanoutRepairer::loadCount(net), 10);
   EXPECT_EQ(updates, 2);
   db_network_->checkAxioms();
 }
@@ -1211,15 +1211,15 @@ TEST_F(BufferInserterStaTest,
   options.common.max_fanout = 3;
   const auto refresh = [&]() { sta_->updateTiming(true); };
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok);
   EXPECT_EQ(result.inserted_buffers, 0);
   EXPECT_EQ(
-      ecc::OpenDbFanoutRepairer::loadCount(block_->findNet("high_fanout")), 10);
+      ecc::FanoutRepairer::loadCount(block_->findNet("high_fanout")), 10);
   for (auto* master : lib_->getMasters())
     runtime_.constraints.excluded_masters.push_back(master);
   const auto excluded =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   EXPECT_FALSE(excluded.ok);
 }
 
@@ -1239,7 +1239,7 @@ TEST_F(BufferInserterStaTest,
   };
   refresh();
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.before.fanout_nets, 0);
   EXPECT_GT(result.before.capacitance_nets, 0);
@@ -1255,7 +1255,7 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairHonorsPositiveBufferBudget)
   options.common.max_fanout = 3;
   options.max_inserted_buffers = 1;
   const auto count = block_->getInsts().size();
-  const auto result = ecc::DrvRepairer::repair(
+  const auto result = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { sta_->updateTiming(true); }, options, runtime_);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
@@ -1293,7 +1293,7 @@ TEST_F(BufferInserterStaTest,
   db_network_->libertyCell(driver)->bufferPorts(input, output);
   output->setSlewLimit(float(slew) * 0.75f, sta::MinMax::max());
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, {}, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, {}, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.before.fanout_nets, 0);
   EXPECT_EQ(result.before.capacitance_nets, 0);
@@ -1327,7 +1327,7 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairRejectsTimingRegression)
   ecc::DrvRepairOptions options;
   options.common.max_fanout = 3;
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.rejected_passes, 1);
   EXPECT_EQ(result.accepted_passes, 0);
@@ -1336,7 +1336,7 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairRejectsTimingRegression)
   EXPECT_EQ(block_->getInsts().size(), insts);
   EXPECT_EQ(block_->getNets().size(), nets);
   EXPECT_EQ(
-      ecc::OpenDbFanoutRepairer::loadCount(block_->findNet("high_fanout")), 10);
+      ecc::FanoutRepairer::loadCount(block_->findNet("high_fanout")), 10);
   EXPECT_NEAR(result.after.severity, result.before.severity, 1e-6);
   db_network_->checkAxioms();
 }
@@ -1357,12 +1357,12 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairRecognizesSdcClockNets)
   ASSERT_EQ(net->getSigType(), odb::dbSigType::SIGNAL);
   ecc::DrvRepairOptions options;
   options.common.max_fanout = 3;
-  const auto result = ecc::DrvRepairer::repair(
+  const auto result = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { sta_->updateTiming(true); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(sta_->isClock(db_network_->dbToSta(net), sta_->cmdMode()));
   EXPECT_EQ(result.inserted_buffers, 0);
-  EXPECT_EQ(ecc::OpenDbFanoutRepairer::loadCount(net), 10);
+  EXPECT_EQ(ecc::FanoutRepairer::loadCount(net), 10);
 }
 
 TEST_F(BufferInserterStaTest, NativeDesignRepairReportsFailedRollbackRefresh)
@@ -1372,7 +1372,7 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairReportsFailedRollbackRefresh)
   options.common.max_fanout = 3;
   const auto insts = block_->getInsts().size();
   const auto nets = block_->getNets().size();
-  const auto result = ecc::DrvRepairer::repair(
+  const auto result = ecc::DrvRepairer::run(
       block_, sta_.get(), []() { throw std::runtime_error("timing unavailable"); },
       options, runtime_);
   EXPECT_FALSE(result.ok);
@@ -1381,7 +1381,7 @@ TEST_F(BufferInserterStaTest, NativeDesignRepairReportsFailedRollbackRefresh)
   EXPECT_EQ(block_->getInsts().size(), insts);
   EXPECT_EQ(block_->getNets().size(), nets);
   EXPECT_EQ(
-      ecc::OpenDbFanoutRepairer::loadCount(block_->findNet("high_fanout")), 10);
+      ecc::FanoutRepairer::loadCount(block_->findNet("high_fanout")), 10);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   db_network_->checkAxioms();
 }
@@ -1403,7 +1403,7 @@ TEST_F(BufferInserterStaTest, NativeGateResizeUsesEquivalentFunctionAndKeepsNets
   };
   refresh();
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.resized_gates, 1);
   EXPECT_EQ(result.inserted_buffers, 0);
@@ -1429,7 +1429,7 @@ TEST_F(BufferInserterStaTest,
   // Boolean function. They must not be considered when NAND upsizes are banned.
   runtime_.constraints.excluded_masters = {lib_->findMaster("NAND2_X2"),
                                            lib_->findMaster("NAND2_X4")};
-  const auto result = ecc::DrvRepairer::repair(
+  const auto result = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { sta_->updateTiming(true); }, options, runtime_);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
@@ -1455,7 +1455,7 @@ TEST_F(BufferInserterStaTest, NativeRepairLegalizesEachAcceptedBatch)
   };
   refresh();
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_passes, 0);
   EXPECT_EQ(prepared, result.accepted_passes + result.rejected_passes);
@@ -1497,7 +1497,7 @@ TEST_F(BufferInserterStaTest,
   };
   refresh();
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.resized_gates, 0);
   for (const auto& snap : snapshots) {
@@ -1536,19 +1536,19 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairImprovesTimingWithoutNewDrv)
   ecc::SetupRepairOptions options;
   options.max_area_growth = 0.5;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::SetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
-  EXPECT_LT(result.before.design.setup_wns, 0);
+  EXPECT_LT(result.before.setup_wns, 0);
   EXPECT_GT(result.accepted_batches, 0);
-  EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_GT(result.after.setup_wns, result.before.setup_wns);
   EXPECT_GT(result.after.setup_tns, result.before.setup_tns);
-  EXPECT_GE(result.after.design.hold_wns, result.before.design.hold_wns);
-  EXPECT_LE(result.after.cap_violations, result.before.cap_violations);
-  EXPECT_LE(result.after.slew_violations, result.before.slew_violations);
-  EXPECT_LE(result.after.fanout_violations, result.before.fanout_violations);
+  EXPECT_GE(result.after.hold_wns, result.before.hold_wns);
+  EXPECT_LE(result.after.total_cap_violations, result.before.total_cap_violations);
+  EXPECT_LE(result.after.total_slew_violations, result.before.total_slew_violations);
+  EXPECT_LE(result.after.total_fanout_violations, result.before.total_fanout_violations);
   EXPECT_LE(result.attempted_batches, options.max_trials);
-  EXPECT_LE(result.after.design.area, result.before.design.area * 1.5);
+  EXPECT_LE(result.after.area, result.before.area * 1.5);
   EXPECT_NO_THROW(dp_.checkPlacement(false));
   db_network_->checkAxioms();
 }
@@ -1568,11 +1568,11 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairBuffersNoncriticalBranches)
   options.batch_size = 1;
   options.max_area_growth = 0.5;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::SetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.inserted_buffers, 1u);
-  EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_GT(result.after.setup_wns, result.before.setup_wns);
   EXPECT_EQ(block_->findInst("load0")->findITerm("A")->getNet(), critical_net);
   EXPECT_NO_THROW(dp_.checkPlacement(false));
   db_network_->checkAxioms();
@@ -1608,7 +1608,7 @@ TEST_F(BufferInserterStaTest, PathBufferOnlyRepairUsesVerifiedPathEdit)
   EXPECT_EQ(events.back().setup_tns, result.after.setup_tns);
   EXPECT_GT(result.attempted_trials, 0u);
   EXPECT_GT(result.accepted_trials, 0u);
-  EXPECT_EQ(result.inserted_buffers, result.accepted_trials);
+  EXPECT_EQ(result.attempted_trials, result.accepted_trials + result.rejected_trials);
   EXPECT_EQ(result.trials.size(), result.attempted_trials);
   EXPECT_LE(result.refreshes, result.attempted_trials + 1);
   EXPECT_LE(result.rollback_refreshes, 1u);
@@ -1628,7 +1628,7 @@ TEST_F(BufferInserterStaTest, StandalonePathRepairWithoutBudgetsUsesVerifiedPath
   ecc::PathSearchOptions options;
   options.max_paths = 1;
   options.max_candidates = 4;
-  options.max_trials = 0;
+  options.max_trials = std::nullopt;
   options.max_area_growth = 0;
   options.common.actions.resize = false;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
@@ -1637,12 +1637,29 @@ TEST_F(BufferInserterStaTest, StandalonePathRepairWithoutBudgetsUsesVerifiedPath
   ASSERT_TRUE(no_growth.ok) << no_growth.message;
   EXPECT_EQ(no_growth.attempted_trials, 0u);
   EXPECT_EQ(no_growth.inserted_buffers, 0u);
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
+  const auto instances = block_->getInsts().size();
+  for (unsigned budget = 0; budget < 4; ++budget) {
+    auto zero = options;
+    switch (budget) {
+    case 0: zero.max_trials = 0; break;
+    case 1: zero.max_refreshes = 0; break;
+    case 2: zero.max_seconds = 0; break;
+    case 3: zero.max_consecutive_rejections = 0; break;
+    }
+    const auto stopped = ecc::PathRepairer::run(
+        block_, sta_.get(), [&]() { refreshRepairTiming(); }, zero, runtime_);
+    ASSERT_TRUE(stopped.ok) << stopped.message;
+    EXPECT_EQ(stopped.attempted_trials, 0u);
+    EXPECT_EQ(stopped.inserted_buffers, 0u);
+    EXPECT_EQ(block_->getInsts().size(), instances);
+    EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
+  }
   const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_trials, 0u);
-  EXPECT_EQ(result.inserted_buffers, result.accepted_trials);
+  EXPECT_EQ(result.attempted_trials, result.accepted_trials + result.rejected_trials);
   EXPECT_GT(result.after.setup_wns, result.before.setup_wns);
   EXPECT_NE(result.message, "path buffer trial budget exhausted; violations remain");
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
@@ -1664,7 +1681,7 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   const auto initial_instances = block_->getInsts().size();
   unsigned reports = 0;
   unsigned accepted = 0;
-  runtime_.trial_observer = [&](unsigned index, const ecc::PathBufferTrial &trial) {
+  runtime_.trial_observer = [&](unsigned index, const ecc::PathTrialResult &trial) {
     EXPECT_EQ(index, ++reports);
     EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
     if(trial.rejection_reasons.empty())
@@ -1778,11 +1795,11 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeUsesWeightedLoadsAndRollsBackWholeEc
   ecc::PathSearchOptions options;
   options.tree_candidates = false; // Isolate post-insertion fanout completion.
   options.max_trials = 4;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   options.min_relative_improvement = 1; // Force post-STA rollback.
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   unsigned tree_trials = 0, diagnostics = 0;
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &trial) {
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &trial) {
     if(trial.buffers > trial.candidates.size()) {
       ++tree_trials;
       EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
@@ -1833,13 +1850,13 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeHonorsSdcAndCompoundBufferBudget)
   refreshRepairTiming();
   ecc::PathSearchOptions options;
   options.tree_candidates = false; // Isolate post-insertion fanout completion.
-  options.max_trials = 0;
-  options.max_area_growth = -1;
+  options.max_trials = std::nullopt;
+  options.max_area_growth = std::nullopt;
   options.max_inserted_buffers = 2;
   options.min_relative_improvement = 1;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   unsigned largest_trial = 0;
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &trial) {
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &trial) {
     largest_trial = std::max(largest_trial, trial.buffers);
     EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
   };
@@ -1889,12 +1906,12 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeAllowsSingletonGroupsWithHeavyLoads)
   ecc::PathSearchOptions options;
   options.tree_candidates = false; // Isolate post-insertion fanout completion.
   runtime_.constraints.excluded_masters.push_back(lib_->findMaster("BUF_X1"));
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   options.min_relative_improvement = 1;
   options.max_trials = 4;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   unsigned singleton_trees = 0;
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &trial) {
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &trial) {
     if(trial.buffers > trial.candidates.front().loads) {
       ++singleton_trees;
       EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
@@ -1939,8 +1956,8 @@ TEST_F(BufferInserterStaTest, PathImpossibleFanoutSkipsPlacementAndStaTrials)
   const auto initial_instances = block_->getInsts().size();
   ecc::PathSearchOptions options;
   options.tree_candidates = false; // Isolate post-insertion fanout completion.
-  options.max_area_growth = -1;
-  options.max_trials = 0;
+  options.max_area_growth = std::nullopt;
+  options.max_trials = std::nullopt;
   unsigned prepares = 0;
   runtime_.prepare = [&]() { ++prepares; };
   const auto result = ecc::PathRepairer::run(
@@ -1979,7 +1996,7 @@ TEST_F(BufferInserterStaTest, PathPlansCapLimitedTreeAndRollsBackAtomically)
   ecc::PathSearchOptions options;
   options.tree_candidates = true;
   options.strategy = ecc::PathStrategy::PathGain;
-  options.max_trials = 0;
+  options.max_trials = std::nullopt;
   options.max_candidates = 64;
   for(auto* master : lib_->getMasters()) {
     auto* cell = db_network_->libertyCell(db_network_->dbToSta(master));
@@ -1987,10 +2004,10 @@ TEST_F(BufferInserterStaTest, PathPlansCapLimitedTreeAndRollsBackAtomically)
       runtime_.constraints.excluded_masters.push_back(master);
   }
   options.min_relative_improvement = 1;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   unsigned planned_trees = 0;
-  runtime_.trial_observer = [&](unsigned, const ecc::PathBufferTrial &t) {
+  runtime_.trial_observer = [&](unsigned, const ecc::PathTrialResult &t) {
     for(const auto& c : t.candidates)
       if (c.planned_buffers > 1) {
         ++planned_trees;
@@ -2035,7 +2052,7 @@ TEST_F(BufferInserterStaTest, PathRecoveryCandidatesUseActualEndpointObjective)
   ecc::PathSearchOptions options;
   options.gain_scope = ecc::PathGainScope::Endpoints;
   options.strategy = ecc::PathStrategy::PathGain;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   options.max_trials = 4;
   options.min_relative_improvement = 1; // force rollback
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
@@ -2074,7 +2091,7 @@ TEST_F(BufferInserterStaTest, PathLocalObjectiveRequiresBothEndpointAndGlobalPro
   options.gain_scope = ecc::PathGainScope::Endpoints;
   options.min_relative_improvement = 0.001;
   options.max_trials = 4;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
@@ -2103,7 +2120,7 @@ TEST_F(BufferInserterStaTest, PathCurrentGlobalScaleKeepsMeasuredTimingAndElectr
   options.strategy = ecc::PathStrategy::Feedback;
   options.min_relative_improvement = 0.01;
   options.max_trials = 8;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
@@ -2142,7 +2159,7 @@ TEST_F(BufferInserterStaTest, PathEndpointScaleIsNotBlockedByUnrelatedRecoveryTn
   options.strategy = ecc::PathStrategy::PathGain;
   options.min_relative_improvement = 0.1;
   options.max_trials = 4;
-  options.max_area_growth = -1;
+  options.max_area_growth = std::nullopt;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   auto run = [&]() {
     return ecc::PathRepairer::run(
@@ -2266,9 +2283,9 @@ TEST_F(BufferInserterStaTest, PathDeferredRefreshPreservesRejectedDesignAndTrial
   ASSERT_TRUE(expired.ok);
   EXPECT_EQ(expired.attempted_trials, 0u);
   EXPECT_EQ(expired.refreshes, 0u);
-  options.max_seconds = 0;
-  options.max_refreshes = 0;
-  options.max_trials = 0;
+  options.max_seconds = std::nullopt;
+  options.max_refreshes = std::nullopt;
+  options.max_trials = std::nullopt;
   options.max_consecutive_rejections = 2;
   const auto stopped = run();
   ASSERT_TRUE(stopped.ok) << stopped.message;
@@ -2368,7 +2385,7 @@ TEST_F(BufferInserterStaTest,
   const auto master = block_->findInst("driver")->getMaster();
   ecc::SetupRepairOptions options;
   options.max_trials = 0;
-  auto result = ecc::SetupRepairer::repair(
+  auto result = ecc::SetupRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
@@ -2378,7 +2395,7 @@ TEST_F(BufferInserterStaTest,
   options.max_trials = 8;
   for (auto* inst : block_->getInsts())
     runtime_.constraints.excluded_instances.push_back(inst);
-  result = ecc::SetupRepairer::repair(
+  result = ecc::SetupRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   EXPECT_TRUE(result.ok);
   EXPECT_EQ(result.attempted_batches, 0);
@@ -2415,7 +2432,7 @@ TEST_F(BufferInserterStaTest,
     refreshRepairTiming();
   };
   const auto result =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.accepted_batches, 0);
   EXPECT_EQ(result.rejected_batches, 1);
@@ -2427,7 +2444,7 @@ TEST_F(BufferInserterStaTest,
     EXPECT_EQ(inst->getOrient(), orient);
   }
   EXPECT_NEAR(
-      result.after.design.setup_wns, result.before.design.setup_wns, 1e-15);
+      result.after.setup_wns, result.before.setup_wns, 1e-15);
   EXPECT_NO_THROW(dp_.checkPlacement(false));
 }
 
@@ -2444,7 +2461,7 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairRestoresOnPreparationFailure)
   runtime_.prepare = []() {
     throw std::runtime_error("injected setup preparation failure");
   };
-  const auto result = ecc::SetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.accepted_batches, 0);
@@ -2492,15 +2509,15 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairRejectsHoldLossDespiteSetupGain)
     }
   };
   const auto result =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
-  EXPECT_GT(candidate_setup, result.before.design.setup_wns);
-  EXPECT_LT(candidate_hold, result.before.design.hold_wns);
+  EXPECT_GT(candidate_setup, result.before.setup_wns);
+  EXPECT_LT(candidate_hold, result.before.hold_wns);
   EXPECT_EQ(result.accepted_batches, 0);
   EXPECT_EQ(result.rejected_batches, 1);
   EXPECT_NEAR(
-      result.after.design.setup_wns, result.before.design.setup_wns, 1e-15);
-  EXPECT_EQ(result.after.design.hold_wns, result.before.design.hold_wns);
+      result.after.setup_wns, result.before.setup_wns, 1e-15);
+  EXPECT_EQ(result.after.hold_wns, result.before.hold_wns);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
 }
 
@@ -2511,13 +2528,13 @@ TEST_F(BufferInserterStaTest, NativeSetupRepairHonorsZeroAreaGrowth)
   refreshRepairTiming();
   ecc::SetupRepairOptions options;
   options.max_area_growth = 0;
-  const auto result = ecc::SetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
   EXPECT_EQ(result.attempted_batches, 0);
-  EXPECT_EQ(result.after.design.area, result.before.design.area);
-  EXPECT_EQ(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_EQ(result.after.area, result.before.area);
+  EXPECT_EQ(result.after.setup_wns, result.before.setup_wns);
   EXPECT_EQ(result.inserted_buffers, 0);
   EXPECT_EQ(result.resized_cells, 0);
 }
@@ -2533,7 +2550,7 @@ TEST_F(BufferInserterStaTest, NativeRepairConfigZeroPassAndInvalidPolicyDoNotEdi
   config.set("drv.max_passes", "0");
   unsigned refreshes = 0;
   auto refresh = [&]() { ++refreshes; refreshRepairTiming(); };
-  auto result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh,
+  auto result = ecc::DrvRepairer::run(block_, sta_.get(), refresh,
                                          config.drvOptions(), runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_FALSE(result.converged);
@@ -2542,7 +2559,7 @@ TEST_F(BufferInserterStaTest, NativeRepairConfigZeroPassAndInvalidPolicyDoNotEdi
   EXPECT_EQ(block_->getInsts().size(), count);
   EXPECT_EQ(block_->findInst("driver")->getMaster(), master);
   config.common.overload_group_fraction = 1;
-  result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, config.drvOptions(),
+  result = ecc::DrvRepairer::run(block_, sta_.get(), refresh, config.drvOptions(),
                                     runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(refreshes, 0);
@@ -2560,20 +2577,20 @@ TEST_F(BufferInserterStaTest, NativeSetupConfigControlsGainAndTrialBudgets)
   config.set("setup.min_improvement_ns", "1000000");
   config.set("setup.max_area_growth", "0.5");
   auto refresh = [&]() { refreshRepairTiming(); };
-  auto result = ecc::SetupRepairer::repair(block_, sta_.get(), refresh,
+  auto result = ecc::SetupRepairer::run(block_, sta_.get(), refresh,
                                            config.setupOptions(), runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.attempted_batches, 0);
-  EXPECT_EQ(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_EQ(result.after.setup_wns, result.before.setup_wns);
   config.set("setup.min_improvement_ns", "0.0001");
   config.set("setup.max_trials", "1");
   config.set("setup.batch_size", "1");
-  result = ecc::SetupRepairer::repair(block_, sta_.get(), refresh,
+  result = ecc::SetupRepairer::run(block_, sta_.get(), refresh,
                                       config.setupOptions(), runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.attempted_batches, 1);
   EXPECT_EQ(result.accepted_batches, 1);
-  EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_GT(result.after.setup_wns, result.before.setup_wns);
   EXPECT_NO_THROW(dp_.checkPlacement(false));
   db_network_->checkAxioms();
 }
@@ -2606,7 +2623,7 @@ TEST_F(BufferInserterStaTest, NativeSetupSkipsDuplicateEditsAndDefersRollbackRef
   options.skip_duplicate_trials = false;
   options.defer_rollback_refresh = false;
   const auto eager =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(eager.ok) << eager.message;
   ASSERT_EQ(eager.accepted_batches, 0);
   EXPECT_EQ(eager.refreshes, 2 * eager.rejected_batches);
@@ -2615,7 +2632,7 @@ TEST_F(BufferInserterStaTest, NativeSetupSkipsDuplicateEditsAndDefersRollbackRef
   options.defer_rollback_refresh = true;
   refresh_count = 0;
   const auto optimized =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(optimized.ok) << optimized.message;
   EXPECT_EQ(optimized.accepted_batches, 0);
   EXPECT_GT(optimized.skipped_duplicate_batches, 0);
@@ -2626,9 +2643,9 @@ TEST_F(BufferInserterStaTest, NativeSetupSkipsDuplicateEditsAndDefersRollbackRef
   EXPECT_EQ(driver->getMaster(), original);
   EXPECT_EQ(block_->getInsts().size(), inst_count);
   EXPECT_EQ(block_->getNets().size(), net_count);
-  EXPECT_NEAR(optimized.after.design.setup_wns, eager.after.design.setup_wns, 1e-15);
+  EXPECT_NEAR(optimized.after.setup_wns, eager.after.setup_wns, 1e-15);
   EXPECT_NEAR(optimized.after.setup_tns, eager.after.setup_tns, 1e-15);
-  EXPECT_NEAR(float(sta_->worstSlack(sta::MinMax::max())), optimized.after.design.setup_wns, 1e-15);
+  EXPECT_NEAR(float(sta_->worstSlack(sta::MinMax::max())), optimized.after.setup_wns, 1e-15);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   EXPECT_NO_THROW(dp_.checkPlacement(false));
   db_network_->checkAxioms();
@@ -2662,7 +2679,7 @@ TEST_F(BufferInserterStaTest, NativeSetupDeferredRollbackSurvivesLaterPrepareFai
     ecc::legalizeRepairPlacement(block_, &dp_);
   };
   const auto result =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(prepares, 2);
   EXPECT_EQ(result.rejected_batches, 1);
@@ -2690,7 +2707,7 @@ TEST_F(BufferInserterStaTest, LoadDownsizeRepairsCapWithoutGrowingDriverOrAdding
   options.common.actions.resize = false;
   options.max_inserted_buffers = 1;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::DrvRepairer::repair(
+  const auto result = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(result.converged);
@@ -2721,14 +2738,14 @@ TEST_F(BufferInserterStaTest, LoadDownsizeIsConfigurableAndHonorsBatchBudget)
   options.max_inserted_buffers = 1;
   auto refresh = [&]() { refreshRepairTiming(); };
   auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok);
   EXPECT_FALSE(result.converged);
   EXPECT_EQ(result.downsized_loads, 0);
   options.common.actions.load_downsize = true;
   options.max_load_downsizes_per_pass = 1;
   options.max_passes = 1;
-  result = ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+  result = ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.downsized_loads, 1);
   EXPECT_LT(result.after.severity, result.before.severity);
@@ -2797,13 +2814,13 @@ TEST_F(BufferInserterStaTest, LoadDownsizeImprovesSetupAtZeroAreaGrowth)
   options.max_area_growth = 0;
   options.batch_size = 1;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::SetupRepairer::repair(
+  const auto result = ecc::SetupRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.downsized_loads, 0);
-  EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
+  EXPECT_GT(result.after.setup_wns, result.before.setup_wns);
   EXPECT_GT(result.after.setup_tns, result.before.setup_tns);
-  EXPECT_LT(result.after.design.area, result.before.design.area);
+  EXPECT_LT(result.after.area, result.before.area);
   EXPECT_EQ(driver->getMaster(), master);
   EXPECT_EQ(block_->findInst("load0")->getMaster(), critical);
   EXPECT_EQ(result.inserted_buffers, 0);
@@ -2834,7 +2851,7 @@ TEST_F(BufferInserterStaTest, LoadDownsizeRejectionRestoresCellsAndFallsBackToDr
     refreshRepairTiming();
   };
   const auto result =
-      ecc::DrvRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::DrvRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(saw_downsize);
   EXPECT_GT(result.rejected_load_batches, 0);
@@ -2864,7 +2881,7 @@ TEST_F(BufferInserterStaTest, LoadDownsizeWorksWithGateOnlyChoicesAndTiedInputs)
     if (cell && cell->isBuffer())
       runtime_.constraints.excluded_masters.push_back(master);
   }
-  const auto result = ecc::DrvRepairer::repair(
+  const auto result = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_TRUE(result.converged);
@@ -2891,16 +2908,16 @@ TEST_F(BufferInserterStaTest, VtSetupUsesExplicitMappingAcrossLibraries)
   options.max_inserted_buffers = 0;
   auto refresh = [&]() { refreshRepairTiming(); };
   auto disabled =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(disabled.ok);
   EXPECT_EQ(disabled.vt_swaps, 0);
   options.common.vt_suffixes = {"_H", "_L"};
   const auto result =
-      ecc::SetupRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::SetupRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.vt_swaps, 1) << result.message << " attempts=" << result.attempted_batches;
-  EXPECT_GT(result.after.design.setup_wns, result.before.design.setup_wns);
-  EXPECT_EQ(result.after.design.area, result.before.design.area);
+  EXPECT_GT(result.after.setup_wns, result.before.setup_wns);
+  EXPECT_EQ(result.after.area, result.before.area);
   EXPECT_EQ(block_->findInst("driver")->getMaster()->getName(), "VTBUF_L");
   db_network_->checkAxioms();
 }
@@ -2917,7 +2934,7 @@ TEST_F(BufferInserterStaTest, VtDesignRepairFixesSlewWithoutAreaGrowth)
   options.common.actions.load_downsize = false;
   options.max_inserted_buffers = 0;
   options.max_passes = 1;
-  const auto result = ecc::DrvRepairer::repair(
+  const auto result = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.vt_swaps, 1);
@@ -2971,7 +2988,7 @@ TEST_F(BufferInserterStaTest, PowerRecoveryLowersLeakageWithVtAndPreservesTiming
   ecc::PowerRepairOptions options;
   options.common.vt_suffixes = {"_H", "_L"};
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::OpenDbPowerRepairer::repair(
+  const auto result = ecc::PowerRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.vt_swaps, 1);
@@ -2992,7 +3009,7 @@ TEST_F(BufferInserterStaTest, PowerRecoveryHonorsBudgetSlackAndTotalObjective)
   ecc::PowerRepairOptions options;
   options.common.vt_suffixes = {"_H", "_L"};
   const auto run = [&]() {
-    return ecc::OpenDbPowerRepairer::repair(
+    return ecc::PowerRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   options.max_trials = 0;
@@ -3026,7 +3043,7 @@ TEST_F(BufferInserterStaTest, PowerRecoveryRollsBackBadTimingAndPrepareException
     refreshRepairTiming();
   };
   auto result =
-      ecc::OpenDbPowerRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::PowerRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.rejected_batches, 1);
   EXPECT_EQ(result.accepted_batches, 0);
@@ -3035,7 +3052,7 @@ TEST_F(BufferInserterStaTest, PowerRecoveryRollsBackBadTimingAndPrepareException
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   runtime_.prepare = []() { throw std::runtime_error("power prepare failure"); };
   result =
-      ecc::OpenDbPowerRepairer::repair(block_, sta_.get(), refresh, options, runtime_);
+      ecc::PowerRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.message.find("power prepare failure"), std::string::npos);
   EXPECT_EQ(side->getMaster(), original);
@@ -3055,7 +3072,7 @@ TEST_F(BufferInserterStaTest,
   options.max_passes = 1;
   options.max_trials = 1;
   const auto run = [&]() {
-    return ecc::OpenDbPowerRepairer::repair(
+    return ecc::PowerRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   auto result = run();
@@ -3094,7 +3111,7 @@ TEST_F(BufferInserterStaTest,
   // The initial 18 nW saving passes ranking, but the final 9 nW does not.
   options.min_absolute_improvement = 12e-9;
   const auto run = [&]() {
-    return ecc::OpenDbPowerRepairer::repair(
+    return ecc::PowerRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   const auto restored = [&]() {
@@ -3138,7 +3155,7 @@ TEST_F(BufferInserterStaTest, PowerRecoveryDownsizesSlackRichCells)
   ecc::PowerRepairOptions options;
   options.max_trials = 2;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::OpenDbPowerRepairer::repair(
+  const auto result = ecc::PowerRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.downsized_cells, 0);
@@ -3269,7 +3286,7 @@ TEST_F(BufferInserterStaTest, SetupInsertionLimitAndActionSelectionAreIndependen
   options.max_area_growth = 0.5;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   const auto run = [&]() {
-    return ecc::SetupRepairer::repair(
+    return ecc::SetupRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   options.max_inserted_buffers = 0;
@@ -3287,7 +3304,7 @@ TEST_F(BufferInserterStaTest, SetupInsertionLimitAndActionSelectionAreIndependen
   const auto unlimited = run();
   ASSERT_TRUE(unlimited.ok) << unlimited.message;
   EXPECT_GT(unlimited.inserted_buffers, 0u);
-  EXPECT_GT(unlimited.after.design.setup_wns, unlimited.before.design.setup_wns);
+  EXPECT_GT(unlimited.after.setup_wns, unlimited.before.setup_wns);
   EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
 }
 
@@ -3302,19 +3319,19 @@ TEST_F(BufferInserterStaTest, DrvAndOrdHonorZeroAndDisabledInsertion)
   for(bool zero_limit : {true, false}) {
     options.max_inserted_buffers = zero_limit ? std::optional<unsigned>{0} : std::nullopt;
     options.common.actions.buffer = zero_limit;
-    const auto drv = ecc::DrvRepairer::repair(
+    const auto drv = ecc::DrvRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
     ASSERT_TRUE(drv.ok) << drv.message;
     EXPECT_EQ(drv.inserted_buffers, 0u);
     EXPECT_FALSE(drv.converged);
-    const auto ord = ecc::OrdDrvRepairer::repair(
+    const auto ord = ecc::OrdDrvRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
     ASSERT_TRUE(ord.ok) << ord.message;
     EXPECT_EQ(ord.inserted_buffers, 0u);
     EXPECT_EQ(block_->getInsts().size(), instances);
   }
   options.common.actions.buffer = true;
-  const auto unlimited = ecc::DrvRepairer::repair(
+  const auto unlimited = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(unlimited.ok) << unlimited.message;
   EXPECT_GT(unlimited.inserted_buffers, 0u);
@@ -3358,6 +3375,26 @@ TEST_F(BufferInserterStaTest, BufferSolversHonorZeroAndDisabledInsertion)
     EXPECT_EQ(block_->getNets().size(), nets);
     EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   }
+  // Net collection limits have the same zero-is-zero semantics as insertion.
+  ecc::VgOptions vg;
+  vg.max_nets = 0;
+  vg.scope = ecc::VgScope::Setup;
+  const auto v = ecc::VgRepairer::run(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, &resizer_, vg, runtime_);
+  ASSERT_TRUE(v.ok) << v.message;
+  EXPECT_EQ(v.nets_collected, 0u);
+  EXPECT_EQ(v.attempted_buffers, 0u);
+  EXPECT_FALSE(v.converged); // Negative setup slack remains.
+  ecc::GobiOptions gobi;
+  gobi.max_nets = 0;
+  const auto g = ecc::GobiRepairer::run(
+      block_, sta_.get(), [&]() { refreshRepairTiming(); }, &resizer_, gobi, runtime_);
+  ASSERT_TRUE(g.ok) << g.message;
+  EXPECT_EQ(g.nets_collected, 0u);
+  EXPECT_EQ(g.attempted_buffers, 0u);
+  EXPECT_EQ(block_->getInsts().size(), instances);
+  EXPECT_EQ(block_->getNets().size(), nets);
+
 }
 
 TEST_F(BufferInserterStaTest, SharedBufferForestAppliesMixedMastersAndRollsBack)
@@ -3552,13 +3589,13 @@ TEST_F(BufferInserterStaTest, RuntimeProtectionDoesNotLeakIntoReusedConfig) {
     protected_runtime.constraints.excluded_instances.push_back(inst);
   unsigned prepared = 0;
   protected_runtime.prepare = [&]() { ++prepared; };
-  const auto blocked = ecc::DrvRepairer::repair(
+  const auto blocked = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, protected_runtime);
   ASSERT_TRUE(blocked.ok) << blocked.message;
   EXPECT_EQ(blocked.inserted_buffers, 0u);
   EXPECT_EQ(prepared, 0u);
   EXPECT_EQ(block_->getInsts().size(), insts);
-  const auto allowed = ecc::DrvRepairer::repair(
+  const auto allowed = ecc::DrvRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, config.drvOptions());
   ASSERT_TRUE(allowed.ok) << allowed.message;
   EXPECT_GT(allowed.inserted_buffers, 0u);

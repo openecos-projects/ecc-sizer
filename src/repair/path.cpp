@@ -218,7 +218,7 @@ std::vector<std::string> rejectionReasons(const DesignMetrics& before,
                                           const DesignMetrics& after, double area_limit,
                                           const DesignMetrics& initial,
                                           const PathSearchOptions& options,
-                                          const PathBufferTrial& trial) {
+                                          const PathTrialResult& trial) {
     const auto& tolerance = options.common.tolerances;
     const float improvement = options.min_improvement;
     const bool local = options.gain_scope == ecc::PathGainScope::Endpoints;
@@ -288,7 +288,7 @@ std::vector<std::string> rejectionReasons(const DesignMetrics& before,
     return reasons;
 }
 
-PathObservation observation(const PathBufferTrial& trial) {
+PathObservation observation(const PathTrialResult& trial) {
     return {double(trial.after.setup_wns) - trial.before.setup_wns,
             double(trial.after.setup_tns) - trial.before.setup_tns,
             trial.objective_wns_after - trial.objective_wns_before,
@@ -301,7 +301,7 @@ PathObservation observation(const PathBufferTrial& trial) {
 // A trial owns reporting and objective measurement. The repair loop owns
 // the ECO lifetime; the algorithm schedule owns candidate/retry decisions.
 struct TrialMeasurement {
-    PathBufferTrial trial;
+    PathTrialResult trial;
     std::unordered_map<const sta::Pin*, float> objective_pins;
     bool repeated = false, deferred = false;
     double prepare_start = 0, refresh_start = 0, measure_start = 0;
@@ -316,29 +316,29 @@ struct TrialMeasurement {
             repeated |= policy.hasFailure(plan);
             deferred |= plan.deferred_retry;
             trial.candidates.push_back(
-                {plan.net->getName(),
-                 plan.master->getName(),
-                 unsigned(plan.loads.size()),
-                 plan.predicted_gain,
-                 plan.predicted_wns_gain,
-                 plan.predicted_tns_gain,
-                 plan.affected_endpoints,
-                 plan.location.x,
-                 plan.location.y,
-                 plan.recovery,
-                 unsigned(plan.tree ? plan.tree->nodes.size() : 1),
-                 actionKey(plan),
-                 plan.ranked_wns_gain,
-                 plan.ranked_tns_gain,
-                 plan.deferred_retry,
-                 plan.covered_tns_gain,
-                 plan.covered_endpoints,
-                 plan.family_attempts,
-                 policy.generationIndex(),
-                 plan.load_group_key,
-                 plan.quality.path_gain,
-                 plan.quality.electrical_excess,
-                 plan.electrical_retry});
+                {.net = plan.net->getName(),
+                 .master = plan.master->getName(),
+                 .loads = unsigned(plan.loads.size()),
+                 .predicted_driver_gain = plan.predicted_gain,
+                 .predicted_wns_gain = plan.predicted_wns_gain,
+                 .predicted_tns_gain = plan.predicted_tns_gain,
+                 .affected_endpoints = plan.affected_endpoints,
+                 .x = plan.location.x,
+                 .y = plan.location.y,
+                 .recovery = plan.recovery,
+                 .planned_buffers = unsigned(plan.tree ? plan.tree->nodes.size() : 1),
+                 .fingerprint = actionKey(plan),
+                 .ranked_wns_gain = plan.ranked_wns_gain,
+                 .ranked_tns_gain = plan.ranked_tns_gain,
+                 .deferred_retry = plan.deferred_retry,
+                 .covered_tns_gain = plan.covered_tns_gain,
+                 .covered_endpoints = plan.covered_endpoints,
+                 .family_attempts = plan.family_attempts,
+                 .generation = policy.generationIndex(),
+                 .load_group = plan.load_group_key,
+                 .predicted_path_gain = plan.quality.path_gain,
+                 .predicted_electrical_excess = plan.quality.electrical_excess,
+                 .electrical_retry = plan.electrical_retry});
         }
         for (const auto index : selected) {
             for (const auto& [pin, slack] : pending[index].endpoints) {
@@ -418,7 +418,7 @@ struct TrialMeasurement {
             objective();
             trial.rejection_reasons = rejectionReasons(result.after, after, area_limit,
                                                        result.before, options, trial);
-            trial.full_verified = bool(runtime.verification_refresh);
+            trial.rechecked_full_rc = bool(runtime.verification_refresh);
         }
         return next_states;
     }
@@ -501,7 +501,7 @@ PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
             search_runtime.verification_refresh = {};
         }
         search_runtime.trial_observer = [&](unsigned index,
-                                            const PathBufferTrial& trial) {
+                                            const PathTrialResult& trial) {
             if (runtime.trial_observer) {
                 auto provisional = trial;
                 provisional.placement_provisional = true;
@@ -552,9 +552,9 @@ PathRepairResult repairWithFinalPlacement(odb::dbBlock* block, sta::dbSta* sta,
         // input, even if trial ranking used sampled endpoint objectives.
         acceptance.gain_scope = ecc::PathGainScope::Global;
         const double area_limit =
-            options.max_area_growth == -1
-                ? std::numeric_limits<double>::infinity()
-                : result.before.area * (1 + options.max_area_growth);
+            options.max_area_growth
+                ? result.before.area * (1 + *options.max_area_growth)
+                : std::numeric_limits<double>::infinity();
         result.final_placement.rejection_reasons =
             rejectionReasons(result.before, result.final_placement.after, area_limit,
                              result.before, acceptance, {});
@@ -654,11 +654,11 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     };
     auto states = inspect(result.before);
     result.after = result.before;
-    const double area_limit = options.max_area_growth == -1
-                                  ? std::numeric_limits<double>::infinity()
-                                  : result.before.area * (1 + options.max_area_growth);
+    const double area_limit = options.max_area_growth
+                                  ? result.before.area * (1 + *options.max_area_growth)
+                                  : std::numeric_limits<double>::infinity();
     const auto trials_available = [&]() {
-        return options.max_trials == 0 || result.attempted_trials < options.max_trials;
+        return !options.max_trials || result.attempted_trials < *options.max_trials;
     };
     reportEvent(runtime, PathEvent::Kind::SearchStarted, result);
     PathPolicy policy{options, result};
@@ -715,7 +715,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
             return it->second;
         }
         path_detail::DependencyFailures::Cone cone{net->getId()};
-        for (auto* vertex : repairTimingCone(sta, {net})) {
+        for (auto* vertex : timingCone(sta, {net})) {
             auto* sta_net = sta->getDbNetwork()->net(vertex->pin());
             if (sta_net) {
                 auto* db_net = sta->getDbNetwork()->staToDb(sta_net);
@@ -731,16 +731,19 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     };
 
     const auto budget_available = [&]() {
-        // Reserve a final refresh for a rejected ECO. Never return stale STA.
-        if (options.max_refreshes &&
-            result.refreshes + (verify ? 3 : 2) > options.max_refreshes) {
+        if (options.max_consecutive_rejections == 0) {
             return false;
         }
-        if (options.max_seconds > 0) {
+        // Reserve a final refresh for a rejected ECO. Never return stale STA.
+        if (options.max_refreshes &&
+            result.refreshes + (verify ? 3 : 2) > *options.max_refreshes) {
+            return false;
+        }
+        if (options.max_seconds) {
             const double elapsed =
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
                     .count();
-            if (elapsed >= options.max_seconds) {
+            if (elapsed >= *options.max_seconds) {
                 return false;
             }
         }
@@ -798,7 +801,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     policy.covered(pending[selected.front()]);
                     if (options.max_consecutive_rejections &&
                         result.consecutive_rejections >=
-                            options.max_consecutive_rejections) {
+                            *options.max_consecutive_rejections) {
                         result.stopped_on_rejections = true;
                         break;
                     }
@@ -878,7 +881,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     schedule.observe(batch, observation(trial));
                     if (trial.rejection_reasons.empty()) {
                         transaction.commit();
-                        result.accepted_trials += trial.buffers;
+                        ++result.accepted_trials;
                         result.inserted_buffers += trial.buffers;
                         result.consecutive_rejections = 0;
                         result.after = after;
@@ -932,7 +935,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     measurement.record(result, runtime);
                     if (options.max_consecutive_rejections &&
                         result.consecutive_rejections >=
-                            options.max_consecutive_rejections) {
+                            *options.max_consecutive_rejections) {
                         result.stopped_on_rejections = true;
                         break; // The common exit path restores RC/STA first.
                     }
@@ -984,7 +987,7 @@ PathRepairResult PathRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
         : result.stopped_on_rejections
             ? "path buffer stopped after consecutive rejections; search not exhausted"
         : !budget_available()
-            ? "path buffer time/refresh budget exhausted; violations remain"
+            ? "path buffer execution budget exhausted; violations remain"
         : !trials_available() ? "path buffer trial budget exhausted; violations remain"
         : result.frontier_suspended
             ? "audited empirical path frontier exhausted; violations remain"

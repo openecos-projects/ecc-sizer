@@ -42,7 +42,7 @@ struct Timer {
 };
 
 bool better(const DesignMetrics& before, const DesignMetrics& after,
-            const RepairTolerances& tolerance, bool require_drv_reduction) {
+            const RepairTolerances& tolerance, bool require_drv_non_regression) {
     const bool no_timing_loss =
         after.setup_wns + tolerance.wns_absolute >= before.setup_wns &&
         after.setup_tns + tolerance.tns_absolute >= before.setup_tns;
@@ -50,7 +50,7 @@ bool better(const DesignMetrics& before, const DesignMetrics& after,
         after.total_slew_violations <= before.total_slew_violations &&
         after.total_cap_violations <= before.total_cap_violations &&
         after.total_fanout_violations <= before.total_fanout_violations;
-    if (!no_timing_loss || (require_drv_reduction && !no_drv_loss)) {
+    if (!no_timing_loss || (require_drv_non_regression && !no_drv_loss)) {
         return false;
     }
     const bool strict_drv =
@@ -66,6 +66,15 @@ bool better(const DesignMetrics& before, const DesignMetrics& after,
 
 bool eligible(const NetState& state, sta::dbSta*, const GobiOptions&) {
     return state.driver && state.violating();
+}
+
+bool goalMet(const DesignMetrics& metrics, const VgOptions& options) {
+    return metrics.severity <= options.common.tolerances.drv_severity &&
+           (options.scope == VgScope::Drv || metrics.setup_wns >= 0);
+}
+
+bool goalMet(const DesignMetrics& metrics, const GobiOptions& options) {
+    return metrics.severity <= options.common.tolerances.drv_severity;
 }
 
 template <typename Options, typename Solve>
@@ -108,7 +117,7 @@ BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
                 if (!resizer && state.loads.size() < 2) {
                     continue;
                 }
-                if (options.max_nets && states.size() >= options.max_nets) {
+                if (options.max_nets && states.size() >= *options.max_nets) {
                     break;
                 }
                 states.push_back(std::move(state));
@@ -142,8 +151,7 @@ BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
         result.plans_collected = selected.size();
         if (selected.empty()) {
             result.ok = true;
-            result.converged =
-                result.before.severity <= options.common.tolerances.drv_severity;
+            result.converged = goalMet(result.before, options);
             result.message = name + " found no applicable buffer plan";
             return result;
         }
@@ -163,7 +171,7 @@ BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
         detail::DesignAnalysis verify(block, sta, options.common, runtime.constraints);
         verify.analyze(result.after, true);
         if (!better(result.before, result.after, options.common.tolerances,
-                    options.require_drv_reduction)) {
+                    options.require_drv_non_regression)) {
             transaction->rollback();
             refresh();
             ++result.refreshes;
@@ -176,8 +184,7 @@ BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
         result.ok = true;
         result.committed = true;
         result.inserted_buffers = result.attempted_buffers;
-        result.converged =
-            result.after.severity <= options.common.tolerances.drv_severity;
+        result.converged = goalMet(result.after, options);
         result.message = name + " one-shot plan applied";
     } catch (const std::exception& error) {
         result.message = error.what();

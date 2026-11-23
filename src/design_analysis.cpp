@@ -158,9 +158,8 @@ std::vector<NetState> DesignAnalysis::analyze(DesignMetrics& metrics, bool all_n
     return states;
 }
 
-std::vector<NetState>
-DesignAnalysis::analyzeIncremental(DesignMetrics& metrics,
-                                   RepairAnalysisChanges changes) {
+std::vector<NetState> DesignAnalysis::analyzeIncremental(DesignMetrics& metrics,
+                                                         AnalysisChanges changes) {
     sta_->findRequireds();
     sta_->checkSlewsPreamble();
     sta_->checkCapacitancesPreamble(sta_->scenes());
@@ -573,8 +572,8 @@ DesignMetrics DesignAnalysis::pinCounts(const sta::Instance* inst) {
 } // namespace ecc::detail
 
 namespace ecc {
-std::vector<sta::Vertex*>
-repairTimingCone(sta::dbSta* sta, const std::unordered_set<odb::dbNet*>& nets) {
+std::vector<sta::Vertex*> timingCone(sta::dbSta* sta,
+                                     const std::unordered_set<odb::dbNet*>& nets) {
     auto* graph = sta->ensureGraph();
     auto* network = sta->getDbNetwork();
     std::unordered_set<sta::Vertex*> visited;

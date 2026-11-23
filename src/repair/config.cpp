@@ -131,9 +131,15 @@ template <class Enum> static std::string_view enumName(Enum value) {
 
 template <class Value>
 static void parseSetting(Value& target, const std::string& text, double scale) {
-    if constexpr (std::is_same_v<Value, std::optional<unsigned>>) {
-        target =
-            text == "unlimited" ? std::nullopt : std::optional<unsigned>{count(text)};
+    if constexpr (std::is_same_v<Value, std::optional<unsigned>> ||
+                  std::is_same_v<Value, std::optional<double>>) {
+        if (text == "unlimited") {
+            target.reset();
+        } else {
+            typename Value::value_type value{};
+            parseSetting(value, text, scale);
+            target = value;
+        }
     } else if constexpr (std::is_same_v<Value, RepairActions>) {
         target = {false, false, false};
         if (text == "none") {
@@ -184,9 +190,10 @@ static void parseSetting(Value& target, const std::string& text, double scale) {
 
 template <class Value>
 static void writeSetting(std::ostream& out, const Value& value, double scale) {
-    if constexpr (std::is_same_v<Value, std::optional<unsigned>>) {
+    if constexpr (std::is_same_v<Value, std::optional<unsigned>> ||
+                  std::is_same_v<Value, std::optional<double>>) {
         if (value) {
-            out << *value;
+            writeSetting(out, *value, scale);
         } else {
             out << "unlimited";
         }
@@ -245,10 +252,10 @@ static void visitSettings(Config& c, Visitor&& visit) {
     visit("vg.max_nets", c.vg.max_nets, 1.0);
     visit("vg.max_group_loads", c.vg.max_group_loads, 1.0);
     visit("vg.min_gain", c.vg.min_gain, 1.0);
-    visit("vg.require_drv_reduction", c.vg.require_drv_reduction, 1.0);
+    visit("vg.require_drv_non_regression", c.vg.require_drv_non_regression, 1.0);
     visit("gobi.max_buffers", c.gobi.max_buffers, 1.0);
     visit("gobi.max_nets", c.gobi.max_nets, 1.0);
-    visit("gobi.require_drv_reduction", c.gobi.require_drv_reduction, 1.0);
+    visit("gobi.require_drv_non_regression", c.gobi.require_drv_non_regression, 1.0);
     visit("common.actions", c.common.actions, 1.0);
     visit("common.load_downsize_slack_margin_ns", c.common.load_downsize_slack_margin,
           1e9);
@@ -370,7 +377,8 @@ void SetupRepairSettings::validate() const {
     require(std::isfinite(batch_backoff) && batch_backoff > 0 && batch_backoff < 1,
             "setup.batch_backoff in (0,1)");
     require(min_side_loads > 0, "setup.min_side_loads > 0");
-    require(std::isfinite(max_area_growth) && max_area_growth >= 0,
+    require(!max_area_growth ||
+                (std::isfinite(*max_area_growth) && *max_area_growth >= 0),
             "setup.max_area_growth >= 0");
     require(std::isfinite(min_improvement) && min_improvement > 0,
             "setup.min_improvement_ns > 0");
@@ -389,10 +397,11 @@ void PathSearchSettings::validate() const {
     require(std::isfinite(min_relative_improvement) && min_relative_improvement >= 0 &&
                 min_relative_improvement <= 1,
             "path.min_relative_improvement in [0,1]");
-    require(std::isfinite(max_seconds) && max_seconds >= 0, "path.max_seconds >= 0");
-    require(std::isfinite(max_area_growth) &&
-                (max_area_growth >= 0 || max_area_growth == -1),
-            "path.max_area_growth >= 0 or -1 (unlimited)");
+    require(!max_seconds || (std::isfinite(*max_seconds) && *max_seconds >= 0),
+            "path.max_seconds >= 0 or unlimited");
+    require(!max_area_growth ||
+                (std::isfinite(*max_area_growth) && *max_area_growth >= 0),
+            "path.max_area_growth >= 0 or unlimited");
 }
 void SetupRepairOptions::validate() const {
     common.validate();

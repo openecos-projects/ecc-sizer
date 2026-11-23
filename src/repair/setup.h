@@ -5,15 +5,6 @@
 #include "design_analysis.h"
 
 namespace ecc {
-struct SetupRepairMetrics {
-    DesignMetrics design;
-    float setup_tns = 0;
-    float hold_tns = 0;
-    unsigned slew_violations = 0;
-    unsigned cap_violations = 0;
-    unsigned fanout_violations = 0;
-};
-
 struct SetupRepairResult {
     bool ok = false;
     bool converged = false;
@@ -32,8 +23,8 @@ struct SetupRepairResult {
     unsigned resized_cells = 0;
     unsigned downsized_loads = 0;
     unsigned vt_swaps = 0;
-    SetupRepairMetrics before;
-    SetupRepairMetrics after;
+    DesignMetrics before;
+    DesignMetrics after;
 };
 
 // Setup-only native strategy. Shares OpenDB/STA models with design repair.
@@ -44,9 +35,9 @@ struct SetupRepairResult {
 // Path/VG/GOBI are independent timing strategies selected by the application.
 class SetupRepairer {
   public:
-    static SetupRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
-                                    const std::function<void()>& refresh,
-                                    const SetupRepairOptions& options = {},
-                                    const RepairRuntime& runtime = {});
+    static SetupRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
+                                 const std::function<void()>& refresh,
+                                 const SetupRepairOptions& options = {},
+                                 const RepairRuntime& runtime = {});
 };
 } // namespace ecc

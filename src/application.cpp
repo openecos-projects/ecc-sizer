@@ -406,7 +406,7 @@ class ApplicationFlow {
         auto path = options.repair.pathOptions();
         PathRuntime path_runtime;
         static_cast<RepairRuntime&>(path_runtime) = runtime;
-        path_runtime.trial_observer = [](unsigned index, const PathBufferTrial& trial) {
+        path_runtime.trial_observer = [](unsigned index, const PathTrialResult& trial) {
             if (trial.rejection_reasons.empty()) {
                 spdlog::info("Path commit: trial={} buffers=+{} WNS={:.6f}ns "
                              "TNS={:.6f}ns provisional={}",
@@ -419,12 +419,12 @@ class ApplicationFlow {
             }
             spdlog::debug(
                 "Path trial {}: accepted={} buffers={} provisional={} "
-                "full_rc_verified={} metrics_complete={} reasons=[{}]; global gain "
+                "full_rc_rechecked={} metrics_complete={} reasons=[{}]; global gain "
                 "WNS={:+.6f}ns "
                 "TNS={:+.6f}ns; objective gain WNS={:+.6f}ns TNS={:+.6f}ns; "
                 "prepare={:.1f}ms refresh={:.1f}ms measure={:.1f}ms",
                 index, trial.rejection_reasons.empty(), trial.buffers,
-                trial.placement_provisional, trial.full_verified,
+                trial.placement_provisional, trial.rechecked_full_rc,
                 trial.metrics_complete, fmt::join(trial.rejection_reasons, ","),
                 (double(trial.after.setup_wns) - trial.before.setup_wns) * 1e9,
                 (double(trial.after.setup_tns) - trial.before.setup_tns) * 1e9,
@@ -489,7 +489,7 @@ class ApplicationFlow {
                 fanout.excluded_nets.push_back(net);
             }
         }
-        const auto result = OpenDbFanoutRepairer::repair(block, buffer, fanout);
+        const auto result = FanoutRepairer::run(block, buffer, fanout);
         if (!result) {
             throw std::runtime_error("fanout: " + result.message);
         }
@@ -501,13 +501,12 @@ class ApplicationFlow {
     void execute(Stage stage) {
         switch (stage) {
         case Stage::Drv:
-            report("drv", DrvRepairer::repair(block, sta, refresh,
-                                              options.repair.drvOptions(), runtime));
+            report("drv", DrvRepairer::run(block, sta, refresh,
+                                           options.repair.drvOptions(), runtime));
             break;
         case Stage::Setup:
-            report("setup",
-                   SetupRepairer::repair(block, sta, refresh,
-                                         options.repair.setupOptions(), runtime));
+            report("setup", SetupRepairer::run(block, sta, refresh,
+                                               options.repair.setupOptions(), runtime));
             break;
         case Stage::Path:
             runPath();
@@ -523,12 +522,11 @@ class ApplicationFlow {
                                              options.repair.gobiOptions(), runtime));
             break;
         case Stage::Ord:
-            report("ord", OrdDrvRepairer::repair(block, sta, refresh,
-                                                 options.repair.drvOptions(), runtime));
+            report("ord", OrdDrvRepairer::run(block, sta, refresh,
+                                              options.repair.drvOptions(), runtime));
             break;
         case Stage::Power:
-            report("power",
-                   OpenDbPowerRepairer::repair(block, sta, refresh,
+            report("power", PowerRepairer::run(block, sta, refresh,
                                                options.repair.powerOptions(), runtime));
             break;
         case Stage::Fanout:

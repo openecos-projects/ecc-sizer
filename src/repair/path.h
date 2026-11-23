@@ -41,10 +41,10 @@ struct PathFanoutCheck {
     float load = 0, limit = 0, slack = 0;
 };
 
-struct PathBufferTrial {
+struct PathTrialResult {
     // STA acceptance at proposed coordinates; final DP may undo this phase.
     bool placement_provisional = false;
-    bool full_verified = false;
+    bool rechecked_full_rc = false;
     // False: after contains timing only; electrical/area fields are not valid.
     bool metrics_complete = true;
     bool frontier_audit = false;
@@ -95,8 +95,9 @@ struct PathRepairResult : PathSearchState {
     bool ok = false;
     bool converged = false;
     std::string message;
-    // attempted/rejected count STA-verified ECO batches; accepted counts
-    // buffers committed by those batches.
+    // Trial counters count ECO batches; inserted_buffers counts their edits.
+    // Final-placement rollback clears accepted_trials and inserted_buffers;
+    // individual provisional measurements remain in trials.
     unsigned attempted_trials = 0;
     unsigned accepted_trials = 0;
     unsigned rejected_trials = 0;
@@ -114,7 +115,7 @@ struct PathRepairResult : PathSearchState {
     double prepare_ms = 0;
     double refresh_ms = 0;
     double measure_ms = 0;
-    std::vector<PathBufferTrial> trials;
+    std::vector<PathTrialResult> trials;
     PathFinalPlacement final_placement;
 };
 

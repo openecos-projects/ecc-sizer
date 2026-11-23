@@ -11,8 +11,7 @@
 #include "odb/db.h"
 
 namespace ecc {
-namespace {
-bool isExternalPadOnlyNet(odb::dbNet* db_net) {
+static bool isExternalPadOnlyNet(odb::dbNet* db_net) {
     if (db_net == nullptr || db_net->getBTerms().empty() ||
         db_net->getITerms().empty()) {
         return false;
@@ -32,8 +31,6 @@ bool isExternalPadOnlyNet(odb::dbNet* db_net) {
 
     return true;
 }
-
-} // namespace
 
 int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block) {
     if (block == nullptr) {

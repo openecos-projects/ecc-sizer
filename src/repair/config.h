@@ -70,13 +70,13 @@ struct SetupRepairSettings {
     // probed in one STA-verified batch.
     unsigned batch_size = 8;
     double batch_backoff = 0.5;
-    unsigned max_trials = 24;
+    std::optional<unsigned> max_trials = 24;
     // Both optimizations operate only while the committed design is unchanged.
     bool skip_duplicate_trials = true;
     bool defer_rollback_refresh = true;
     std::optional<unsigned> max_inserted_buffers;
     unsigned min_side_loads = 2;
-    double max_area_growth = 0.02;
+    std::optional<double> max_area_growth = 0.02;
     float min_improvement = 1e-13f;
     void validate() const;
 };
@@ -135,26 +135,26 @@ struct PathSearchSettings {
     // Optional adaptive search additionally uses audited empirical evidence;
     // its stopping condition is heuristic, not a proof of global optimality.
     double min_relative_improvement = 0;
-    // Optional wall time / actual refresh limits. Zero means unlimited.
+    // Optional wall time / actual refresh limits. Absence means unlimited.
     // An in-flight STA/rollback always completes before returning.
-    double max_seconds = 0;
-    unsigned max_refreshes = 0;
+    std::optional<double> max_seconds;
+    std::optional<unsigned> max_refreshes;
     unsigned max_paths = 16;
     unsigned max_candidates = 8;
     // Counts STA-verified ECO batches, including a batch that is rolled back.
-    // Zero means unlimited; stop at timing closure or no acceptable candidate.
-    unsigned max_trials = 8;
+    // Absence means unlimited; zero permits no trials.
+    std::optional<unsigned> max_trials = 8;
     // Optional early exit after this many rejected single-candidate STA
     // trials (including reused rejection verdicts) without an acceptance.
-    // Zero disables it. Batch failures and
+    // Absence disables it. Batch failures and
     // cheap prechecks do not count; final legalization/STA still runs.
-    unsigned max_consecutive_rejections = 0;
+    std::optional<unsigned> max_consecutive_rejections;
     // Default one preserves sequential greedy behavior; larger values enable
     // buffer-only ECO batching for throughput experiments.
     unsigned batch_size = 1;
     std::optional<unsigned> max_inserted_buffers;
-    // -1 disables the area budget; zero permits no area growth.
-    double max_area_growth = 0.02;
+    // Absence disables the area budget; zero permits no area growth.
+    std::optional<double> max_area_growth = 0.02;
     void validate() const;
 };
 struct PathSearchOptions : PathSearchSettings {
@@ -183,10 +183,10 @@ struct VgSettings {
     VgBackend backend = VgBackend::Cpu;
     unsigned cuda_max_memory_mb = 512;
     std::optional<unsigned> max_buffers;
-    unsigned max_nets = 0;
+    std::optional<unsigned> max_nets;
     unsigned max_group_loads = 0;
     float min_gain = 0;
-    bool require_drv_reduction = true;
+    bool require_drv_non_regression = true;
     void validate() const;
 };
 struct VgOptions : VgSettings {
@@ -196,8 +196,8 @@ struct VgOptions : VgSettings {
 struct GobiSettings {
     // GOBI uses its CUDA solver; backend availability is checked at runtime.
     std::optional<unsigned> max_buffers;
-    unsigned max_nets = 0;
-    bool require_drv_reduction = true;
+    std::optional<unsigned> max_nets;
+    bool require_drv_non_regression = true;
 };
 struct GobiOptions : GobiSettings {
     RepairCommonOptions common;

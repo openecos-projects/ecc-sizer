@@ -81,7 +81,7 @@ bool testBuildsBoundedTree()
   options.insertion.buffer_name_prefix = "sizer_fanout_buf";
   options.insertion.net_name_prefix = "sizer_fanout_net";
 
-  const ecc::FanoutRepairResult result = ecc::OpenDbFanoutRepairer::repair(
+  const ecc::FanoutRepairResult result = ecc::FanoutRepairer::run(
       fixture.block, fixture.master, options);
 
   bool passed = true;
@@ -94,10 +94,10 @@ bool testBuildsBoundedTree()
                    "one original violating net is reported");
   passed &= expect(result.inserted_buffers.size() == 4,
                    "a minimum-size two-level buffer tree is inserted");
-  passed &= expect(ecc::OpenDbFanoutRepairer::loadCount(fixture.net) == 3,
+  passed &= expect(ecc::FanoutRepairer::loadCount(fixture.net) == 3,
                    "the root net obeys the requested fanout");
   for (odb::dbNet* net : fixture.block->getNets()) {
-    passed &= expect(ecc::OpenDbFanoutRepairer::loadCount(net) <= 3,
+    passed &= expect(ecc::FanoutRepairer::loadCount(net) <= 3,
                      "every resulting net obeys the fanout bound");
   }
   for (odb::dbInst* load : fixture.loads) {
@@ -117,7 +117,7 @@ bool testFailureRollsBack()
   options.max_levels = 1;
   options.insertion.location = ecc::BufferLocation{5000, 5000};
 
-  const ecc::FanoutRepairResult result = ecc::OpenDbFanoutRepairer::repair(
+  const ecc::FanoutRepairResult result = ecc::FanoutRepairer::run(
       fixture.block, fixture.master, options);
 
   bool passed = true;
@@ -129,7 +129,7 @@ bool testFailureRollsBack()
                    "rollback restores the instance count");
   passed &= expect(fixture.block->getNets().size() == original_nets,
                    "rollback restores the net count");
-  passed &= expect(ecc::OpenDbFanoutRepairer::loadCount(fixture.net) == 10,
+  passed &= expect(ecc::FanoutRepairer::loadCount(fixture.net) == 10,
                    "rollback restores the original connectivity");
   return passed;
 }
@@ -145,7 +145,7 @@ bool testLargeFanoutUsesMinimumBuffers()
   options.insertion.location = ecc::BufferLocation{5000, 5000};
 
   const auto begin = std::chrono::steady_clock::now();
-  const ecc::FanoutRepairResult result = ecc::OpenDbFanoutRepairer::repair(
+  const ecc::FanoutRepairResult result = ecc::FanoutRepairer::run(
       fixture.block, fixture.master, options);
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - begin);
@@ -172,7 +172,7 @@ bool testClockPolicy()
   options.max_fanout = 2;
   options.insertion.location = ecc::BufferLocation{5000, 5000};
 
-  const ecc::FanoutRepairResult skipped = ecc::OpenDbFanoutRepairer::repair(
+  const ecc::FanoutRepairResult skipped = ecc::FanoutRepairer::run(
       fixture.block, fixture.master, options);
   bool passed = expect(skipped.ok() && skipped.inserted_buffers.empty(),
                        "clock nets are skipped by default");
@@ -180,7 +180,7 @@ bool testClockPolicy()
   fixture.net->setSigType(odb::dbSigType::SIGNAL);
   options.excluded_nets.push_back(fixture.net);
   const ecc::FanoutRepairResult explicitly_excluded
-      = ecc::OpenDbFanoutRepairer::repair(
+      = ecc::FanoutRepairer::run(
           fixture.block, fixture.master, options);
   passed &= expect(
       explicitly_excluded.ok() && explicitly_excluded.inserted_buffers.empty(),
@@ -188,7 +188,7 @@ bool testClockPolicy()
 
   options.excluded_nets.clear();
   options.repair_clock_nets = true;
-  const ecc::FanoutRepairResult repaired = ecc::OpenDbFanoutRepairer::repair(
+  const ecc::FanoutRepairResult repaired = ecc::FanoutRepairer::run(
       fixture.block, fixture.master, options);
   passed &= expect(repaired.ok() && repaired.after_max_fanout <= 2,
                    "clock nets can be repaired explicitly");

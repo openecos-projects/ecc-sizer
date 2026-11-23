@@ -48,15 +48,15 @@ struct DesignMetrics {
 
 // Changes since the last electrical inspection, including rejected ECOs and
 // their rollback. IDs of destroyed objects are never dereferenced.
-struct RepairAnalysisChanges {
+struct AnalysisChanges {
     std::unordered_set<odb::dbNet*> nets;
     std::unordered_set<odb::dbInst*> instances;
     std::unordered_set<unsigned> removed_nets, removed_instances;
     bool ports = false;
 };
 
-std::vector<sta::Vertex*> repairTimingCone(sta::dbSta* sta,
-                                           const std::unordered_set<odb::dbNet*>& nets);
+std::vector<sta::Vertex*> timingCone(sta::dbSta* sta,
+                                     const std::unordered_set<odb::dbNet*>& nets);
 } // namespace ecc
 
 namespace ecc::detail {
@@ -111,7 +111,7 @@ class DesignAnalysis {
     // Only for a phase with immutable SDC/libraries and complete edit-cone
     // invalidation. Global timing is always queried from the live STA engine.
     std::vector<NetState> analyzeIncremental(DesignMetrics& metrics,
-                                             RepairAnalysisChanges changes);
+                                             AnalysisChanges changes);
     struct AnalysisStatistics {
         size_t inspections = 0, full_scans = 0, net_checks = 0, instance_checks = 0;
     };

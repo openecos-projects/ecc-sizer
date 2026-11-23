@@ -95,7 +95,7 @@ class PlacementParasiticUpdater {
         ++statistics_.verifications;
         changes_.timing_nets.clear();
     }
-    RepairAnalysisChanges takeAnalysisChanges() {
+    AnalysisChanges takeAnalysisChanges() {
         sta_->findRequireds();
         auto changed = std::move(changes_.analysis);
         changes_.analysis = {};
@@ -133,7 +133,7 @@ class PlacementParasiticUpdater {
                 changed.ports = true;
             }
         }
-        for (auto* vertex : repairTimingCone(sta_, changed.nets)) {
+        for (auto* vertex : timingCone(sta_, changed.nets)) {
             // Arrival/required changes alone do not alter electrical checks.
             // Compare every rise/fall and analysis-point slew exactly; this is
             // not a tolerance-based propagation cutoff. SDC/libs are immutable
@@ -243,7 +243,7 @@ class PlacementParasiticUpdater {
     }
     struct NetChanges : odb::dbBlockCallBackObj {
         std::unordered_set<unsigned> nets;
-        RepairAnalysisChanges analysis;
+        AnalysisChanges analysis;
         // Include prior rejected edits until a cone verification succeeds;
         // otherwise their small residual slew errors could survive rollback.
         std::unordered_set<unsigned> timing_nets;
