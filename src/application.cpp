@@ -371,6 +371,19 @@ class ApplicationFlow {
                 "for postroute/global-routing repair");
         }
         const auto& common = options.repair.common;
+        // Tcl set_dont_use updates Resizer's set, not LibertyCell::dontUse().
+        // Carry it into Sizer-owned searches without duplicating parsing or
+        // changing the Liberty model. The input script has finished here.
+        auto* network = sta->getDbNetwork();
+        auto* resizer = session.design().getResizer();
+        for (auto* lib : block->getDataBase()->getLibs()) {
+            for (auto* master : lib->getMasters()) {
+                auto* cell = network->libertyCell(network->dbToSta(master));
+                if (cell && resizer->dontUse(cell)) {
+                    runtime.constraints.excluded_masters.push_back(master);
+                }
+            }
+        }
         for (auto* inst : block->getInsts()) {
             if (inst->isDoNotTouch()) {
                 runtime.constraints.excluded_instances.push_back(inst);
@@ -484,7 +497,10 @@ class ApplicationFlow {
                 auto* cell = sta->getDbNetwork()->libertyCell(
                     sta->getDbNetwork()->dbToSta(master));
                 if (!master->isFrozen() || !master->isCore() || !cell ||
-                    cell->dontUse() || !cell->isBuffer()) {
+                    cell->dontUse() || !cell->isBuffer() ||
+                    std::find(runtime.constraints.excluded_masters.begin(),
+                              runtime.constraints.excluded_masters.end(),
+                              master) != runtime.constraints.excluded_masters.end()) {
                     continue;
                 }
                 const auto area = [](auto* m) {

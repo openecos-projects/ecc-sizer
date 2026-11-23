@@ -36,9 +36,12 @@ def tcl(value):
 
 
 def loader(benchmark, design, input_def, threads, dont_use=()):
-    restrictions = ""
+    restrictions = "set benchmark_forbidden_masters [dict create]\n"
     if dont_use:
-        restrictions = "set_dont_use [list " + " ".join(tcl(p) for p in dont_use) + "]\n"
+        patterns = "[list " + " ".join(tcl(p) for p in dont_use) + "]"
+        restrictions += f"set_dont_use {patterns}\n"
+        restrictions += (f"foreach cell [get_lib_cells {patterns}] {{\n"
+                         "    dict set benchmark_forbidden_masters [$cell name] 1\n}\n")
     return f"""set platform_dir {tcl(benchmark / 'platform')}
 set design_path {tcl(benchmark / 'design' / design)}
 source $design_path/lib_setup.tcl
@@ -63,12 +66,18 @@ set block [ord::get_db_block]
 set area 0.0
 set unplaced 0
 set added 0
+set forbidden_added 0
 set supply_errors 0
 foreach inst [$block getInsts] {
     set master [$inst getMaster]
     set area [expr {$area + [$block dbuToMicrons [$master getWidth]] * [$block dbuToMicrons [$master getHeight]]}]
     if {![$inst isPlaced]} { incr unplaced }
-    if {[string match sizer_*_buf* [$inst getName]]} { incr added }
+    if {[string match sizer_*_buf* [$inst getName]]} {
+        incr added
+        if {[dict exists $benchmark_forbidden_masters [$master getName]]} {
+            incr forbidden_added
+        }
+    }
     foreach pin [$inst getITerms] {
         set type [$pin getSigType]
         if {$type in {POWER GROUND}} {
@@ -80,7 +89,7 @@ foreach inst [$block getInsts] {
 lassign [sta::design_power [sta::cmd_scene]] internal switching leakage total
 foreach {key value} [list area_um2 $area instances [llength [$block getInsts]] \
     nets [llength [$block getNets]] unplaced $unplaced supply_pin_errors $supply_errors \
-    inserted_buffers $added total_power_w $total leakage_power_w $leakage \
+    inserted_buffers $added forbidden_inserted_buffers $forbidden_added total_power_w $total leakage_power_w $leakage \
     setup_wns_ns [sta::worst_negative_slack -max] \
     setup_tns_ns [sta::total_negative_slack -max] \
     hold_wns_ns [sta::worst_negative_slack -min] \
@@ -145,7 +154,8 @@ def run_case(args, design, profile, identity):
         result["metrics"] = {key: float(value) for key, value in
                              re.findall(r"^BENCH_METRIC (\w+) (\S+)$", log, re.M)}
         result["ok"] = (result["evaluation"]["returncode"] == 0 and
-                        len(result["metrics"]) == 15 and
+                        len(result["metrics"]) == 16 and
+                        result["metrics"]["forbidden_inserted_buffers"] == 0 and
                         result["metrics"]["unplaced"] == 0 and
                         result["metrics"]["supply_pin_errors"] == 0)
         for suffix in (".def", ".v", ".odb"):

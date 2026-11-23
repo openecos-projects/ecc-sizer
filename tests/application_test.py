@@ -136,6 +136,27 @@ set_max_fanout 4 [current_design]
         self.assertLess(output.index("Starting drv"), output.index("Starting setup"))
         self.assertTrue((self.work / "composed.odb").is_file())
 
+    def test_tcl_dont_use_reaches_sizer_buffer_candidates(self):
+        # Keep input BUF instances; only future insertion/replacement is forbidden.
+        self.script.write_text(self.script.read_text().replace(
+            "fanout_repair_sta.v", "gate_repair_sta.v") + """
+create_clock -name clk -period 0.5 [get_ports clk]
+set_input_delay 0 -clock clk [get_ports {in enable}]
+set_output_delay 0.49 -clock clk [get_ports out0]
+""")
+        common = ("--flow", "path", "--threads", "1", "--log-level", "debug",
+                  "--set", "buffer.path.max_area_growth=1",
+                  "--set", "buffer.path.max_trials=3")
+        allowed = self.run_sizer(self.script, *common, "--output", self.work / "allowed")
+        self.assertIn("Path commit:", allowed)
+        self.script.write_text(self.script.read_text() + "\nset_dont_use {*BUF*}\n")
+        blocked = self.run_sizer(self.script, *common, "--output", self.work / "blocked")
+        self.assertNotIn("Path commit:", blocked)
+        self.assertIn("buffers=0", blocked)
+        self.script.write_text(self.script.read_text() + "unset_dont_use {*BUF*}\n")
+        restored = self.run_sizer(self.script, *common, "--output", self.work / "restored")
+        self.assertIn("Path commit:", restored)
+
     def test_path_trial_logging_respects_level_and_reports_measured_gains(self):
         self.script.write_text(self.script.read_text().replace(
             "fanout_repair_sta.v", "gate_repair_sta.v") + """
