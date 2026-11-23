@@ -117,6 +117,8 @@ input Tcl for global routing. Input Tcl controls propagated/ideal clocks.
 Use `--rc rc.tcl` when the technology needs an explicit wire model. An SDC
 fanout constraint is never relaxed by the application's default limit.
 Use OpenROAD's `set_dont_use` and `set_dont_touch` in input Tcl for exclusions.
+The application transfers Resizer's dont-use set into Sizer's runtime constraints;
+this is separate from Liberty's built-in dont_use attribute.
 
 Output defaults to `<input-stem>.sized.def`, `.v` and `.odb`; `--output PREFIX`
 sets their location. Input files must not be reused as the output prefix.
@@ -316,14 +318,15 @@ serializable policy, `Options` add common policy, and `Runtime` carries live
 constraints and callbacks. No runtime state is copied into `RepairConfig`.
 
 A `Candidate` is a ranked alternative; a `Plan` describes edits against an
-unchanged design snapshot; `PathTrialResult` records one measured ECO; a
+unchanged design snapshot; `BufferTrialResult` records one measured ECO; a
 `RepairResult` describes the completed workflow. Trial counts are batches,
 not buffer counts. `rechecked_full_rc` means an additional authoritative RC
 check occurred; false does not imply that the normal refresh was incremental.
 
 Use `scripts/benchmark_sizer.py --help` for the current ISPD26 runner. It
 loads via OpenROAD Tcl, records input/binary hashes and logs, independently
-reloads the final design to check placement and PPA, and removes generated
+reloads the final design to check placement, PPA and forbidden inserted buffer
+masters, and removes generated
 DEF/Verilog/ODB after evaluation. Historical experiment documents/configurations
 are not instructions for the current CLI.
 
