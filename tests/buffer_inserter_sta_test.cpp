@@ -17,7 +17,7 @@
 #include "repair/drv.h"
 #include "algorithms/van_ginneken.h"
 #include "algorithms/gobi.h"
-#include "repair/path_search.h"
+#include "repair/path.h"
 #include "design_analysis.h"
 #include "algorithms/cell_candidates.h"
 #include "repair/setup.h"
@@ -507,7 +507,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathEveryTrialMatchesFullSta)
     ++verified;
   };
   const auto result =
-      ecc::PathSearch::run(block_, sta_.get(), refresh, options, runtime_);
+      ecc::PathRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.inserted_buffers, 0u);
   EXPECT_GE(verified, result.attempted_trials);
@@ -529,7 +529,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathSequenceMatchesFinalFullSta)
   options.defer_rollback_refresh = true;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_trials, 0u);
@@ -567,7 +567,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathFullyVerifiesBeforeEveryCommit)
       EXPECT_TRUE(trial.full_verified);
   };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_trials, 0u);
@@ -605,7 +605,7 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRunsOnceAndReportsLegalFullSta)
   };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
   runtime_.verification_refresh = [&]() { refreshRepairTiming(); };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.final_placement.provisional_buffers, 0u);
@@ -658,7 +658,7 @@ TEST_F(BufferInserterStaTest, PathFinalPlacementRestoresAllProvisionalEditsAndMo
         throw std::runtime_error("injected final placement failure");
     };
     ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
-    const auto result = ecc::PathSearch::run(
+    const auto result = ecc::PathRepairer::run(
         block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
     EXPECT_EQ(result.ok, !throw_after_move) << result.message;
     ASSERT_TRUE(result.final_placement.attempted);
@@ -700,10 +700,10 @@ TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJou
   const auto instances = block_->getInsts().size();
   unsigned full_refreshes = 0;
   const auto full = [&]() { ++full_refreshes; refreshRepairTiming(); };
-  auto rejected = ecc::PathSearch::run(block_, sta_.get(), full, options, runtime_);
+  auto rejected = ecc::PathRepairer::run(block_, sta_.get(), full, options, runtime_);
   EXPECT_FALSE(rejected.ok);
   options.placement = ecc::PathPlacement::Final;
-  rejected = ecc::PathSearch::run(block_, sta_.get(), full, options, runtime_);
+  rejected = ecc::PathRepairer::run(block_, sta_.get(), full, options, runtime_);
   EXPECT_FALSE(rejected.ok); // Missing authoritative callback.
   EXPECT_EQ(full_refreshes, 0u);
   EXPECT_EQ(block_->getInsts().size(), instances);
@@ -720,7 +720,7 @@ TEST_F(BufferInserterStaTest, PathFinalVerificationAmortizesFullRcAndRequiresJou
   options.incremental_analysis = true;
   options.reuse_rejections = true;
   runtime_.analysis_changes = [&]() { return incremental.takeAnalysisChanges(); };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_trials, 0u);
@@ -767,7 +767,7 @@ TEST_F(BufferInserterStaTest, PathRejectionStopStillFinalizesAndKeepsAcceptedEdi
   };
   runtime_.verification_refresh = [&]() { refreshRepairTiming(); };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   ASSERT_TRUE(result.stopped_on_rejections) << result.message;
@@ -833,7 +833,7 @@ TEST_F(BufferInserterStaTest, PathTimingPrecheckMatchesFullMetricsAndNeverAccept
     }
   };
   const auto result =
-      ecc::PathSearch::run(block_, sta_.get(), refresh, options, runtime_);
+      ecc::PathRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_trials, 0u);
   EXPECT_GT(partial, 0u);
@@ -866,7 +866,7 @@ TEST_F(BufferInserterStaTest, IncrementalPathRollsBackIfFullVerificationFails)
     refreshRepairTiming();
   };
   ecc::PlacementParasiticUpdater incremental(block_, sta_.get(), &ep_);
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { incremental.update(); }, options, runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.message.find("full verification failed"), std::string::npos);
@@ -1567,7 +1567,7 @@ TEST_F(BufferInserterStaTest, PathBufferOnlyRepairUsesVerifiedPathEdit)
   options.max_area_growth = 0.5;
   options.common.actions.resize = false;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.attempted_trials, 0u);
@@ -1596,13 +1596,13 @@ TEST_F(BufferInserterStaTest, StandalonePathRepairWithoutBudgetsUsesVerifiedPath
   options.max_area_growth = 0;
   options.common.actions.resize = false;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto no_growth = ecc::PathSearch::run(
+  const auto no_growth = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(no_growth.ok) << no_growth.message;
   EXPECT_EQ(no_growth.attempted_trials, 0u);
   EXPECT_EQ(no_growth.inserted_buffers, 0u);
   options.max_area_growth = -1;
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.accepted_trials, 0u);
@@ -1640,7 +1640,7 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   options.min_relative_improvement = 1;
   // Exercise actual STA rejection independently of prediction screening.
   options.strategy = ecc::PathStrategy::PathGain;
-  const auto rejected = ecc::PathSearch::run(
+  const auto rejected = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(rejected.ok) << rejected.message;
   EXPECT_GT(reports, 0u);
@@ -1649,7 +1649,7 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   EXPECT_FLOAT_EQ(rejected.before.setup_wns, rejected.after.setup_wns);
   reports = 0;
   options.strategy = ecc::PathStrategy::Feedback;
-  const auto screened = ecc::PathSearch::run(
+  const auto screened = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(screened.ok) << screened.message;
   EXPECT_GT(screened.screened_candidates, 0u);
@@ -1658,7 +1658,7 @@ TEST_F(BufferInserterStaTest, PathFeedbackReportsCommittedAndRolledBackTrials)
   EXPECT_EQ(block_->getInsts().size(), initial_instances);
   reports = 0;
   options.min_relative_improvement = 0;
-  const auto repaired = ecc::PathSearch::run(
+  const auto repaired = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(repaired.ok) << repaired.message;
   EXPECT_EQ(reports, repaired.attempted_trials);
@@ -1692,7 +1692,7 @@ TEST_F(BufferInserterStaTest, PathCoverageFindsUnsampledEndpointsAndKeepsGlobalS
   options.max_area_growth = 0.5;
   options.min_relative_improvement = 0;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   ASSERT_GT(result.attempted_trials, 0u);
@@ -1763,7 +1763,7 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeUsesWeightedLoadsAndRollsBackWholeEc
     EXPECT_LT(check.slack, 0);
     EXPECT_FALSE(check.pin.empty());
   };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(tree_trials, 0u);
@@ -1814,7 +1814,7 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeHonorsSdcAndCompoundBufferBudget)
       EXPECT_FLOAT_EQ(check.limit, 1.5f); // SDC tighter than Liberty's 100.
     }
   };
-  const auto bounded = ecc::PathSearch::run(
+  const auto bounded = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(bounded.ok) << bounded.message;
   EXPECT_TRUE(saw_sdc_limit);
@@ -1822,7 +1822,7 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeHonorsSdcAndCompoundBufferBudget)
   EXPECT_LE(largest_trial, 2u);
   EXPECT_EQ(bounded.inserted_buffers, 0u);
   options.max_inserted_buffers.reset();
-  const auto unbounded = ecc::PathSearch::run(
+  const auto unbounded = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(unbounded.ok) << unbounded.message;
   EXPECT_GT(unbounded.fanout_tree_trials, 0u);
@@ -1864,7 +1864,7 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeAllowsSingletonGroupsWithHeavyLoads)
       EXPECT_LE(trial.after.total_fanout_violations, trial.before.total_fanout_violations);
     }
   };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(singleton_trees, 0u);
@@ -1873,7 +1873,7 @@ TEST_F(BufferInserterStaTest, PathFanoutTreeAllowsSingletonGroupsWithHeavyLoads)
   // before ECO fanout completion. Singleton leaf groups must remain feasible.
   singleton_trees = 0;
   options.tree_candidates = true;
-  const auto planned = ecc::PathSearch::run(
+  const auto planned = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(planned.ok) << planned.message;
   EXPECT_GT(singleton_trees, 0u);
@@ -1907,7 +1907,7 @@ TEST_F(BufferInserterStaTest, PathImpossibleFanoutSkipsPlacementAndStaTrials)
   options.max_trials = 0;
   unsigned prepares = 0;
   runtime_.prepare = [&]() { ++prepares; };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.fanout_precheck_rejections, 0u);
@@ -1970,7 +1970,7 @@ TEST_F(BufferInserterStaTest, PathPlansCapLimitedTreeAndRollsBackAtomically)
     EXPECT_TRUE(odb::dbDatabase::ecoStackEmpty(block_));
   };
   auto run = [&]() {
-    return ecc::PathSearch::run(
+    return ecc::PathRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   const auto result = run();
@@ -2004,7 +2004,7 @@ TEST_F(BufferInserterStaTest, PathRecoveryCandidatesUseActualEndpointObjective)
   options.min_relative_improvement = 1; // force rollback
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   auto run = [&]() {
-    return ecc::PathSearch::run(
+    return ecc::PathRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   options.recovery = false;
@@ -2040,7 +2040,7 @@ TEST_F(BufferInserterStaTest, PathLocalObjectiveRequiresBothEndpointAndGlobalPro
   options.max_trials = 4;
   options.max_area_growth = -1;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.inserted_buffers, 0u);
@@ -2069,7 +2069,7 @@ TEST_F(BufferInserterStaTest, PathCurrentGlobalScaleKeepsMeasuredTimingAndElectr
   options.max_trials = 8;
   options.max_area_growth = -1;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_GT(result.inserted_buffers, 0u);
@@ -2109,7 +2109,7 @@ TEST_F(BufferInserterStaTest, PathEndpointScaleIsNotBlockedByUnrelatedRecoveryTn
   options.max_area_growth = -1;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   auto run = [&]() {
-    return ecc::PathSearch::run(
+    return ecc::PathRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   options.gain_scope = ecc::PathGainScope::Global;
@@ -2159,7 +2159,7 @@ TEST_F(BufferInserterStaTest, PathBufferOnlyRepairRollsBackStaRegression)
     refreshRepairTiming();
   };
   const auto result =
-      ecc::PathSearch::run(block_, sta_.get(), refresh, options, runtime_);
+      ecc::PathRepairer::run(block_, sta_.get(), refresh, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   EXPECT_EQ(result.accepted_trials, 0u);
   EXPECT_EQ(result.rejected_trials, 1u);
@@ -2191,7 +2191,7 @@ TEST_F(BufferInserterStaTest, PathDeferredRefreshPreservesRejectedDesignAndTrial
   options.min_improvement = 1.0f; // Force every otherwise valid ECO to roll back.
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
   auto run = [&]() {
-    return ecc::PathSearch::run(
+    return ecc::PathRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   };
   options.defer_rollback_refresh = false;
@@ -2265,7 +2265,7 @@ TEST_F(BufferInserterStaTest, PathExceptionAfterDeferredRollbackRestoresSta)
     if(++prepares == 2)
       throw std::runtime_error("injected prepare failure");
   };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   EXPECT_FALSE(result.ok);
   EXPECT_NE(result.message.find("injected prepare failure"), std::string::npos);
@@ -2289,7 +2289,7 @@ TEST_F(BufferInserterStaTest, PathBatchSeparatesReconvergentCones)
   options.max_trials = 1;
   options.max_area_growth = 1;
   options.min_improvement = 1.0f;
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   ASSERT_EQ(result.trials.size(), 1u);
@@ -2313,7 +2313,7 @@ TEST_F(BufferInserterStaTest, PathBatchHonorsBufferCapAndSharedCone)
   options.max_trials = 4;
   options.max_area_growth = 0.5;
   runtime_.prepare = [&]() { ecc::legalizeRepairPlacement(block_, &dp_); };
-  const auto result = ecc::PathSearch::run(
+  const auto result = ecc::PathRepairer::run(
       block_, sta_.get(), [&]() { refreshRepairTiming(); }, options, runtime_);
   ASSERT_TRUE(result.ok) << result.message;
   ASSERT_GT(result.attempted_trials, 0u);
@@ -3298,7 +3298,7 @@ TEST_F(BufferInserterStaTest, BufferSolversHonorZeroAndDisabledInsertion)
     ecc::PathSearchOptions path;
     path.max_inserted_buffers = limit;
     path.common.actions.buffer = zero_limit;
-    const auto p = ecc::PathSearch::run(
+    const auto p = ecc::PathRepairer::run(
         block_, sta_.get(), [&]() { refreshRepairTiming(); }, path, runtime_);
     ASSERT_TRUE(p.ok) << p.message;
     EXPECT_EQ(p.attempted_trials, 0u);

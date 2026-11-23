@@ -86,6 +86,24 @@ set_max_fanout 4 [current_design]
         self.assertIn("deliberate input failure", output)
         self.assertFalse(list(self.work.glob("*.odb")))
 
+    def test_invalid_flow_is_rejected_before_loading_design(self):
+        self.script.write_text('error "input must not execute"\n')
+        for flow in ("drv,preplace", "preplace,setup", "path,preplace-gain",
+                     "preplace-gain,drv", "preplace,preplace"):
+            with self.subTest(flow=flow):
+                output = self.run_sizer(self.script, "--flow", flow, ok=False)
+                self.assertIn("independent flow", output)
+                self.assertNotIn("input must not execute", output)
+        for flow in ("preplace", "preplace-gain", "path", "vg", "gobi"):
+            for rc in (("--spef", "missing.spef"), ("--global-routing",)):
+                with self.subTest(flow=flow, rc=rc):
+                    output = self.run_sizer(self.script, "--flow", flow, *rc,
+                                            ok=False)
+                    self.assertIn("zero wire RC" if flow.startswith("preplace")
+                                  else "placement RC", output)
+                    self.assertNotIn("input must not execute", output)
+        self.assertFalse(list(self.work.glob("*.odb")))
+
     def test_drv_setup_default_and_odb_round_trip(self):
         prefix = self.work / "native result"
         log = self.work / "sizer.log"
@@ -176,6 +194,7 @@ read_spef {{{spef}}}
         self.assertIn("power finished", output)
         self.assertEqual(spef.read_bytes(), original)
         self.assertIn("placement RC", self.run_sizer(extracted_script, "--flow", "path", ok=False))
+        self.assertIn("zero wire RC", self.run_sizer(extracted_script, "--flow", "preplace", ok=False))
         with self.script.open("a") as script:
             script.write("make_tracks\nset_routing_layers -signal metal2-metal6 -clock metal2-metal6\n")
         output = self.run_sizer(self.script, "--global-routing", "--flow", "drv,setup,power,hold",

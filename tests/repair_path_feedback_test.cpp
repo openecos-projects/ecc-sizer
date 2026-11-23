@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 ICT, CAS
 // SPDX-License-Identifier: Apache-2.0
-#include "repair/path_feedback.h"
+#include "algorithms/path.h"
+#include <algorithm>
+#include <cmath>
+#include "odb/db.h"
 #include <gtest/gtest.h>
 
 using namespace ecc::path_detail;
@@ -280,4 +283,83 @@ TEST(PathFeedback, EndpointWitnessSurvivesUnrelatedEditsAndReopensForFaninChange
     EXPECT_TRUE(cache.rejects("tree", -1e-9f, 1e-12));
     cache.committed(3);
     EXPECT_FALSE(cache.rejects("tree", -1e-9f, 1e-12));
+}
+
+class PathScheduleTest : public ::testing::Test {
+  protected:
+    void SetUp() override {
+        db = odb::dbDatabase::create();
+        auto* tech = odb::dbTech::create(db, "tech");
+        auto* lib = odb::dbLib::create(db, "lib", tech, '/');
+        master = odb::dbMaster::create(lib, "BUF");
+        master->setWidth(100);
+        master->setHeight(100);
+        master->setType(odb::dbMasterType::CORE);
+        master->setFrozen();
+        block = odb::dbBlock::create(odb::dbChip::create(db, tech), "top");
+        options.strategy = ecc::PathStrategy::Sequential;
+        options.batch_size = 4;
+        options.fanout_repair = false;
+    }
+    void TearDown() override { odb::dbDatabase::destroy(db); }
+    PathBufferCandidate candidate(const char* name) {
+        PathBufferCandidate result;
+        result.net = odb::dbNet::create(block, name);
+        result.master = master;
+        return result;
+    }
+    odb::dbDatabase* db = nullptr;
+    odb::dbBlock* block = nullptr;
+    odb::dbMaster* master = nullptr;
+    ecc::PathSearchOptions options;
+    ecc::PathSearchState state;
+};
+
+TEST_F(PathScheduleTest, RejectedBatchRetriesEveryMemberIndividually) {
+    PathFeedback feedback(options, state);
+    PathSchedule schedule({candidate("a"), candidate("b"), candidate("c")},
+                          options, state, feedback);
+    EXPECT_EQ(schedule.selectBatch(INFINITY).indices, (std::vector<size_t>{0, 1, 2}));
+    schedule.rejected();
+    for (size_t i = 0; i < 3; ++i) {
+        ASSERT_TRUE(schedule.hasNext());
+        ASSERT_TRUE(schedule.prepareNext());
+        EXPECT_EQ(schedule.selectBatch(INFINITY).indices, (std::vector<size_t>{i}));
+        schedule.rejected();
+    }
+    EXPECT_FALSE(schedule.hasNext());
+}
+
+TEST_F(PathScheduleTest, BatchesExcludeSharedNetsAndTimingCones) {
+    auto first = candidate("a");
+    first.cone = {odb::dbInst::create(block, master, "shared")};
+    auto same_net = first;
+    same_net.cone.clear();
+    auto same_cone = candidate("b");
+    same_cone.cone = first.cone;
+    PathFeedback feedback(options, state);
+    PathSchedule schedule({first, same_net, same_cone, candidate("c")},
+                          options, state, feedback);
+    EXPECT_EQ(schedule.selectBatch(INFINITY).indices, (std::vector<size_t>{0, 3}));
+}
+
+TEST_F(PathScheduleTest, BudgetsCountWholeTreesAndDistinguishZeroFromUnlimited) {
+    auto compound = candidate("tree");
+    auto tree = std::make_shared<PathTree>();
+    tree->nodes.resize(2);
+    compound.tree = tree;
+    const auto single = candidate("single");
+    PathFeedback feedback(options, state);
+    const auto select = [&](double area_limit) {
+        PathSchedule schedule({compound, single}, options, state, feedback);
+        return schedule.selectBatch(area_limit);
+    };
+    options.max_inserted_buffers = 0;
+    EXPECT_TRUE(select(INFINITY).indices.empty());
+    options.max_inserted_buffers = 2;
+    state.inserted_buffers = 1;
+    EXPECT_EQ(select(INFINITY).indices, (std::vector<size_t>{1}));
+    options.max_inserted_buffers.reset();
+    EXPECT_EQ(select(INFINITY).buffers, 3u);
+    EXPECT_EQ(select(20000).indices, (std::vector<size_t>{0}));
 }

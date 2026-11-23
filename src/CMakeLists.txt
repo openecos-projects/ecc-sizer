@@ -17,7 +17,7 @@ set(SOURCES
     actions/netlist.cpp actions/placement.cpp special_net.cpp lef_layer_rc.cpp
     repair/config.cpp design_analysis.cpp algorithms/cell_candidates.cpp
     repair/drv.cpp repair/setup.cpp
-    repair/path_search.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
+    repair/path.cpp algorithms/path.cpp algorithms/van_ginneken.cpp algorithms/vg_cuda.cpp
     algorithms/gobi.cpp algorithms/gobi_cuda.cpp)
 
 add_library(sizer_placement STATIC actions/legalize_core.cpp
@@ -96,7 +96,9 @@ if(BUILD_TESTING)
 
     add_executable(ecc_sizer_repair_path_feedback_test ../tests/repair_path_feedback_test.cpp)
     target_include_directories(ecc_sizer_repair_path_feedback_test PRIVATE .)
-    target_link_libraries(ecc_sizer_repair_path_feedback_test PRIVATE GTest::gtest_main)
+    target_link_libraries(ecc_sizer_repair_path_feedback_test PRIVATE GTest::gtest_main sizer_algorithms)
+    set_property(TARGET ecc_sizer_repair_path_feedback_test PROPERTY
+                 LINK_LIBRARY_OVERRIDE "WHOLE_ARCHIVE,openroad")
     add_test(NAME ecc_sizer_repair_path_feedback COMMAND ecc_sizer_repair_path_feedback_test)
 
     set(VG_CUDA_TEST_BACKEND
@@ -189,7 +191,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/gobi_cuda.cpp
 
-        ${CMAKE_CURRENT_SOURCE_DIR}/repair/path_search.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/repair/path.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/algorithms/path.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/repair/setup.cpp
 
     )

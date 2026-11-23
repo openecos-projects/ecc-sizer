@@ -186,7 +186,8 @@ flow instead of allowing acceptance with stale timing.
 
 ## Source organization
 
-- `application.cpp`: CLI, stage ordering, shared repair services and output.
+- `application.cpp`: CLI and flow validation, session initialization, stage
+  execution and output. `ApplicationFlow` owns shared services and callback lifetimes.
 - `design_session.*`: OpenROAD session lifetime, input/output, checked Tcl calls, RC defaults and
   supply connectivity. There is no additional LEF/Liberty/DEF/SDC parser here.
   `special_net.*` protects external PAD nets and extends wildcard supply connections
@@ -201,8 +202,11 @@ flow instead of allowing acceptance with stale timing.
   and power recovery. DRV owns the replacement-versus-buffer fallback policy.
 - `repair/setup.*`: setup candidates and STA acceptance. Path, VG and GOBI
   remain independent strategies, not implicit calls inside setup.
-- `repair/path_search.*` and `path_feedback.h`: path scheduling, candidate ranking,
-  trial/final placement, feedback and acceptance.
+- `algorithms/path.*`: path candidates, forecasts, feedback and queue scheduling,
+  grouped in one header and implementation. Feedback observes trial measurements
+  without editing the design or deciding acceptance.
+- `repair/path.*`: `PathRepairer` executes candidates through ECO transactions,
+  STA verification, rollback and final placement.
 - `algorithms/van_ginneken.*`, `gobi.*`: buffer-tree solvers with thin standalone
   stage runners. CUDA implementations live beside their algorithms.
 - `design_analysis.*`: shared design metrics, OpenDB/STA queries, incremental
@@ -225,9 +229,18 @@ Algorithms expose search separately from execution. `VanGinneken::solve` and
 `Gobi::solve` take caller-selected net snapshots and return buffer-tree plans;
 `PathSearch::generateCandidates` returns an initial path candidate frontier.
 These calls do not edit the netlist, open an ECO or invoke placement/refresh
-callbacks. Action permissions and insertion limits are enforced by `run`, which
-also owns scheduling, transactions, STA acceptance and rollback. The existing
-CLI stages call `run`; Path does not automatically invoke VG.
+callbacks. `PathRepairer::run` combines the Path scheduling policy with ECO
+execution; action permissions, insertion limits, STA acceptance and rollback
+remain enforced by the runner. The CLI uses these runners; Path does not
+automatically invoke VG.
+
+Path defaults to predicted path-gain ordering. `--set path.strategy=feedback`
+uses measured trial gains to calibrate later forecasts, diversify candidate
+families and defer failed variants. Rejection history is scoped to the design
+generation and structural context; committed edits reopen affected opportunities.
+Optional adaptive exploration also audits empirical failures before suspending
+similar candidates. Forecasts guide scheduling, never replace full STA
+acceptance, and are not treated as mathematical bounds for pruning.
 
 All three algorithms use `BufferTreePlan` from `actions/netlist.h`: each node
 specifies its master, location, direct loads and child indices. Children precede

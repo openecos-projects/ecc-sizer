@@ -9,7 +9,7 @@
 #include "odb/db.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
-#include "repair/path_search.h"
+#include "repair/path.h"
 
 #include <chrono>
 #include <algorithm>
