@@ -10,8 +10,7 @@
 namespace ecc {
 namespace {
 
-__global__ void select_candidates_kernel(const int* offsets,
-                                         const double* cap,
+__global__ void select_candidates_kernel(const int* offsets, const double* cap,
                                          const double* slack,
                                          const unsigned* buffer_count,
                                          const double* driver_resistance,
@@ -23,11 +22,12 @@ __global__ void select_candidates_kernel(const int* offsets,
 
     double best_score = -INFINITY;
     int best = -1;
-    for(int i = begin + threadIdx.x; i < end; i += blockDim.x) {
-        if(buffer_count[i] == 0)
+    for (int i = begin + threadIdx.x; i < end; i += blockDim.x) {
+        if (buffer_count[i] == 0) {
             continue;
+        }
         const double score = slack[i] - resistance * cap[i];
-        if(score > best_score || (score == best_score && (best < 0 || i < best))) {
+        if (score > best_score || (score == best_score && (best < 0 || i < best))) {
             best_score = score;
             best = i;
         }
@@ -39,41 +39,46 @@ __global__ void select_candidates_kernel(const int* offsets,
     scores[threadIdx.x] = best_score;
     indices[threadIdx.x] = best;
     __syncthreads();
-    for(int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if(threadIdx.x < stride) {
+    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (threadIdx.x < stride) {
             const int other = indices[threadIdx.x + stride];
-            if(scores[threadIdx.x + stride] > scores[threadIdx.x] ||
-               (scores[threadIdx.x + stride] == scores[threadIdx.x] &&
-                other >= 0 && (indices[threadIdx.x] < 0 || other < indices[threadIdx.x]))) {
+            if (scores[threadIdx.x + stride] > scores[threadIdx.x] ||
+                (scores[threadIdx.x + stride] == scores[threadIdx.x] && other >= 0 &&
+                 (indices[threadIdx.x] < 0 || other < indices[threadIdx.x]))) {
                 scores[threadIdx.x] = scores[threadIdx.x + stride];
                 indices[threadIdx.x] = other;
             }
         }
         __syncthreads();
     }
-    if(threadIdx.x == 0)
+    if (threadIdx.x == 0) {
         selected[net] = indices[0] < 0 ? -1 : indices[0] - begin;
+    }
 }
 
-bool validInput(const std::vector<int>& offsets,
-                const std::vector<double>& cap,
+bool validInput(const std::vector<int>& offsets, const std::vector<double>& cap,
                 const std::vector<double>& slack,
                 const std::vector<unsigned>& buffer_count,
                 const std::vector<double>& driver_resistance) {
-    if(offsets.size() != driver_resistance.size() + 1 || offsets.empty())
+    if (offsets.size() != driver_resistance.size() + 1 || offsets.empty()) {
         return false;
-    if(offsets.front() != 0 || offsets.back() < 0)
+    }
+    if (offsets.front() != 0 || offsets.back() < 0) {
         return false;
+    }
     const auto total = static_cast<size_t>(offsets.back());
-    if(cap.size() != total || slack.size() != total || buffer_count.size() != total)
+    if (cap.size() != total || slack.size() != total || buffer_count.size() != total) {
         return false;
-    for(size_t i = 1; i < offsets.size(); ++i)
-        if(offsets[i] < offsets[i - 1])
+    }
+    for (size_t i = 1; i < offsets.size(); ++i) {
+        if (offsets[i] < offsets[i - 1]) {
             return false;
+        }
+    }
     return true;
 }
 
-}  // namespace
+} // namespace
 
 bool vgCudaAvailable() {
     int count = 0;
@@ -81,20 +86,23 @@ bool vgCudaAvailable() {
 }
 
 std::vector<int> vgCudaSelect(const std::vector<int>& offsets,
-                               const std::vector<double>& cap,
-                               const std::vector<double>& slack,
-                               const std::vector<unsigned>& buffer_count,
-                               const std::vector<double>& driver_resistance) {
-    if(!validInput(offsets, cap, slack, buffer_count, driver_resistance))
+                              const std::vector<double>& cap,
+                              const std::vector<double>& slack,
+                              const std::vector<unsigned>& buffer_count,
+                              const std::vector<double>& driver_resistance) {
+    if (!validInput(offsets, cap, slack, buffer_count, driver_resistance)) {
         throw std::invalid_argument("invalid VG CUDA candidate batch");
+    }
     const int nets = static_cast<int>(driver_resistance.size());
     std::vector<int> result(driver_resistance.size(), -1);
-    if(nets == 0 || offsets.back() == 0)
+    if (nets == 0 || offsets.back() == 0) {
         return result;
+    }
 
     int devices = 0;
-    if(cudaGetDeviceCount(&devices) != cudaSuccess || devices == 0)
+    if (cudaGetDeviceCount(&devices) != cudaSuccess || devices == 0) {
         return result;
+    }
     int* d_offsets = nullptr;
     double* d_cap = nullptr;
     double* d_slack = nullptr;
@@ -111,8 +119,9 @@ std::vector<int> vgCudaSelect(const std::vector<int>& offsets,
     };
     const size_t total = static_cast<size_t>(offsets.back());
     auto check = [](cudaError_t error) {
-        if(error != cudaSuccess)
+        if (error != cudaSuccess) {
             throw std::runtime_error(cudaGetErrorString(error));
+        }
     };
     try {
         check(cudaMalloc(&d_offsets, offsets.size() * sizeof(int)));
@@ -128,22 +137,20 @@ std::vector<int> vgCudaSelect(const std::vector<int>& offsets,
                          cudaMemcpyHostToDevice));
         check(cudaMemcpy(d_slack, slack.data(), total * sizeof(double),
                          cudaMemcpyHostToDevice));
-        check(cudaMemcpy(d_buffer_count, buffer_count.data(),
-                         total * sizeof(unsigned), cudaMemcpyHostToDevice));
+        check(cudaMemcpy(d_buffer_count, buffer_count.data(), total * sizeof(unsigned),
+                         cudaMemcpyHostToDevice));
         check(cudaMemcpy(d_driver_resistance, driver_resistance.data(),
                          driver_resistance.size() * sizeof(double),
                          cudaMemcpyHostToDevice));
         const int threads = 128;
         select_candidates_kernel<<<nets, threads,
                                    threads * (sizeof(double) + sizeof(int))>>>(
-            d_offsets, d_cap, d_slack, d_buffer_count, d_driver_resistance,
-            d_selected);
+            d_offsets, d_cap, d_slack, d_buffer_count, d_driver_resistance, d_selected);
         check(cudaGetLastError());
         check(cudaDeviceSynchronize());
         check(cudaMemcpy(result.data(), d_selected, result.size() * sizeof(int),
                          cudaMemcpyDeviceToHost));
-    }
-    catch(...) {
+    } catch (...) {
         free_all();
         throw;
     }
@@ -151,7 +158,7 @@ std::vector<int> vgCudaSelect(const std::vector<int>& offsets,
     return result;
 }
 
-}  // namespace ecc
+} // namespace ecc
 
 // The level schedule and flat frontiers match the CPU VG data model.
 // Unlike its Context/History structures, these records refer only to local
@@ -176,35 +183,34 @@ struct LevelTask {
 };
 struct CandidateLess {
     __host__ __device__ bool operator()(const VgCudaCandidate& a,
-                                       const VgCudaCandidate& b) const {
-        if(a.node != b.node) return a.node < b.node;
+                                        const VgCudaCandidate& b) const {
+        if (a.node != b.node) {
+            return a.node < b.node;
+        }
         return a.cap != b.cap ? a.cap < b.cap : a.slack > b.slack;
     }
 };
 
-__global__ void propagate_level(const VgCudaNode* nodes,
-                                const VgCudaBuffer* buffers,
-                                int num_buffers,
-                                const LevelTask* tasks,
-                                const FrontierView* states,
-                                VgCudaCandidate* output) {
+__global__ void propagate_level(const VgCudaNode* nodes, const VgCudaBuffer* buffers,
+                                int num_buffers, const LevelTask* tasks,
+                                const FrontierView* states, VgCudaCandidate* output) {
     const auto task = tasks[blockIdx.x];
     const auto node = nodes[task.node];
-    for(int i = threadIdx.x; i < task.count; i += blockDim.x) {
+    for (int i = threadIdx.x; i < task.count; i += blockDim.x) {
         VgCudaCandidate c;
         c.node = task.node;
         c.order = i;
-        if(node.type == VgCudaNodeType::load) {
+        if (node.type == VgCudaNodeType::load) {
             c.cap = node.cap;
             c.slack = node.required;
-        } else if(node.type == VgCudaNodeType::wire) {
+        } else if (node.type == VgCudaNodeType::wire) {
             c.left = i / (num_buffers + 1);
             c.buffer = i % (num_buffers + 1) - 1;
             const auto child = states[node.left].data[c.left];
             c.cap = child.cap + node.cap;
             c.slack = child.slack - node.resistance * (child.cap + node.cap / 2.0);
             c.buffers = child.buffers;
-            if(c.buffer >= 0) {
+            if (c.buffer >= 0) {
                 const auto buffer = buffers[c.buffer];
                 c.slack -= buffer.intrinsic + buffer.resistance * c.cap;
                 c.cap = buffer.cap;
@@ -225,107 +231,127 @@ __global__ void propagate_level(const VgCudaNode* nodes,
 
 // Each node is independent. Stable sorted order and the tolerance/preserved
 // maximum-buffer candidate match the existing CPU pruneVg policy exactly.
-__global__ void prune_level(const LevelTask* tasks,
-                            VgCudaCandidate* data,
-                            FrontierView* states,
-                            int* counts, int task_count) {
+__global__ void prune_level(const LevelTask* tasks, VgCudaCandidate* data,
+                            FrontierView* states, int* counts, int task_count) {
     const int t = blockIdx.x * blockDim.x + threadIdx.x;
     // grid's final block may contain spare threads.
-    if(t >= task_count) return;
+    if (t >= task_count) {
+        return;
+    }
     const auto task = tasks[t];
     auto* candidates = data + task.begin;
     VgCudaCandidate preserve = candidates[0];
-    for(int i = 1; i < task.count; ++i) {
+    for (int i = 1; i < task.count; ++i) {
         const auto c = candidates[i];
-        if(c.buffers > preserve.buffers ||
-           (c.buffers == preserve.buffers && c.order < preserve.order))
+        if (c.buffers > preserve.buffers ||
+            (c.buffers == preserve.buffers && c.order < preserve.order)) {
             preserve = c;
+        }
     }
     int count = 0;
     bool preserved = false;
     double best = -INFINITY;
-    for(int i = 0; i < task.count; ++i) {
+    for (int i = 0; i < task.count; ++i) {
         const auto c = candidates[i];
-        if(c.slack > best + 1e-18) {
+        if (c.slack > best + 1e-18) {
             best = c.slack;
             preserved |= c.order == preserve.order;
             candidates[count++] = c;
         }
     }
-    if(!preserved) candidates[count++] = preserve;
+    if (!preserved) {
+        candidates[count++] = preserve;
+    }
     states[task.node] = {candidates, count};
     counts[t] = count;
 }
 
 __global__ void compact_level(const LevelTask* tasks, const int* offsets,
-                              const VgCudaCandidate* raw,
-                              VgCudaCandidate* compact,
+                              const VgCudaCandidate* raw, VgCudaCandidate* compact,
                               FrontierView* states) {
     const int t = blockIdx.x;
     const auto task = tasks[t];
     const int count = offsets[t + 1] - offsets[t];
-    for(int i = threadIdx.x; i < count; i += blockDim.x)
+    for (int i = threadIdx.x; i < count; i += blockDim.x) {
         compact[offsets[t] + i] = raw[task.begin + i];
-    if(threadIdx.x == 0)
+    }
+    if (threadIdx.x == 0) {
         states[task.node] = {compact + offsets[t], count};
+    }
 }
 
 void cudaCheck(cudaError_t status) {
-    if(status != cudaSuccess) throw std::runtime_error(cudaGetErrorString(status));
+    if (status != cudaSuccess) {
+        throw std::runtime_error(cudaGetErrorString(status));
+    }
 }
-template<class T> T* devicePointer(thrust::device_vector<T>& v) {
+template <class T> T* devicePointer(thrust::device_vector<T>& v) {
     return thrust::raw_pointer_cast(v.data());
 }
-}  // namespace
+} // namespace
 
-VgCudaForestResult vgCudaSolve(
-    const std::vector<VgCudaNode>& nodes,
-    const std::vector<VgCudaBuffer>& buffers,
-    const std::vector<int>& roots,
-    const std::vector<double>& driver_resistance,
-    size_t max_memory_bytes) {
-    if(roots.size() != driver_resistance.size() || nodes.size() > INT_MAX ||
-       buffers.size() >= INT_MAX || max_memory_bytes == 0)
+VgCudaForestResult vgCudaSolve(const std::vector<VgCudaNode>& nodes,
+                               const std::vector<VgCudaBuffer>& buffers,
+                               const std::vector<int>& roots,
+                               const std::vector<double>& driver_resistance,
+                               size_t max_memory_bytes) {
+    if (roots.size() != driver_resistance.size() || nodes.size() > INT_MAX ||
+        buffers.size() >= INT_MAX || max_memory_bytes == 0) {
         throw std::invalid_argument("invalid VG CUDA forest dimensions");
+    }
     std::vector<int> depth(nodes.size());
     std::vector<std::vector<int>> levels;
-    for(size_t i = 0; i < nodes.size(); ++i) {
+    for (size_t i = 0; i < nodes.size(); ++i) {
         const auto& n = nodes[i];
-        if(!std::isfinite(n.cap) || n.cap < 0 ||
-           !std::isfinite(n.resistance) || n.resistance < 0 ||
-           !std::isfinite(n.required))
+        if (!std::isfinite(n.cap) || n.cap < 0 || !std::isfinite(n.resistance) ||
+            n.resistance < 0 || !std::isfinite(n.required)) {
             throw std::invalid_argument("invalid VG CUDA node RC/required time");
-        if(n.type != VgCudaNodeType::load) {
-            if(n.left < 0 || n.left >= static_cast<int>(i))
+        }
+        if (n.type != VgCudaNodeType::load) {
+            if (n.left < 0 || n.left >= static_cast<int>(i)) {
                 throw std::invalid_argument("VG CUDA nodes must be postorder");
+            }
             depth[i] = depth[n.left] + 1;
         }
-        if(n.type == VgCudaNodeType::junction) {
-            if(n.right < 0 || n.right >= static_cast<int>(i))
+        if (n.type == VgCudaNodeType::junction) {
+            if (n.right < 0 || n.right >= static_cast<int>(i)) {
                 throw std::invalid_argument("VG CUDA junction child invalid");
+            }
             depth[i] = std::max(depth[i], depth[n.right] + 1);
-        } else if(n.type != VgCudaNodeType::load && n.type != VgCudaNodeType::wire) {
+        } else if (n.type != VgCudaNodeType::load && n.type != VgCudaNodeType::wire) {
             throw std::invalid_argument("VG CUDA unknown node type");
         }
-        if(levels.size() <= static_cast<size_t>(depth[i])) levels.resize(depth[i] + 1);
+        if (levels.size() <= static_cast<size_t>(depth[i])) {
+            levels.resize(depth[i] + 1);
+        }
         levels[depth[i]].push_back(static_cast<int>(i));
     }
-    for(const auto& b : buffers)
-        if(!std::isfinite(b.cap) || b.cap < 0 || !std::isfinite(b.intrinsic) ||
-           !std::isfinite(b.resistance) || b.resistance < 0)
+    for (const auto& b : buffers) {
+        if (!std::isfinite(b.cap) || b.cap < 0 || !std::isfinite(b.intrinsic) ||
+            !std::isfinite(b.resistance) || b.resistance < 0) {
             throw std::invalid_argument("invalid VG CUDA buffer model");
-    for(size_t i = 0; i < roots.size(); ++i)
-        if(roots[i] < 0 || roots[i] >= static_cast<int>(nodes.size()) ||
-           !std::isfinite(driver_resistance[i]))
+        }
+    }
+    for (size_t i = 0; i < roots.size(); ++i) {
+        if (roots[i] < 0 || roots[i] >= static_cast<int>(nodes.size()) ||
+            !std::isfinite(driver_resistance[i])) {
             throw std::invalid_argument("invalid VG CUDA root");
-    if(!vgCudaAvailable()) throw std::runtime_error("VG CUDA device unavailable");
+        }
+    }
+    if (!vgCudaAvailable()) {
+        throw std::runtime_error("VG CUDA device unavailable");
+    }
     VgCudaForestResult result;
     result.frontiers.resize(nodes.size());
-    if(nodes.empty()) return result;
-    const size_t base_bytes = nodes.size() * (sizeof(VgCudaNode) + sizeof(FrontierView)) +
-                              buffers.size() * sizeof(VgCudaBuffer);
-    if(base_bytes > max_memory_bytes)
+    if (nodes.empty()) {
+        return result;
+    }
+    const size_t base_bytes =
+        nodes.size() * (sizeof(VgCudaNode) + sizeof(FrontierView)) +
+        buffers.size() * sizeof(VgCudaBuffer);
+    if (base_bytes > max_memory_bytes) {
         throw std::runtime_error("VG CUDA memory budget exceeded");
+    }
     thrust::device_vector<VgCudaNode> d_nodes(nodes.begin(), nodes.end());
     thrust::device_vector<VgCudaBuffer> d_buffers(buffers.begin(), buffers.end());
     thrust::device_vector<FrontierView> d_states(nodes.size());
@@ -333,27 +359,30 @@ VgCudaForestResult vgCudaSolve(
     using DeviceCandidates = thrust::device_vector<VgCudaCandidate>;
     std::vector<std::unique_ptr<DeviceCandidates>> retained;
     size_t retained_bytes = base_bytes;
-    for(const auto& level : levels) {
+    for (const auto& level : levels) {
         std::vector<LevelTask> tasks;
         size_t total = 0;
-        for(int id : level) {
+        for (int id : level) {
             const auto& n = nodes[id];
             size_t count = 1;
-            if(n.type == VgCudaNodeType::wire)
+            if (n.type == VgCudaNodeType::wire) {
                 count = size_t(counts[n.left]) * (buffers.size() + 1);
-            else if(n.type == VgCudaNodeType::junction)
+            } else if (n.type == VgCudaNodeType::junction) {
                 count = size_t(counts[n.left]) * counts[n.right];
-            if(count == 0 || count > INT_MAX || total + count > INT_MAX)
+            }
+            if (count == 0 || count > INT_MAX || total + count > INT_MAX) {
                 throw std::runtime_error("VG CUDA candidate count overflow");
+            }
             tasks.push_back({id, static_cast<int>(total), static_cast<int>(count)});
             total += count;
         }
         // Include space for stable-sort temporary storage and level metadata.
         const size_t level_bytes = total * sizeof(VgCudaCandidate);
         const size_t temporary_bytes = level.size() * (sizeof(LevelTask) + sizeof(int));
-        if(retained_bytes > max_memory_bytes ||
-           3 * level_bytes + temporary_bytes > max_memory_bytes - retained_bytes)
+        if (retained_bytes > max_memory_bytes ||
+            3 * level_bytes + temporary_bytes > max_memory_bytes - retained_bytes) {
             throw std::runtime_error("VG CUDA memory budget exceeded");
+        }
         auto data = std::make_unique<DeviceCandidates>(total);
         thrust::device_vector<LevelTask> d_tasks(tasks.begin(), tasks.end());
         thrust::device_vector<int> d_counts(level.size());
@@ -370,15 +399,18 @@ VgCudaForestResult vgCudaSolve(
         cudaCheck(cudaGetLastError());
         std::vector<int> level_counts(level.size());
         cudaCheck(cudaMemcpy(level_counts.data(), devicePointer(d_counts),
-                             level_counts.size() * sizeof(int), cudaMemcpyDeviceToHost));
+                             level_counts.size() * sizeof(int),
+                             cudaMemcpyDeviceToHost));
         std::vector<int> compact_offsets{0};
-        for(int count : level_counts)
+        for (int count : level_counts) {
             compact_offsets.push_back(compact_offsets.back() + count);
-        thrust::device_vector<int> d_compact_offsets(compact_offsets.begin(), compact_offsets.end());
+        }
+        thrust::device_vector<int> d_compact_offsets(compact_offsets.begin(),
+                                                     compact_offsets.end());
         auto compact = std::make_unique<DeviceCandidates>(compact_offsets.back());
-        compact_level<<<level.size(), 128>>>(devicePointer(d_tasks),
-            devicePointer(d_compact_offsets), devicePointer(*data),
-            devicePointer(*compact), devicePointer(d_states));
+        compact_level<<<level.size(), 128>>>(
+            devicePointer(d_tasks), devicePointer(d_compact_offsets),
+            devicePointer(*data), devicePointer(*compact), devicePointer(d_states));
         cudaCheck(cudaGetLastError());
         // Retain and download only pruned frontiers, not the Cartesian
         // products. The next level's device references point into compact.
@@ -386,10 +418,11 @@ VgCudaForestResult vgCudaSolve(
         std::vector<VgCudaCandidate> host(compact->size());
         cudaCheck(cudaMemcpy(host.data(), devicePointer(*compact), compact_bytes,
                              cudaMemcpyDeviceToHost));
-        for(size_t t = 0; t < tasks.size(); ++t) {
+        for (size_t t = 0; t < tasks.size(); ++t) {
             counts[tasks[t].node] = level_counts[t];
-            result.frontiers[tasks[t].node].assign(
-                host.begin() + compact_offsets[t], host.begin() + compact_offsets[t + 1]);
+            result.frontiers[tasks[t].node].assign(host.begin() + compact_offsets[t],
+                                                   host.begin() +
+                                                       compact_offsets[t + 1]);
         }
         retained_bytes += compact_bytes;
         retained.push_back(std::move(compact));
@@ -397,18 +430,21 @@ VgCudaForestResult vgCudaSolve(
     std::vector<int> offsets{0};
     std::vector<double> cap, slack;
     std::vector<unsigned> buffer_count;
-    for(int root : roots) {
-        for(const auto& c : result.frontiers[root]) {
+    for (int root : roots) {
+        for (const auto& c : result.frontiers[root]) {
             cap.push_back(c.cap);
             slack.push_back(c.slack);
             buffer_count.push_back(c.buffers);
         }
-        if(cap.size() > INT_MAX) throw std::runtime_error("VG CUDA root count overflow");
+        if (cap.size() > INT_MAX) {
+            throw std::runtime_error("VG CUDA root count overflow");
+        }
         offsets.push_back(static_cast<int>(cap.size()));
     }
     // Release search storage before final root selection.
     retained.clear();
-    result.selected = vgCudaSelect(offsets, cap, slack, buffer_count, driver_resistance);
+    result.selected =
+        vgCudaSelect(offsets, cap, slack, buffer_count, driver_resistance);
     return result;
 }
-}  // namespace ecc
+} // namespace ecc

@@ -139,14 +139,14 @@ class PathSearch {
     // Feedback starts empty here; run owns feedback across successive ECOs.
     // Returned plans expire after edits, placement changes or STA scene changes.
     static std::vector<PathCandidate>
-    generateCandidates(odb::dbBlock *block, sta::dbSta *sta,
-                       const PathSearchOptions &options = {},
-                       const DesignConstraints &constraints = {});
+    generateCandidates(odb::dbBlock* block, sta::dbSta* sta,
+                       const PathSearchOptions& options = {},
+                       const DesignConstraints& constraints = {});
 
-    static PathSearchResult run(odb::dbBlock *block, sta::dbSta *sta,
-                                const std::function<void()> &refresh,
-                                const PathSearchOptions &options = {},
-                                const PathRuntime &runtime = {});
+    static PathSearchResult run(odb::dbBlock* block, sta::dbSta* sta,
+                                const std::function<void()>& refresh,
+                                const PathSearchOptions& options = {},
+                                const PathRuntime& runtime = {});
 };
 
 } // namespace ecc

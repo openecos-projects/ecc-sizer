@@ -17,8 +17,9 @@
 
 namespace ecc {
 unsigned remainingBufferBudget(std::optional<unsigned> limit, unsigned used) {
-    if (!limit)
+    if (!limit) {
         return std::numeric_limits<unsigned>::max();
+    }
     return used >= *limit ? 0 : *limit - used;
 }
 
@@ -31,28 +32,31 @@ std::vector<std::size_t> selectWholeBufferPlans(std::span<const std::size_t> cou
     for (std::size_t i = 0; i < counts.size(); ++i) {
         if (counts[i] && (!limit || counts[i] <= remaining)) {
             selected.push_back(i);
-            if (limit)
+            if (limit) {
                 remaining -= static_cast<unsigned>(counts[i]);
+            }
         }
     }
     return selected;
 }
 
-static std::string trim(const std::string &text) {
+static std::string trim(const std::string& text) {
     const auto begin = text.find_first_not_of(" \t\r\n");
-    if (begin == std::string::npos)
+    if (begin == std::string::npos) {
         return {};
+    }
     return text.substr(begin, text.find_last_not_of(" \t\r\n") - begin + 1);
 }
-static void require(bool valid, const std::string &key) {
-    if (!valid)
+static void require(bool valid, const std::string& key) {
+    if (!valid) {
         throw std::invalid_argument("invalid repair configuration: " + key);
+    }
 }
-static bool boolean(const std::string &value) {
+static bool boolean(const std::string& value) {
     require(value == "true" || value == "false", "expected true/false: " + value);
     return value == "true";
 }
-static unsigned count(const std::string &text) {
+static unsigned count(const std::string& text) {
     unsigned value = 0;
     const auto [end, error] =
         std::from_chars(text.data(), text.data() + text.size(), value);
@@ -61,7 +65,7 @@ static unsigned count(const std::string &text) {
             text);
     return value;
 }
-static double real(const std::string &text) {
+static double real(const std::string& text) {
     double value = 0;
     const auto [end, error] =
         std::from_chars(text.data(), text.data() + text.size(), value);
@@ -70,7 +74,7 @@ static double real(const std::string &text) {
             text);
     return value;
 }
-static std::pair<std::string, std::string> assignment(const std::string &text) {
+static std::pair<std::string, std::string> assignment(const std::string& text) {
     const auto split = text.find('=');
     require(split != std::string::npos, "expected key=value: " + text);
     const auto key = trim(text.substr(0, split)), value = trim(text.substr(split + 1));
@@ -117,27 +121,30 @@ static constexpr auto enumValues(VgBackend) {
 }
 
 template <class Enum> static std::string_view enumName(Enum value) {
-    for (const auto &[name, candidate] : enumValues(value))
-        if (candidate == value)
+    for (const auto& [name, candidate] : enumValues(value)) {
+        if (candidate == value) {
             return name;
+        }
+    }
     throw std::invalid_argument("invalid repair policy enum");
 }
 
 template <class Value>
-static void parseSetting(Value &target, const std::string &text, double scale) {
+static void parseSetting(Value& target, const std::string& text, double scale) {
     if constexpr (std::is_same_v<Value, std::optional<unsigned>>) {
         target =
             text == "unlimited" ? std::nullopt : std::optional<unsigned>{count(text)};
     } else if constexpr (std::is_same_v<Value, RepairActions>) {
         target = {false, false, false};
-        if (text == "none")
+        if (text == "none") {
             return;
+        }
         require(!text.empty() && text.back() != ',', "expected action list or none");
         std::istringstream input(text);
         std::string action;
         while (std::getline(input, action, ',')) {
             action = trim(action);
-            bool *enabled = action == "resize"          ? &target.resize
+            bool* enabled = action == "resize"          ? &target.resize
                             : action == "buffer"        ? &target.buffer
                             : action == "load_downsize" ? &target.load_downsize
                                                         : nullptr;
@@ -145,7 +152,7 @@ static void parseSetting(Value &target, const std::string &text, double scale) {
             *enabled = true;
         }
     } else if constexpr (std::is_enum_v<Value>) {
-        for (const auto &[name, value] : enumValues(target)) {
+        for (const auto& [name, value] : enumValues(target)) {
             if (name == text) {
                 target = value;
                 return;
@@ -167,23 +174,25 @@ static void parseSetting(Value &target, const std::string &text, double scale) {
         if (text != "none") {
             std::istringstream input(text);
             std::string suffix;
-            while (std::getline(input, suffix, ','))
+            while (std::getline(input, suffix, ',')) {
                 target.push_back(trim(suffix));
+            }
             require(text.back() != ',', "empty trailing suffix");
         }
     }
 }
 
 template <class Value>
-static void writeSetting(std::ostream &out, const Value &value, double scale) {
+static void writeSetting(std::ostream& out, const Value& value, double scale) {
     if constexpr (std::is_same_v<Value, std::optional<unsigned>>) {
-        if (value)
+        if (value) {
             out << *value;
-        else
+        } else {
             out << "unlimited";
+        }
     } else if constexpr (std::is_same_v<Value, RepairActions>) {
-        const char *separator = "";
-        for (const auto &[name, enabled] : {std::pair{"resize", value.resize},
+        const char* separator = "";
+        for (const auto& [name, enabled] : {std::pair{"resize", value.resize},
                                             {"buffer", value.buffer},
                                             {"load_downsize", value.load_downsize}}) {
             if (enabled) {
@@ -191,28 +200,31 @@ static void writeSetting(std::ostream &out, const Value &value, double scale) {
                 separator = ",";
             }
         }
-        if (!*separator)
+        if (!*separator) {
             out << "none";
-    } else if constexpr (std::is_enum_v<Value>)
+        }
+    } else if constexpr (std::is_enum_v<Value>) {
         out << enumName(value);
-    else if constexpr (std::is_same_v<Value, bool>)
+    } else if constexpr (std::is_same_v<Value, bool>) {
         out << (value ? "true" : "false");
-    else if constexpr (std::is_floating_point_v<Value>)
+    } else if constexpr (std::is_floating_point_v<Value>) {
         out << double(value) * scale;
-    else if constexpr (std::is_integral_v<Value>)
+    } else if constexpr (std::is_integral_v<Value>) {
         out << value;
-    else {
-        if (value.empty())
+    } else {
+        if (value.empty()) {
             out << "none";
-        for (size_t i = 0; i < value.size(); ++i)
+        }
+        for (size_t i = 0; i < value.size(); ++i) {
             out << (i ? "," : "") << value[i];
+        }
     }
 }
 
 // Each configuration key, field and external unit is declared once. The same
 // visitor serves parsing, serialization and section recognition.
 template <class Config, class Visitor>
-static void visitSettings(Config &c, Visitor &&visit) {
+static void visitSettings(Config& c, Visitor&& visit) {
     visit("common.max_fanout", c.common.max_fanout, 1.0);
     visit("common.margin", c.common.margin, 1.0);
     visit("common.recovered_slew_fraction", c.common.recovered_slew_fraction, 1.0);
@@ -299,14 +311,14 @@ void RepairCommonOptions::validate() const {
     require(vt_suffixes.empty() || vt_suffixes.size() >= 2,
             "common.vt_suffixes requires at least two suffixes");
     for (size_t i = 0; i < vt_suffixes.size(); ++i) {
-        const auto &a = vt_suffixes[i];
+        const auto& a = vt_suffixes[i];
         require(!a.empty() &&
                     a.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQR"
                                         "STUVWXYZ0123456789_") == std::string::npos,
                 "common.vt_suffixes: use nonempty alphanumeric/underscore "
                 "suffixes");
         for (size_t j = 0; j < i; ++j) {
-            const auto &b = vt_suffixes[j];
+            const auto& b = vt_suffixes[j];
             require(!(a.size() >= b.size() &&
                       a.compare(a.size() - b.size(), b.size(), b) == 0) &&
                         !(b.size() >= a.size() &&
@@ -343,7 +355,9 @@ void DrvRepairOptions::validate() const {
     common.validate();
     DrvRepairSettings::validate();
 }
-DrvRepairOptions RepairConfig::drvOptions() const { return {drv, common}; }
+DrvRepairOptions RepairConfig::drvOptions() const {
+    return {drv, common};
+}
 void SetupRepairSettings::validate() const {
     require(max_path_ends > 0 &&
                 max_path_ends <= unsigned(std::numeric_limits<int>::max()),
@@ -384,12 +398,16 @@ void SetupRepairOptions::validate() const {
     common.validate();
     SetupRepairSettings::validate();
 }
-SetupRepairOptions RepairConfig::setupOptions() const { return {setup, common}; }
+SetupRepairOptions RepairConfig::setupOptions() const {
+    return {setup, common};
+}
 void PathSearchOptions::validate() const {
     common.validate();
     PathSearchSettings::validate();
 }
-PathSearchOptions RepairConfig::pathOptions() const { return {path, common}; }
+PathSearchOptions RepairConfig::pathOptions() const {
+    return {path, common};
+}
 void PowerRepairSettings::validate() const {
     (void)enumName(objective);
     require(max_candidates > 0 && batch_size > 0, "power candidates/batch size > 0");
@@ -415,14 +433,22 @@ void VgSettings::validate() const {
     require(max_group_loads == 0 || max_group_loads >= 2,
             "vg.max_group_loads is zero or >= 2");
 }
-PowerRepairOptions RepairConfig::powerOptions() const { return {power, common}; }
+PowerRepairOptions RepairConfig::powerOptions() const {
+    return {power, common};
+}
 void VgOptions::validate() const {
     common.validate();
     VgSettings::validate();
 }
-void GobiOptions::validate() const { common.validate(); }
-VgOptions RepairConfig::vgOptions() const { return {vg, common}; }
-GobiOptions RepairConfig::gobiOptions() const { return {gobi, common}; }
+void GobiOptions::validate() const {
+    common.validate();
+}
+VgOptions RepairConfig::vgOptions() const {
+    return {vg, common};
+}
+GobiOptions RepairConfig::gobiOptions() const {
+    return {gobi, common};
+}
 void RepairConfig::validate() const {
     common.validate();
     drv.validate();
@@ -434,10 +460,10 @@ void RepairConfig::validate() const {
             "runtime.sta_threads > 0");
 }
 
-void RepairConfig::set(const std::string &key, const std::string &value) {
+void RepairConfig::set(const std::string& key, const std::string& value) {
     auto next = *this;
     bool found = false;
-    visitSettings(next, [&](std::string_view name, auto &field, double scale) {
+    visitSettings(next, [&](std::string_view name, auto& field, double scale) {
         if (name == key) {
             parseSetting(field, value, scale);
             found = true;
@@ -447,7 +473,7 @@ void RepairConfig::set(const std::string &key, const std::string &value) {
     next.validate();
     *this = std::move(next);
 }
-void RepairConfig::read(std::istream &input, const std::string &source) {
+void RepairConfig::read(std::istream& input, const std::string& source) {
     auto next = *this;
     std::string line, section;
     unsigned number = 0;
@@ -455,41 +481,46 @@ void RepairConfig::read(std::istream &input, const std::string &source) {
         ++number;
         try {
             line = trim(line.substr(0, line.find('#')));
-            if (line.empty())
+            if (line.empty()) {
                 continue;
+            }
             if (line.front() == '[' && line.back() == ']') {
                 section = trim(line.substr(1, line.size() - 2));
                 bool known = false;
-                visitSettings(next, [&](std::string_view key, const auto &, double) {
+                visitSettings(next, [&](std::string_view key, const auto&, double) {
                     known |= key.substr(0, key.find('.')) == section;
                 });
                 require(known, "unknown section " + section);
                 continue;
             }
             auto [key, value] = assignment(line);
-            if (key.find('.') == std::string::npos && !section.empty())
-                key = section + "." + key;
+            if (key.find('.') == std::string::npos && !section.empty()) {
+                key.insert(0, 1, '.');
+                key.insert(0, section);
+            }
             next.set(key, value);
-        } catch (const std::exception &error) {
+        } catch (const std::exception& error) {
             throw std::invalid_argument(source + ":" + std::to_string(number) + ": " +
                                         error.what());
         }
     }
-    if (input.bad())
+    if (input.bad()) {
         throw std::runtime_error("cannot read " + source);
+    }
     *this = std::move(next);
 }
-void RepairConfig::readFile(const std::string &path) {
+void RepairConfig::readFile(const std::string& path) {
     std::ifstream file(path);
-    if (!file)
+    if (!file) {
         throw std::runtime_error("cannot open repair configuration: " + path);
+    }
     read(file, path);
 }
-void RepairConfig::write(std::ostream &output) const {
+void RepairConfig::write(std::ostream& output) const {
     validate();
     std::ostringstream text;
     text << std::setprecision(std::numeric_limits<double>::max_digits10);
-    visitSettings(*this, [&](std::string_view key, const auto &field, double scale) {
+    visitSettings(*this, [&](std::string_view key, const auto& field, double scale) {
         text << key << '=';
         writeSetting(text, field, scale);
         text << '\n';

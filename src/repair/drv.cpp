@@ -30,19 +30,21 @@ using detail::DesignAnalysis;
 using detail::Load;
 using detail::NetState;
 
-static const CellModel *selectDrvResize(DesignAnalysis &analysis,
-                                        detail::CellCandidates &cells,
-                                        const NetState &state) {
+static const CellModel* selectDrvResize(DesignAnalysis& analysis,
+                                        detail::CellCandidates& cells,
+                                        const NetState& state) {
     // Keep electrically feasible drive-strength repair first. A same-size
     // VT change is a fallback for DRV; setup compares its delay directly,
     // and power recovery can reclaim drive/VT after timing is established.
     const auto sized = cells.resize(state);
-    if (!sized.empty())
+    if (!sized.empty()) {
         return sized.front();
+    }
     const auto vt = cells.resize(state, false, true);
-    if (vt.empty())
+    if (vt.empty()) {
         return nullptr;
-    return *std::min_element(vt.begin(), vt.end(), [&](const auto *a, const auto *b) {
+    }
+    return *std::min_element(vt.begin(), vt.end(), [&](const auto* a, const auto* b) {
         const float sa =
             analysis.predictedSlew(*a, state.capacitance, state.input_slew);
         const float sb =
@@ -51,33 +53,36 @@ static const CellModel *selectDrvResize(DesignAnalysis &analysis,
     });
 }
 
-DrvNetPlan planDrvNetRepair(detail::DesignAnalysis &analysis,
-                            detail::CellCandidates &cells, sta::dbSta *sta,
-                            const detail::NetState &input, unsigned available,
-                            bool allow_resize, const RepairCommonOptions &options) {
+DrvNetPlan planDrvNetRepair(detail::DesignAnalysis& analysis,
+                            detail::CellCandidates& cells, sta::dbSta* sta,
+                            const detail::NetState& input, unsigned available,
+                            bool allow_resize, const RepairCommonOptions& options) {
     DrvNetPlan plan;
-    if (input.loads.empty())
+    if (input.loads.empty()) {
         return plan;
-    if (!options.actions.buffer)
+    }
+    if (!options.actions.buffer) {
         available = 0;
+    }
     auto state = input;
     // Buffer trees use recovered input slew for sizing. Existing gate
     // replacements use the measured input slew on every incoming arc.
     float in_slew = std::isfinite(state.slew_limit)
                         ? state.slew_limit * options.recovered_slew_fraction
                         : state.slew;
-    const CellModel *replacement = allow_resize && options.actions.resize
+    const CellModel* replacement = allow_resize && options.actions.resize
                                        ? selectDrvResize(analysis, cells, state)
                                        : nullptr;
     // Spatial ordering groups nearby loads; estimated wire/external-port
     // capacitance is apportioned conservatively from the current net total.
     std::stable_sort(state.loads.begin(), state.loads.end(),
-                     [](const Load &a, const Load &b) {
+                     [](const Load& a, const Load& b) {
                          return a.x != b.x ? a.x < b.x : a.y < b.y;
                      });
     float pin_sum = 0;
-    for (const auto &load : state.loads)
+    for (const auto& load : state.loads) {
         pin_sum += load.capacitance;
+    }
     float extra = std::max(0.0f, state.capacitance - pin_sum) / state.loads.size();
     size_t max_group = options.max_fanout;
     if (state.fanout_ratio > 1) {
@@ -88,27 +93,29 @@ DrvNetPlan planDrvNetRepair(detail::DesignAnalysis &analysis,
     // Limiting an overloaded driver's group size provides relief even if a
     // large buffer could carry the entire net. Subsequent passes fix the
     // root.
-    if (state.cap_ratio > 1 || state.slew_ratio > 1)
+    if (state.cap_ratio > 1 || state.slew_ratio > 1) {
         max_group = std::min(
             max_group,
             std::max(size_t(1), size_t(std::ceil(state.loads.size() *
                                                  options.overload_group_fraction))));
+    }
     struct Group {
         size_t begin, end;
-        const CellModel *buffer;
+        const CellModel* buffer;
     };
     std::vector<Group> groups;
     double buffer_area = 0;
     for (size_t begin = 0; begin < state.loads.size();) {
         size_t end = begin;
         float group_cap = 0;
-        const CellModel *selected = nullptr;
+        const CellModel* selected = nullptr;
         while (end < state.loads.size() && end - begin < max_group) {
             float next_cap = group_cap + state.loads[end].capacitance + extra;
-            const CellModel *next =
+            const CellModel* next =
                 analysis.select(next_cap, state.slew_limit, in_slew);
-            if (!next)
+            if (!next) {
                 break;
+            }
             group_cap = next_cap;
             selected = next;
             ++end;
@@ -122,7 +129,7 @@ DrvNetPlan planDrvNetRepair(detail::DesignAnalysis &analysis,
         // benefit from repeatedly adding another identical buffer.
         if (end - begin == 1 &&
             state.loads[begin].term->getObjectType() == odb::dbITermObj) {
-            auto *load_pin = static_cast<odb::dbITerm *>(state.loads[begin].term);
+            auto* load_pin = static_cast<odb::dbITerm*>(state.loads[begin].term);
             if (sta->getDbNetwork()->libertyCell(load_pin->getInst()) &&
                 sta->getDbNetwork()->libertyCell(load_pin->getInst())->isBuffer() &&
                 selected->input->capacitance() >= state.loads[begin].capacitance) {
@@ -143,12 +150,13 @@ DrvNetPlan planDrvNetRepair(detail::DesignAnalysis &analysis,
         plan.replacement =
             CellReplacement{state.driver->getInst(), replacement->master};
     }
-    for (const auto &group : groups) {
-        if (plan.buffers.size() >= available)
+    for (const auto& group : groups) {
+        if (plan.buffers.size() >= available) {
             break;
+        }
         const auto begin = group.begin, end = group.end;
-        const auto *selected = group.buffer;
-        std::vector<odb::dbObject *> terms;
+        const auto* selected = group.buffer;
+        std::vector<odb::dbObject*> terms;
         long long x = 0, y = 0;
         for (size_t i = begin; i < end; ++i) {
             terms.push_back(state.loads[i].term);
@@ -165,11 +173,11 @@ DrvNetPlan planDrvNetRepair(detail::DesignAnalysis &analysis,
     return plan;
 }
 
-static bool applyNetRepair(DesignAnalysis &analysis, detail::CellCandidates &cells,
-                           sta::dbSta *sta, NetState &state, unsigned &inserted,
-                           unsigned &resized_buffers, unsigned &resized_gates,
-                           unsigned remaining, bool allow_resize, unsigned &vt_swaps,
-                           const RepairCommonOptions &options) {
+static bool applyNetRepair(DesignAnalysis& analysis, detail::CellCandidates& cells,
+                           sta::dbSta* sta, NetState& state, unsigned& inserted,
+                           unsigned& resized_buffers, unsigned& resized_gates,
+                           unsigned remaining, bool allow_resize, unsigned& vt_swaps,
+                           const RepairCommonOptions& options) {
     const auto plan = planDrvNetRepair(analysis, cells, sta, state,
                                        remaining > inserted ? remaining - inserted : 0,
                                        allow_resize, options);
@@ -185,22 +193,23 @@ static bool applyNetRepair(DesignAnalysis &analysis, detail::CellCandidates &cel
     inserted += buffered;
     if (replaced) {
         vt_swaps += vt;
-        if (buffer)
+        if (buffer) {
             ++resized_buffers;
-        else
+        } else {
             ++resized_gates;
+        }
     }
     return replaced || buffered != 0;
 }
 
-DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
-                                    const std::function<void()> &refresh,
-                                    const DrvRepairOptions &options,
-                                    const RepairRuntime &runtime) {
+DrvRepairResult DrvRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
+                                    const std::function<void()>& refresh,
+                                    const DrvRepairOptions& options,
+                                    const RepairRuntime& runtime) {
     DrvRepairResult result;
     try {
         options.validate();
-    } catch (const std::exception &error) {
+    } catch (const std::exception& error) {
         result.message = error.what();
         return result;
     }
@@ -217,10 +226,10 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
     }
     const bool collect_all =
         options.common.actions.load_downsize && options.max_load_downsizes_per_pass > 0;
-    const auto analyze = [&](DesignMetrics &metrics) {
+    const auto analyze = [&](DesignMetrics& metrics) {
         return repair.analyze(metrics, collect_all);
     };
-    const auto violating = [](const DesignMetrics &metrics) {
+    const auto violating = [](const DesignMetrics& metrics) {
         return metrics.fanout_nets || metrics.capacitance_nets || metrics.slew_nets;
     };
     auto states = analyze(result.before);
@@ -230,26 +239,30 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
     for (unsigned pass = 0; pass < options.max_passes && violating(result.after);
          ++pass) {
         const bool overloaded =
-            std::any_of(states.begin(), states.end(), [](const NetState &state) {
+            std::any_of(states.begin(), states.end(), [](const NetState& state) {
                 return state.fanout_ratio > 1 || state.cap_ratio > 1;
             });
         std::vector<detail::LoadDownsizeCandidate> load_plans;
         if (allow_load_downsize) {
             detail::LoadDownsizePlanner planner(repair, sta, states, options.common);
-            std::unordered_set<odb::dbInst *> selected;
-            for (const auto &state : states) {
+            std::unordered_set<odb::dbInst*> selected;
+            for (const auto& state : states) {
                 if (state.fanout_ratio > 1 ||
                     (overloaded ? state.cap_ratio <= 1
-                                : state.slew_ratio <= 1 || state.propagated_slew))
+                                : state.slew_ratio <= 1 || state.propagated_slew)) {
                     continue;
-                for (const auto &candidate : planner.candidates(state)) {
-                    if (load_plans.size() >= options.max_load_downsizes_per_pass)
-                        break;
-                    if (selected.insert(candidate.inst).second)
-                        load_plans.push_back(candidate);
                 }
-                if (load_plans.size() >= options.max_load_downsizes_per_pass)
+                for (const auto& candidate : planner.candidates(state)) {
+                    if (load_plans.size() >= options.max_load_downsizes_per_pass) {
+                        break;
+                    }
+                    if (selected.insert(candidate.inst).second) {
+                        load_plans.push_back(candidate);
+                    }
+                }
+                if (load_plans.size() >= options.max_load_downsizes_per_pass) {
                     break;
+                }
             }
         }
         EcoTransaction transaction(block);
@@ -259,17 +272,21 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
             // Try relief at slack-rich loads before adding drive strength or
             // buffers. All candidates are measured before any ECO mutation.
             if (!load_plans.empty()) {
-                for (const auto &plan : load_plans)
-                    if (replaceCell({plan.inst, plan.master}))
+                for (const auto& plan : load_plans) {
+                    if (replaceCell({plan.inst, plan.master})) {
                         ++downsized;
+                    }
+                }
             } else {
-                for (auto &state : states) {
-                    if (!state.violating())
+                for (auto& state : states) {
+                    if (!state.violating()) {
                         continue;
+                    }
                     const bool load_violation =
                         state.fanout_ratio > 1 || state.cap_ratio > 1;
-                    if (overloaded ? !load_violation : state.propagated_slew)
+                    if (overloaded ? !load_violation : state.propagated_slew) {
                         continue;
+                    }
                     applyNetRepair(repair, cells, sta, state, inserted, resized,
                                    resized_gates,
                                    remainingBufferBudget(options.max_inserted_buffers,
@@ -282,8 +299,9 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                 result.message = "no feasible edit for remaining violations";
                 break;
             }
-            if (runtime.prepare)
+            if (runtime.prepare) {
                 runtime.prepare();
+            }
             refresh();
             DesignMetrics after;
             auto next_states = analyze(after);
@@ -324,14 +342,14 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                 result.message = "batch rejected: DRV severity or WNS did not improve";
                 break;
             }
-        } catch (const std::exception &error) {
+        } catch (const std::exception& error) {
             result.message = error.what();
             if (transaction.active()) {
                 transaction.rollback();
                 try {
                     refresh();
                     analyze(result.after);
-                } catch (const std::exception &restore_error) {
+                } catch (const std::exception& restore_error) {
                     result.message +=
                         std::string("; timing refresh after rollback failed: ") +
                         restore_error.what();
@@ -342,20 +360,21 @@ DrvRepairResult DrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
     }
     result.ok = true;
     result.converged = !violating(result.after);
-    if (result.message.empty())
+    if (result.message.empty()) {
         result.message = result.converged ? "eligible nets repaired"
                                           : "pass limit reached; violations remain";
+    }
     return result;
 }
 
-OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
-                                          const std::function<void()> &refresh,
-                                          const DrvRepairOptions &options,
-                                          const RepairRuntime &runtime) {
+OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
+                                          const std::function<void()>& refresh,
+                                          const DrvRepairOptions& options,
+                                          const RepairRuntime& runtime) {
     OrdDrvRepairResult result;
     try {
         options.validate();
-    } catch (const std::exception &error) {
+    } catch (const std::exception& error) {
         result.message = error.what();
         return result;
     }
@@ -372,73 +391,82 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
         return result;
     }
 
-    const auto analyze = [&](DesignMetrics &metrics) {
+    const auto analyze = [&](DesignMetrics& metrics) {
         return analysis.analyze(metrics, true);
     };
     auto states = analyze(result.before);
     result.after = result.before;
-    const auto *network = sta->getDbNetwork();
+    const auto* network = sta->getDbNetwork();
 
     for (unsigned pass = 0; pass < options.max_passes && result.after.severity > 0;
          ++pass) {
         bool pass_progress = false;
         unsigned batch_limit = options.ord_driver_batch_size;
-        std::unordered_set<odb::dbNet *> processed;
+        std::unordered_set<odb::dbNet*> processed;
         while (true) {
             // RepairDesign walks levelized driver vertices from sinks back to
             // sources. Rebuild the map after each accepted ECO because buffer
             // insertion changes the OpenSTA graph and net ownership.
-            std::unordered_map<odb::dbNet *, detail::NetState *> by_net;
+            std::unordered_map<odb::dbNet*, detail::NetState*> by_net;
             by_net.reserve(states.size());
-            for (auto &state : states)
+            for (auto& state : states) {
                 by_net.emplace(state.net, &state);
+            }
 
-            std::vector<odb::dbNet *> selected_nets;
-            const auto &drivers = sta->levelizedDrvrVertices();
+            std::vector<odb::dbNet*> selected_nets;
+            const auto& drivers = sta->levelizedDrvrVertices();
             for (int index = int(drivers.size()) - 1;
                  index >= 0 && selected_nets.size() < batch_limit; --index) {
-                auto *vertex = drivers[index];
-                if (!vertex || !vertex->pin())
+                auto* vertex = drivers[index];
+                if (!vertex || !vertex->pin()) {
                     continue;
-                auto *object = network->staToDb(vertex->pin());
-                if (!object || object->getObjectType() != odb::dbITermObj)
+                }
+                auto* object = network->staToDb(vertex->pin());
+                if (!object || object->getObjectType() != odb::dbITermObj) {
                     continue;
-                auto *driver = static_cast<odb::dbITerm *>(object);
-                auto *net = driver->getNet();
+                }
+                auto* driver = static_cast<odb::dbITerm*>(object);
+                auto* net = driver->getNet();
                 const auto found = by_net.find(net);
                 if (found == by_net.end() || !found->second->violating() ||
-                    processed.count(net))
+                    processed.contains(net)) {
                     continue;
+                }
                 processed.insert(net);
                 selected_nets.push_back(net);
             }
-            if (selected_nets.empty())
+            if (selected_nets.empty()) {
                 break;
+            }
 
             EcoTransaction transaction(block);
             unsigned inserted = 0, resized_buffers = 0, resized_gates = 0, vt_swaps = 0,
                      repaired = 0;
             try {
-                for (auto *net : selected_nets) {
+                for (auto* net : selected_nets) {
                     const auto found = by_net.find(net);
-                    if (found == by_net.end())
+                    if (found == by_net.end()) {
                         continue;
+                    }
                     if (applyNetRepair(
                             analysis, cells, sta, *found->second, inserted,
                             resized_buffers, resized_gates,
                             remainingBufferBudget(options.max_inserted_buffers,
                                                   result.inserted_buffers),
-                            true, vt_swaps, options.common))
+                            true, vt_swaps, options.common)) {
                         ++repaired;
+                    }
                 }
                 if (repaired == 0) {
                     transaction.rollback();
-                    for (auto *net : selected_nets)
+                    for (auto* net : selected_nets) {
                         processed.erase(net);
+                    }
                     break;
                 }
-                if (runtime.prepare)
+                if (runtime.prepare) {
                     runtime.prepare();
+                }
                 refresh();
                 DesignMetrics after;
                 auto next_states = analyze(after);
@@ -463,8 +491,9 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                 transaction.rollback();
                 refresh();
                 states = analyze(result.after);
-                for (auto *net : selected_nets)
+                for (auto* net : selected_nets) {
                     processed.erase(net);
+                }
                 ++result.rejected_passes;
                 if (batch_limit > 1) {
                     batch_limit = std::max(1u, batch_limit / 2);
@@ -473,16 +502,17 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
                 result.message =
                     "OpenROAD-style batch rejected: DRV or timing regressed";
                 break;
-            } catch (const std::exception &error) {
+            } catch (const std::exception& error) {
                 result.message = error.what();
                 if (transaction.active()) {
                     transaction.rollback();
-                    for (auto *net : selected_nets)
+                    for (auto* net : selected_nets) {
                         processed.erase(net);
+                    }
                     try {
                         refresh();
                         states = analyze(result.after);
-                    } catch (const std::exception &restore_error) {
+                    } catch (const std::exception& restore_error) {
                         result.message +=
                             std::string("; refresh after rollback failed: ") +
                             restore_error.what();
@@ -492,20 +522,23 @@ OrdDrvRepairResult OrdDrvRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
             }
             break;
         }
-        if (pass_progress)
+        if (pass_progress) {
             ++result.passes;
-        else if (result.message.empty())
+        } else if (result.message.empty()) {
             result.message = "no feasible OpenROAD-style edit";
-        if (!pass_progress)
+        }
+        if (!pass_progress) {
             break;
+        }
     }
 
     result.ok = true;
     result.converged = result.after.severity <= options.common.tolerances.drv_severity;
-    if (result.message.empty())
+    if (result.message.empty()) {
         result.message = result.converged
                              ? "OpenROAD-style DRV repair converged"
                              : "OpenROAD-style pass limit reached; violations remain";
+    }
     return result;
 }
 
@@ -516,33 +549,33 @@ static FanoutRepairResult failure(FanoutRepairStatus status, std::string message
     return result;
 }
 
-static bool isLoad(odb::dbObject *term) {
+static bool isLoad(odb::dbObject* term) {
     if (term == nullptr) {
         return false;
     }
     if (term->getObjectType() == odb::dbITermObj) {
-        const odb::dbIoType io_type = static_cast<odb::dbITerm *>(term)->getIoType();
+        const odb::dbIoType io_type = static_cast<odb::dbITerm*>(term)->getIoType();
         return io_type == odb::dbIoType::INPUT || io_type == odb::dbIoType::INOUT;
     }
     if (term->getObjectType() == odb::dbBTermObj) {
-        const odb::dbIoType io_type = static_cast<odb::dbBTerm *>(term)->getIoType();
+        const odb::dbIoType io_type = static_cast<odb::dbBTerm*>(term)->getIoType();
         return io_type == odb::dbIoType::OUTPUT || io_type == odb::dbIoType::INOUT;
     }
     return false;
 }
 
-static std::vector<odb::dbObject *> loads(odb::dbNet *net) {
-    std::vector<odb::dbObject *> result;
+static std::vector<odb::dbObject*> loads(odb::dbNet* net) {
+    std::vector<odb::dbObject*> result;
     if (net == nullptr) {
         return result;
     }
     result.reserve(net->getITerms().size() + net->getBTerms().size());
-    for (odb::dbITerm *term : net->getITerms()) {
+    for (odb::dbITerm* term : net->getITerms()) {
         if (isLoad(term)) {
             result.push_back(term);
         }
     }
-    for (odb::dbBTerm *term : net->getBTerms()) {
+    for (odb::dbBTerm* term : net->getBTerms()) {
         if (isLoad(term)) {
             result.push_back(term);
         }
@@ -551,10 +584,10 @@ static std::vector<odb::dbObject *> loads(odb::dbNet *net) {
 }
 
 static bool
-shouldRepair(odb::dbNet *net, bool repair_clock_nets,
-             const std::unordered_set<odb::dbNet *> *excluded_nets = nullptr) {
+shouldRepair(odb::dbNet* net, bool repair_clock_nets,
+             const std::unordered_set<odb::dbNet*>* excluded_nets = nullptr) {
     if (net == nullptr || net->isDoNotTouch() || net->isSpecial() ||
-        (excluded_nets != nullptr && excluded_nets->count(net) > 0)) {
+        (excluded_nets != nullptr && excluded_nets->contains(net))) {
         return false;
     }
     const odb::dbSigType signal_type = net->getSigType();
@@ -565,13 +598,13 @@ shouldRepair(odb::dbNet *net, bool repair_clock_nets,
 }
 
 static unsigned
-maxFanoutWithPolicy(odb::dbBlock *block, bool include_clock_nets,
-                    const std::unordered_set<odb::dbNet *> *excluded_nets) {
+maxFanoutWithPolicy(odb::dbBlock* block, bool include_clock_nets,
+                    const std::unordered_set<odb::dbNet*>* excluded_nets) {
     unsigned max_fanout = 0;
     if (block == nullptr) {
         return max_fanout;
     }
-    for (odb::dbNet *net : block->getNets()) {
+    for (odb::dbNet* net : block->getNets()) {
         if (shouldRepair(net, include_clock_nets, excluded_nets)) {
             max_fanout = std::max(max_fanout, OpenDbFanoutRepairer::loadCount(net));
         }
@@ -579,13 +612,13 @@ maxFanoutWithPolicy(odb::dbBlock *block, bool include_clock_nets,
     return max_fanout;
 }
 
-static bool isSimpleBuffer(odb::dbMaster *master) {
+static bool isSimpleBuffer(odb::dbMaster* master) {
     if (master == nullptr || !master->isFrozen()) {
         return false;
     }
     unsigned input_count = 0;
     unsigned output_count = 0;
-    for (odb::dbMTerm *term : master->getMTerms()) {
+    for (odb::dbMTerm* term : master->getMTerms()) {
         if (term->getIoType() == odb::dbIoType::INPUT) {
             ++input_count;
         } else if (term->getIoType() == odb::dbIoType::OUTPUT) {
@@ -595,22 +628,24 @@ static bool isSimpleBuffer(odb::dbMaster *master) {
     return input_count == 1 && output_count == 1;
 }
 
-static void addAffectedNet(FanoutRepairResult &result,
-                           std::unordered_set<odb::dbNet *> &seen, odb::dbNet *net) {
+static void addAffectedNet(FanoutRepairResult& result,
+                           std::unordered_set<odb::dbNet*>& seen, odb::dbNet* net) {
     if (net != nullptr && seen.insert(net).second) {
         result.affected_nets.push_back(net);
     }
 }
 
-unsigned OpenDbFanoutRepairer::loadCount(odb::dbNet *net) { return loads(net).size(); }
+unsigned OpenDbFanoutRepairer::loadCount(odb::dbNet* net) {
+    return loads(net).size();
+}
 
-unsigned OpenDbFanoutRepairer::maxFanout(odb::dbBlock *block, bool include_clock_nets) {
+unsigned OpenDbFanoutRepairer::maxFanout(odb::dbBlock* block, bool include_clock_nets) {
     return maxFanoutWithPolicy(block, include_clock_nets, nullptr);
 }
 
-FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock *block,
-                                                odb::dbMaster *buffer_master,
-                                                const FanoutRepairOptions &options) {
+FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock* block,
+                                                odb::dbMaster* buffer_master,
+                                                const FanoutRepairOptions& options) {
     if (block == nullptr) {
         return failure(FanoutRepairStatus::kInvalidBlock,
                        "fanout repair requires a block");
@@ -627,16 +662,16 @@ FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock *block,
 
     FanoutRepairResult result;
     result.status = FanoutRepairStatus::kSuccess;
-    const std::unordered_set<odb::dbNet *> excluded_nets(options.excluded_nets.begin(),
-                                                         options.excluded_nets.end());
+    const std::unordered_set<odb::dbNet*> excluded_nets(options.excluded_nets.begin(),
+                                                        options.excluded_nets.end());
     result.before_max_fanout =
         maxFanoutWithPolicy(block, options.repair_clock_nets, &excluded_nets);
-    std::unordered_set<odb::dbNet *> seen_affected_nets;
+    std::unordered_set<odb::dbNet*> seen_affected_nets;
 
     // Keep the tree construction atomic. OpenDB supports nested ECO journals,
     // so this also composes with a caller-owned transaction.
     EcoTransaction transaction(block);
-    const auto rollback = [&](FanoutRepairStatus status, const std::string &message) {
+    const auto rollback = [&](FanoutRepairStatus status, const std::string& message) {
         transaction.rollback();
         result.status = status;
         result.message = message;
@@ -647,28 +682,28 @@ FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock *block,
         return result;
     };
 
-    std::vector<odb::dbNet *> candidate_nets;
+    std::vector<odb::dbNet*> candidate_nets;
     candidate_nets.reserve(block->getNets().size());
-    for (odb::dbNet *net : block->getNets()) {
+    for (odb::dbNet* net : block->getNets()) {
         if (shouldRepair(net, options.repair_clock_nets, &excluded_nets)) {
             candidate_nets.push_back(net);
         }
     }
 
-    for (odb::dbNet *net : candidate_nets) {
+    for (odb::dbNet* net : candidate_nets) {
         ++result.nets_examined;
-        std::vector<odb::dbObject *> net_loads = loads(net);
+        std::vector<odb::dbObject*> net_loads = loads(net);
         if (net_loads.size() <= options.max_fanout) {
             continue;
         }
         ++result.violating_nets;
 
         struct TreeNode {
-            odb::dbObject *term;
+            odb::dbObject* term;
             unsigned depth;
         };
         std::deque<TreeNode> root_loads;
-        for (odb::dbObject *load : net_loads) {
+        for (odb::dbObject* load : net_loads) {
             root_loads.push_back({load, 0});
         }
 
@@ -680,7 +715,7 @@ FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock *block,
             const size_t excess = root_loads.size() - options.max_fanout;
             const size_t group_size =
                 std::min(static_cast<size_t>(options.max_fanout), excess + 1);
-            std::vector<odb::dbObject *> group;
+            std::vector<odb::dbObject*> group;
             group.reserve(group_size);
             unsigned group_depth = 0;
             for (size_t index = 0; index < group_size; ++index) {
@@ -702,7 +737,7 @@ FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock *block,
                                 insertion.message);
             }
             result.inserted_buffers.push_back(insertion.buffer);
-            for (odb::dbNet *affected : insertion.affected_nets) {
+            for (odb::dbNet* affected : insertion.affected_nets) {
                 addAffectedNet(result, seen_affected_nets, affected);
             }
             root_loads.push_back({insertion.input_pin, buffer_depth});
@@ -720,8 +755,8 @@ FanoutRepairResult OpenDbFanoutRepairer::repair(odb::dbBlock *block,
 }
 
 struct PowerCandidate {
-    odb::dbInst *inst;
-    odb::dbMaster *master;
+    odb::dbInst* inst;
+    odb::dbMaster* master;
     double saving;
     float slack;
     bool vt;
@@ -729,21 +764,23 @@ struct PowerCandidate {
 };
 // Characterized leakage is only a ranking estimate. Acceptance uses
 // whole-design OpenSTA power including conditional leakage/activity effects.
-static float rankLeakage(sta::LibertyCell *cell) {
+static float rankLeakage(sta::LibertyCell* cell) {
     // Conditional tables (e.g. ASAP7) often have no cell_leakage_power.
     // Use the sum of per-supply maxima as a cheap, activity-independent rank.
     // This is not reported as measured leakage or used for acceptance.
     if (!cell->leakagePowers().empty()) {
-        std::unordered_map<const sta::LibertyPort *, float> peaks;
-        for (const auto &entry : cell->leakagePowers()) {
-            if (!std::isfinite(entry.power()) || entry.power() < 0)
+        std::unordered_map<const sta::LibertyPort*, float> peaks;
+        for (const auto& entry : cell->leakagePowers()) {
+            if (!std::isfinite(entry.power()) || entry.power() < 0) {
                 return -1;
-            auto &peak = peaks[entry.relatedPgPort()];
+            }
+            auto& peak = peaks[entry.relatedPgPort()];
             peak = std::max(peak, entry.power());
         }
         float sum = 0;
-        for (const auto &entry : peaks)
+        for (const auto& entry : peaks) {
             sum += entry.second;
+        }
         return sum;
     }
     float value = 0;
@@ -752,67 +789,80 @@ static float rankLeakage(sta::LibertyCell *cell) {
     return exists && std::isfinite(value) && value >= 0 ? value : -1;
 }
 static std::vector<PowerCandidate>
-powerCandidates(detail::DesignAnalysis &analysis, sta::dbSta *sta,
-                const std::vector<detail::NetState> &states,
-                const PowerRepairOptions &options) {
+powerCandidates(detail::DesignAnalysis& analysis, sta::dbSta* sta,
+                const std::vector<detail::NetState>& states,
+                const PowerRepairOptions& options) {
     std::vector<PowerCandidate> plans;
-    if (!options.common.actions.resize)
+    if (!options.common.actions.resize) {
         return plans;
+    }
     detail::CellCandidates cells(analysis, sta, options.common);
-    for (const auto &state : states) {
-        auto *inst = state.driver->getInst();
-        if (analysis.protectedInputs(inst))
+    for (const auto& state : states) {
+        auto* inst = state.driver->getInst();
+        if (analysis.protectedInputs(inst)) {
             continue;
+        }
         const auto original = analysis.driverModel(state);
-        if (!original.cell)
+        if (!original.cell) {
             continue;
+        }
         const float old_leakage = rankLeakage(original.cell);
-        if (old_leakage <= 0)
+        if (old_leakage <= 0) {
             continue;
+        }
         const float slack = float(sta->slack(sta->getDbNetwork()->dbToSta(state.driver),
                                              sta::RiseFallBoth::riseFall(),
                                              sta->scenes(), sta::MinMax::max()));
         // Unconstrained outputs have no verified timing budget.
-        if (!std::isfinite(slack) || slack >= sta::INF || slack < options.slack_margin)
+        if (!std::isfinite(slack) || slack >= sta::INF ||
+            slack < options.slack_margin) {
             continue;
+        }
         const float old_delay =
             analysis.predictedDelay(original, state.capacitance, state.input_slew);
         auto replacements = cells.resize(state, true);
         const auto vt = cells.resize(state, false, true);
         replacements.insert(replacements.end(), vt.begin(), vt.end());
-        for (const auto *replacement : replacements) {
+        for (const auto* replacement : replacements) {
             const float new_leakage = rankLeakage(replacement->cell);
-            if (new_leakage < 0 || new_leakage >= old_leakage)
+            if (new_leakage < 0 || new_leakage >= old_leakage) {
                 continue;
+            }
             const float delay = analysis.predictedDelay(*replacement, state.capacitance,
                                                         state.input_slew);
-            if (!std::isfinite(old_delay) || !std::isfinite(delay))
+            if (!std::isfinite(old_delay) || !std::isfinite(delay)) {
                 continue;
+            }
             plans.push_back(
                 {inst, replacement->master, old_leakage - new_leakage, slack,
                  analysis.isVtSwap(inst->getMaster(), replacement->master),
                  slack < options.slack_margin + std::max(0.0f, delay - old_delay)});
         }
     }
-    std::sort(plans.begin(), plans.end(), [](const auto &a, const auto &b) {
+    std::sort(plans.begin(), plans.end(), [](const auto& a, const auto& b) {
         // Try slack-budgeted moves first, then bounded recovery trials.
-        if (a.needs_recovery != b.needs_recovery)
+        if (a.needs_recovery != b.needs_recovery) {
             return !a.needs_recovery;
-        if (a.saving != b.saving)
+        }
+        if (a.saving != b.saving) {
             return a.saving > b.saving;
-        if (a.slack != b.slack)
+        }
+        if (a.slack != b.slack) {
             return a.slack > b.slack;
-        if (a.inst->getName() != b.inst->getName())
+        }
+        if (a.inst->getName() != b.inst->getName()) {
             return a.inst->getName() < b.inst->getName();
+        }
         return a.master->getName() < b.master->getName();
     });
-    if (plans.size() > options.max_candidates)
+    if (plans.size() > options.max_candidates) {
         plans.resize(options.max_candidates);
+    }
     return plans;
 }
-static std::vector<detail::NetState> measurePower(detail::DesignAnalysis &analysis,
-                                                  sta::dbSta *sta,
-                                                  PowerRepairMetrics &metrics) {
+static std::vector<detail::NetState> measurePower(detail::DesignAnalysis& analysis,
+                                                  sta::dbSta* sta,
+                                                  PowerRepairMetrics& metrics) {
     auto states = analysis.analyze(metrics.design, true);
     sta::PowerResult total, seq, comb, clock, macro, pad;
     // This vendored STA's powerInvalid() clears the instance map without
@@ -825,14 +875,16 @@ static std::vector<detail::NetState> measurePower(detail::DesignAnalysis &analys
     metrics.switching = total.switching();
     metrics.total = total.total();
     for (const double value :
-         {metrics.leakage, metrics.internal, metrics.switching, metrics.total})
-        if (!std::isfinite(value) || value < 0)
+         {metrics.leakage, metrics.internal, metrics.switching, metrics.total}) {
+        if (!std::isfinite(value) || value < 0) {
             throw std::runtime_error("invalid STA power result");
+        }
+    }
     return states;
 }
-static bool powerImproves(const PowerRepairMetrics &before,
-                          const PowerRepairMetrics &after,
-                          const PowerRepairOptions &options) {
+static bool powerImproves(const PowerRepairMetrics& before,
+                          const PowerRepairMetrics& after,
+                          const PowerRepairOptions& options) {
     const double old_power =
         options.objective == ecc::PowerObjective::Total ? before.total : before.leakage;
     const double new_power =
@@ -841,9 +893,9 @@ static bool powerImproves(const PowerRepairMetrics &before,
                                     old_power * options.min_relative_improvement);
     return new_power < old_power - minimum;
 }
-static bool acceptable(const PowerRepairMetrics &before,
-                       const PowerRepairMetrics &after,
-                       const PowerRepairOptions &options) {
+static bool acceptable(const PowerRepairMetrics& before,
+                       const PowerRepairMetrics& after,
+                       const PowerRepairOptions& options) {
     return powerImproves(before, after, options) &&
            after.design.area <= before.design.area &&
            detail::timingNonRegressing(before.design, after.design,
@@ -852,19 +904,20 @@ static bool acceptable(const PowerRepairMetrics &before,
            after.design.severity <=
                before.design.severity + options.common.tolerances.drv_severity;
 }
-PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *sta,
-                                              const std::function<void()> &refresh,
-                                              const PowerRepairOptions &options,
-                                              const RepairRuntime &runtime) {
+PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock* block, sta::dbSta* sta,
+                                              const std::function<void()>& refresh,
+                                              const PowerRepairOptions& options,
+                                              const RepairRuntime& runtime) {
     PowerRepairResult result;
     const auto start = std::chrono::steady_clock::now();
     std::optional<EcoTransaction> transaction;
     try {
         options.validate();
         if (!block || !sta || !refresh || sta->getDbNetwork()->block() != block ||
-            sta->scenes().size() != 1)
+            sta->scenes().size() != 1) {
             throw std::invalid_argument(
                 "invalid power analysis (one STA scene required)");
+        }
         detail::DesignAnalysis analysis(block, sta, options.common,
                                         runtime.constraints);
         auto states = measurePower(analysis, sta, result.before);
@@ -882,11 +935,11 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
             std::set<std::vector<size_t>> rejected;
             bool accepted = false;
             const auto backoff = [&]() {
-                if (width > 1)
+                if (width > 1) {
                     width = std::min(
                         width - 1,
                         std::max(size_t(1), size_t(width * options.batch_backoff)));
-                else {
+                } else {
                     ++cursor;
                     width = std::min(size_t(options.batch_size), plans.size() - cursor);
                 }
@@ -894,38 +947,45 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
             while (cursor < plans.size() &&
                    result.attempted_trials < options.max_trials) {
                 std::vector<size_t> selected;
-                std::unordered_set<odb::dbInst *> touched;
-                for (size_t i = cursor; i < std::min(cursor + width, plans.size()); ++i)
-                    if (touched.insert(plans[i].inst).second)
+                std::unordered_set<odb::dbInst*> touched;
+                for (size_t i = cursor; i < std::min(cursor + width, plans.size());
+                     ++i) {
+                    if (touched.insert(plans[i].inst).second) {
                         selected.push_back(i);
-                if (rejected.count(selected)) {
+                    }
+                }
+                if (rejected.contains(selected)) {
                     backoff();
                     continue;
                 }
                 transaction.emplace(block);
                 unsigned vt_swaps = 0, downsizes = 0;
                 for (const auto i : selected) {
-                    const auto &plan = plans[i];
-                    if (!replaceCell({plan.inst, plan.master}))
+                    const auto& plan = plans[i];
+                    if (!replaceCell({plan.inst, plan.master})) {
                         throw std::runtime_error("power cell swap failed");
-                    if (plan.vt)
+                    }
+                    if (plan.vt) {
                         ++vt_swaps;
-                    else
+                    } else {
                         ++downsizes;
+                    }
                 }
                 ++result.attempted_trials;
-                if (runtime.prepare)
+                if (runtime.prepare) {
                     runtime.prepare();
+                }
                 update();
                 PowerRepairMetrics after;
                 auto next = measurePower(analysis, sta, after);
                 const auto localSlackOk = [&]() {
                     bool local_slack_ok = true;
                     for (const auto i : selected) {
-                        for (auto *pin : plans[i].inst->getITerms()) {
+                        for (auto* pin : plans[i].inst->getITerms()) {
                             if (pin->getSigType() != odb::dbSigType::SIGNAL ||
-                                pin->getIoType() != odb::dbIoType::OUTPUT)
+                                pin->getIoType() != odb::dbIoType::OUTPUT) {
                                 continue;
+                            }
                             const float slack =
                                 float(sta->slack(sta->getDbNetwork()->dbToSta(pin),
                                                  sta::RiseFallBoth::riseFall(),
@@ -948,9 +1008,10 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                     auto recovery_runtime = runtime;
                     // Retain the proposed saving during recovery. Otherwise
                     // setup can simply undo it and waste the recovery budget.
-                    for (const auto i : selected)
+                    for (const auto i : selected) {
                         recovery_runtime.constraints.excluded_resize_instances
                             .push_back(plans[i].inst);
+                    }
                     if (!detail::noNewDrv(result.after.design, after.design) &&
                         result.attempted_trials < options.max_trials) {
                         DrvRepairOptions drv;
@@ -962,8 +1023,9 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                             block, sta, update, drv, recovery_runtime);
                         result.attempted_trials +=
                             repaired.accepted_passes + repaired.rejected_passes;
-                        if (!repaired.ok)
+                        if (!repaired.ok) {
                             throw std::runtime_error(repaired.message);
+                        }
                         next = measurePower(analysis, sta, after);
                     }
                     if (result.attempted_trials < options.max_trials) {
@@ -976,10 +1038,11 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                         setup.batch_backoff = options.batch_backoff;
                         // Recovery can spend area released by the power move.
                         // Final acceptance still forbids net area growth.
-                        if (after.design.area > 0)
+                        if (after.design.area > 0) {
                             setup.max_area_growth = std::max(
                                 0.0,
                                 result.after.design.area / after.design.area - 1.0);
+                        }
                         const auto repaired = SetupRepairer::repair(
                             block, sta, update, setup, recovery_runtime);
                         spdlog::debug(
@@ -987,8 +1050,9 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                             repaired.message, repaired.attempted_batches,
                             repaired.accepted_batches);
                         result.attempted_trials += repaired.attempted_batches;
-                        if (!repaired.ok)
+                        if (!repaired.ok) {
                             throw std::runtime_error(repaired.message);
+                        }
                     }
                     next = measurePower(analysis, sta, after);
                 }
@@ -1017,8 +1081,9 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                 rejected.insert(selected);
                 backoff();
             }
-            if (!accepted)
+            if (!accepted) {
                 break;
+            }
         }
         result.ok = true;
         result.message = result.attempted_trials >= options.max_trials
@@ -1026,7 +1091,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                          : result.accepted_batches >= options.max_passes
                              ? "power pass budget exhausted"
                              : "no further acceptable power candidate";
-    } catch (const std::exception &error) {
+    } catch (const std::exception& error) {
         result.message = error.what();
         if (transaction && transaction->active()) {
             transaction->rollback();
@@ -1034,7 +1099,7 @@ PowerRepairResult OpenDbPowerRepairer::repair(odb::dbBlock *block, sta::dbSta *s
                 ++result.refreshes;
                 refresh();
                 sta->power()->activitiesInvalid();
-            } catch (const std::exception &restore) {
+            } catch (const std::exception& restore) {
                 result.message +=
                     std::string("; rollback refresh failed: ") + restore.what();
             }

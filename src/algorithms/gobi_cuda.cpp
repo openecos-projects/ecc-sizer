@@ -3,14 +3,12 @@
 
 namespace ecc::gobi {
 
-bool gobiCudaAvailable()
-{
-  return false;
+bool gobiCudaAvailable() {
+    return false;
 }
 
-void gobiCudaSolve(const CudaContext&)
-{
-  throw std::runtime_error("GOBI CUDA backend is not built");
+void gobiCudaSolve(const CudaContext&) {
+    throw std::runtime_error("GOBI CUDA backend is not built");
 }
 
-}  // namespace ecc::gobi
+} // namespace ecc::gobi

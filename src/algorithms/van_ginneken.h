@@ -64,19 +64,19 @@ class VanGinneken {
     // or its caller. Does not edit OpenDB, open an ECO, refresh STA or commit.
     // max_buffers is an execution limit and is deliberately not applied here.
     // Throws on invalid inputs/solver failures. Plans expire after design edits.
-    static VgSolutions solve(odb::dbBlock *block, sta::dbSta *sta,
+    static VgSolutions solve(odb::dbBlock* block, sta::dbSta* sta,
                              std::span<const detail::NetState> states,
-                             rsz::Resizer *resizer, const VgOptions &options = {},
-                             const DesignConstraints &constraints = {});
+                             rsz::Resizer* resizer, const VgOptions& options = {},
+                             const DesignConstraints& constraints = {});
 
-    static VgResult run(odb::dbBlock *block, sta::dbSta *sta,
-                        const std::function<void()> &refresh,
-                        const VgOptions &options = {},
-                        const RepairRuntime &runtime = {});
-    static VgResult run(odb::dbBlock *block, sta::dbSta *sta,
-                        const std::function<void()> &refresh, rsz::Resizer *resizer,
-                        const VgOptions &options = {},
-                        const RepairRuntime &runtime = {});
+    static VgResult run(odb::dbBlock* block, sta::dbSta* sta,
+                        const std::function<void()>& refresh,
+                        const VgOptions& options = {},
+                        const RepairRuntime& runtime = {});
+    static VgResult run(odb::dbBlock* block, sta::dbSta* sta,
+                        const std::function<void()>& refresh, rsz::Resizer* resizer,
+                        const VgOptions& options = {},
+                        const RepairRuntime& runtime = {});
 };
 
 } // namespace ecc

@@ -11,12 +11,13 @@
 #include <unordered_set>
 
 namespace ecc {
-static bool legalizeAbacus(odb::dbBlock *block, dpl::Opendp *placer) {
+static bool legalizeAbacus(odb::dbBlock* block, dpl::Opendp* placer) {
     // Regions, blockages and asymmetric padding remain OpenDP responsibilities.
-    if (!block->getRegions().empty() || !block->getBlockages().empty())
+    if (!block->getRegions().empty() || !block->getBlockages().empty()) {
         return false;
-    std::vector<odb::dbRow *> rows;
-    for (auto *row : block->getRows()) {
+    }
+    std::vector<odb::dbRow*> rows;
+    for (auto* row : block->getRows()) {
         rows.push_back(row);
     }
     if (rows.empty()) {
@@ -25,11 +26,12 @@ static bool legalizeAbacus(odb::dbBlock *block, dpl::Opendp *placer) {
     }
     const int site_w = rows[0]->getSite()->getWidth();
     const int site_h = rows[0]->getSite()->getHeight();
-    if (site_w <= 0 || site_h <= 0)
+    if (site_w <= 0 || site_h <= 0) {
         return false;
+    }
     std::vector<LegalizeRowSeg> segs;
     std::map<int, odb::dbOrientType> orient_of_y;
-    for (auto *row : rows) {
+    for (auto* row : rows) {
         if (row->getDirection() != odb::dbRowDir::HORIZONTAL ||
             row->getSpacing() != site_w || row->getSite()->getWidth() != site_w ||
             row->getSite()->getHeight() != site_h) {
@@ -39,7 +41,7 @@ static bool legalizeAbacus(odb::dbBlock *block, dpl::Opendp *placer) {
         segs.push_back(
             {row->getOrigin().x(), row->getOrigin().y(), row->getSiteCount()});
         int ry = row->getOrigin().y();
-        if (orient_of_y.count(ry) && orient_of_y[ry] != row->getOrient()) {
+        if (orient_of_y.contains(ry) && orient_of_y[ry] != row->getOrient()) {
             spdlog::debug("dp-legalize: inconsistent orient at y={}, fall back", ry);
             return false;
         }
@@ -47,15 +49,18 @@ static bool legalizeAbacus(odb::dbBlock *block, dpl::Opendp *placer) {
     }
 
     std::vector<LegalizeNode> nodes;
-    std::vector<odb::dbInst *> insts;
-    for (auto *inst : block->getInsts()) {
-        auto *master = inst->getMaster();
-        if (placer->padLeft(inst) || placer->padRight(inst))
+    std::vector<odb::dbInst*> insts;
+    for (auto* inst : block->getInsts()) {
+        auto* master = inst->getMaster();
+        if (placer->padLeft(inst) || placer->padRight(inst)) {
             return false;
-        if (inst->isFixed())
+        }
+        if (inst->isFixed()) {
             continue;
-        if (!master->isCore())
+        }
+        if (!master->isCore()) {
             return false;
+        }
         if (static_cast<int>(master->getHeight()) != site_h ||
             master->getSite() != rows.front()->getSite()) {
             spdlog::debug("dp-legalize: multi-row movable cell {}, fall back",
@@ -69,12 +74,12 @@ static bool legalizeAbacus(odb::dbBlock *block, dpl::Opendp *placer) {
                          double(master->getHeight()), false});
     }
     const int num_movable = static_cast<int>(insts.size());
-    for (auto *inst : block->getInsts()) {
+    for (auto* inst : block->getInsts()) {
         // Any fixed instance (macros included) is an obstacle for the ops.
         if (!inst->isFixed()) {
             continue;
         }
-        auto *bbox = inst->getBBox();
+        auto* bbox = inst->getBBox();
         int x_min = bbox->xMin();
         int y_min = bbox->yMin();
         int x_max = bbox->xMax();
@@ -115,30 +120,34 @@ static bool legalizeAbacus(odb::dbBlock *block, dpl::Opendp *placer) {
     return true;
 }
 
-void legalizeRepairPlacement(odb::dbBlock *block, dpl::Opendp *placer,
-                             const std::vector<odb::dbInst *> &protected_instances,
+void legalizeRepairPlacement(odb::dbBlock* block, dpl::Opendp* placer,
+                             const std::vector<odb::dbInst*>& protected_instances,
                              bool incremental, PlacementLegalizer legalizer) {
-    if (!block || !placer || block->getRows().empty())
+    if (!block || !placer || block->getRows().empty()) {
         throw std::runtime_error(
             "native repair legalization requires a placer and core rows");
-    const std::unordered_set<odb::dbInst *> protected_set(protected_instances.begin(),
-                                                          protected_instances.end());
-    std::vector<std::pair<odb::dbInst *, odb::dbPlacementStatus>> statuses;
-    for (auto *inst : block->getInsts()) {
-        if (!inst->isFixed() && (inst->isDoNotTouch() || protected_set.count(inst))) {
+    }
+    const std::unordered_set<odb::dbInst*> protected_set(protected_instances.begin(),
+                                                         protected_instances.end());
+    std::vector<std::pair<odb::dbInst*, odb::dbPlacementStatus>> statuses;
+    for (auto* inst : block->getInsts()) {
+        if (!inst->isFixed() &&
+            (inst->isDoNotTouch() || protected_set.contains(inst))) {
             statuses.emplace_back(inst, inst->getPlacementStatus());
             inst->setPlacementStatus(odb::dbPlacementStatus::LOCKED);
         }
     }
     const auto restore = [&]() {
-        for (const auto &[inst, status] : statuses)
+        for (const auto& [inst, status] : statuses) {
             inst->setPlacementStatus(status);
+        }
     };
     try {
         // Default DPL minimizes movement better than the negotiation/abacus
         // mode on the repair workloads. Never treat a placed flag as legality.
-        if (legalizer != PlacementLegalizer::Abacus || !legalizeAbacus(block, placer))
+        if (legalizer != PlacementLegalizer::Abacus || !legalizeAbacus(block, placer)) {
             placer->detailedPlacement(0, 0, "", incremental);
+        }
         placer->checkPlacement(false);
     } catch (...) {
         restore();

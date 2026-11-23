@@ -44,9 +44,9 @@ struct SetupRepairResult {
 // Path/VG/GOBI are independent timing strategies selected by the application.
 class SetupRepairer {
   public:
-    static SetupRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
-                                    const std::function<void()> &refresh,
-                                    const SetupRepairOptions &options = {},
-                                    const RepairRuntime &runtime = {});
+    static SetupRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
+                                    const std::function<void()>& refresh,
+                                    const SetupRepairOptions& options = {},
+                                    const RepairRuntime& runtime = {});
 };
 } // namespace ecc

@@ -36,10 +36,12 @@ class PlacementParasiticUpdater {
     };
     const Statistics& statistics() const { return statistics_; }
     PlacementParasiticUpdater(odb::dbBlock* block, sta::dbSta* sta,
-                             est::EstimateParasitics* estimator)
+                              est::EstimateParasitics* estimator)
         : block_(block), sta_(sta), estimator_(requirePlacement(estimator)),
           guard_(estimator_) {
-        if(!block_ || !sta_) throw std::invalid_argument("missing placement RC backend");
+        if (!block_ || !sta_) {
+            throw std::invalid_argument("missing placement RC backend");
+        }
         changes_.addOwner(block_);
     }
     void update() {
@@ -54,17 +56,21 @@ class PlacementParasiticUpdater {
         auto* library = network->defaultLibertyLibrary();
         network->sta::Network::clear();
         network->setDefaultLibertyLibrary(library);
-        for(auto id : changes_.nets) {
+        for (auto id : changes_.nets) {
             auto* net = odb::dbNet::getNet(block_, id);
             auto* sta_net = network->dbToSta(net);
             // makeSteinerTree can return no tree (e.g. an unplaced terminal).
             // A full estimate starts empty; an incremental estimate must also
             // erase the old network/reduced model instead of retaining it.
-            for(auto* scene : sta_->scenes()) {
+            for (auto* scene : sta_->scenes()) {
                 auto* max = scene->parasitics(sta::MinMax::max());
                 auto* min = scene->parasitics(sta::MinMax::min());
-                if(max) max->deleteParasitics(sta_net);
-                if(min && min != max) min->deleteParasitics(sta_net);
+                if (max) {
+                    max->deleteParasitics(sta_net);
+                }
+                if (min && min != max) {
+                    min->deleteParasitics(sta_net);
+                }
             }
             estimator_->parasiticsInvalid(net);
         }
@@ -73,8 +79,10 @@ class PlacementParasiticUpdater {
         start = std::chrono::steady_clock::now();
         sta_->findRequireds();
         statistics_.sta_ms += elapsed(start);
-        for(const auto& [id, placement] : next) {
-            if(id >= placements_.size()) placements_.resize(id + 1);
+        for (const auto& [id, placement] : next) {
+            if (id >= placements_.size()) {
+                placements_.resize(id + 1);
+            }
             placements_[id] = placement;
         }
         changes_.nets.clear();
@@ -93,51 +101,73 @@ class PlacementParasiticUpdater {
         changes_.analysis = {};
         auto* network = sta_->getDbNetwork();
         auto* graph = sta_->ensureGraph();
-        if(!analysis_slews_initialized_ || analysis_slew_count_ != graph->slewCount()) {
+        if (!analysis_slews_initialized_ ||
+            analysis_slew_count_ != graph->slewCount()) {
             analysis_slew_count_ = graph->slewCount();
             analysis_slew_pins_.clear();
             analysis_slews_.clear();
             sta::VertexIterator vertices(graph);
-            while(vertices.hasNext()) analysisSlewChanged(vertices.next());
+            while (vertices.hasNext()) {
+                analysisSlewChanged(vertices.next());
+            }
             analysis_slews_initialized_ = true;
             // Initialize both caches from the same STA snapshot. A changed
             // analysis-point layout also requires a full electrical refresh.
-            for(auto* net : block_->getNets()) changed.nets.insert(net);
-            for(auto* inst : block_->getInsts()) changed.instances.insert(inst);
+            for (auto* net : block_->getNets()) {
+                changed.nets.insert(net);
+            }
+            for (auto* inst : block_->getInsts()) {
+                changed.instances.insert(inst);
+            }
             changed.ports = true;
             return changed;
         }
         // Physical edits can change capacitance/fanout even when the computed
         // slew is identical. Always inspect all pins on those nets, including
         // the original driver, and every explicitly changed instance.
-        for(auto* net : changed.nets) {
-            for(auto* pin : net->getITerms()) changed.instances.insert(pin->getInst());
-            if(!net->getBTerms().empty()) changed.ports = true;
+        for (auto* net : changed.nets) {
+            for (auto* pin : net->getITerms()) {
+                changed.instances.insert(pin->getInst());
+            }
+            if (!net->getBTerms().empty()) {
+                changed.ports = true;
+            }
         }
-        for(auto* vertex : repairTimingCone(sta_, changed.nets)) {
+        for (auto* vertex : repairTimingCone(sta_, changed.nets)) {
             // Arrival/required changes alone do not alter electrical checks.
             // Compare every rise/fall and analysis-point slew exactly; this is
             // not a tolerance-based propagation cutoff. SDC/libs are immutable
             // during the incremental inspection phase.
-            if(!analysisSlewChanged(vertex)) continue;
+            if (!analysisSlewChanged(vertex)) {
+                continue;
+            }
             auto* object = network->staToDb(vertex->pin());
-            if(!object) continue;
-            if(object->getObjectType() == odb::dbITermObj) {
+            if (!object) {
+                continue;
+            }
+            if (object->getObjectType() == odb::dbITermObj) {
                 auto* pin = static_cast<odb::dbITerm*>(object);
                 changed.instances.insert(pin->getInst());
-                if(pin->getNet()) changed.nets.insert(pin->getNet());
-            } else if(object->getObjectType() == odb::dbBTermObj) {
+                if (pin->getNet()) {
+                    changed.nets.insert(pin->getNet());
+                }
+            } else if (object->getObjectType() == odb::dbBTermObj) {
                 auto* pin = static_cast<odb::dbBTerm*>(object);
                 changed.ports = true;
-                if(pin->getNet()) changed.nets.insert(pin->getNet());
+                if (pin->getNet()) {
+                    changed.nets.insert(pin->getNet());
+                }
             }
         }
         // NetState also reads the input slew of the driver instance. Include
         // its other outputs even if a disabled timing arc stopped propagation.
-        for(auto* inst : changed.instances)
-            for(auto* pin : inst->getITerms())
-                if(pin->getNet() && pin->getIoType() != odb::dbIoType::INPUT)
+        for (auto* inst : changed.instances) {
+            for (auto* pin : inst->getITerms()) {
+                if (pin->getNet() && pin->getIoType() != odb::dbIoType::INPUT) {
                     changed.nets.insert(pin->getNet());
+                }
+            }
+        }
         return changed;
     }
     PlacementParasiticUpdater(const PlacementParasiticUpdater&) = delete;
@@ -147,13 +177,13 @@ class PlacementParasiticUpdater {
     bool analysisSlewChanged(sta::Vertex* vertex) {
         auto* graph = sta_->graph();
         const size_t id = graph->id(vertex);
-        if(id >= analysis_slew_pins_.size()) {
+        if (id >= analysis_slew_pins_.size()) {
             analysis_slew_pins_.resize(id + 1, nullptr);
             analysis_slews_.resize((id + 1) * analysis_slew_count_);
         }
         bool changed = analysis_slew_pins_[id] != vertex->pin();
         analysis_slew_pins_[id] = vertex->pin();
-        for(size_t i = 0; i < analysis_slew_count_; ++i) {
+        for (size_t i = 0; i < analysis_slew_count_; ++i) {
             auto& previous = analysis_slews_[id * analysis_slew_count_ + i];
             const float current = float(graph->slew(vertex, i));
             changed |= current != previous;
@@ -173,7 +203,9 @@ class PlacementParasiticUpdater {
         std::unordered_set<sta::Vertex*> visited;
         std::vector<sta::Vertex*> queue;
         const auto enqueue = [&](sta::Vertex* vertex) {
-            if(vertex && visited.insert(vertex).second) queue.push_back(vertex);
+            if (vertex && visited.insert(vertex).second) {
+                queue.push_back(vertex);
+            }
         };
         const auto pin_vertices = [&](const sta::Pin* pin) {
             sta::Vertex *load = nullptr, *driver = nullptr;
@@ -181,26 +213,33 @@ class PlacementParasiticUpdater {
             enqueue(load);
             enqueue(driver);
         };
-        for(auto id : changes_.timing_nets) {
+        for (auto id : changes_.timing_nets) {
             auto* net = odb::dbNet::getNet(block_, id);
-            for(auto* pin : net->getITerms()) pin_vertices(network->dbToSta(pin));
-            for(auto* pin : net->getBTerms()) pin_vertices(network->dbToSta(pin));
+            for (auto* pin : net->getITerms()) {
+                pin_vertices(network->dbToSta(pin));
+            }
+            for (auto* pin : net->getBTerms()) {
+                pin_vertices(network->dbToSta(pin));
+            }
         }
-        while(!queue.empty()) {
+        while (!queue.empty()) {
             auto* vertex = queue.back();
             queue.pop_back();
             sta_->delaysInvalidFrom(vertex);
             sta::VertexOutEdgeIterator edges(vertex, graph);
-            while(edges.hasNext()) {
+            while (edges.hasNext()) {
                 auto* edge = edges.next();
-                if(!edge->role()->isTimingCheck()) enqueue(edge->to(graph));
+                if (!edge->role()->isTimingCheck()) {
+                    enqueue(edge->to(graph));
+                }
             }
         }
         statistics_.refreshed_vertices += visited.size();
     }
     static double elapsed(std::chrono::steady_clock::time_point start) {
         return std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - start).count();
+                   std::chrono::steady_clock::now() - start)
+            .count();
     }
     struct NetChanges : odb::dbBlockCallBackObj {
         std::unordered_set<unsigned> nets;
@@ -210,8 +249,9 @@ class PlacementParasiticUpdater {
         std::unordered_set<unsigned> timing_nets;
         std::unordered_set<odb::dbInst*> geometry;
         void touch(odb::dbNet* net) {
-            if(net && !net->isSpecial() && net->getSigType() != odb::dbSigType::POWER
-               && net->getSigType() != odb::dbSigType::GROUND) {
+            if (net && !net->isSpecial() &&
+                net->getSigType() != odb::dbSigType::POWER &&
+                net->getSigType() != odb::dbSigType::GROUND) {
                 analysis.nets.insert(net);
                 nets.insert(net->getId());
                 timing_nets.insert(net->getId());
@@ -224,11 +264,26 @@ class PlacementParasiticUpdater {
             nets.erase(net->getId());
             timing_nets.erase(net->getId());
         }
-        void inDbITermPostConnect(odb::dbITerm* pin) override { touch(pin->getNet()); analysis.instances.insert(pin->getInst()); }
-        void inDbITermPostDisconnect(odb::dbITerm* pin, odb::dbNet* net) override { touch(net); analysis.instances.insert(pin->getInst()); }
-        void inDbBTermPostConnect(odb::dbBTerm* pin) override { touch(pin->getNet()); analysis.ports = true; }
-        void inDbBTermPostDisConnect(odb::dbBTerm*, odb::dbNet* net) override { touch(net); analysis.ports = true; }
-        void inDbInstCreate(odb::dbInst* inst) override { geometry.insert(inst); analysis.instances.insert(inst); }
+        void inDbITermPostConnect(odb::dbITerm* pin) override {
+            touch(pin->getNet());
+            analysis.instances.insert(pin->getInst());
+        }
+        void inDbITermPostDisconnect(odb::dbITerm* pin, odb::dbNet* net) override {
+            touch(net);
+            analysis.instances.insert(pin->getInst());
+        }
+        void inDbBTermPostConnect(odb::dbBTerm* pin) override {
+            touch(pin->getNet());
+            analysis.ports = true;
+        }
+        void inDbBTermPostDisConnect(odb::dbBTerm*, odb::dbNet* net) override {
+            touch(net);
+            analysis.ports = true;
+        }
+        void inDbInstCreate(odb::dbInst* inst) override {
+            geometry.insert(inst);
+            analysis.instances.insert(inst);
+        }
         void inDbInstDestroy(odb::dbInst* inst) override {
             geometry.erase(inst);
             analysis.instances.erase(inst);
@@ -241,7 +296,9 @@ class PlacementParasiticUpdater {
         void inDbInstSwapMasterAfter(odb::dbInst* inst) override {
             geometry.insert(inst);
             analysis.instances.insert(inst);
-            for(auto* pin : inst->getITerms()) touch(pin->getNet());
+            for (auto* pin : inst->getITerms()) {
+                touch(pin->getNet());
+            }
         }
     };
     struct Placement {
@@ -249,25 +306,30 @@ class PlacementParasiticUpdater {
         odb::dbOrientType orientation;
         odb::dbMaster* master = nullptr;
         bool operator==(const Placement& other) const {
-            return x == other.x && y == other.y && orientation == other.orientation
-                   && master == other.master;
+            return x == other.x && y == other.y && orientation == other.orientation &&
+                   master == other.master;
         }
     };
     static est::EstimateParasitics* requirePlacement(est::EstimateParasitics* ep) {
-        if(!ep || ep->getParasiticsSrc() != est::ParasiticsSrc::kPlacement)
-            throw std::invalid_argument("incremental repair requires a placement RC seed");
+        if (!ep || ep->getParasiticsSrc() != est::ParasiticsSrc::kPlacement) {
+            throw std::invalid_argument(
+                "incremental repair requires a placement RC seed");
+        }
         return ep;
     }
     std::vector<std::pair<unsigned, Placement>> capture() {
         std::vector<std::pair<unsigned, Placement>> next;
         next.reserve(changes_.geometry.size());
-        for(auto* inst : changes_.geometry) {
+        for (auto* inst : changes_.geometry) {
             int x, y;
             inst->getLocation(x, y);
             Placement placement{x, y, inst->getOrient(), inst->getMaster()};
             const auto id = inst->getId();
-            if(id >= placements_.size() || !(placements_[id] == placement))
-                for(auto* pin : inst->getITerms()) changes_.touch(pin->getNet());
+            if (id >= placements_.size() || !(placements_[id] == placement)) {
+                for (auto* pin : inst->getITerms()) {
+                    changes_.touch(pin->getNet());
+                }
+            }
             next.emplace_back(id, placement);
         }
         return next;

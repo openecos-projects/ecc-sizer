@@ -12,4 +12,4 @@ namespace ecc {
 int connectMissingWildcardSpecialNetPins(odb::dbBlock* block);
 int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block);
 
-}  // namespace ecc
+} // namespace ecc

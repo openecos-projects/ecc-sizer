@@ -34,7 +34,7 @@ struct RepairActions {
     bool resize = true;
     bool buffer = true;
     bool load_downsize = true;
-    bool operator==(const RepairActions &) const = default;
+    bool operator==(const RepairActions&) const = default;
 };
 struct RepairCommonOptions {
     unsigned max_fanout = 64;
@@ -228,11 +228,11 @@ struct RepairConfig {
     GobiOptions gobiOptions() const;
     void validate() const;
     // Strict key/value parsing. Unknown keys, malformed values and NaN fail.
-    void set(const std::string &key, const std::string &value);
+    void set(const std::string& key, const std::string& value);
     // Atomic load: a malformed file never partially changes this object.
-    void read(std::istream &input, const std::string &source = "repair config");
-    void readFile(const std::string &path);
-    void write(std::ostream &output) const;
+    void read(std::istream& input, const std::string& source = "repair config");
+    void readFile(const std::string& path);
+    void write(std::ostream& output) const;
 };
 
 } // namespace ecc

@@ -28,22 +28,25 @@ namespace vg_detail {
 
 using detail::NetState;
 
-bool eligible(const NetState &state, sta::dbSta *sta, const VgOptions &options) {
-    if (!state.driver)
+bool eligible(const NetState& state, sta::dbSta* sta, const VgOptions& options) {
+    if (!state.driver) {
         return false;
-    if (state.violating())
+    }
+    if (state.violating()) {
         return true;
-    if (options.scope != ecc::VgScope::Setup)
+    }
+    if (options.scope != ecc::VgScope::Setup) {
         return false;
-    auto *pin = sta->getDbNetwork()->dbToSta(state.driver);
+    }
+    auto* pin = sta->getDbNetwork()->dbToSta(state.driver);
     return sta->slack(pin, sta::RiseFallBoth::riseFall(),
                       sta::SceneSeq{sta->cmdScene()}, sta::MinMax::max()) < 0;
 }
 
 struct Plan {
-    odb::dbNet *net = nullptr;
-    odb::dbMaster *master = nullptr;
-    std::vector<odb::dbObject *> loads;
+    odb::dbNet* net = nullptr;
+    odb::dbMaster* master = nullptr;
+    std::vector<odb::dbObject*> loads;
     BufferLocation location;
     float gain = 0;
 };
@@ -55,24 +58,26 @@ struct VgCandidate {
 };
 
 struct VgSolution {
-    odb::dbNet *net = nullptr;
+    odb::dbNet* net = nullptr;
     rsz::BufferedNetPtr tree;
     double score = -std::numeric_limits<double>::infinity();
 };
 
 // Score the unchanged RC tree with the same linear model as VG. Keep this
 // baseline separately: cap/RAT pruning need not retain its traceback.
-std::pair<double, double> unchangedVg(const rsz::BufferedNetPtr &node,
-                                      rsz::Resizer *resizer, const sta::Scene *scene) {
-    if (node->type() == rsz::BufferedNetType::load)
+std::pair<double, double> unchangedVg(const rsz::BufferedNetPtr& node,
+                                      rsz::Resizer* resizer, const sta::Scene* scene) {
+    if (node->type() == rsz::BufferedNetType::load) {
         return {node->cap(), 0};
+    }
     auto left = unchangedVg(node->ref(), resizer, scene);
     if (node->type() == rsz::BufferedNetType::junction) {
         auto right = unchangedVg(node->ref2(), resizer, scene);
         return {left.first + right.first, std::min(left.second, right.second)};
     }
-    if (node->type() != rsz::BufferedNetType::wire)
+    if (node->type() != rsz::BufferedNetType::wire) {
         throw std::invalid_argument("VG unchanged score requires a placement RC tree");
+    }
     double resistance = 0, capacitance = 0;
     node->wireRC(scene, resizer, resizer->getEstimateParasitics(), resistance,
                  capacitance);
@@ -83,7 +88,7 @@ std::pair<double, double> unchangedVg(const rsz::BufferedNetPtr &node,
 }
 
 struct Timer {
-    double *elapsed;
+    double* elapsed;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     ~Timer() {
         *elapsed += std::chrono::duration<double, std::milli>(
@@ -92,9 +97,9 @@ struct Timer {
     }
 };
 
-bool better(const DesignMetrics &before, const DesignMetrics &after,
-            const VgOptions &options) {
-    const auto &tolerance = options.common.tolerances;
+bool better(const DesignMetrics& before, const DesignMetrics& after,
+            const VgOptions& options) {
+    const auto& tolerance = options.common.tolerances;
     const bool no_timing_loss =
         after.setup_wns + tolerance.wns_absolute >= before.setup_wns &&
         after.setup_tns + tolerance.tns_absolute >= before.setup_tns;
@@ -102,8 +107,9 @@ bool better(const DesignMetrics &before, const DesignMetrics &after,
         after.total_slew_violations <= before.total_slew_violations &&
         after.total_cap_violations <= before.total_cap_violations &&
         after.total_fanout_violations <= before.total_fanout_violations;
-    if (!no_timing_loss || (options.require_drv_reduction && !no_drv_loss))
+    if (!no_timing_loss || (options.require_drv_reduction && !no_drv_loss)) {
         return false;
+    }
     const bool strict_drv =
         after.severity + tolerance.drv_severity < before.severity ||
         after.total_slew_violations < before.total_slew_violations ||
@@ -115,21 +121,23 @@ bool better(const DesignMetrics &before, const DesignMetrics &after,
     return strict_drv || strict_timing;
 }
 
-std::vector<Plan> collectPlans(detail::DesignAnalysis &analysis,
+std::vector<Plan> collectPlans(detail::DesignAnalysis& analysis,
                                std::span<const NetState> states,
-                               const VgOptions &options, unsigned &nets_collected) {
+                               const VgOptions& options, unsigned& nets_collected) {
     std::vector<Plan> plans;
     const unsigned group_limit = options.max_group_loads == 0
                                      ? options.common.max_fanout
                                      : options.max_group_loads;
-    if (group_limit < 2)
+    if (group_limit < 2) {
         return plans;
-    for (const auto &state : states) {
-        if (state.loads.size() < 2)
+    }
+    for (const auto& state : states) {
+        if (state.loads.size() < 2) {
             continue;
+        }
         ++nets_collected;
         std::vector<detail::Load> loads = state.loads;
-        std::stable_sort(loads.begin(), loads.end(), [](const auto &a, const auto &b) {
+        std::stable_sort(loads.begin(), loads.end(), [](const auto& a, const auto& b) {
             return a.x != b.x ? a.x < b.x : a.y < b.y;
         });
         const float input_slew =
@@ -138,7 +146,7 @@ std::vector<Plan> collectPlans(detail::DesignAnalysis &analysis,
                 : state.slew;
         const float pin_sum =
             std::accumulate(loads.begin(), loads.end(), 0.0f,
-                            [](float total, const detail::Load &load) {
+                            [](float total, const detail::Load& load) {
                                 return total + load.capacitance;
                             });
         const float extra = std::max(0.0f, state.capacitance - pin_sum) /
@@ -146,13 +154,14 @@ std::vector<Plan> collectPlans(detail::DesignAnalysis &analysis,
         for (size_t begin = 0; begin < loads.size();) {
             size_t end = begin;
             float cap = 0;
-            const detail::CellModel *selected = nullptr;
+            const detail::CellModel* selected = nullptr;
             while (end < loads.size() && end - begin < group_limit) {
                 const float next_cap = cap + loads[end].capacitance + extra;
-                const auto *candidate =
+                const auto* candidate =
                     analysis.select(next_cap, state.slew_limit, input_slew);
-                if (candidate == nullptr)
+                if (candidate == nullptr) {
                     break;
+                }
                 cap = next_cap;
                 selected = candidate;
                 ++end;
@@ -174,33 +183,35 @@ std::vector<Plan> collectPlans(detail::DesignAnalysis &analysis,
             plan.gain =
                 std::max(state.fanout_ratio - 1.0f,
                          std::max(state.cap_ratio - 1.0f, state.slew_ratio - 1.0f));
-            if (plan.gain >= options.min_gain)
+            if (plan.gain >= options.min_gain) {
                 plans.push_back(std::move(plan));
+            }
             begin = end;
         }
     }
     std::stable_sort(plans.begin(), plans.end(),
-                     [](const Plan &a, const Plan &b) { return a.gain > b.gain; });
+                     [](const Plan& a, const Plan& b) { return a.gain > b.gain; });
     return plans;
 }
 
 // CPU Van Ginneken dynamic programming over the placement Steiner tree.  The
 // tree is supplied by OpenROAD's estimator, while candidates and traceback
 // remain owned by this module.
-void pruneVg(std::vector<VgCandidate> &options) {
+void pruneVg(std::vector<VgCandidate>& options) {
     auto max_buffer = std::max_element(
-        options.begin(), options.end(), [](const auto &a, const auto &b) {
+        options.begin(), options.end(), [](const auto& a, const auto& b) {
             return a.tree->bufferCount() < b.tree->bufferCount();
         });
     std::shared_ptr<rsz::BufferedNet> preserve;
-    if (max_buffer != options.end())
+    if (max_buffer != options.end()) {
         preserve = max_buffer->tree;
-    std::stable_sort(options.begin(), options.end(), [](const auto &a, const auto &b) {
+    }
+    std::stable_sort(options.begin(), options.end(), [](const auto& a, const auto& b) {
         return a.cap != b.cap ? a.cap < b.cap : a.slack > b.slack;
     });
     std::vector<VgCandidate> frontier;
     double best_slack = -std::numeric_limits<double>::infinity();
-    for (auto &option : options) {
+    for (auto& option : options) {
         if (option.slack > best_slack + 1e-18) {
             best_slack = option.slack;
             frontier.push_back(std::move(option));
@@ -208,8 +219,8 @@ void pruneVg(std::vector<VgCandidate> &options) {
     }
     if (preserve &&
         std::none_of(frontier.begin(), frontier.end(),
-                     [&](const auto &option) { return option.tree == preserve; })) {
-        for (auto &option : options) {
+                     [&](const auto& option) { return option.tree == preserve; })) {
+        for (auto& option : options) {
             if (option.tree == preserve) {
                 frontier.push_back(std::move(option));
                 break;
@@ -219,12 +230,13 @@ void pruneVg(std::vector<VgCandidate> &options) {
     options.swap(frontier);
 }
 
-std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr &node, rsz::Resizer *resizer,
-                               const sta::Scene *scene, const sta::MinMax *min_max,
-                               const VgOptions &options,
-                               const DesignConstraints &constraints) {
-    if (!node)
+std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr& node, rsz::Resizer* resizer,
+                               const sta::Scene* scene, const sta::MinMax* min_max,
+                               const VgOptions& options,
+                               const DesignConstraints& constraints) {
+    if (!node) {
         return {};
+    }
     switch (node->type()) {
     case rsz::BufferedNetType::load:
         return {{node, node->cap(), 0}};
@@ -239,18 +251,18 @@ std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr &node, rsz::Resizer *re
         sta::LibertyCellSeq buffers;
         resizer->getBufferList(buffers);
         if (buffers.empty()) {
-            auto *network = resizer->dbNetwork();
-            auto *block = resizer->block();
-            for (auto *lib : block->getDataBase()->getLibs()) {
-                for (auto *master : lib->getMasters()) {
-                    auto *cell = network->libertyCell(network->dbToSta(master));
+            auto* network = resizer->dbNetwork();
+            auto* block = resizer->block();
+            for (auto* lib : block->getDataBase()->getLibs()) {
+                for (auto* master : lib->getMasters()) {
+                    auto* cell = network->libertyCell(network->dbToSta(master));
                     if (cell && cell->isBuffer()) {
                         buffers.push_back(cell);
                     }
                 }
             }
         }
-        for (const auto &option : child) {
+        for (const auto& option : child) {
             auto wire = std::make_shared<rsz::BufferedNet>(
                 rsz::BufferedNetType::wire, node->location(), node->layer(),
                 option.tree, scene, resizer, resizer->getEstimateParasitics());
@@ -258,25 +270,29 @@ std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr &node, rsz::Resizer *re
             const double delay =
                 length * wire_res * (option.cap + total_wire_cap / 2.0);
             result.push_back({wire, cap, option.slack - delay});
-            for (auto *buffer : buffers) {
-                if (!buffer || !buffer->isBuffer())
+            for (auto* buffer : buffers) {
+                if (!buffer || !buffer->isBuffer()) {
                     continue;
-                auto *master = resizer->dbNetwork()->staToDb(buffer);
+                }
+                auto* master = resizer->dbNetwork()->staToDb(buffer);
                 if (std::find(constraints.excluded_masters.begin(),
                               constraints.excluded_masters.end(),
-                              master) != constraints.excluded_masters.end())
+                              master) != constraints.excluded_masters.end()) {
                     continue;
-                sta::LibertyPort *input = nullptr;
-                sta::LibertyPort *output = nullptr;
+                }
+                sta::LibertyPort* input = nullptr;
+                sta::LibertyPort* output = nullptr;
                 buffer->bufferPorts(input, output);
-                if (!input || !output)
+                if (!input || !output) {
                     continue;
+                }
                 const auto intrinsic = output->intrinsicDelay(resizer->sta());
                 const double input_cap = resizer->portCapacitance(input, scene);
                 const double buffer_delay =
                     static_cast<double>(intrinsic) + output->driveResistance() * cap;
-                if (!std::isfinite(buffer_delay) || !std::isfinite(input_cap))
+                if (!std::isfinite(buffer_delay) || !std::isfinite(input_cap)) {
                     continue;
+                }
                 auto buffered = std::make_shared<rsz::BufferedNet>(
                     rsz::BufferedNetType::buffer, node->location(), buffer, wire, scene,
                     resizer, resizer->getEstimateParasitics());
@@ -292,8 +308,8 @@ std::vector<VgCandidate> runVg(const rsz::BufferedNetPtr &node, rsz::Resizer *re
         auto right = runVg(node->ref2(), resizer, scene, min_max, options, constraints);
         std::vector<VgCandidate> result;
         result.reserve(left.size() * right.size());
-        for (const auto &l : left) {
-            for (const auto &r : right) {
+        for (const auto& l : left) {
+            for (const auto& r : right) {
                 auto junction = std::make_shared<rsz::BufferedNet>(
                     rsz::BufferedNetType::junction, node->location(), l.tree, r.tree,
                     resizer);
@@ -320,10 +336,11 @@ struct VgForest {
     std::vector<double> resistance;
 };
 
-int flattenVg(const rsz::BufferedNetPtr &node, VgForest &forest, rsz::Resizer *resizer,
-              const sta::Scene *scene) {
-    if (!node)
+int flattenVg(const rsz::BufferedNetPtr& node, VgForest& forest, rsz::Resizer* resizer,
+              const sta::Scene* scene) {
+    if (!node) {
         throw std::runtime_error("VG CUDA null tree node");
+    }
     VgCudaNode flat;
     switch (node->type()) {
     case rsz::BufferedNetType::load:
@@ -348,58 +365,66 @@ int flattenVg(const rsz::BufferedNetPtr &node, VgForest &forest, rsz::Resizer *r
     default:
         throw std::runtime_error("VG CUDA unsupported Steiner node");
     }
-    if (forest.nodes.size() >= static_cast<size_t>(std::numeric_limits<int>::max()))
+    if (forest.nodes.size() >= static_cast<size_t>(std::numeric_limits<int>::max())) {
         throw std::runtime_error("VG CUDA tree index overflow");
+    }
     forest.nodes.push_back(flat);
     forest.originals.push_back(node);
     return static_cast<int>(forest.nodes.size() - 1);
 }
 
-void collectCudaBuffers(VgForest &forest, rsz::Resizer *resizer,
-                        const sta::Scene *scene, const VgOptions &options,
-                        const DesignConstraints &constraints) {
+void collectCudaBuffers(VgForest& forest, rsz::Resizer* resizer,
+                        const sta::Scene* scene, const VgOptions& options,
+                        const DesignConstraints& constraints) {
     sta::LibertyCellSeq cells;
     resizer->getBufferList(cells);
     if (cells.empty()) {
-        auto *network = resizer->dbNetwork();
-        for (auto *lib : resizer->block()->getDataBase()->getLibs())
-            for (auto *master : lib->getMasters()) {
-                auto *cell = network->libertyCell(network->dbToSta(master));
-                if (cell && cell->isBuffer())
+        auto* network = resizer->dbNetwork();
+        for (auto* lib : resizer->block()->getDataBase()->getLibs()) {
+            for (auto* master : lib->getMasters()) {
+                auto* cell = network->libertyCell(network->dbToSta(master));
+                if (cell && cell->isBuffer()) {
                     cells.push_back(cell);
+                }
             }
+        }
     }
-    for (auto *cell : cells) {
-        if (!cell || !cell->isBuffer())
+    for (auto* cell : cells) {
+        if (!cell || !cell->isBuffer()) {
             continue;
-        auto *master = resizer->dbNetwork()->staToDb(cell);
+        }
+        auto* master = resizer->dbNetwork()->staToDb(cell);
         if (std::find(constraints.excluded_masters.begin(),
                       constraints.excluded_masters.end(),
-                      master) != constraints.excluded_masters.end())
+                      master) != constraints.excluded_masters.end()) {
             continue;
+        }
         sta::LibertyPort *input = nullptr, *output = nullptr;
         cell->bufferPorts(input, output);
-        if (!input || !output)
+        if (!input || !output) {
             continue;
+        }
         VgCudaBuffer model{resizer->portCapacitance(input, scene),
                            static_cast<double>(output->intrinsicDelay(resizer->sta())),
                            output->driveResistance()};
         if (!std::isfinite(model.cap) || !std::isfinite(model.intrinsic) ||
-            !std::isfinite(model.resistance))
+            !std::isfinite(model.resistance)) {
             continue;
+        }
         forest.buffers.push_back(model);
         forest.cells.push_back(cell);
     }
 }
 
-rsz::BufferedNetPtr tracebackVg(int id, int selected, const VgForest &forest,
-                                const VgCudaForestResult &result, rsz::Resizer *resizer,
-                                const sta::Scene *scene) {
-    const auto &node = forest.nodes.at(id);
-    const auto &candidate = result.frontiers.at(id).at(selected);
-    const auto &original = forest.originals.at(id);
-    if (node.type == VgCudaNodeType::load)
+rsz::BufferedNetPtr tracebackVg(int id, int selected, const VgForest& forest,
+                                const VgCudaForestResult& result, rsz::Resizer* resizer,
+                                const sta::Scene* scene) {
+    const auto& node = forest.nodes.at(id);
+    const auto& candidate = result.frontiers.at(id).at(selected);
+    const auto& original = forest.originals.at(id);
+    if (node.type == VgCudaNodeType::load) {
         return original;
+    }
     auto left = tracebackVg(node.left, candidate.left, forest, result, resizer, scene);
     if (node.type == VgCudaNodeType::junction) {
         auto right =
@@ -410,8 +435,9 @@ rsz::BufferedNetPtr tracebackVg(int id, int selected, const VgForest &forest,
     auto wire = std::make_shared<rsz::BufferedNet>(
         rsz::BufferedNetType::wire, original->location(), original->layer(), left,
         scene, resizer, resizer->getEstimateParasitics());
-    if (candidate.buffer < 0)
+    if (candidate.buffer < 0) {
         return wire;
+    }
     return std::make_shared<rsz::BufferedNet>(
         rsz::BufferedNetType::buffer, original->location(),
         forest.cells.at(candidate.buffer), wire, scene, resizer,
@@ -419,29 +445,31 @@ rsz::BufferedNetPtr tracebackVg(int id, int selected, const VgForest &forest,
 }
 
 std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
-                                           rsz::Resizer *resizer, sta::dbSta *sta,
-                                           const VgOptions &options,
-                                           VgSolutions &report,
-                                           const DesignConstraints &constraints) {
+                                           rsz::Resizer* resizer, sta::dbSta* sta,
+                                           const VgOptions& options,
+                                           VgSolutions& report,
+                                           const DesignConstraints& constraints) {
     std::vector<VgSolution> solutions;
-    if (!resizer)
+    if (!resizer) {
         return solutions;
+    }
     resizer->initBlock();
-    const auto *scene = sta->cmdScene();
+    const auto* scene = sta->cmdScene();
     struct Input {
-        odb::dbNet *net;
+        odb::dbNet* net;
         rsz::BufferedNetPtr tree;
         double resistance;
         double unchanged_score;
     };
     std::vector<Input> inputs;
-    for (const auto &state : states) {
-        auto *driver_pin = sta->getDbNetwork()->dbToSta(state.driver);
+    for (const auto& state : states) {
+        auto* driver_pin = sta->getDbNetwork()->dbToSta(state.driver);
         auto tree = resizer->makeBufferedNetSteiner(driver_pin, scene);
-        if (!tree)
+        if (!tree) {
             continue;
+        }
         ++report.nets_collected;
-        auto *port = sta->getDbNetwork()->libertyPort(driver_pin);
+        auto* port = sta->getDbNetwork()->libertyPort(driver_pin);
         if (port) {
             const auto original = unchangedVg(tree, resizer, scene);
             const double resistance = port->driveResistance();
@@ -455,7 +483,7 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
         try {
             VgForest forest;
             collectCudaBuffers(forest, resizer, scene, options, constraints);
-            for (const auto &input : inputs) {
+            for (const auto& input : inputs) {
                 forest.roots.push_back(flattenVg(input.tree, forest, resizer, scene));
                 forest.resistance.push_back(input.resistance);
             }
@@ -467,9 +495,9 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
                 if (options.scope == ecc::VgScope::Setup) {
                     selected = -1;
                     double best_score = inputs[i].unchanged_score;
-                    const auto &frontier = result.frontiers[forest.roots[i]];
+                    const auto& frontier = result.frontiers[forest.roots[i]];
                     for (size_t j = 0; j < frontier.size(); ++j) {
-                        const auto &c = frontier[j];
+                        const auto& c = frontier[j];
                         const double score = c.slack - inputs[i].resistance * c.cap;
                         if (c.buffers && score > best_score) {
                             best_score = score;
@@ -477,9 +505,10 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
                         }
                     }
                 }
-                if (selected < 0)
+                if (selected < 0) {
                     continue;
-                const auto &candidate = result.frontiers[forest.roots[i]][selected];
+                }
+                const auto& candidate = result.frontiers[forest.roots[i]][selected];
                 best[i] = {inputs[i].net,
                            tracebackVg(forest.roots[i], selected, forest, result,
                                        resizer, scene),
@@ -487,7 +516,7 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
             }
             used_cuda = true;
             report.backend_used = "cuda";
-        } catch (const std::exception &error) {
+        } catch (const std::exception& error) {
             report.cuda_fallback = error.what();
             best.assign(inputs.size(), VgSolution{});
         }
@@ -498,11 +527,13 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
             auto candidates = runVg(inputs[i].tree, resizer, scene, sta::MinMax::max(),
                                     options, constraints);
             best[i].net = inputs[i].net;
-            if (options.scope == ecc::VgScope::Setup)
+            if (options.scope == ecc::VgScope::Setup) {
                 best[i].score = inputs[i].unchanged_score;
-            for (auto &candidate : candidates) {
-                if (candidate.tree->bufferCount() == 0)
+            }
+            for (auto& candidate : candidates) {
+                if (candidate.tree->bufferCount() == 0) {
                     continue;
+                }
                 const double score =
                     candidate.slack - inputs[i].resistance * candidate.cap;
                 if (score > best[i].score) {
@@ -512,23 +543,27 @@ std::vector<VgSolution> collectVgSolutions(std::span<const NetState> states,
             }
         }
     }
-    for (auto &solution : best)
-        if (solution.tree && solution.tree->bufferCount())
+    for (auto& solution : best) {
+        if (solution.tree && solution.tree->bufferCount()) {
             solutions.push_back(std::move(solution));
+        }
+    }
     return solutions;
 }
 
 // Decode solver topology without touching OpenDB. A returned bundle denotes
 // direct terminals and already-decoded child buffers still on the source net.
-BufferTreeNode decodeVgNode(const rsz::BufferedNetPtr &node, BufferTreePlan &plan,
-                            sta::dbNetwork *network) {
-    if (!node)
+BufferTreeNode decodeVgNode(const rsz::BufferedNetPtr& node, BufferTreePlan& plan,
+                            sta::dbNetwork* network) {
+    if (!node) {
         throw std::runtime_error("VG returned a null tree node");
+    }
     switch (node->type()) {
     case rsz::BufferedNetType::load: {
-        auto *object = network->staToDb(node->loadPin());
-        if (!object)
+        auto* object = network->staToDb(node->loadPin());
+        if (!object) {
             throw std::runtime_error("VG tree load has no OpenDB terminal");
+        }
         return {.loads = {object}};
     }
     case rsz::BufferedNetType::wire:
@@ -555,31 +590,35 @@ BufferTreeNode decodeVgNode(const rsz::BufferedNetPtr &node, BufferTreePlan &pla
 
 } // namespace vg_detail
 
-VgSolutions VanGinneken::solve(odb::dbBlock *block, sta::dbSta *sta,
+VgSolutions VanGinneken::solve(odb::dbBlock* block, sta::dbSta* sta,
                                std::span<const detail::NetState> states,
-                               rsz::Resizer *resizer, const VgOptions &options,
-                               const DesignConstraints &constraints) {
+                               rsz::Resizer* resizer, const VgOptions& options,
+                               const DesignConstraints& constraints) {
     using namespace vg_detail;
     options.validate();
     if (!block || !sta || sta->getDbNetwork()->block() != block ||
-        sta->scenes().size() != 1 || (resizer && resizer->sta() != sta))
+        sta->scenes().size() != 1 || (resizer && resizer->sta() != sta)) {
         throw std::invalid_argument("VG solve requires one live OpenDB/STA scene");
-    if (options.scope == VgScope::Setup && !resizer)
+    }
+    if (options.scope == VgScope::Setup && !resizer) {
         throw std::invalid_argument("VG setup scope requires the Steiner-tree solver");
-    std::unordered_set<odb::dbNet *> seen;
-    for (const auto &state : states) {
+    }
+    std::unordered_set<odb::dbNet*> seen;
+    for (const auto& state : states) {
         if (!state.net || state.net->getBlock() != block || !state.driver ||
-            state.driver->getNet() != state.net || !seen.insert(state.net).second)
+            state.driver->getNet() != state.net || !seen.insert(state.net).second) {
             throw std::invalid_argument(
                 "VG solve requires unique current net snapshots");
+        }
     }
     VgSolutions result;
-    if (states.empty())
+    if (states.empty()) {
         return result;
+    }
     if (resizer) {
         auto solutions =
             collectVgSolutions(states, resizer, sta, options, result, constraints);
-        for (const auto &solution : solutions) {
+        for (const auto& solution : solutions) {
             BufferTreePlan plan;
             plan.net = solution.net;
             decodeVgNode(solution.tree, plan, sta->getDbNetwork());
@@ -587,7 +626,7 @@ VgSolutions VanGinneken::solve(odb::dbBlock *block, sta::dbSta *sta,
         }
     } else {
         detail::DesignAnalysis analysis(block, sta, options.common, constraints);
-        for (auto &candidate :
+        for (auto& candidate :
              collectPlans(analysis, states, options, result.nets_collected)) {
             BufferTreePlan plan;
             plan.net = candidate.net;
@@ -599,41 +638,47 @@ VgSolutions VanGinneken::solve(odb::dbBlock *block, sta::dbSta *sta,
     return result;
 }
 
-VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
-                          const std::function<void()> &refresh,
-                          const VgOptions &options, const RepairRuntime &runtime) {
+VgResult VanGinneken::run(odb::dbBlock* block, sta::dbSta* sta,
+                          const std::function<void()>& refresh,
+                          const VgOptions& options, const RepairRuntime& runtime) {
     return run(block, sta, refresh, nullptr, options, runtime);
 }
 
-VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
-                          const std::function<void()> &refresh, rsz::Resizer *resizer,
-                          const VgOptions &options, const RepairRuntime &runtime) {
+VgResult VanGinneken::run(odb::dbBlock* block, sta::dbSta* sta,
+                          const std::function<void()>& refresh, rsz::Resizer* resizer,
+                          const VgOptions& options, const RepairRuntime& runtime) {
     using namespace vg_detail;
     VgResult result;
     std::optional<EcoTransaction> transaction;
     try {
         options.validate();
         if (!block || !sta || !refresh || sta->getDbNetwork()->block() != block ||
-            sta->scenes().size() != 1)
+            sta->scenes().size() != 1) {
             throw std::invalid_argument(
                 "VG run requires block, one STA scene and refresh");
-        if (options.scope == VgScope::Setup && !resizer)
+        }
+        if (options.scope == VgScope::Setup && !resizer) {
             throw std::invalid_argument(
                 "VG setup scope requires the Steiner-tree solver");
+        }
         detail::DesignAnalysis analysis(block, sta, options.common,
                                         runtime.constraints);
-        if (!analysis.hasCells())
+        if (!analysis.hasCells()) {
             throw std::runtime_error("VG found no usable combinational cells");
+        }
         std::vector<NetState> states;
         {
             Timer timer{&result.collect_ms};
-            for (auto &state : analysis.analyze(result.before, true)) {
-                if (!eligible(state, sta, options))
+            for (auto& state : analysis.analyze(result.before, true)) {
+                if (!eligible(state, sta, options)) {
                     continue;
-                if (!resizer && state.loads.size() < 2)
+                }
+                if (!resizer && state.loads.size() < 2) {
                     continue;
-                if (options.max_nets && states.size() >= options.max_nets)
+                }
+                if (options.max_nets && states.size() >= options.max_nets) {
                     break;
+                }
                 states.push_back(std::move(state));
             }
         }
@@ -654,8 +699,10 @@ VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
         result.backend_used = solutions.backend_used;
         result.cuda_fallback = std::move(solutions.cuda_fallback);
         std::vector<std::size_t> counts;
-        for (const auto &plan : solutions.plans)
+        counts.reserve(solutions.plans.size());
+        for (const auto& plan : solutions.plans) {
             counts.push_back(plan.nodes.size());
+        }
         const auto selected = selectWholeBufferPlans(counts, options.max_buffers);
         result.plans_collected = selected.size();
         if (selected.empty()) {
@@ -671,9 +718,10 @@ VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
             BufferInsertionOptions naming;
             naming.buffer_name_prefix = "sizer_vg_buf";
             naming.net_name_prefix = "sizer_vg_net";
-            for (auto i : selected)
+            for (auto i : selected) {
                 result.attempted_buffers +=
                     applyBufferTree(solutions.plans[i], naming).insertions.size();
+            }
         }
         refresh();
         ++result.refreshes;
@@ -695,14 +743,14 @@ VgResult VanGinneken::run(odb::dbBlock *block, sta::dbSta *sta,
         result.converged =
             result.after.severity <= options.common.tolerances.drv_severity;
         result.message = "VG one-shot plan applied";
-    } catch (const std::exception &error) {
+    } catch (const std::exception& error) {
         result.message = error.what();
         if (transaction && transaction->active()) {
             transaction->rollback();
             try {
                 refresh();
                 ++result.refreshes;
-            } catch (const std::exception &restore_error) {
+            } catch (const std::exception& restore_error) {
                 result.message +=
                     std::string("; rollback refresh failed: ") + restore_error.what();
             }

@@ -29,6 +29,30 @@ GOBI requires a usable CUDA device; requesting it without one is an error.
 VG defaults to CPU and can use CUDA with `--set vg.backend=cuda`; its existing
 CPU fallback policy remains available.
 
+## C++ checks
+
+Generate the compilation database and check project sources with LLVM 18
+`clang-tidy` and `clangd`:
+
+```sh
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+python3 scripts/check_cpp.py --build-dir build --tool clang-tidy
+python3 scripts/check_cpp.py --build-dir build --tool clangd
+```
+
+Use `--executable /usr/lib/llvm-18/bin/clang-tidy` (or `clangd`) if the tool
+is not on PATH, and `--jobs N` to limit concurrency. The script checks every
+unique project translation unit in `src/` from that build, without changing
+files; it excludes third-party sources and test translation units. Enable both
+CUDA solvers when configuring to include their `.cu` files. For those files,
+the script translates NVCC flags for Clang's parser, preserving C++17 and the
+build's include paths/defines; normal C++ files use the actual C++20 commands.
+Clang parsing does not replace an NVCC build or CUDA runtime tests.
+
+The root `.clang-tidy` enables focused correctness, performance and modernization
+checks, including mandatory control-flow braces. `.clang-format` provides one
+format for all project sources; this tree was formatted with clang-format 22.
+
 ## Run
 
 A single OpenROAD input script is sufficient. It loads the libraries, physical

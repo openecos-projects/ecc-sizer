@@ -23,10 +23,10 @@ struct LegalizeNode {
 // out_x is in DBU on the site grid, out_row is the row index (row y is
 // base_y + out_row*site_h, reported via base_x/base_y/num_rows_out).
 // Returns -1 when the input is inapplicable (caller should fall back).
-int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
-                   int site_h, std::vector<LegalizeNode>& nodes,
-                   int num_movable, double padding_sites,
-                   std::vector<double>& out_x, std::vector<int>& out_row,
-                   int& base_x, int& base_y, int& num_rows_out);
+int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w, int site_h,
+                   std::vector<LegalizeNode>& nodes, int num_movable,
+                   double padding_sites, std::vector<double>& out_x,
+                   std::vector<int>& out_row, int& base_x, int& base_y,
+                   int& num_rows_out);
 
-}  // namespace ecc
+} // namespace ecc

@@ -15,10 +15,10 @@ struct RepairAnalysisChanges;
 
 // Object references belong to the current design, never to serialized policy.
 struct DesignConstraints {
-    std::vector<odb::dbMaster *> excluded_masters;
-    std::vector<odb::dbInst *> excluded_instances;
+    std::vector<odb::dbMaster*> excluded_masters;
+    std::vector<odb::dbInst*> excluded_instances;
     // Protect masters during compound recovery without hiding timing cones.
-    std::vector<odb::dbInst *> excluded_resize_instances;
+    std::vector<odb::dbInst*> excluded_resize_instances;
 };
 
 // refresh remains an explicit required argument of repair/run. prepare is
@@ -29,8 +29,8 @@ struct RepairRuntime {
 };
 struct PathRuntime : RepairRuntime {
     // A rejected trial may still have deferred timing refresh.
-    std::function<void(unsigned, const PathBufferTrial &)> trial_observer;
-    std::function<void(const PathFanoutCheck &)> fanout_observer;
+    std::function<void(unsigned, const PathBufferTrial&)> trial_observer;
+    std::function<void(const PathFanoutCheck&)> fanout_observer;
     // Full RC/STA verification, including after final legalization.
     std::function<void()> verification_refresh;
     std::function<void()> incremental_verification;

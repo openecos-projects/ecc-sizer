@@ -27,12 +27,12 @@ namespace ecc {
 // placement refresh remain explicit algorithm policy, including after rollback.
 class EcoTransaction {
   public:
-    explicit EcoTransaction(odb::dbBlock *block);
+    explicit EcoTransaction(odb::dbBlock* block);
     ~EcoTransaction();
-    EcoTransaction(const EcoTransaction &) = delete;
-    EcoTransaction &operator=(const EcoTransaction &) = delete;
-    EcoTransaction(EcoTransaction &&) = delete;
-    EcoTransaction &operator=(EcoTransaction &&) = delete;
+    EcoTransaction(const EcoTransaction&) = delete;
+    EcoTransaction& operator=(const EcoTransaction&) = delete;
+    EcoTransaction(EcoTransaction&&) = delete;
+    EcoTransaction& operator=(EcoTransaction&&) = delete;
 
     bool active() const { return active_; }
     void suspend();
@@ -40,7 +40,7 @@ class EcoTransaction {
     void rollback();
 
   private:
-    odb::dbBlock *block_;
+    odb::dbBlock* block_;
     bool active_ = true;
     bool suspended_ = false;
 };
@@ -70,32 +70,32 @@ enum class BufferInsertionStatus {
 struct BufferInsertionResult {
     BufferInsertionStatus status = BufferInsertionStatus::kInsertionFailed;
     std::string message;
-    odb::dbInst *buffer = nullptr;
-    odb::dbITerm *input_pin = nullptr;
-    odb::dbITerm *output_pin = nullptr;
-    odb::dbNet *input_net = nullptr;
-    odb::dbNet *output_net = nullptr;
-    std::vector<odb::dbNet *> affected_nets;
+    odb::dbInst* buffer = nullptr;
+    odb::dbITerm* input_pin = nullptr;
+    odb::dbITerm* output_pin = nullptr;
+    odb::dbNet* input_net = nullptr;
+    odb::dbNet* output_net = nullptr;
+    std::vector<odb::dbNet*> affected_nets;
 
     bool ok() const { return status == BufferInsertionStatus::kSuccess; }
     explicit operator bool() const { return ok(); }
 };
 
 struct CellReplacement {
-    odb::dbInst *instance = nullptr;
-    odb::dbMaster *master = nullptr;
+    odb::dbInst* instance = nullptr;
+    odb::dbMaster* master = nullptr;
 };
 
 // Physical/pin compatibility only; algorithms establish logical equivalence.
-bool compatibleCellMasters(odb::dbMaster *from, odb::dbMaster *to);
+bool compatibleCellMasters(odb::dbMaster* from, odb::dbMaster* to);
 // Reject protected instances and incompatible masters. Timing refresh belongs
 // to the caller; an unchanged master is a successful no-op.
-bool replaceCell(const CellReplacement &replacement);
+bool replaceCell(const CellReplacement& replacement);
 
 struct BufferInsertion {
-    odb::dbNet *net = nullptr;
-    std::vector<odb::dbObject *> loads;
-    odb::dbMaster *master = nullptr;
+    odb::dbNet* net = nullptr;
+    std::vector<odb::dbObject*> loads;
+    odb::dbMaster* master = nullptr;
     BufferInsertionOptions options;
 };
 
@@ -110,7 +110,7 @@ struct BufferTreeNode {
     std::vector<std::size_t> children;
 };
 struct BufferTreePlan {
-    odb::dbNet *net = nullptr;
+    odb::dbNet* net = nullptr;
     std::vector<BufferTreeNode> nodes;
 };
 struct BufferTreeEdits {
@@ -120,28 +120,28 @@ struct BufferTreeEdits {
 // Validate the complete topology before any edit, then apply in postorder.
 // No ranking, timing checks or commit. The caller owns an ECO and must roll
 // back if insertion fails; returned pins are invalid after that rollback.
-BufferTreeEdits applyBufferTree(const BufferTreePlan &plan,
-                                const BufferInsertionOptions &naming = {});
+BufferTreeEdits applyBufferTree(const BufferTreePlan& plan,
+                                const BufferInsertionOptions& naming = {});
 
 // Apply every supplied insertion; the caller owns rollback on any failure.
-unsigned insertBuffers(const std::vector<BufferInsertion> &insertions);
+unsigned insertBuffers(const std::vector<BufferInsertion>& insertions);
 
 // Validates and applies buffer edits to OpenDB. Candidate selection and
 // acceptance belong to algorithms; this layer has no Resizer dependency.
 class OpenDbBufferInserter {
   public:
     static BufferInsertionResult
-    insertBufferAfterDriver(odb::dbNet *net, odb::dbMaster *buffer_master,
-                            const BufferInsertionOptions &options = {});
+    insertBufferAfterDriver(odb::dbNet* net, odb::dbMaster* buffer_master,
+                            const BufferInsertionOptions& options = {});
 
     static BufferInsertionResult
-    insertBufferBeforeLoad(odb::dbObject *load, odb::dbMaster *buffer_master,
-                           const BufferInsertionOptions &options = {});
+    insertBufferBeforeLoad(odb::dbObject* load, odb::dbMaster* buffer_master,
+                           const BufferInsertionOptions& options = {});
 
     static BufferInsertionResult
-    insertBufferBeforeLoads(odb::dbNet *net, const std::vector<odb::dbObject *> &loads,
-                            odb::dbMaster *buffer_master,
-                            const BufferInsertionOptions &options = {});
+    insertBufferBeforeLoads(odb::dbNet* net, const std::vector<odb::dbObject*>& loads,
+                            odb::dbMaster* buffer_master,
+                            const BufferInsertionOptions& options = {});
 };
 
 } // namespace ecc

@@ -12,22 +12,20 @@
 
 namespace ecc {
 namespace {
-bool isExternalPadOnlyNet(odb::dbNet* db_net)
-{
-    if(db_net == nullptr || db_net->getBTerms().empty() ||
-       db_net->getITerms().empty()) {
+bool isExternalPadOnlyNet(odb::dbNet* db_net) {
+    if (db_net == nullptr || db_net->getBTerms().empty() ||
+        db_net->getITerms().empty()) {
         return false;
     }
 
-    for(auto* iterm : db_net->getITerms()) {
-        if(iterm == nullptr || iterm->getMTerm() == nullptr ||
-           iterm->getMTerm()->getMaster() == nullptr) {
+    for (auto* iterm : db_net->getITerms()) {
+        if (iterm == nullptr || iterm->getMTerm() == nullptr ||
+            iterm->getMTerm()->getMaster() == nullptr) {
             return false;
         }
-        const odb::dbMasterType type
-            = iterm->getMTerm()->getMaster()->getType();
-        if(!(type.isPad() || type.isCover()) ||
-           iterm->getMTerm()->getName() != "PAD") {
+        const odb::dbMasterType type = iterm->getMTerm()->getMaster()->getType();
+        if (!(type.isPad() || type.isCover()) ||
+            iterm->getMTerm()->getName() != "PAD") {
             return false;
         }
     }
@@ -35,17 +33,16 @@ bool isExternalPadOnlyNet(odb::dbNet* db_net)
     return true;
 }
 
-}  // namespace
+} // namespace
 
-int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block)
-{
-    if(block == nullptr) {
+int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block) {
+    if (block == nullptr) {
         return 0;
     }
 
     int marked = 0;
-    for(auto* db_net : block->getNets()) {
-        if(isExternalPadOnlyNet(db_net) && !db_net->isDoNotTouch()) {
+    for (auto* db_net : block->getNets()) {
+        if (isExternalPadOnlyNet(db_net) && !db_net->isDoNotTouch()) {
             db_net->setDoNotTouch(true);
             ++marked;
         }
@@ -53,55 +50,50 @@ int markExternalPadOnlyNetsDontTouch(odb::dbBlock* block)
     return marked;
 }
 
-
-
-int connectMissingWildcardSpecialNetPins(odb::dbBlock* block)
-{
+int connectMissingWildcardSpecialNetPins(odb::dbBlock* block) {
     // DEF wildcard connections cover only the instances present while reading.
     // Extend them to later insertions without overriding an explicit connection.
-    std::unordered_map<std::string, std::vector<odb::dbITerm*>>
-        iterms_by_mterm_name;
-    for(odb::dbInst* inst : block->getInsts()) {
-        for(odb::dbITerm* iterm : inst->getITerms()) {
+    std::unordered_map<std::string, std::vector<odb::dbITerm*>> iterms_by_mterm_name;
+    for (odb::dbInst* inst : block->getInsts()) {
+        for (odb::dbITerm* iterm : inst->getITerms()) {
             iterms_by_mterm_name[iterm->getMTerm()->getName()].push_back(iterm);
         }
     }
 
     int connected = 0;
-    for(odb::dbNet* net : block->getNets()) {
-        if(!net->isSpecial() || !net->isWildConnected() ||
-           net->isDoNotTouch()) {
+    for (odb::dbNet* net : block->getNets()) {
+        if (!net->isSpecial() || !net->isWildConnected() || net->isDoNotTouch()) {
             continue;
         }
 
         std::unordered_set<std::string> wildcard_mterm_names;
-        for(odb::dbITerm* iterm : net->getITerms()) {
-            if(iterm->isSpecial()) {
+        for (odb::dbITerm* iterm : net->getITerms()) {
+            if (iterm->isSpecial()) {
                 wildcard_mterm_names.insert(iterm->getMTerm()->getName());
             }
         }
 
-        for(const std::string& mterm_name : wildcard_mterm_names) {
+        for (const std::string& mterm_name : wildcard_mterm_names) {
             const auto found = iterms_by_mterm_name.find(mterm_name);
-            if(found == iterms_by_mterm_name.end()) {
+            if (found == iterms_by_mterm_name.end()) {
                 continue;
             }
 
             bool has_conflict = false;
-            for(odb::dbITerm* iterm : found->second) {
+            for (odb::dbITerm* iterm : found->second) {
                 odb::dbNet* current_net = iterm->getNet();
-                if((current_net != nullptr && current_net != net) ||
-                   (current_net == nullptr && iterm->getInst()->isDoNotTouch())) {
+                if ((current_net != nullptr && current_net != net) ||
+                    (current_net == nullptr && iterm->getInst()->isDoNotTouch())) {
                     has_conflict = true;
                     break;
                 }
             }
-            if(has_conflict) {
+            if (has_conflict) {
                 continue;
             }
 
-            for(odb::dbITerm* iterm : found->second) {
-                if(iterm->getNet() == nullptr) {
+            for (odb::dbITerm* iterm : found->second) {
+                if (iterm->getNet() == nullptr) {
                     iterm->connect(net);
                     iterm->setSpecial();
                     connected++;
@@ -113,4 +105,4 @@ int connectMissingWildcardSpecialNetPins(odb::dbBlock* block)
     return connected;
 }
 
-}  // namespace ecc
+} // namespace ecc

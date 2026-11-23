@@ -13,10 +13,10 @@ namespace ecc {
 // isolation and the ECO path remains owned by Sizer.
 bool vgCudaAvailable();
 std::vector<int> vgCudaSelect(const std::vector<int>& offsets,
-                               const std::vector<double>& cap,
-                               const std::vector<double>& slack,
-                               const std::vector<unsigned>& buffer_count,
-                               const std::vector<double>& driver_resistance);
+                              const std::vector<double>& cap,
+                              const std::vector<double>& slack,
+                              const std::vector<unsigned>& buffer_count,
+                              const std::vector<double>& driver_resistance);
 
 // Postorder forest: children precede parents. Wire RC is total segment RC;
 // load nodes supply sink capacitance and required time. No N_SEG subdivision.
@@ -42,19 +42,18 @@ struct VgCudaCandidate {
     int right = -1;  // Candidate index in right child frontier.
     int buffer = -1; // Library index, or unbuffered wire.
     int node = -1;
-    int order = -1;  // Stable enumeration order before Pareto pruning.
+    int order = -1; // Stable enumeration order before Pareto pruning.
 };
 struct VgCudaForestResult {
     std::vector<std::vector<VgCudaCandidate>> frontiers;
-    std::vector<int> selected;  // Local index in each root frontier.
+    std::vector<int> selected; // Local index in each root frontier.
 };
 // Propagate, merge, prune and select on GPU; host reconstructs only selected
 // trees. Throws on invalid input, unavailable CUDA or memory budget exhaustion.
-VgCudaForestResult vgCudaSolve(
-    const std::vector<VgCudaNode>& nodes,
-    const std::vector<VgCudaBuffer>& buffers,
-    const std::vector<int>& roots,
-    const std::vector<double>& driver_resistance,
-    size_t max_memory_bytes = size_t{512} * 1024 * 1024);
+VgCudaForestResult vgCudaSolve(const std::vector<VgCudaNode>& nodes,
+                               const std::vector<VgCudaBuffer>& buffers,
+                               const std::vector<int>& roots,
+                               const std::vector<double>& driver_resistance,
+                               size_t max_memory_bytes = size_t{512} * 1024 * 1024);
 
-}  // namespace ecc
+} // namespace ecc

@@ -22,10 +22,10 @@ struct DrvNetPlan {
     std::optional<CellReplacement> replacement;
     std::vector<BufferInsertion> buffers;
 };
-DrvNetPlan planDrvNetRepair(detail::DesignAnalysis &analysis,
-                            detail::CellCandidates &cells, sta::dbSta *sta,
-                            const detail::NetState &input, unsigned available,
-                            bool allow_resize, const RepairCommonOptions &options);
+DrvNetPlan planDrvNetRepair(detail::DesignAnalysis& analysis,
+                            detail::CellCandidates& cells, sta::dbSta* sta,
+                            const detail::NetState& input, unsigned available,
+                            bool allow_resize, const RepairCommonOptions& options);
 
 struct DrvRepairResult {
     bool ok = false;
@@ -49,10 +49,10 @@ struct DrvRepairResult {
 // synchronization boundary.
 class DrvRepairer {
   public:
-    static DrvRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
-                                  const std::function<void()> &refresh,
-                                  const DrvRepairOptions &options = {},
-                                  const RepairRuntime &runtime = {});
+    static DrvRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
+                                  const std::function<void()>& refresh,
+                                  const DrvRepairOptions& options = {},
+                                  const RepairRuntime& runtime = {});
 };
 
 // OpenROAD-style DRV repair: drivers are visited in the reverse levelized
@@ -76,17 +76,17 @@ struct OrdDrvRepairResult {
 
 class OrdDrvRepairer {
   public:
-    static OrdDrvRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
-                                     const std::function<void()> &refresh,
-                                     const DrvRepairOptions &options = {},
-                                     const RepairRuntime &runtime = {});
+    static OrdDrvRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
+                                     const std::function<void()>& refresh,
+                                     const DrvRepairOptions& options = {},
+                                     const RepairRuntime& runtime = {});
 };
 
 struct FanoutRepairOptions {
     unsigned max_fanout = 64;
     unsigned max_levels = 32;
     bool repair_clock_nets = false;
-    std::vector<odb::dbNet *> excluded_nets;
+    std::vector<odb::dbNet*> excluded_nets;
     BufferInsertionOptions insertion;
 };
 
@@ -106,8 +106,8 @@ struct FanoutRepairResult {
     unsigned violating_nets = 0;
     unsigned before_max_fanout = 0;
     unsigned after_max_fanout = 0;
-    std::vector<odb::dbInst *> inserted_buffers;
-    std::vector<odb::dbNet *> affected_nets;
+    std::vector<odb::dbInst*> inserted_buffers;
+    std::vector<odb::dbNet*> affected_nets;
 
     bool ok() const { return status == FanoutRepairStatus::kSuccess; }
     explicit operator bool() const { return ok(); }
@@ -115,11 +115,11 @@ struct FanoutRepairResult {
 
 class OpenDbFanoutRepairer {
   public:
-    static FanoutRepairResult repair(odb::dbBlock *block, odb::dbMaster *buffer_master,
-                                     const FanoutRepairOptions &options = {});
+    static FanoutRepairResult repair(odb::dbBlock* block, odb::dbMaster* buffer_master,
+                                     const FanoutRepairOptions& options = {});
 
-    static unsigned loadCount(odb::dbNet *net);
-    static unsigned maxFanout(odb::dbBlock *block, bool include_clock_nets = false);
+    static unsigned loadCount(odb::dbNet* net);
+    static unsigned maxFanout(odb::dbBlock* block, bool include_clock_nets = false);
 };
 
 struct PowerRepairMetrics {
@@ -143,9 +143,9 @@ struct PowerRepairResult {
 // Uses the caller's STA activity assumptions. No Resizer strategy calls.
 class OpenDbPowerRepairer {
   public:
-    static PowerRepairResult repair(odb::dbBlock *block, sta::dbSta *sta,
-                                    const std::function<void()> &refresh,
-                                    const PowerRepairOptions &options = {},
-                                    const RepairRuntime &runtime = {});
+    static PowerRepairResult repair(odb::dbBlock* block, sta::dbSta* sta,
+                                    const std::function<void()>& refresh,
+                                    const PowerRepairOptions& options = {},
+                                    const RepairRuntime& runtime = {});
 };
 } // namespace ecc
