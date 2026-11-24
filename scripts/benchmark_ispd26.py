@@ -7,17 +7,44 @@ once evaluated. Each profile starts from the same original placement.
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
+import resource
+import shlex
 import subprocess
 import time
+
+from print_ispd26_results import DESIGNS, write_reports
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILES = {
     "baseline": ("legalize", {}),
     "drv-setup": ("drv,setup", {}),
     "vg": ("vg", {}),
-    "path": ("path", {}),
+    "gobi": ("gobi", {}),
+    "path": ("path", {
+        "buffer.path.placement": "final",
+        "buffer.path.verification": "final",
+        "buffer.path.incremental_parasitics": "true",
+        "buffer.path.incremental_analysis": "true",
+        "buffer.path.adaptive_search": "true",
+        "buffer.path.reuse_rejections": "true",
+        "buffer.path.timing_precheck": "true",
+        "buffer.path.endpoint_coverage": "false",
+        "buffer.path.group_schedule": "false",
+        "buffer.path.gain_scope": "global",
+        "buffer.path.min_relative_improvement": "0",
+        "buffer.path.min_improvement_ns": "0",
+        "buffer.path.max_area_growth": "unlimited",
+        "buffer.path.max_trials": "unlimited",
+        "buffer.path.max_refreshes": "unlimited",
+        "buffer.path.search_patience": "32",
+        "buffer.path.progress_fraction": "0.05",
+        "buffer.path.max_paths": "16",
+        "buffer.path.max_candidates": "8",
+        "buffer.path.batch_size": "1",
+    }),
     "path-drv-setup": ("path,drv,setup", {}),
 }
 
@@ -105,6 +132,7 @@ report_checks -path_delay max -digits 6
 
 def execute(command, log, timeout):
     start = time.monotonic()
+    cpu_before = resource.getrusage(resource.RUSAGE_CHILDREN)
     with log.open("w") as stream:
         try:
             result = subprocess.run(command, cwd=ROOT, stdout=stream,
@@ -112,8 +140,11 @@ def execute(command, log, timeout):
             code = result.returncode
         except subprocess.TimeoutExpired:
             code = "timeout"
+    cpu_after = resource.getrusage(resource.RUSAGE_CHILDREN)
     return {"command": list(map(str, command)), "returncode": code,
-            "seconds": time.monotonic() - start}
+            "seconds": time.monotonic() - start,
+            "user_seconds": cpu_after.ru_utime - cpu_before.ru_utime,
+            "system_seconds": cpu_after.ru_stime - cpu_before.ru_stime}
 
 
 def run_case(args, design, profile, identity):
@@ -137,10 +168,24 @@ def run_case(args, design, profile, identity):
                "--log-level", "debug"]
     for key, value in config.items():
         command.extend(["--set", f"{key}={value}"])
+    (directory / "run.sh").write_text("#!/bin/sh\nexec " + shlex.join(command) + "\n")
+    if args.dry_run:
+        print(shlex.join(command), flush=True)
+        return None
     result = {"identity": identity, "design": design, "profile": profile,
               "flow": flow, "overrides": config, "ok": False}
     print(f"RUN {design}/{profile}", flush=True)
     result["sizer"] = execute(command, directory / "sizer.log", args.timeout)
+    log = (directory / "sizer.log").read_text()
+    result["stages"] = {name: {"seconds": float(seconds)} for name, seconds in
+                        re.findall(r"\[info\] (\S+) finished in ([\d.]+)s;", log)}
+    match = re.search(r'Buffer solve: strategy=(\w+) backend=(\w+) nets=(\d+) plans=(\d+) buffers=(\d+) collect=([\d.]+)s solve=([\d.]+)s apply=([\d.]+)s fallback="([^"]*)"', log)
+    if match:
+        strategy, backend, nets, plans, buffers, collect, solve, apply, fallback = match.groups()
+        result["solver"] = dict(strategy=strategy, backend=backend, nets=int(nets),
+                                plans=int(plans), buffers=int(buffers),
+                                collect_seconds=float(collect), solve_seconds=float(solve),
+                                apply_seconds=float(apply), fallback=fallback)
     if result["sizer"]["returncode"] == 0:
         script = directory / "evaluate.tcl"
         # A fresh process of the same binary, terminating from the Tcl loader
@@ -155,11 +200,18 @@ def run_case(args, design, profile, identity):
                              re.findall(r"^BENCH_METRIC (\w+) (\S+)$", log, re.M)}
         result["ok"] = (result["evaluation"]["returncode"] == 0 and
                         len(result["metrics"]) == 16 and
+                        all(math.isfinite(value) for value in result["metrics"].values()) and
                         result["metrics"]["forbidden_inserted_buffers"] == 0 and
                         result["metrics"]["unplaced"] == 0 and
                         result["metrics"]["supply_pin_errors"] == 0)
-        for suffix in (".def", ".v", ".odb"):
-            prefix.with_suffix(suffix).unlink(missing_ok=True)
+        if profile in ("vg", "gobi"):
+            solver = result.get("solver", {})
+            result["ok"] = result["ok"] and bool(solver) and not solver.get("fallback")
+            if profile == "gobi":
+                result["ok"] = result["ok"] and solver.get("backend") == "cuda"
+        if result["ok"]:
+            for suffix in (".def", ".v", ".odb"):
+                prefix.with_suffix(suffix).unlink(missing_ok=True)
     result_file.write_text(json.dumps(result, indent=2) + "\n")
     print(f"{'PASS' if result['ok'] else 'FAIL'} {design}/{profile} "
           f"{result['sizer']['seconds']:.1f}s {result.get('metrics', {})}", flush=True)
@@ -168,25 +220,34 @@ def run_case(args, design, profile, identity):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--benchmark", type=Path, required=True)
-    parser.add_argument("--sizer", type=Path, default=ROOT / "build-gbi-cuda3/src/Sizer")
+    parser.add_argument("--benchmark", type=Path, default=ROOT.parent / "ISPD26-Contest/gbi_benchmark/ISPD26")
+    parser.add_argument("--sizer", type=Path, default=ROOT / "build/src/Sizer")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--designs", nargs="+", required=True)
+    parser.add_argument("--designs", nargs="+", choices=DESIGNS, default=list(DESIGNS))
     parser.add_argument("--profiles", nargs="+", choices=PROFILES,
-                        default=["baseline", "drv-setup", "vg", "path"])
+                        default=["baseline", "drv-setup", "vg", "gobi", "path"])
     parser.add_argument("--threads", type=int, default=32)
     parser.add_argument("--timeout", type=float, default=1800)
     parser.add_argument("--set", action="append", default=[])
-    parser.add_argument("--dont-use", action="append", default=[],
+    parser.add_argument("--dont-use", action="append", default=None,
                         help="Liberty cell pattern excluded through OpenROAD set_dont_use; repeatable")
+    parser.add_argument("--dry-run", action="store_true", help="Write inputs and run.sh commands without executing Sizer")
     args = parser.parse_args()
+    if args.dont_use is None:
+        args.dont_use = ["BUFx*_L", "BUFx*_SL", "HB*_L", "HB*_SL"]
+    if args.threads < 1 or not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("threads and timeout must be positive")
+    for value in args.set:
+        if "=" not in value:
+            parser.error("--set requires KEY=VALUE")
     for key in ("benchmark", "sizer", "output"):
         setattr(args, key, getattr(args, key).resolve())
     args.output.mkdir(parents=True, exist_ok=True)
     identity = {"binary_sha256": digest(args.sizer), "threads": args.threads,
                 "overrides": args.set, "dont_use": args.dont_use,
                 "benchmark": str(args.benchmark),
-                "runner_sha256": digest(Path(__file__))}
+                "runner_sha256": digest(Path(__file__)),
+                "reporter_sha256": digest(ROOT / "scripts/print_ispd26_results.py")}
     manifest = {"identity": identity,
                 "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                 "design_inputs": {design: {p.name: digest(p) for p in
@@ -200,9 +261,15 @@ def main():
         raise RuntimeError("Use a new output directory for a different experiment")
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     (args.output / "source.diff").write_bytes(subprocess.check_output(["git", "diff", "HEAD", "--", "src", "tests", "README.md"], cwd=ROOT))
-    results = [run_case(args, design, profile, identity)
-               for design in args.designs for profile in args.profiles]
-    (args.output / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+    results = []
+    for design in args.designs:
+        for profile in args.profiles:
+            result = run_case(args, design, profile, identity)
+            if result is not None:
+                results.append(result)
+                (args.output / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+    if not args.dry_run:
+        write_reports(args.output, show=True)
     return not all(result["ok"] for result in results)
 
 

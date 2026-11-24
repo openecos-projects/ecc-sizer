@@ -5,9 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(ENABLE_VG_CUDA
-       "Build the optional CUDA VG solver for Sizer VG" OFF)
+       "Build the CUDA VG solver for Sizer VG" ON)
 option(ENABLE_GOBI_CUDA
-       "Build the CUDA GOBI solver migrated from OpenROAD rsz" OFF)
+       "Build the CUDA GOBI solver migrated from OpenROAD rsz" ON)
 
 include(CTest)
 

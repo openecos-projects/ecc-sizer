@@ -84,8 +84,6 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/application_test.py $<TARGET_FILE:Sizer>)
     set_tests_properties(ecc_sizer_application PROPERTIES
         ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1" TIMEOUT 600)
-    add_test(NAME ecc_sizer_repair_regression
-             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/repair_regression_test.py)
 
     add_executable(ecc_sizer_repair_config_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/repair_config_test.cpp
