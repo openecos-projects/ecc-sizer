@@ -113,8 +113,8 @@ struct BufferRepairResult {
     unsigned attempted_trials = 0;
     unsigned accepted_trials = 0;
     unsigned rejected_trials = 0;
-    unsigned consecutive_rejections = 0;
-    bool stopped_on_rejections = false;
+    double remaining_patience = 0;
+    bool stopped_on_low_progress = false;
     size_t electrical_full_scans = 0;
     size_t electrical_net_checks = 0;
     size_t electrical_instance_checks = 0;

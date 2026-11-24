@@ -10,6 +10,7 @@
 #include "algorithms/path.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -588,7 +589,10 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
     CandidateCollection collection;
     feedback.beginCollection();
     auto* network = sta->getDbNetwork();
+    const auto sample_start = std::chrono::steady_clock::now();
     const PathSamples samples(sta, options);
+    collection.sampling_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - sample_start).count();
     const auto& [uses, endpoint_pins, sampled_paths, actual_endpoint_slacks,
                  endpoint_profiles] = samples;
     if (endpoint_pins.empty()) {
@@ -607,11 +611,19 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
             bufferCapLimit(sta, buffer) * (1 - options.common.margin),
             bufferFanoutLimit(sta, buffer), bufferSlewLimit(sta, buffer));
     }
-    for (const auto& state : states) {
-        const auto use_it = uses.find(state.net);
-        if (!state.driver || use_it == uses.end()) {
+    for (const auto& source : states) {
+        const auto use_it = uses.find(source.net);
+        if (!source.driver || use_it == uses.end()) {
             continue;
         }
+        // ECO reconnects can reorder OpenDB's terminal lists. Canonicalize the
+        // selected net before spatial splits/tree packing use load indices as
+        // tie breakers; the same committed design must yield the same groups.
+        auto state = source;
+        std::sort(state.loads.begin(), state.loads.end(), [](const auto& a, const auto& b) {
+            return std::make_tuple(a.term->getObjectType(), a.term->getId()) <
+                   std::make_tuple(b.term->getObjectType(), b.term->getId());
+        });
         const auto& net_uses = use_it->second;
         int dx, dy;
         state.driver->getInst()->getLocation(dx, dy);
@@ -763,19 +775,50 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
         // This is a dependency hint for deferring retries, not proof that all
         // global timing/placement dependencies are unchanged across commits.
         const auto boundary_key = std::make_shared<const std::string>(boundary.str());
+        // Endpoint membership is a property of this net's sampled path uses,
+        // independent of buffer strength, position and selected load group.
+        std::vector<bool> affected(endpoint_pins.size(), false);
+        for (const auto& use : net_uses) {
+            if (index.contains(use.load)) {
+                affected[use.endpoint] = true;
+            }
+        }
+        std::vector<std::pair<const sta::Pin*, float>> net_endpoints;
+        double objective_wns = 0, objective_tns = 0;
+        for (size_t i = 0; i < endpoint_pins.size(); ++i) {
+            if (affected[i]) {
+                const float slack = actual_endpoint_slacks.at(i);
+                net_endpoints.emplace_back(endpoint_pins[i], slack);
+                objective_wns = std::min(objective_wns, double(slack));
+                objective_tns += slack;
+            }
+        }
+        const bool recovery = std::any_of(net_uses.begin(), net_uses.end(),
+                                          [](const auto& use) { return use.recovery; });
         std::vector<PathBufferCandidate> variants;
         for (const auto& group : load_groups) {
             std::vector<bool> selected(state.loads.size(), false);
+            std::vector<odb::dbObject*> group_loads;
             double selected_cap = 0, removed_length = 0, weight = 0;
             long long x = 0, y = 0;
             for (auto i : group) {
                 selected[i] = true;
+                group_loads.push_back(state.loads[i].term);
                 selected_cap += state.loads[i].capacitance;
                 weight += fanoutWeight(network, state.loads[i].term);
                 removed_length += distance(dx, dy, state.loads[i].x, state.loads[i].y);
                 x += state.loads[i].x;
                 y += state.loads[i].y;
             }
+            std::sort(group_loads.begin(), group_loads.end(), [](auto* a, auto* b) {
+                return std::less<const void*>{}(a, b);
+            });
+            path_detail::ActionNode load_group;
+            for (auto* load : group_loads) {
+                load_group.terminals.push_back(terminalKey(load));
+            }
+            const auto load_group_key = path_detail::actionFingerprint(
+                std::to_string(state.net->getId()), {load_group}, false);
             const int cx = int(x / group.size()), cy = int(y / group.size());
             std::set<std::pair<int, int>> locations{
                 {cx, cy},
@@ -800,9 +843,12 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                     // load groups retain the existing single-buffer search.
                     if (options.tree_candidates && group.size() == state.loads.size() &&
                         (buffer_cap > cap_limit || weight > fanout_limit)) {
+                        const auto tree_start = std::chrono::steady_clock::now();
                         auto plan =
                             planPathTree(state, buffer, sta, {bx, by}, cap_per_length,
                                          cap_limit, fanout_limit);
+                        collection.tree_ms += std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - tree_start).count();
                         if (plan.nodes.empty()) {
                             continue;
                         }
@@ -830,9 +876,8 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                     }
                     PathBufferCandidate candidate;
                     candidate.net = state.net;
-                    candidate.recovery =
-                        std::any_of(net_uses.begin(), net_uses.end(),
-                                    [](const auto& use) { return use.recovery; });
+                    candidate.recovery = recovery;
+                    candidate.loads = group_loads;
                     candidate.tree = tree;
                     candidate.master = buffer.master;
                     candidate.location = {bx, by};
@@ -842,6 +887,7 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                     double side_wns_after = 0;
                     PathTreeTiming tree_timing;
                     if (tree) {
+                        const auto tree_start = std::chrono::steady_clock::now();
                         double r = 0;
                         for (double value : wire_resistance) {
                             r += value;
@@ -850,6 +896,8 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                         tree_timing =
                             predictPathTree(analysis, state, buffer, *tree, driver_slew,
                                             r * upstream_length * new_cap, r);
+                        collection.tree_ms += std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - tree_start).count();
                         if (std::any_of(tree_timing.delay.begin(),
                                         tree_timing.delay.end(),
                                         [](float v) { return !std::isfinite(v); }) ||
@@ -872,7 +920,6 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                                 resistance_per_length *
                                 (upstream_length * new_cap +
                                  distance(bx, by, load.x, load.y) * buffer_cap);
-                            candidate.loads.push_back(load.term);
                         }
                         gains[i] =
                             candidate.predicted_gain + elmore[i] -
@@ -903,7 +950,6 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                         }
                     }
                     auto forecasts = sampled_paths;
-                    std::unordered_set<size_t> affected;
                     for (const auto& use : net_uses) {
                         if (!index.contains(use.load)) {
                             continue;
@@ -921,7 +967,6 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                         path.after =
                             path.affected ? std::min(path.after, slack) : slack;
                         path.affected = true;
-                        affected.insert(use.endpoint);
                     }
                     const auto forecast = path_detail::forecastObjective(
                         forecasts, actual_endpoint_slacks, metrics.setup_wns,
@@ -970,35 +1015,18 @@ CandidateCollection generatePathCandidates(detail::DesignAnalysis& analysis,
                         }
                     }
                     candidate.affected_endpoints = forecast.affected_endpoints;
-                    for (size_t i = 0; i < endpoint_pins.size(); ++i) {
-                        if (!affected.contains(i)) {
-                            continue;
-                        }
-                        // This collection uses one committed STA snapshot.
-                        // Reuse its endpoint query across all tree variants.
-                        const float pin_slack = actual_endpoint_slacks.at(i);
-                        candidate.endpoints.emplace_back(endpoint_pins[i], pin_slack);
-                        candidate.objective_wns =
-                            std::min(candidate.objective_wns, double(pin_slack));
-                        candidate.objective_tns += pin_slack;
-                    }
-                    std::sort(candidate.loads.begin(), candidate.loads.end(),
-                              [](auto* a, auto* b) {
-                                  return std::less<const void*>{}(a, b);
-                              });
+                    candidate.endpoints = net_endpoints;
+                    candidate.objective_wns = objective_wns;
+                    candidate.objective_tns = objective_tns;
                     candidate.feedback_key = actionKey(candidate);
 
                     candidate.feedback_context = boundary_key;
-                    candidate.group_key = actionKey(candidate, false);
+                    candidate.group_key = tree ? actionKey(candidate, false)
+                                               : load_group_key;
                     // All tree shapes/strengths/positions for one load set
                     // share a scheduling family, while calibration continues
                     // to distinguish the actual tree topology.
-                    path_detail::ActionNode load_group;
-                    for (auto* load : candidate.loads) {
-                        load_group.terminals.push_back(terminalKey(load));
-                    }
-                    candidate.load_group_key = path_detail::actionFingerprint(
-                        std::to_string(state.net->getId()), {load_group}, false);
+                    candidate.load_group_key = load_group_key;
                     variants.push_back(std::move(candidate));
                 }
             }
@@ -1030,7 +1058,7 @@ CandidateCollection collectCandidates(detail::DesignAnalysis& analysis, sta::dbS
     std::unordered_set<std::string> actions;
     auto end = std::remove_if(result.candidates.begin(), result.candidates.end(),
                               [&](const auto& c) {
-                                  if (actions.insert(actionKey(c)).second) {
+                                  if (actions.insert(c.feedback_key).second) {
                                       return false;
                                   }
                                   ++result.duplicate_candidates;
@@ -1121,8 +1149,79 @@ PathGainThreshold gainThreshold(const PathSearchOptions& options,
         return std::max(double(options.min_improvement),
                         std::abs(value) * options.min_relative_improvement);
     };
-    return {floor(local ? endpoint_wns : double(reference.setup_wns)),
-            floor(local ? endpoint_tns : double(reference.setup_tns))};
+    return {std::max(floor(local ? endpoint_wns : double(reference.setup_wns)),
+                     double(options.common.tolerances.wns_absolute)),
+            std::max(floor(local ? endpoint_tns : double(reference.setup_tns)),
+                     double(detail::tnsTolerance(
+                         local ? float(endpoint_tns) : current.setup_tns,
+                         options.common.tolerances)))};
+}
+
+PathGainThreshold rankingScale(const PathSearchOptions& options,
+                               const DesignMetrics& initial,
+                               const DesignMetrics& current, double endpoint_wns,
+                               double endpoint_tns) {
+    const auto& reference = globalGainReference(options, initial, current);
+    const bool local = options.gain_scope == PathGainScope::Endpoints;
+    // Preserve the historical ranking weights independently of acceptance.
+    // These units normalize predictions; they are not minimum accepted gains.
+    const auto scale = [](double value) { return std::max(1e-13, std::abs(value) * .001); };
+    return {scale(local ? endpoint_wns : reference.setup_wns),
+            scale(local ? endpoint_tns : reference.setup_tns)};
+}
+
+bool setupImproved(PathGainThreshold floor,
+                   double before_wns, double before_tns, double after_wns,
+                   double after_tns, bool allow_closure) {
+    const bool closed = allow_closure && before_wns < 0 && after_wns >= 0 &&
+                        after_tns >= 0;
+    return closed || after_wns > before_wns + floor.wns ||
+           after_tns > before_tns + floor.tns;
+}
+
+PathProgress::PathProgress(const PathSearchOptions& options,
+                           const DesignMetrics& initial)
+    : options_(options), reference_wns_(initial.setup_wns),
+      reference_tns_(initial.setup_tns),
+      remaining_(options.search_patience.value_or(0)) {}
+
+void PathProgress::observe(const DesignMetrics& committed, bool accepted) {
+    if (!options_.search_patience) {
+        return;
+    }
+    remaining_ -= 1;
+    if (!accepted) {
+        return;
+    }
+    if (committed.setup_wns >= 0 && committed.setup_tns >= 0) {
+        remaining_ = *options_.search_patience;
+        return;
+    }
+    const auto& tolerance = options_.common.tolerances;
+    const PathGainThreshold required{
+        std::max(std::abs(reference_wns_) * options_.progress_fraction,
+                 double(tolerance.wns_absolute)),
+        std::max(std::abs(reference_tns_) * options_.progress_fraction,
+                 double(detail::tnsTolerance(float(reference_tns_), tolerance)))};
+    const auto credit = [](double before, double after, double scale) {
+        if (after <= before) {
+            return 0.0;
+        }
+        return scale > 0 ? (after - before) / scale
+                         : std::numeric_limits<double>::infinity();
+    };
+    remaining_ = std::min(double(*options_.search_patience),
+                         remaining_ + std::max(
+                             credit(reference_wns_, committed.setup_wns, required.wns),
+                             credit(reference_tns_, committed.setup_tns, required.tns)));
+    // Numerical non-regression tolerances may permit a tiny loss. Recovering
+    // that loss must not earn the same progress twice.
+    reference_wns_ = std::max(reference_wns_, double(committed.setup_wns));
+    reference_tns_ = std::max(reference_tns_, double(committed.setup_tns));
+}
+
+bool PathProgress::exhausted() const {
+    return options_.search_patience && remaining_ < 1;
 }
 
 bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
@@ -1132,21 +1231,19 @@ bool gainOrder(const PathBufferCandidate& a, const PathBufferCandidate& b) {
     if (a.predicted_tns_gain != b.predicted_tns_gain) {
         return a.predicted_tns_gain > b.predicted_tns_gain;
     }
-    // Equal endpoint forecasts do not justify a larger edit. Prefer a smaller
-    // tree before secondary proxy gains; STA still validates every proposal.
-    const auto count_a = a.tree ? a.tree->nodes.size() : 1;
-    const auto count_b = b.tree ? b.tree->nodes.size() : 1;
-    if (count_a != count_b) {
-        return count_a < count_b;
-    }
-    // The RC/slew proxy may be optimistic for long, weakly driven trees.
-    // Preserve path-margin information before using that proxy to break a
-    // global-objective tie; neither estimate is an electrical proof.
+    // Competing unchanged paths can cap both endpoint forecasts at the same
+    // value. Preserve the affected-path margin before comparing edit cost;
+    // equal capped forecasts do not imply equal timing benefit.
     if (a.quality.path_gain != b.quality.path_gain) {
         return a.quality.path_gain > b.quality.path_gain;
     }
     if (a.quality.electrical_excess != b.quality.electrical_excess) {
         return a.quality.electrical_excess < b.quality.electrical_excess;
+    }
+    const auto count_a = a.tree ? a.tree->nodes.size() : 1;
+    const auto count_b = b.tree ? b.tree->nodes.size() : 1;
+    if (count_a != count_b) {
+        return count_a < count_b;
     }
     const double area_a = detail::area(a.master) * count_a;
     const double area_b = detail::area(b.master) * count_b;
@@ -1172,7 +1269,10 @@ CandidateCollection PathPolicy::collect(detail::DesignAnalysis& analysis,
                                         sta::dbSta* sta,
                                         const std::vector<detail::NetState>& states,
                                         const DesignMetrics& metrics) {
-    return collectCandidates(analysis, sta, states, options, metrics, *this);
+    auto collected = collectCandidates(analysis, sta, states, options, metrics, *this);
+    result.statistics.sampling_ms += collected.sampling_ms;
+    result.statistics.tree_ms += collected.tree_ms;
+    return collected;
 }
 
 void PathPolicy::beginCollection() {
@@ -1240,14 +1340,14 @@ void PathPolicy::rank(PathBufferCandidate& candidate, bool count) {
             }
         }
     }
+    const auto [wns_scale, tns_scale] =
+        rankingScale(options, result.before, result.after, candidate.objective_wns,
+                     candidate.objective_tns);
+    candidate.rank_score = std::max(candidate.ranked_wns_gain / wns_scale,
+                                    candidate.ranked_tns_gain / tns_scale);
     const auto [wns_floor, tns_floor] =
         gainThreshold(options, result.before, result.after, candidate.objective_wns,
                       candidate.objective_tns);
-    candidate.rank_score =
-        std::max(wns_floor > 0 ? candidate.ranked_wns_gain / wns_floor
-                               : candidate.ranked_wns_gain,
-                 tns_floor > 0 ? candidate.ranked_tns_gain / tns_floor
-                               : candidate.ranked_tns_gain);
     candidate.deferred_retry =
         options.failure_cache &&
         failures.status(candidate.feedback_key, *candidate.feedback_context,

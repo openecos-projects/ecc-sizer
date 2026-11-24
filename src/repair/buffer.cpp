@@ -583,17 +583,21 @@ std::vector<std::string> rejectionReasons(const DesignMetrics& before,
     const double objective_tns_tolerance =
         local ? detail::tnsTolerance(float(objective_tns_before), tolerance)
               : tns_tolerance;
-    if (!(objective_wns_after > objective_wns_before + wns_improvement ||
-          objective_tns_after >
-              objective_tns_before +
-                  std::max(tns_improvement, objective_tns_tolerance))) {
+    if (!setupImproved({wns_improvement,
+                        std::max(tns_improvement, objective_tns_tolerance)},
+                       objective_wns_before, objective_tns_before,
+                       objective_wns_after, objective_tns_after,
+                       options.min_improvement == 0 &&
+                           options.min_relative_improvement == 0)) {
         reasons.emplace_back("no_setup_gain");
     }
     // Local gains cannot justify a globally neutral/numerically insignificant
     // ECO. Keep full-design monotonic progress in addition to DRV/hold guards.
     if (local &&
-        !(after.setup_wns > before.setup_wns + improvement ||
-          after.setup_tns > before.setup_tns + std::max(improvement, tns_tolerance))) {
+        !setupImproved({std::max(improvement, tolerance.wns_absolute),
+                        std::max(improvement, tns_tolerance)},
+                       before.setup_wns, before.setup_tns,
+                       after.setup_wns, after.setup_tns, improvement == 0)) {
         reasons.emplace_back("no_global_gain");
     }
     if (after.total_slew_violations > before.total_slew_violations) {
@@ -951,7 +955,6 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
         return repairWithFinalPlacement(block, sta, refresh, options, runtime);
     }
 
-    const auto start = std::chrono::steady_clock::now();
     const auto& verify = runtime.verification_refresh
                              ? runtime.verification_refresh
                              : runtime.incremental_verification;
@@ -986,6 +989,14 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     PathSearchState search{result.before, result.after, result.inserted_buffers,
                            result.search};
     PathPolicy policy{options, search};
+    PathProgress progress{options, result.before};
+    result.remaining_patience = progress.remaining();
+    result.stopped_on_low_progress = progress.exhausted();
+    const auto observe_progress = [&](bool accepted) {
+        progress.observe(result.after, accepted);
+        result.remaining_patience = progress.remaining();
+        result.stopped_on_low_progress = progress.exhausted();
+    };
     path_detail::DependencyFailures dependency_failures;
     path_detail::EndpointFailures endpoint_failures;
     const auto endpoint_fanin = [&](sta::Vertex* endpoint) {
@@ -1055,21 +1066,13 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
     };
 
     const auto budget_available = [&]() {
-        if (options.max_consecutive_rejections == 0) {
+        if (progress.exhausted()) {
             return false;
         }
         // Reserve a final refresh for a rejected ECO. Never return stale STA.
         if (options.max_refreshes &&
             result.refreshes + (verify ? 3 : 2) > *options.max_refreshes) {
             return false;
-        }
-        if (options.max_seconds) {
-            const double elapsed =
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
-                    .count();
-            if (elapsed >= *options.max_seconds) {
-                return false;
-            }
         }
         return true;
     };
@@ -1117,16 +1120,13 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                          options.common.tolerances.wns_absolute))) {
                     ++result.search.failure_cache_hits;
                     ++result.search.reused_rejections;
-                    ++result.consecutive_rejections;
+                    observe_progress(false);
                     // A dependency-certified rejection completes this family's
                     // turn just like a measured rejection. Advance coverage,
                     // but do not train calibration/frontiers using an old
                     // global delta: other commits may have changed that delta.
                     policy.covered(pending[selected.front()]);
-                    if (options.max_consecutive_rejections &&
-                        result.consecutive_rejections >=
-                            *options.max_consecutive_rejections) {
-                        result.stopped_on_rejections = true;
+                    if (progress.exhausted()) {
                         break;
                     }
                     schedule.backoff();
@@ -1203,8 +1203,8 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                         transaction.commit();
                         ++result.accepted_trials;
                         result.inserted_buffers += trial.buffers;
-                        result.consecutive_rejections = 0;
                         result.after = after;
+                        observe_progress(true);
                         states = std::move(next_states);
                         if (reuse_rejections) {
                             dependency_failures.committed(*dependencies);
@@ -1244,7 +1244,7 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     // Do not stop after a failed aggregate: its members must
                     // remain eligible for individual trials during backoff.
                     if (selected.size() == 1) {
-                        ++result.consecutive_rejections;
+                        observe_progress(false);
                     }
                     execution.invalidate();
                     if (!options.defer_rollback_refresh) {
@@ -1253,10 +1253,7 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                     }
                     schedule.recoverElectrical(batch, observation(trial));
                     measurement.record(result, runtime);
-                    if (options.max_consecutive_rejections &&
-                        result.consecutive_rejections >=
-                            *options.max_consecutive_rejections) {
-                        result.stopped_on_rejections = true;
+                    if (progress.exhausted()) {
                         break; // The common exit path restores RC/STA first.
                     }
                     if (selected.size() > 1) {
@@ -1307,10 +1304,10 @@ BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
         : remainingBufferBudget(options.max_inserted_buffers,
                                 result.inserted_buffers) == 0
             ? "path buffer insertion budget exhausted; violations remain"
-        : result.stopped_on_rejections
-            ? "path buffer stopped after consecutive rejections; search not exhausted"
+        : result.stopped_on_low_progress
+            ? "path buffer search patience spent; violations remain; search not exhausted"
         : !budget_available()
-            ? "path buffer execution budget exhausted; violations remain"
+            ? "path buffer refresh budget exhausted; violations remain"
         : !trials_available() ? "path buffer trial budget exhausted; violations remain"
         : result.search.frontier_suspended
             ? "audited empirical path frontier exhausted; violations remain"

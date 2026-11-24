@@ -23,6 +23,7 @@ namespace ecc {
 // Mutable progress shared by the candidate policy and the repair runner.
 // Repair owns the committed metrics; scheduling only updates its counters.
 struct PathSearchStatistics {
+    double sampling_ms = 0, tree_ms = 0;
     unsigned candidate_count = 0;
     unsigned duplicate_candidates = 0;
     unsigned screened_candidates = 0;
@@ -313,12 +314,37 @@ class PathPolicy {
 struct PathGainThreshold {
     double wns = 0, tns = 0;
 };
-// Shared by ranking, screening and acceptance. Numerical non-regression
-// tolerances remain separate from the minimum useful objective improvement.
+// Acceptance/screening floors include numerical tolerance. Ranking uses its
+// own metric scales so lowering acceptance thresholds cannot reweight WNS/TNS.
 PathGainThreshold gainThreshold(const PathSearchOptions& options,
                                 const DesignMetrics& initial,
                                 const DesignMetrics& current, double endpoint_wns = 0,
                                 double endpoint_tns = 0);
+PathGainThreshold rankingScale(const PathSearchOptions& options,
+                               const DesignMetrics& initial,
+                               const DesignMetrics& current, double endpoint_wns = 0,
+                               double endpoint_tns = 0);
+// Only the gain predicate; electrical, area and non-regression guards remain
+// the executor's responsibility. Reaching zero is observable even below epsilon;
+// callers with an explicit extra acceptance floor can disable this exception.
+bool setupImproved(PathGainThreshold floor,
+                   double before_wns, double before_tns, double after_wns,
+                   double after_tns, bool allow_closure = true);
+
+// Each trial spends one unit of patience. Measured progress earns fractional
+// units back, capped at the initial budget; tiny gains never reset a full window.
+class PathProgress {
+  public:
+    PathProgress(const PathSearchOptions& options, const DesignMetrics& initial);
+    void observe(const DesignMetrics& committed, bool accepted);
+    double remaining() const { return remaining_; }
+    bool exhausted() const;
+
+  private:
+    const PathSearchOptions& options_;
+    double reference_wns_, reference_tns_;
+    double remaining_;
+};
 
 const DesignMetrics& globalGainReference(const PathSearchOptions& options,
                                          const DesignMetrics& initial,
@@ -372,6 +398,7 @@ struct PathBufferCandidate {
 struct CandidateCollection {
     std::vector<PathBufferCandidate> candidates;
     unsigned duplicate_candidates = 0;
+    double sampling_ms = 0, tree_ms = 0;
 };
 
 BufferTreePlan bufferPlan(const PathBufferCandidate& candidate);

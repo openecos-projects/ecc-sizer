@@ -321,7 +321,7 @@ class PathScheduleTest : public ::testing::Test {
     ecc::PathSearchState state{before, after, inserted_buffers, statistics};
 };
 
-TEST_F(PathScheduleTest, EqualTimingForecastPrefersFewerBuffers) {
+TEST_F(PathScheduleTest, CappedEndpointForecastStillUsesAffectedPathMargin) {
     auto small = candidate("small");
     auto large = candidate("large");
     auto tree = std::make_shared<PathTree>();
@@ -329,8 +329,12 @@ TEST_F(PathScheduleTest, EqualTimingForecastPrefersFewerBuffers) {
     large.tree = tree;
     small.predicted_wns_gain = large.predicted_wns_gain = .25;
     small.predicted_tns_gain = large.predicted_tns_gain = .5;
-    // A larger secondary path proxy does not override equal endpoint gains.
+    // Unchanged competing paths may hide the extra affected-path improvement.
     large.quality.path_gain = 10;
+    EXPECT_TRUE(gainOrder(large, small));
+    EXPECT_FALSE(gainOrder(small, large));
+    // With equal timing benefit and electrical risk, prefer the smaller edit.
+    small.quality.path_gain = large.quality.path_gain;
     EXPECT_TRUE(gainOrder(small, large));
     EXPECT_FALSE(gainOrder(large, small));
     // Buffer count does not override a strictly better timing forecast.
@@ -437,4 +441,112 @@ TEST(PathGainThreshold, FixedCurrentAndEndpointScopesUseTheSameAbsoluteFloor) {
     const auto zero = gainThreshold(options, initial, current, 0, 0);
     EXPECT_EQ(zero.wns, double(options.min_improvement));
     EXPECT_EQ(zero.tns, double(options.min_improvement));
+}
+
+TEST(PathGainThreshold, AcceptanceChangesDoNotReweightRanking) {
+    ecc::PathSearchOptions options;
+    ecc::DesignMetrics initial, current;
+    initial.setup_wns = -23e-9f;
+    initial.setup_tns = -230000e-9f;
+    current = initial;
+    ecc::PathSearchStatistics statistics;
+    unsigned buffers = 0;
+    ecc::PathSearchState state{initial, current, buffers, statistics};
+    PathPolicy policy(options, state);
+    PathBufferCandidate wns, tns;
+    wns.predicted_wns_gain = .01e-9f;
+    tns.predicted_tns_gain = 10e-9f;
+    policy.rank(wns, false);
+    policy.rank(tns, false);
+    const double wns_score = wns.rank_score, tns_score = tns.rank_score;
+    EXPECT_GT(wns_score, tns_score);
+    options.min_relative_improvement = .001;
+    options.min_improvement = 1e-13f;
+    policy.rank(wns, false);
+    policy.rank(tns, false);
+    EXPECT_DOUBLE_EQ(wns.rank_score, wns_score);
+    EXPECT_DOUBLE_EQ(tns.rank_score, tns_score);
+}
+
+TEST(PathProgress, SmallGainsEarnFractionalTrialsWithoutResettingTheBudget) {
+    ecc::PathSearchOptions options;
+    options.search_patience = 4;
+    options.progress_fraction = .01;
+    ecc::DesignMetrics current;
+    current.setup_wns = -10e-9f;
+    current.setup_tns = -100e-9f;
+    PathProgress progress(options, current);
+    current.setup_wns = -9.96e-9f;
+    progress.observe(current, true);
+    EXPECT_NEAR(progress.remaining(), 3.4, 1e-4);
+    progress.observe(current, false);
+    current.setup_wns = -9.92e-9f;
+    progress.observe(current, true);
+    EXPECT_NEAR(progress.remaining(), 1.8016, 1e-4);
+    current.setup_wns = -9.88e-9f;
+    progress.observe(current, true);
+    EXPECT_NEAR(progress.remaining(), 1.2048, 1e-4);
+    EXPECT_FALSE(progress.exhausted());
+    current.setup_wns += 1e-12f;
+    progress.observe(current, true);
+    EXPECT_TRUE(progress.exhausted());
+    EXPECT_GT(progress.remaining(), 0); // Not enough credit for a whole trial.
+}
+
+TEST(PathProgress, RecoveringARegressionDoesNotEarnTheSameGainTwice) {
+    ecc::PathSearchOptions options;
+    options.search_patience = 4;
+    options.progress_fraction = .01;
+    ecc::DesignMetrics current;
+    current.setup_wns = -10e-9f;
+    current.setup_tns = -100e-9f;
+    PathProgress progress(options, current);
+    current.setup_wns = -10.01e-9f;
+    progress.observe(current, true);
+    current.setup_wns = -10e-9f;
+    progress.observe(current, true);
+    EXPECT_DOUBLE_EQ(progress.remaining(), 2);
+}
+
+TEST(PathProgress, TnsProgressAndNearZeroClosureRenewPatience) {
+    ecc::PathSearchOptions options;
+    options.search_patience = 2;
+    options.progress_fraction = .01;
+    ecc::DesignMetrics current;
+    current.setup_wns = -1e-9f;
+    current.setup_tns = -100e-9f;
+    PathProgress progress(options, current);
+    progress.observe(current, false);
+    current.setup_tns = -95e-9f;
+    progress.observe(current, true);
+    EXPECT_FALSE(progress.exhausted());
+    EXPECT_DOUBLE_EQ(progress.remaining(), 2);
+
+    current.setup_wns = current.setup_tns = -1e-16f;
+    PathProgress near_zero(options, current);
+    near_zero.observe(current, false);
+    const auto floor = gainThreshold(options, current, current);
+    EXPECT_FALSE(setupImproved(floor, -1e-16, -1e-16, -5e-17, -5e-17));
+    EXPECT_TRUE(setupImproved(floor, -1e-16, -1e-16, 0, 0));
+    EXPECT_FALSE(setupImproved(floor, -1e-16, -1e-16, 0, 0, false));
+    EXPECT_FALSE(setupImproved(floor, 0, 0, 0, 0));
+    current.setup_wns = current.setup_tns = 0;
+    near_zero.observe(current, true);
+    EXPECT_FALSE(near_zero.exhausted());
+    EXPECT_DOUBLE_EQ(near_zero.remaining(), 2);
+}
+
+TEST(PathProgress, UnlimitedAndZeroBudgetsAreExplicit) {
+    ecc::PathSearchOptions options;
+    ecc::DesignMetrics current;
+    current.setup_wns = -1e-9f;
+    options.search_patience = 0;
+    PathProgress stopped(options, current);
+    EXPECT_TRUE(stopped.exhausted());
+    options.search_patience = std::nullopt;
+    PathProgress unlimited(options, current);
+    for (int i = 0; i < 100; ++i) {
+        unlimited.observe(current, false);
+    }
+    EXPECT_FALSE(unlimited.exhausted());
 }

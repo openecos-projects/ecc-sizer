@@ -44,7 +44,14 @@ class PlacementParasiticUpdater {
         }
         changes_.addOwner(block_);
     }
-    void update() {
+    void update() { update(false); }
+    // Apply RC changes and verify the affected delay cone before the first STA
+    // traversal. Avoid computing approximate timing only to invalidate and
+    // recompute the same cone immediately before accepting an ECO.
+    void updateVerified() { update(true); }
+
+  private:
+    void update(bool verified) {
         auto start = std::chrono::steady_clock::now();
         auto next = capture();
         statistics_.geometry_ms += elapsed(start);
@@ -77,7 +84,14 @@ class PlacementParasiticUpdater {
         guard_.update();
         statistics_.rc_ms += elapsed(start);
         start = std::chrono::steady_clock::now();
+        if (verified) {
+            invalidateTimingCone();
+        }
         sta_->findRequireds();
+        if (verified) {
+            ++statistics_.verifications;
+            changes_.timing_nets.clear();
+        }
         statistics_.sta_ms += elapsed(start);
         for (const auto& [id, placement] : next) {
             if (id >= placements_.size()) {
@@ -87,7 +101,12 @@ class PlacementParasiticUpdater {
         }
         changes_.nets.clear();
     }
+
+  public:
     void verifyTiming() {
+        if (changes_.timing_nets.empty()) {
+            return;
+        }
         const auto start = std::chrono::steady_clock::now();
         invalidateTimingCone();
         sta_->findRequireds();

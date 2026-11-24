@@ -294,13 +294,13 @@ static void visitSettings(Config& c, Visitor&& visit) {
     visit("buffer.path.verification", c.buffer.path.verification, 1.0);
     visit("buffer.path.min_relative_improvement",
           c.buffer.path.min_relative_improvement, 1.0);
-    visit("buffer.path.max_seconds", c.buffer.path.max_seconds, 1.0);
     visit("buffer.path.max_refreshes", c.buffer.path.max_refreshes, 1.0);
     visit("buffer.path.max_paths", c.buffer.path.max_paths, 1.0);
     visit("buffer.path.max_candidates", c.buffer.path.max_candidates, 1.0);
     visit("buffer.path.max_trials", c.buffer.path.max_trials, 1.0);
-    visit("buffer.path.max_consecutive_rejections",
-          c.buffer.path.max_consecutive_rejections, 1.0);
+    visit("buffer.path.search_patience",
+          c.buffer.path.search_patience, 1.0);
+    visit("buffer.path.progress_fraction", c.buffer.path.progress_fraction, 1.0);
     visit("buffer.path.batch_size", c.buffer.path.batch_size, 1.0);
     visit("buffer.path.max_area_growth", c.buffer.path.max_area_growth, 1.0);
     visit("tolerances.wns_absolute_ns", c.common.tolerances.wns_absolute, 1e9);
@@ -382,8 +382,11 @@ void SetupRepairSettings::validate() const {
 }
 void PathSearchSettings::validate() const {
     require(paths_per_endpoint > 0, "buffer.path.paths_per_endpoint > 0");
-    require(std::isfinite(min_improvement) && min_improvement > 0,
-            "buffer.path.min_improvement_ns > 0");
+    require(std::isfinite(min_improvement) && min_improvement >= 0,
+            "buffer.path.min_improvement_ns >= 0");
+    require(std::isfinite(progress_fraction) && progress_fraction >= 0 &&
+                progress_fraction <= 1,
+            "buffer.path.progress_fraction in [0,1]");
     require(max_paths > 0, "buffer.path.max_paths > 0");
     require(max_candidates > 0, "buffer.path.max_candidates > 0");
     require(batch_size > 0, "buffer.path.batch_size > 0");
@@ -393,8 +396,6 @@ void PathSearchSettings::validate() const {
     require(std::isfinite(min_relative_improvement) && min_relative_improvement >= 0 &&
                 min_relative_improvement <= 1,
             "buffer.path.min_relative_improvement in [0,1]");
-    require(!max_seconds || (std::isfinite(*max_seconds) && *max_seconds >= 0),
-            "buffer.path.max_seconds >= 0 or unlimited");
     require(!max_area_growth ||
                 (std::isfinite(*max_area_growth) && *max_area_growth >= 0),
             "buffer.path.max_area_growth >= 0 or unlimited");

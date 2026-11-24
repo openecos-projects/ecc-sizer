@@ -283,6 +283,19 @@ template <class Result> void report(const std::string& stage, const Result& resu
     spdlog::info("{}: {}", stage, result.message);
 }
 
+void report(const std::string& stage, const BufferRepairResult& result) {
+    report<BufferRepairResult>(stage, result);
+    if (stage != "path") {
+        spdlog::info("Buffer solve: strategy={} backend={} nets={} plans={} "
+                     "buffers={} collect={:.6f}s solve={:.6f}s apply={:.6f}s "
+                     "fallback=\"{}\"",
+                     stage, result.backend_used, result.nets_collected,
+                     result.plans_collected, result.inserted_buffers,
+                     result.collect_ms / 1000, result.solve_ms / 1000,
+                     result.apply_ms / 1000, result.cuda_fallback);
+    }
+}
+
 static void logBufferEvent(const BufferEvent& event) {
     using Kind = BufferEvent::Kind;
     switch (event.kind) {
@@ -430,6 +443,24 @@ class ApplicationFlow {
             return;
         }
         auto path = options.repair.pathOptions();
+        const auto report_path = [&](const BufferRepairResult& result) {
+            report("path", result);
+            spdlog::debug("Path work: candidates={:.3f}s prepare={:.3f}s "
+                          "refresh={:.3f}s measure={:.3f}s final={:.3f}s "
+                          "refreshes={} rollback_refreshes={}",
+                          result.candidate_ms / 1000, result.prepare_ms / 1000,
+                          result.refresh_ms / 1000, result.measure_ms / 1000,
+                          result.final_placement.elapsed_ms / 1000, result.refreshes,
+                          result.rollback_refreshes);
+            spdlog::debug("Path candidates breakdown: path_sampling={:.3f}s "
+                          "tree_planning_prediction={:.3f}s",
+                          result.search.sampling_ms / 1000, result.search.tree_ms / 1000);
+            if (path.search_patience) {
+                spdlog::debug("Path search patience: remaining={:.3f}/{} exhausted={}",
+                              result.remaining_patience, *path.search_patience,
+                              result.stopped_on_low_progress);
+            }
+        };
         buffer_runtime.trial_observer = [](unsigned index,
                                            const BufferTrialResult& trial) {
             if (trial.rejection_reasons.empty()) {
@@ -477,16 +508,20 @@ class ApplicationFlow {
             buffer_runtime.analysis_changes = [&]() {
                 return incremental.takeAnalysisChanges();
             };
-            report("path", BufferRepairer::run(
+            report_path(BufferRepairer::run(
                                block, sta,
                                [&]() {
                                    session.reconnectSupplies();
-                                   incremental.update();
+                                   incremental.updateVerified();
                                },
                                path, buffer_runtime));
+            const auto& stats = incremental.statistics();
+            spdlog::debug("Path incremental update: geometry={:.3f}s RC={:.3f}s "
+                          "STA={:.3f}s updates={} verifications={}",
+                          stats.geometry_ms / 1000, stats.rc_ms / 1000,
+                          stats.sta_ms / 1000, stats.updates, stats.verifications);
         } else {
-            report("path",
-                   BufferRepairer::run(block, sta, refresh, path, buffer_runtime));
+            report_path(BufferRepairer::run(block, sta, refresh, path, buffer_runtime));
         }
     }
 

@@ -86,7 +86,8 @@ struct SetupRepairOptions : SetupRepairSettings {
 
 struct PathSearchSettings {
     unsigned paths_per_endpoint = 1;
-    float min_improvement = 1e-13f;
+    // Optional acceptance floor, in addition to STA numerical tolerances.
+    float min_improvement = 0;
     bool defer_rollback_refresh = true;
     // Feedback ablations; none changes the global STA acceptance tolerances.
     bool failure_cache = true;
@@ -121,31 +122,30 @@ struct PathSearchSettings {
     bool recovery = true;
     // Plan whole-net trees with cap/fanout limits before candidate screening.
     bool tree_candidates = true;
-    // Relative gain is measured on fixed affected sampled endpoints for each
-    // ECO. "global" uses initial full-design scaling; "current_global"
-    // uses the committed remaining full-design violation, recomputed after
-    // each acceptance. Neither changes global hold/DRV/non-regression guards.
+    // "global" and "current_global" measure full-design gains. When a relative
+    // threshold is enabled, they scale it by initial or committed remaining
+    // violations, respectively. "endpoints" measures fixed sampled endpoints.
+    // All scopes preserve global hold/DRV/non-regression guards.
     PathGainScope gain_scope = PathGainScope::Global;
-    // Relative to the selected gain scope.
-    // Zero preserves the existing absolute improvement requirement.
-    // Default search only screens with the zero-negative-slack upper bound.
-    // Optional adaptive search additionally uses audited empirical evidence;
-    // its stopping condition is heuristic, not a proof of global optimality.
-    double min_relative_improvement = 0.001;
-    // Optional wall time / actual refresh limits. Absence means unlimited.
+    // Disabled by default: accept positive STA gains above the absolute floor
+    // and TNS numerical tolerance. Positive values additionally require a
+    // fraction of the selected reference and enable zero-slack-bound screening.
+    double min_relative_improvement = 0;
+    // Optional actual refresh limit. Absence means unlimited.
     // An in-flight STA/rollback always completes before returning.
-    std::optional<double> max_seconds;
     std::optional<unsigned> max_refreshes;
     unsigned max_paths = 16;
     unsigned max_candidates = 8;
     // Counts STA-verified ECO batches, including a batch that is rolled back.
     // Absence means unlimited; zero permits no trials.
     std::optional<unsigned> max_trials;
-    // Optional early exit after this many rejected single-candidate STA
-    // trials (including reused rejection verdicts) without an acceptance.
-    // Absence disables it. Batch failures and
-    // cheap prechecks do not count; final legalization/STA still runs.
-    std::optional<unsigned> max_consecutive_rejections = 32;
+    // Each trial spends one unit; measured progress earns fractional units
+    // back, capped at this initial budget. Failed batches are split first.
+    // Absence disables this heuristic, not the execution/resource limits.
+    std::optional<unsigned> search_patience = 32;
+    // Fraction of best remaining WNS or TNS that earns one extra trial.
+    // This controls continuation only; it never rejects an individual ECO.
+    double progress_fraction = 0.05;
     // Default one validates each candidate independently; larger values enable
     // buffer-only ECO batching for throughput experiments.
     unsigned batch_size = 1;

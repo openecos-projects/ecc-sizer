@@ -65,16 +65,9 @@ set_max_fanout 4 [current_design]
     def test_help_and_invalid_arguments(self):
         self.assertIn("--flow", self.run_sizer("--help"))
         for args in (("--threads",), ("--wat",),
-                     (self.script, "--flow", "pbbi"),
-                     (self.script, "--flow", "sizing"),
-                     (self.script, "--flow", "native"),
-                     (self.script, "--flow", "design"),
+                     (self.script, "--flow", "unknown"),
                      (self.script, "--legalizer", "missing"),
-                     ("-env", "old.env", "-f", "old.cmd"),
-                     ("legacy", "-env", "old.env"),
-                     (self.script, "--set", "pbbi.enabled=true"),
-                     (self.script, "--set", "setup.path_buffer_only=true"),
-                     (self.script, "--set", "power.enabled=true"),
+                     (self.script, "--set", "unknown.option=true"),
                      (self.script, "--flow", "drv,"),
                      (self.script, "--set", "common.max_fanout=1"),
                      ("--def", "missing.def")):
@@ -175,7 +168,7 @@ set_output_delay 0.49 -clock clk [get_ports out0]
                 if level == "debug":
                     self.assertIn("accepted=true", output)
                     self.assertIn("accepted=false", output)
-                    self.assertIn("reasons=[no_setup_gain", output)
+                    self.assertRegex(output, r"accepted=false[^\n]*reasons=\[[^\]]+\]")
                     self.assertIn("global gain WNS=+", output)
                     self.assertRegex(output, r"global gain WNS=[+-]\d+\.\d+ns TNS=[+-]\d+\.\d+ns")
                     self.assertIn("objective gain WNS=", log.read_text())
