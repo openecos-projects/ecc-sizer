@@ -139,6 +139,26 @@ drv+setup/VG/Path summary; `tables.txt` and `tables.md` contain GPU and Path tab
 `drv+setup` in report tables means `--flow drv,setup`.
 The process timeout belongs to the benchmark runner, not the search algorithm.
 
+## ECC / ICS55 benchmark
+
+```sh
+python3 scripts/benchmark_ecc.py --output results/ecc-ics55-benchmark-20261125 --update-docs
+python3 scripts/benchmark_ecc.py --output results/ecc-ics55-benchmark-20261125 --report-only
+```
+
+Inputs default to `benchmark/ecc_ics55_inputs/`. The runner discovers both
+placement snapshots (PR329: 36 designs; PR342: 32), verifies their hashes,
+and reads the technology paths and dont-use patterns from each snapshot's
+metadata. It preserves the input SDC and uses MET2 LEF RC for placement
+estimation. All profiles use the four buffer types listed in the process metadata,
+within GOBI's 32-type CUDA limit. The referenced PDK files must be accessible.
+
+Each design runs baseline, drv+setup, VG, GOBI and Path, with the same independent
+output checks and report format as the six-design benchmark. Use `--batches`,
+`--designs` or `--profiles` to select a subset. `status.json` tracks progress;
+`--update-docs` refreshes the ECC section of `docs/benchmark.md` after each design.
+Successful runs discard generated DEF/V/ODB. Failed cases retain outputs for review.
+
 ## Code checks and architecture
 
 ```sh

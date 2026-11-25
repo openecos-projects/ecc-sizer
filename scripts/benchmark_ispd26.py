@@ -106,7 +106,7 @@ def stage_seconds(record):
     return sum(stage["seconds"] for stage in stages.values()) if stages else None
 
 
-def detail_table(records, profiles, title, path_gain=False):
+def detail_table(records, profiles, title, path_gain=False, designs=None):
     print("\n" + title)
     header = ["设计", "状态", "WNS (ns)", "TNS (ns)", "电气违例 S / C / F",
               "面积 (µm²)", "功耗 (mW)", "新增 buffer"]
@@ -115,7 +115,7 @@ def detail_table(records, profiles, title, path_gain=False):
         header.append("求解耗时 (s)")
     header.extend(["算法阶段 (s)", "完整进程 (s)"])
     groups = []
-    for design, name in DESIGNS.items():
+    for design, name in (DESIGNS if designs is None else designs).items():
         initial = valid(records, design, "baseline")
         available = [p for p in profiles if (design, p) in records]
         if not available:
@@ -158,9 +158,9 @@ def detail_table(records, profiles, title, path_gain=False):
     print_table(header, groups)
 
 
-def comparison_markdown(records):
+def comparison_markdown(records, designs=None):
     rows = ["| 设计 | 初始输入 | drv+setup | VG | Path |", "|---|---|---|---|---|"]
-    for design, name in DESIGNS.items():
+    for design, name in (DESIGNS if designs is None else designs).items():
         if not any(key[0] == design for key in records):
             continue
         initial = valid(records, design, "baseline")
@@ -190,7 +190,7 @@ def comparison_markdown(records):
     return "\n".join(rows) + "\n"
 
 
-def write_reports(directory, show=False):
+def write_reports(directory, show=False, designs=None):
     records = load_results(directory)
     sections = []
     for profiles, title, path_gain in [
@@ -199,11 +199,11 @@ def write_reports(directory, show=False):
         (["drv-setup"], "drv+setup", False),
     ]:
         with redirect_stdout(io.StringIO()) as stream:
-            detail_table(records, profiles, title, path_gain)
+            detail_table(records, profiles, title, path_gain, designs)
         sections.append(stream.getvalue())
     console = "\n".join(sections)
     (directory / "tables.txt").write_text(console)
-    markdown = comparison_markdown(records)
+    markdown = comparison_markdown(records, designs)
     (directory / "comparison.md").write_text(markdown)
     (directory / "tables.md").write_text("\n\n".join(
         section.strip().split("\n", 1)[0] + "\n\n```text\n" + section.strip().split("\n", 1)[1] + "\n```"
@@ -344,7 +344,7 @@ def execute(command, log, timeout):
             "system_seconds": cpu_after.ru_stime - cpu_before.ru_stime}
 
 
-def run_case(args, design, profile, identity):
+def run_case(args, design, profile, identity, *, input_def=None, load_design=None):
     directory = args.output / design / profile
     directory.mkdir(parents=True, exist_ok=True)
     result_file = directory / "result.json"
@@ -356,10 +356,11 @@ def run_case(args, design, profile, identity):
         raise RuntimeError(f"Refusing to overwrite an existing run: {directory}")
     flow, config = PROFILES[profile]
     config = {**config, **dict(item.split("=", 1) for item in args.set)}
-    source = args.benchmark / "design" / design / "contest.def"
+    source = input_def if input_def is not None else args.benchmark / "design" / design / "contest.def"
+    load_design = loader if load_design is None else load_design
     prefix = directory / "repaired"
     input_script = directory / "input.tcl"
-    input_script.write_text(loader(args.benchmark, design, source, args.threads, args.dont_use))
+    input_script.write_text(load_design(args.benchmark, design, source, args.threads, args.dont_use))
     command = [str(args.sizer), str(input_script), "--flow", flow,
                "--threads", str(args.threads), "--output", str(prefix),
                "--log-level", "debug"]
@@ -387,7 +388,7 @@ def run_case(args, design, profile, identity):
         script = directory / "evaluate.tcl"
         # A fresh process of the same binary, terminating from the Tcl loader
         # before the application runs repair stages. No re-legalization here.
-        body = loader(args.benchmark, design, prefix.with_suffix('.def'), args.threads, args.dont_use) + METRICS
+        body = load_design(args.benchmark, design, prefix.with_suffix('.def'), args.threads, args.dont_use) + METRICS
         script.write_text("if {[catch {\n" + body + "\n} message options]} {\n"
                           "    puts stderr [dict get $options -errorinfo]\n    exit 1\n}\nexit 0\n")
         result["evaluation"] = execute([str(args.sizer), str(script)],
