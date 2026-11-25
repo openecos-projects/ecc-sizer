@@ -417,7 +417,8 @@ def run_case(args, design, profile, identity):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--benchmark", type=Path, default=ROOT.parent / "ISPD26-Contest/gbi_benchmark/ISPD26")
+    parser.add_argument("--benchmark", type=Path, default=ROOT / "benchmark/ispd26",
+                        help="Input dataset root (default: benchmark/ispd26)")
     parser.add_argument("--sizer", type=Path, default=ROOT / "build/src/Sizer")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--designs", nargs="+", choices=DESIGNS, default=list(DESIGNS))

@@ -115,11 +115,15 @@ cost. OpenROAD/STA use their own logger. Tcl failures stop the flow.
 ## Six-design benchmark
 
 ```sh
-python3 scripts/benchmark_ispd26.py \
-  --benchmark /path/to/ISPD26 --output results/ispd26-run
+python3 scripts/benchmark_ispd26.py --output results/ispd26-run
 python3 scripts/benchmark_ispd26.py --output results/ispd26-run --report-only
 python3 scripts/benchmark_ispd26.py --output results/ispd26-run --report-only --markdown
 ```
+
+Inputs default to `benchmark/ispd26/`, containing the six `design/<name>/`
+inputs (DEF, Verilog, SDC and `lib_setup.tcl`) and shared `platform/ASAP7/`.
+Use `--benchmark /path/to/ISPD26` to select another dataset. Benchmark data
+remain local and are excluded from Git.
 
 The default runs AES, JPEG, Ariane and their v2 designs, each with baseline,
 DRV+Setup, VG CPU, GOBI CUDA and Path. Every repaired output is independently
