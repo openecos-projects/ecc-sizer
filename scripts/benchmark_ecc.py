@@ -96,6 +96,8 @@ def reports(output, manifest, update_docs, show=True):
     complete = set(records) == expected
     passed = sum(r['ok'] for r in records.values())
     if update_docs:
+        doc = ROOT/'docs/benchmark.md'
+        text = doc.read_text()
         date = manifest['date']
         lines = [f'## ECC / ICS55（{date}）', '',
                  f'本轮评测 {len(designs)} 个 post-placement 快照，分别运行初始、drv+setup、VG、GOBI、Path。已完成 {len(records)}/{len(expected)} 项，独立验证通过 {passed} 项。', '',
@@ -103,6 +105,12 @@ def reports(output, manifest, update_docs, show=True):
         for batch in sorted({c['batch'] for c in manifest['cases'].values()}):
             names = {key: c['name'] for key, c in manifest['cases'].items() if c['batch'] == batch}
             lines += [f'### {batch}', '', bench.comparison_markdown(records, names).strip(), '']
+            # Keep reviewed conclusions when refreshing the generated data tables.
+            start_marker, end_marker = f'<!-- analysis:{batch} -->', f'<!-- /analysis:{batch} -->'
+            if start_marker in text and end_marker in text:
+                start = text.index(start_marker)
+                end = text.index(end_marker, start) + len(end_marker)
+                lines += [text[start:end], '']
         failures = [f'{d}/{p}' for (d, p), r in records.items() if not r['ok']]
         if failures:
             lines += ['未通过项（不作为有效结果）：' + '、'.join(failures) + '。', '']
@@ -111,8 +119,6 @@ def reports(output, manifest, update_docs, show=True):
                   '复现命令：', '', '```sh',
                   f'python3 scripts/benchmark_ecc.py --output results/{output.name} --update-docs', '```']
         block = '<!-- ecc-ics55-benchmark -->\n' + '\n'.join(lines) + '\n<!-- /ecc-ics55-benchmark -->'
-        doc = ROOT/'docs/benchmark.md'
-        text = doc.read_text()
         if '<!-- ecc-ics55-benchmark -->' in text:
             start = text.index('<!-- ecc-ics55-benchmark -->')
             end = text.index('<!-- /ecc-ics55-benchmark -->', start) + len('<!-- /ecc-ics55-benchmark -->')
