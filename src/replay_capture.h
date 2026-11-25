@@ -10,13 +10,10 @@ bool enabled() noexcept;
 void initialize() noexcept;
 }  // namespace ecc::replay
 
-namespace rsz {
-class Resizer;
-}
 namespace ecc::replay {
 class Session {
    public:
-    explicit Session(rsz::Resizer* resizer, odb::dbBlock* block) noexcept;
+    explicit Session(odb::dbBlock* block) noexcept;
     ~Session();
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
@@ -25,7 +22,6 @@ class Session {
    private:
     class Changes;
     std::unique_ptr<Changes> changes_;
-    rsz::Resizer* resizer_ = nullptr;
 };
 }  // namespace ecc::replay
 

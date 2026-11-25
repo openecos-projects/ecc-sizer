@@ -1,7 +1,6 @@
 #include "replay_capture.h"
 #include "odb/db.h"
 #include "odb/dbBlockCallBackObj.h"
-#include "rsz/Resizer.hh"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -10,7 +9,9 @@
 #include <iomanip>
 #include <iostream>
 #include <mutex>
-#include <set>
+#include <map>
+#include <optional>
+#include <sstream>
 
 namespace ecc::replay {
 namespace {
@@ -27,13 +28,13 @@ void quote(std::ostream& stream, const std::string& text) {
     }
     stream << '"';
 }
-void instance(std::ostream& stream, odb::dbInst* inst) {
+std::string instance(odb::dbInst* inst, const std::string& name) {
+    std::ostringstream stream;
     const auto bbox = inst->getBBox()->getBox();
-    quote(stream, "inst:" + inst->getName());
-    stream << ":{\"kind\":";
+    stream << "{\"kind\":";
     quote(stream, inst->getMaster()->isBlock() ? "macro" : "instance");
     stream << ",\"name\":";
-    quote(stream, inst->getName());
+    quote(stream, name);
     stream << ",\"master\":";
     quote(stream, inst->getMaster()->getName());
     stream << ",\"orient\":";
@@ -57,6 +58,7 @@ void instance(std::ostream& stream, odb::dbInst* inst) {
         stream << ",\"position\":[" << x << ',' << y << "]}";
     }
     stream << "}}";
+    return stream.str();
 }
 }  // namespace
 
@@ -199,84 +201,91 @@ class Session::Changes : public odb::dbBlockCallBackObj {
     explicit Changes(odb::dbBlock* block) : block_(block) { addOwner(block); }
 
     void capture(const char* phase) noexcept {
-        if(dirty_.empty())
-            return;
-        auto dirty = std::move(dirty_);
-        dirty_.clear();
-        // Resolve names after the commit or undo, when the database is stable.
-        write(phase, "native_committed", "patch", [&](std::ostream& stream) {
-            stream << ",\"objects\":{";
-            bool first = true;
-            for(const auto& name : dirty) {
+        decltype(before_) before;
+        before.swap(before_);
+        try {
+            std::vector<std::pair<std::string, std::string>> objects;
+            std::vector<std::string> removed;
+            for(const auto& [name, original] : before) {
                 if(auto* inst = block_->findInst(name.c_str())) {
+                    auto current = instance(inst, name);
+                    if(!original || current != *original)
+                        objects.emplace_back(name, std::move(current));
+                } else if(original) {
+                    removed.push_back(name);
+                }
+            }
+            if(objects.empty() && removed.empty())
+                return;
+            write(phase, "native_committed", "patch", [&](std::ostream& stream) {
+                stream << ",\"objects\":{";
+                bool first = true;
+                for(const auto& [name, value] : objects) {
                     if(!first)
                         stream << ',';
                     first = false;
-                    instance(stream, inst);
+                    quote(stream, "inst:" + name);
+                    stream << ':' << value;
                 }
-            }
-            stream << "},\"remove\":[";
-            first = true;
-            for(const auto& name : dirty) {
-                if(!block_->findInst(name.c_str())) {
+                stream << "},\"remove\":[";
+                first = true;
+                for(const auto& name : removed) {
                     if(!first)
                         stream << ',';
                     first = false;
                     quote(stream, "inst:" + name);
                 }
-            }
-            stream << ']';
-        });
+                stream << ']';
+            });
+        } catch(const std::exception& error) {
+            std::cerr << "Replay stage capture failed: " << error.what() << '\n';
+        }
     }
 
    private:
-    template <typename GetName>
-    void mark(GetName get_name) noexcept {
+    // Record the first state only. A missing instance can be created and then
+    // removed again by the same repair call without leaving a visible change.
+    void remember(const char* name, odb::dbInst* inst) noexcept {
         try {
-            dirty_.insert(get_name());
+            if(before_.find(name) == before_.end())
+                before_.emplace(name, inst ? std::optional{instance(inst, name)}
+                                           : std::nullopt);
         } catch(const std::exception& error) {
             std::cerr << "Replay change tracking failed: " << error.what() << '\n';
         }
     }
 
-    void mark(odb::dbInst* inst) noexcept {
-        mark([&] { return inst->getName(); });
+    void remember(odb::dbInst* inst) noexcept {
+        remember(inst->getConstName(), inst);
     }
 
-    void inDbInstCreate(odb::dbInst* inst) override { mark(inst); }
-    void inDbInstDestroy(odb::dbInst* inst) override { mark(inst); }
-    void inDbInstPlacementStatusBefore(odb::dbInst* inst, const odb::dbPlacementStatus&) override { mark(inst); }
-    void inDbInstSwapMasterAfter(odb::dbInst* inst) override { mark(inst); }
-    void inDbPostMoveInst(odb::dbInst* inst) override { mark(inst); }
+    void inDbInstCreate(odb::dbInst* inst) override { remember(inst->getConstName(), nullptr); }
+    void inDbInstDestroy(odb::dbInst* inst) override { remember(inst); }
+    void inDbInstPlacementStatusBefore(odb::dbInst* inst, const odb::dbPlacementStatus&) override { remember(inst); }
+    void inDbInstSwapMasterBefore(odb::dbInst* inst, odb::dbMaster*) override { remember(inst); }
+    void inDbPreMoveInst(odb::dbInst* inst) override { remember(inst); }
     void inDbPostInstRename(odb::dbInst* inst, const char* old_name) override {
-        mark([&] { return old_name; });
-        mark(inst);
+        remember(old_name, inst);
+        remember(inst->getConstName(), nullptr);
     }
-    void inDbITermPostConnect(odb::dbITerm* term) override { mark(term->getInst()); }
-    void inDbITermPostDisconnect(odb::dbITerm* term, odb::dbNet*) override { mark(term->getInst()); }
+    void inDbITermPreConnect(odb::dbITerm* term, odb::dbNet*) override { remember(term->getInst()); }
+    void inDbITermPreDisconnect(odb::dbITerm* term) override { remember(term->getInst()); }
+    void inDbITermDestroy(odb::dbITerm* term) override { remember(term->getInst()); }
 
     odb::dbBlock* block_;
-    std::set<std::string> dirty_;
+    std::map<std::string, std::optional<std::string>, std::less<>> before_;
 };
 
-Session::Session(rsz::Resizer* resizer, odb::dbBlock* block) noexcept {
+Session::Session(odb::dbBlock* block) noexcept {
     if(!enabled() || !block)
         return;
     try {
         changes_ = std::make_unique<Changes>(block);
-        if(resizer) {
-            resizer->setCommittedStateObserver(
-                [this](const char* phase) noexcept { capture(phase); });
-            resizer_ = resizer;
-        }
     } catch(const std::exception& error) {
         std::cerr << "Replay observer unavailable: " << error.what() << '\n';
     }
 }
-Session::~Session() {
-    if(resizer_)
-        resizer_->setCommittedStateObserver({});
-}
+Session::~Session() = default;
 
 void Session::capture(const char* phase) noexcept {
     if(changes_)

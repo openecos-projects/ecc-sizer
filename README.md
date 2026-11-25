@@ -176,6 +176,11 @@ OpenSTA and ABC as nested submodules. For reproducible builds, keep the
 submodule commits committed in the parent repositories rather than relying only
 on local branch checkouts.
 
+When ECC enables Replay, Sizer uses OpenDB callbacks to remember affected
+instances and writes their net changes at repair, legalization and sizing stage
+boundaries. Changes restored within a stage produce no geometry patch. This
+does not require a custom OpenROAD build.
+
 Useful status checks:
 
 ```bash

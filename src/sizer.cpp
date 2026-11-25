@@ -5517,8 +5517,7 @@ void *static_poweropt_driver(void *void_thread_args) {
 // Pre-place mode: one-shot OpenROAD DRV repair (fanout/slew/cap) and write
 // out. No sizing loop, no placement.
 void Sizer::runPreplace() {
-    ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
-                                        _ckt->_ord_design->getBlock());
+    ecc::replay::Session replay_session(_ckt->_ord_design->getBlock());
     // Cap pre-place repair fanout at 32 and preserve a stricter design-level
     // SDC max_fanout when present.
 
@@ -5597,8 +5596,7 @@ void Sizer::runPreplace() {
 // Hold-only mode: repair_timing -hold, legalize, refresh, and repeat once.
 // Input must be placed (parasitics estimated during load). No sizing loop.
 void Sizer::runHoldOnly() {
-    ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
-                                        _ckt->_ord_design->getBlock());
+    ecc::replay::Session replay_session(_ckt->_ord_design->getBlock());
     _ckt->_ord_design->evalTclString("report_worst_slack -min -digits 3");
     _ckt->_ord_design->evalTclString("report_tns -digits 3");
     _ckt->_ord_design->evalTclString(
@@ -5665,7 +5663,7 @@ void Sizer::runHoldOnly() {
 // Legalize-only mode: load, legalizePlacement, write out. No repair, no
 // sizing loop. Fast legality verification for a design state.
 void Sizer::runLegalizeOnly() {
-    ecc::replay::Session replay_session(nullptr, _ckt->_ord_design->getBlock());
+    ecc::replay::Session replay_session(_ckt->_ord_design->getBlock());
     legalizePlacement();
     replay_session.capture("legalization_complete");
     if(resultDefFile == "") {
@@ -5793,8 +5791,7 @@ void Sizer::legalizePlacement() {
 }
 
 void Sizer::runOrdTO() {
-    ecc::replay::Session replay_session(ord::OpenRoad::openRoad()->getResizer(),
-                                        _ckt->_ord_design->getBlock());
+    ecc::replay::Session replay_session(_ckt->_ord_design->getBlock());
     _ckt->assertNoIllegalExternalPadBoundaryChain();
     int view = 0;
     rsz::Resizer *resizer = ord::OpenRoad::openRoad()->getResizer();
@@ -6379,7 +6376,7 @@ void Sizer::FinalReport() {
     auto _ord_design = _ckt->_ord_design;
     auto block = _ord_design->getBlock();
     auto _sta = ord::OpenRoad::openRoad()->getSta();
-    ecc::replay::Session replay_session(nullptr, block);
+    ecc::replay::Session replay_session(block);
     applyOpenStaDbChanges([&]() {
         for(unsigned i = 0; i < numcells; i++) {
             LibCellInfo *lib_cell_info = getLibCellInfo(best_cells_poweropt[i]);
