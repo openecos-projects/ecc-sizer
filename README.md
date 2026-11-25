@@ -117,8 +117,8 @@ cost. OpenROAD/STA use their own logger. Tcl failures stop the flow.
 ```sh
 python3 scripts/benchmark_ispd26.py \
   --benchmark /path/to/ISPD26 --output results/ispd26-run
-python3 scripts/print_ispd26_results.py results/ispd26-run
-python3 scripts/print_ispd26_results.py results/ispd26-run --markdown
+python3 scripts/benchmark_ispd26.py --output results/ispd26-run --report-only
+python3 scripts/benchmark_ispd26.py --output results/ispd26-run --report-only --markdown
 ```
 
 The default runs AES, JPEG, Ariane and their v2 designs, each with baseline,
@@ -127,6 +127,8 @@ reloaded for placement, supply, forbidden-cell and STA/PPA checks. Successful
 runs discard generated DEF/V/ODB and keep scripts, logs and JSON. Failed cases
 retain their outputs. Identical completed cases can be reused by rerunning the
 same command. `--dry-run` writes input scripts and executable commands only.
+`--report-only` reads saved results and regenerates tables without loading the
+binary or benchmark inputs; add `--markdown` for the comparison table.
 
 Each task has `run.sh` for manual invocation. `comparison.md` contains the
 Native/VG/Path summary; `tables.txt` and `tables.md` contain GPU and Path tables.
