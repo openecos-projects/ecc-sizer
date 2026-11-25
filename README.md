@@ -115,9 +115,9 @@ cost. OpenROAD/STA use their own logger. Tcl failures stop the flow.
 ## Six-design benchmark
 
 ```sh
-python3 scripts/benchmark_ispd26.py --output results/ispd26-run
-python3 scripts/benchmark_ispd26.py --output results/ispd26-run --report-only
-python3 scripts/benchmark_ispd26.py --output results/ispd26-run --report-only --markdown
+python3 scripts/benchmark_ispd26.py --output results/ispd26-benchmark-20261125
+python3 scripts/benchmark_ispd26.py --output results/ispd26-benchmark-20261125 --report-only
+python3 scripts/benchmark_ispd26.py --output results/ispd26-benchmark-20261125 --report-only --markdown
 ```
 
 Inputs default to `benchmark/ispd26/`, containing the six `design/<name>/`
@@ -126,7 +126,7 @@ Use `--benchmark /path/to/ISPD26` to select another dataset. Benchmark data
 remain local and are excluded from Git.
 
 The default runs AES, JPEG, Ariane and their v2 designs, each with baseline,
-DRV+Setup, VG CPU, GOBI CUDA and Path. Every repaired output is independently
+drv+setup, VG CPU, GOBI CUDA and Path. Every repaired output is independently
 reloaded for placement, supply, forbidden-cell and STA/PPA checks. Successful
 runs discard generated DEF/V/ODB and keep scripts, logs and JSON. Failed cases
 retain their outputs. Identical completed cases can be reused by rerunning the
@@ -135,8 +135,8 @@ same command. `--dry-run` writes input scripts and executable commands only.
 binary or benchmark inputs; add `--markdown` for the comparison table.
 
 Each task has `run.sh` for manual invocation. `comparison.md` contains the
-Native/VG/Path summary; `tables.txt` and `tables.md` contain GPU and Path tables.
-Native in report tables means `--flow drv,setup`. There is no native CLI alias.
+drv+setup/VG/Path summary; `tables.txt` and `tables.md` contain GPU and Path tables.
+`drv+setup` in report tables means `--flow drv,setup`.
 The process timeout belongs to the benchmark runner, not the search algorithm.
 
 ## Code checks and architecture

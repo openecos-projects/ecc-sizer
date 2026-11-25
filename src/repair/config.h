@@ -65,7 +65,7 @@ struct SetupRepairSettings {
     unsigned max_path_ends = 16;
     unsigned paths_per_endpoint = 1;
     unsigned max_candidates = 32;
-    // Native setup repair uses this as the maximum number of independent ECOs
+    // Setup repair uses this as the maximum number of independent ECOs
     // probed in one STA-verified batch.
     unsigned batch_size = 8;
     double batch_backoff = 0.5;

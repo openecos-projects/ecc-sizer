@@ -473,7 +473,7 @@ OrdDrvRepairResult OrdDrvRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                 // OpenROAD repair_design commits a DRV-improving driver edit;
                 // setup/hold protection belongs to repair_setup.  Keeping
                 // this acceptance rule separate is essential for a faithful
-                // A/B reference and is the main difference from Native's
+                // A/B reference and is the main difference from the DRV flow's
                 // timing-preserving transaction policy.
                 if (after.severity + options.common.tolerances.drv_severity <
                     result.after.severity) {

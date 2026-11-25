@@ -27,7 +27,7 @@ DESIGNS = {
     "ariane": "Ariane",
     "ariane_v2": "Ariane v2",
 }
-LABELS = {"baseline": "初始", "drv-setup": "Native", "vg": "VG CPU",
+LABELS = {"baseline": "初始", "drv-setup": "drv+setup", "vg": "VG CPU",
           "gobi": "GOBI CUDA", "path": "Path", "path-drv-setup": "Path→DRV→Setup"}
 DRV = [f"{name}_violations" for name in ("slew", "cap", "fanout")]
 
@@ -159,7 +159,7 @@ def detail_table(records, profiles, title, path_gain=False):
 
 
 def comparison_markdown(records):
-    rows = ["| 设计 | 初始输入 | Native | VG | Path |", "|---|---|---|---|---|"]
+    rows = ["| 设计 | 初始输入 | drv+setup | VG | Path |", "|---|---|---|---|---|"]
     for design, name in DESIGNS.items():
         if not any(key[0] == design for key in records):
             continue
@@ -196,7 +196,7 @@ def write_reports(directory, show=False):
     for profiles, title, path_gain in [
         (["vg", "gobi"], "GPU 加速缓冲器插入：初始 / VG CPU / GOBI CUDA", False),
         (["path"], "基于路径的缓冲器插入：初始 / 完成 / 提升百分比", True),
-        (["drv-setup"], "DRV + Setup（Native）", False),
+        (["drv-setup"], "drv+setup", False),
     ]:
         with redirect_stdout(io.StringIO()) as stream:
             detail_table(records, profiles, title, path_gain)
@@ -433,7 +433,7 @@ def main():
     parser.add_argument("--report-only", action="store_true",
                         help="Print and regenerate reports from --output without running Sizer")
     parser.add_argument("--markdown", action="store_true",
-                        help="With --report-only, print the Native/VG/Path Markdown table")
+                        help="With --report-only, print the drv+setup/VG/Path Markdown table")
     args = parser.parse_args()
     if args.markdown and not args.report_only:
         parser.error("--markdown requires --report-only")

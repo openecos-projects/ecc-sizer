@@ -43,7 +43,7 @@ struct DrvRepairResult {
     DesignMetrics after;
 };
 
-// Native DRV decisions on an OpenDB/dbSta backend. No Resizer repair/move
+// DRV decisions on an OpenDB/dbSta backend. No Resizer repair/move
 // calls. refresh must re-estimate placement parasitics and update STA after
 // both edits and rollback. Single STA scene; invoke at a topology
 // synchronization boundary.
@@ -137,7 +137,7 @@ struct PowerRepairResult {
     double elapsed_ms = 0;
     PowerRepairMetrics before, after;
 };
-// Native leakage/total-power search with bounded DRV/setup recovery.
+// Leakage/total-power search with bounded DRV/setup recovery.
 // Power and recovery trials share max_trials; every compound edit must reduce
 // power without worsening area, setup/hold or DRV versus the committed design.
 // Uses the caller's STA activity assumptions. No Resizer strategy calls.
