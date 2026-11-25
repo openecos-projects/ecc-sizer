@@ -97,12 +97,12 @@ def reports(output, manifest, update_docs, show=True):
     passed = sum(r['ok'] for r in records.values())
     if update_docs:
         date = manifest['date']
-        lines = [f'### ECC / ICS55（{date}）', '',
+        lines = [f'## ECC / ICS55（{date}）', '',
                  f'本轮评测 {len(designs)} 个 post-placement 快照，分别运行初始、drv+setup、VG、GOBI、Path。已完成 {len(records)}/{len(expected)} 项，独立验证通过 {passed} 项。', '',
                  f'采用各快照元数据指定的 TT 1.2 V / 25°C Liberty 与 cworst 技术 LEF；使用 MET2 的 LEF RC 做 placement 寄生估计，不是布线后提取或签核结果。保留原 SDC、理想时钟和工艺 dont-use；最大 fanout 为 32，STA 使用 {manifest["identity"]["threads"]} 线程。Path 使用与本页 ASAP7 评测相同的阶段末验证、增量分析及续搜策略，其余流程采用默认策略；不启用 VT 后缀映射。各流程统一使用工艺元数据指定的 BUFX8H7L、BUFX12H7L、BUFX16H7L、BUFX20H7L 四种 buffer，以满足当前 GOBI 最多 32 种 buffer 的限制。', '']
         for batch in sorted({c['batch'] for c in manifest['cases'].values()}):
             names = {key: c['name'] for key, c in manifest['cases'].items() if c['batch'] == batch}
-            lines += [f'#### {batch}', '', bench.comparison_markdown(records, names).strip(), '']
+            lines += [f'### {batch}', '', bench.comparison_markdown(records, names).strip(), '']
         failures = [f'{d}/{p}' for (d, p), r in records.items() if not r['ok']]
         if failures:
             lines += ['未通过项（不作为有效结果）：' + '、'.join(failures) + '。', '']
