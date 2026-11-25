@@ -248,6 +248,8 @@ static void visitSettings(Config& c, Visitor&& visit) {
     visit("buffer.vg.require_drv_non_regression",
           c.buffer.vg.require_drv_non_regression, 1.0);
     visit("buffer.gobi.max_nets", c.buffer.gobi.max_nets, 1.0);
+    visit("buffer.pbbi.max_paths", c.buffer.pbbi.max_paths, 1.0);
+    visit("buffer.pbbi.max_frontier", c.buffer.pbbi.max_frontier, 1.0);
     visit("buffer.gobi.require_drv_non_regression",
           c.buffer.gobi.require_drv_non_regression, 1.0);
     visit("common.actions", c.common.actions, 1.0);
@@ -455,6 +457,18 @@ VgOptions RepairConfig::vgOptions() const {
 GobiOptions RepairConfig::gobiOptions() const {
     return {buffer.gobi, common, buffer.max_inserted_buffers};
 }
+void PbbiSettings::validate() const {
+    require(max_paths > 0, "buffer.pbbi.max_paths > 0");
+    require(!max_frontier || *max_frontier >= 4,
+            "buffer.pbbi.max_frontier >= 4 or unlimited");
+}
+void PbbiOptions::validate() const {
+    common.validate();
+    PbbiSettings::validate();
+}
+PbbiOptions RepairConfig::pbbiOptions() const {
+    return {buffer.pbbi, common, buffer.max_inserted_buffers};
+}
 void RepairConfig::validate() const {
     common.validate();
     drv.validate();
@@ -462,6 +476,7 @@ void RepairConfig::validate() const {
     buffer.path.validate();
     power.validate();
     buffer.vg.validate();
+    buffer.pbbi.validate();
     require(sta_threads > 0 && sta_threads <= unsigned(std::numeric_limits<int>::max()),
             "runtime.sta_threads > 0");
 }

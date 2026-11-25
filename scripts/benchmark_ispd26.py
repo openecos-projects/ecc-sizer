@@ -28,7 +28,7 @@ DESIGNS = {
     "ariane_v2": "Ariane v2",
 }
 LABELS = {"baseline": "初始", "drv-setup": "drv+setup", "vg": "VG CPU",
-          "gobi": "GOBI CUDA", "path": "Path", "path-drv-setup": "Path→DRV→Setup"}
+          "gobi": "GOBI CUDA", "path": "Path", "pbbi": "PBBI", "path-drv-setup": "Path→DRV→Setup"}
 DRV = [f"{name}_violations" for name in ("slew", "cap", "fanout")]
 
 
@@ -159,14 +159,19 @@ def detail_table(records, profiles, title, path_gain=False, designs=None):
 
 
 def comparison_markdown(records, designs=None):
-    rows = ["| 设计 | 初始输入 | drv+setup | VG | Path |", "|---|---|---|---|---|"]
+    profiles = ["baseline", "drv-setup", "vg", "path"]
+    if any(profile == "pbbi" for _, profile in records):
+        profiles.append("pbbi")
+    headings = {"baseline": "初始输入", "vg": "VG", **{p: LABELS[p] for p in ("drv-setup", "path", "pbbi")}}
+    rows = ["| 设计 | " + " | ".join(headings[p] for p in profiles) + " |",
+            "|" + "---|" * (len(profiles) + 1)]
     for design, name in (DESIGNS if designs is None else designs).items():
         if not any(key[0] == design for key in records):
             continue
         initial = valid(records, design, "baseline")
         vg = valid(records, design, "vg")
         cells = [name]
-        for profile in ("baseline", "drv-setup", "vg", "path"):
+        for profile in profiles:
             record = valid(records, design, profile)
             if not record:
                 cells.append("失败" if (design, profile) in records else "未评测")
@@ -197,7 +202,10 @@ def write_reports(directory, show=False, designs=None):
         (["vg", "gobi"], "GPU 加速缓冲器插入：初始 / VG CPU / GOBI CUDA", False),
         (["path"], "基于路径的缓冲器插入：初始 / 完成 / 提升百分比", True),
         (["drv-setup"], "drv+setup", False),
+        (["pbbi"], "PBBI：论文路径级动态规划", False),
     ]:
+        if profiles == ["pbbi"] and not any(profile == "pbbi" for _, profile in records):
+            continue
         with redirect_stdout(io.StringIO()) as stream:
             detail_table(records, profiles, title, path_gain, designs)
         sections.append(stream.getvalue())
@@ -220,6 +228,7 @@ PROFILES = {
     "drv-setup": ("drv,setup", {}),
     "vg": ("vg", {}),
     "gobi": ("gobi", {}),
+    "pbbi": ("pbbi", {}),
     "path": ("path", {
         "buffer.path.placement": "final",
         "buffer.path.verification": "final",
@@ -474,7 +483,7 @@ def main():
     if manifest_path.exists() and json.loads(manifest_path.read_text()) != manifest:
         raise RuntimeError("Use a new output directory for a different experiment")
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    (args.output / "source.diff").write_bytes(subprocess.check_output(["git", "diff", "HEAD", "--", "src", "tests", "README.md"], cwd=ROOT))
+    (args.output / "source.diff").write_bytes(subprocess.check_output(["git", "diff", "HEAD", "--", "src", "tests", "scripts", "README.md"], cwd=ROOT))
     results = []
     for design in args.designs:
         for profile in args.profiles:

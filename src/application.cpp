@@ -39,6 +39,7 @@ enum class Stage {
     Drv,
     Setup,
     Path,
+    Pbbi,
     Vg,
     Gobi,
     Ord,
@@ -56,6 +57,7 @@ struct StageName {
 constexpr StageName stage_names[] = {
     {"drv", Stage::Drv},           {"setup", Stage::Setup},
     {"path", Stage::Path},         {"vg", Stage::Vg},
+    {"pbbi", Stage::Pbbi},
     {"gobi", Stage::Gobi},         {"ord", Stage::Ord},
     {"power", Stage::Power},       {"fanout", Stage::Fanout},
     {"legalize", Stage::Legalize}, {"hold", Stage::Hold},
@@ -73,13 +75,13 @@ struct Options {
 };
 
 constexpr auto help = R"(Usage:
-  Sizer design.tcl [--flow drv,setup|vg|path|gobi] [--output PREFIX]
+  Sizer design.tcl [--flow drv,setup|vg|path|gobi|pbbi] [--output PREFIX]
   Sizer --def design.def --lef tech.lef --lef cells.lef --lib cells.lib --sdc design.sdc
   Sizer --odb design.odb --lib cells.lib --sdc design.sdc
 
 The default flow is drv,setup (electrical repair followed by setup repair).
 --flow accepts comma-separated stages, e.g. path,drv,setup,power.
-Stages: drv, setup, path, vg, gobi, ord, power, fanout, legalize,
+Stages: drv, setup, path, vg, gobi, pbbi, ord, power, fanout, legalize,
         hold, preplace, preplace-gain.
 Inputs are loaded once; every stage sees the preceding committed design.
 
@@ -101,7 +103,7 @@ Options:
 
 Input Tcl uses standard OpenROAD read_* commands; paths are relative to the
 working directory. Tcl may also specify dont_use/dont_touch and wire RC.
-VG/Path/GOBI use placement RC. All repair uses one STA scene. GOBI requires CUDA.
+VG/Path/GOBI/PBBI use placement RC. All repair uses one STA scene. GOBI requires CUDA.
 OpenROAD diagnostics retain their own controls.
 )";
 
@@ -131,7 +133,7 @@ static bool isPreplacement(Stage stage) {
 }
 
 static bool requiresPlacementRc(Stage stage) {
-    return stage == Stage::Path || stage == Stage::Vg || stage == Stage::Gobi;
+    return stage == Stage::Path || stage == Stage::Vg || stage == Stage::Gobi || stage == Stage::Pbbi;
 }
 
 static void validateFlow(const Options& options) {
@@ -430,6 +432,12 @@ class ApplicationFlow {
     void runBuffer(Stage strategy) {
         BufferRuntime buffer_runtime;
         static_cast<RepairRuntime&>(buffer_runtime) = runtime;
+        if (strategy == Stage::Pbbi) {
+            report("pbbi", BufferRepairer::run(
+                               block, sta, refresh, session.design().getResizer(),
+                               options.repair.pbbiOptions(), buffer_runtime));
+            return;
+        }
         if (strategy == Stage::Vg) {
             report("vg", BufferRepairer::run(
                              block, sta, refresh, session.design().getResizer(),
@@ -582,6 +590,7 @@ class ApplicationFlow {
                                                options.repair.setupOptions(), runtime));
             break;
         case Stage::Path:
+        case Stage::Pbbi:
         case Stage::Vg:
         case Stage::Gobi:
             runBuffer(stage);

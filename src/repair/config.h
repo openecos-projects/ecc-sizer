@@ -200,6 +200,17 @@ struct GobiOptions : GobiSettings {
     std::optional<unsigned> max_buffers;
     void validate() const;
 };
+struct PbbiSettings {
+    unsigned max_paths = 64;
+    // Bounded Pareto approximation; unlimited retains the exact frontier.
+    std::optional<unsigned> max_frontier = 128;
+    void validate() const;
+};
+struct PbbiOptions : PbbiSettings {
+    RepairCommonOptions common;
+    std::optional<unsigned> max_buffers;
+    void validate() const;
+};
 struct PowerRepairOptions : PowerRepairSettings {
     RepairCommonOptions common;
     void validate() const;
@@ -210,6 +221,7 @@ struct BufferSettings {
     PathSearchSettings path;
     VgSettings vg;
     GobiSettings gobi;
+    PbbiSettings pbbi;
 };
 
 // Serializable policy shared by independently ordered repair stages.
@@ -228,6 +240,7 @@ struct RepairConfig {
     PowerRepairOptions powerOptions() const;
     VgOptions vgOptions() const;
     GobiOptions gobiOptions() const;
+    PbbiOptions pbbiOptions() const;
     void validate() const;
     // Strict key/value parsing. Unknown keys, malformed values and NaN fail.
     void set(const std::string& key, const std::string& value);

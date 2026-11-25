@@ -106,6 +106,20 @@ TEST(RepairConfig, PathSearchPatienceIsOptionalAndRoundTrips)
   EXPECT_FLOAT_EQ(config.pathOptions().min_improvement, 0);
 }
 
+TEST(RepairConfig, PbbiConfigurationRoundTripsAndSharesInsertionBudget)
+{
+  ecc::RepairConfig config;
+  config.set("buffer.pbbi.max_paths", "8");
+  config.set("buffer.pbbi.max_frontier", "unlimited");
+  config.set("buffer.max_inserted_buffers", "0");
+  EXPECT_EQ(config.pbbiOptions().max_paths, 8u);
+  EXPECT_FALSE(config.pbbiOptions().max_frontier);
+  EXPECT_EQ(config.pbbiOptions().max_buffers, 0u);
+  EXPECT_NE(serialized(config).find("buffer.pbbi.max_frontier=unlimited\n"), std::string::npos);
+  EXPECT_THROW(config.set("buffer.pbbi.max_paths", "0"), std::invalid_argument);
+  EXPECT_THROW(config.set("buffer.pbbi.max_frontier", "3"), std::invalid_argument);
+}
+
 TEST(RepairConfig, PathVerificationModeRoundTrips)
 {
   ecc::RepairConfig config;

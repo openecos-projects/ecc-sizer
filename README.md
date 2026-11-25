@@ -112,6 +112,28 @@ Path reports accepted edits and phase events at info level; debug adds rejection
 reasons, gains, candidates and search credits. VG/GOBI report backend and solve
 cost. OpenROAD/STA use their own logger. Tcl failures stop the flow.
 
+## Paper-based PBBI
+
+```sh
+build/src/Sizer design.tcl --flow pbbi --output repaired
+build/src/Sizer design.tcl --flow pbbi,drv,setup --output repaired
+python3 scripts/benchmark_ispd26.py --output results/ispd26-pbbi-benchmark-20261125 \
+  --designs aes_cipher_top jpeg_encoder --profiles baseline vg path pbbi
+```
+
+PBBI uses its own path tree and cost-aware dynamic programming across fixed gate
+arcs. It does not invoke the existing Path heuristic. The initial implementation
+samples up to 64 setup paths and bounds each Pareto frontier at 128 candidates;
+`buffer.pbbi.max_paths` and `buffer.pbbi.max_frontier=unlimited` control these
+limits. A buffer count limit skips a whole path, never part of its joint plan.
+Disjoint path plans are legalized and checked together with full STA; timing,
+hold or electrical regression rolls back the batch.
+
+This is an initial implementation of the buffer-only method in Sze et al.,
+DAC 2005. Buffer-aware estimation is restricted to sampled paths, and unsampled
+nets are not processed. Full-network buffer-aware STA and simultaneous gate
+sizing are not implemented. See [algorithm details](docs/buffer-algorithms.md).
+
 ## Six-design benchmark
 
 ```sh

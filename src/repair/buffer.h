@@ -144,6 +144,10 @@ class BufferRepairer {
   public:
     static BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
                                   const std::function<void()>& refresh,
+                                  rsz::Resizer* resizer, const PbbiOptions& options,
+                                  const BufferRuntime& runtime = {});
+    static BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
+                                  const std::function<void()>& refresh,
                                   const PathSearchOptions& options = {},
                                   const BufferRuntime& runtime = {});
     static BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,

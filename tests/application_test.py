@@ -87,7 +87,7 @@ set_max_fanout 4 [current_design]
                 output = self.run_sizer(self.script, "--flow", flow, ok=False)
                 self.assertIn("independent flow", output)
                 self.assertNotIn("input must not execute", output)
-        for flow in ("preplace", "preplace-gain", "path", "vg", "gobi"):
+        for flow in ("preplace", "preplace-gain", "path", "vg", "gobi", "pbbi"):
             for rc in (("--spef", "missing.spef"), ("--global-routing",)):
                 with self.subTest(flow=flow, rc=rc):
                     output = self.run_sizer(self.script, "--flow", flow, *rc,
@@ -128,6 +128,20 @@ set_max_fanout 4 [current_design]
         self.assertLess(output.index("Starting path"), output.index("Starting drv"))
         self.assertLess(output.index("Starting drv"), output.index("Starting setup"))
         self.assertTrue((self.work / "composed.odb").is_file())
+
+    def test_pbbi_stage_composition_and_disabled_buffer_action(self):
+        output = self.run_sizer(
+            self.script, "--flow", "pbbi,setup", "--threads", "1",
+            "--set", "buffer.pbbi.max_paths=4", "--set", "buffer.pbbi.max_frontier=unlimited",
+            "--output", self.work / "pbbi")
+        self.assertIn("PBBI planning:", output)
+        self.assertLess(output.index("Starting pbbi"), output.index("Starting setup"))
+        self.assertTrue((self.work / "pbbi.odb").is_file())
+        output = self.run_sizer(
+            self.script, "--flow", "pbbi", "--threads", "1",
+            "--set", "common.actions=resize", "--output", self.work / "disabled")
+        self.assertIn("no buffer insertion allowed", output)
+        self.assertNotIn("PBBI planning:", output)
 
     def test_tcl_dont_use_reaches_sizer_buffer_candidates(self):
         # Keep input BUF instances; only future insertion/replacement is forbidden.

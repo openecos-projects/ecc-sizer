@@ -2,6 +2,8 @@
 #include "repair/buffer.h"
 #include "algorithms/gobi.h"
 #include "algorithms/van_ginneken.h"
+#include "algorithms/pbbi.h"
+#include "rsz/Resizer.hh"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "odb/db.h"
@@ -12,6 +14,7 @@
 #include "sta/PathExpanded.hh"
 #include "sta/PathEnd.hh"
 #include "sta/TimingRole.hh"
+#include "spdlog/spdlog.h"
 
 #include <algorithm>
 #include <chrono>
@@ -343,6 +346,140 @@ BufferRepairResult run(odb::dbBlock* block, sta::dbSta* sta,
     return result;
 }
 } // namespace buffer_detail
+
+BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
+                                       const std::function<void()>& refresh,
+                                       rsz::Resizer* resizer,
+                                       const PbbiOptions& options,
+                                       const BufferRuntime& runtime) {
+    using namespace buffer_detail;
+    BufferRepairResult result;
+    BufferExecution execution(refresh, runtime, result);
+    std::optional<BufferTrial> transaction;
+    try {
+        options.validate();
+        if (!block || !sta || !refresh || !resizer ||
+            sta->getDbNetwork()->block() != block || resizer->sta() != sta ||
+            sta->scenes().size() != 1) {
+            throw std::invalid_argument(
+                "PBBI requires block, STA, resizer and refresh");
+        }
+        detail::DesignAnalysis analysis(block, sta, options.common,
+                                        runtime.constraints);
+        std::vector<NetState> states;
+        {
+            PhaseTimer timer{result.collect_ms};
+            states = analysis.analyze(result.before, true);
+        }
+        result.after = result.before;
+        if (!options.common.actions.buffer ||
+            remainingBufferBudget(options.max_buffers, 0) == 0) {
+            result.ok = true;
+            result.message = "no buffer insertion allowed by actions or count limit";
+            return result;
+        }
+        pbbi::Proposals solutions;
+        {
+            PhaseTimer timer{result.solve_ms};
+            solutions = pbbi::generate(block, sta, resizer, states, options,
+                                       runtime.constraints);
+        }
+        BufferProposal proposal;
+        unsigned planned = 0;
+        // Never cut a path at a budget boundary: its nets were optimized jointly.
+        for (auto& path : solutions.paths) {
+            size_t count = 0;
+            for (const auto& plan : path.plans) {
+                count += plan.nodes.size();
+            }
+            if (count > remainingBufferBudget(options.max_buffers, planned)) {
+                continue;
+            }
+            planned += unsigned(count);
+            result.nets_collected += path.nets;
+            for (auto& plan : path.plans) {
+                proposal.plans.push_back(std::move(plan));
+            }
+        }
+        result.plans_collected = unsigned(proposal.plans.size());
+        if (proposal.plans.empty()) {
+            result.ok = true;
+            result.converged = result.before.setup_wns >= 0;
+            result.message = "pbbi found no improving path plan";
+            return result;
+        }
+        transaction.emplace(block, execution);
+        BufferTrialResult trial;
+        trial.before = result.before;
+        ++result.attempted_trials;
+        {
+            PhaseTimer timer{result.apply_ms};
+            BufferInsertionOptions naming;
+            naming.buffer_name_prefix = "sizer_pbbi_buf";
+            naming.net_name_prefix = "sizer_pbbi_net";
+            transaction->apply(proposal, remainingBufferBudget(options.max_buffers, 0),
+                               naming, trial);
+            result.attempted_buffers = trial.buffers;
+        }
+        transaction->prepareAndRefresh();
+        {
+            PhaseTimer timer{result.measure_ms};
+            detail::DesignAnalysis verify(block, sta, options.common,
+                                          runtime.constraints);
+            verify.analyze(trial.after, true);
+        }
+        const auto& t = options.common.tolerances;
+        const bool strict =
+            trial.after.setup_wns > trial.before.setup_wns + t.wns_absolute ||
+            trial.after.setup_tns > trial.before.setup_tns +
+                                        detail::tnsTolerance(trial.before.setup_tns, t);
+        const bool accepted =
+            strict && detail::timingNonRegressing(trial.before, trial.after, t) &&
+            detail::noNewDrv(trial.before, trial.after) &&
+            trial.after.severity <= trial.before.severity + t.drv_severity;
+        spdlog::info("PBBI validation: accepted={} buffers={} WNS={:.6f}->{:.6f}ns "
+                     "TNS={:.6f}->{:.6f}ns",
+                     accepted, trial.buffers, trial.before.setup_wns * 1e9,
+                     trial.after.setup_wns * 1e9, trial.before.setup_tns * 1e9,
+                     trial.after.setup_tns * 1e9);
+        if (accepted) {
+            transaction->commit();
+            result.after = trial.after;
+            result.inserted_buffers = trial.buffers;
+            ++result.accepted_trials;
+            result.message =
+                "pbbi disjoint path batch accepted after legalization and full STA";
+        } else {
+            transaction->rollback();
+            execution.restore();
+            ++result.rejected_trials;
+            trial.rejection_reasons.emplace_back("timing_or_drv_acceptance");
+            result.message =
+                "pbbi path batch rolled back by global timing/DRV validation";
+        }
+        trial.prepare_ms = result.prepare_ms;
+        trial.refresh_ms = result.refresh_ms;
+        trial.measure_ms = result.measure_ms;
+        result.trials.push_back(trial);
+        if (runtime.trial_observer) {
+            runtime.trial_observer(1, result.trials.back());
+        }
+        result.converged = result.after.setup_wns >= 0;
+        result.ok = true;
+    } catch (const std::exception& error) {
+        result.message = error.what();
+        if (transaction && transaction->active()) {
+            transaction->rollback();
+            try {
+                execution.restore();
+            } catch (const std::exception& restore_error) {
+                result.message +=
+                    std::string("; rollback refresh failed: ") + restore_error.what();
+            }
+        }
+    }
+    return result;
+}
 
 BufferRepairResult BufferRepairer::run(odb::dbBlock* block, sta::dbSta* sta,
                                        const std::function<void()>& refresh,
