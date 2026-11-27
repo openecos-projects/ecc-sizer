@@ -271,26 +271,6 @@ void Circuit::parse_pin(sta::LibertyLibrary* sta_lib,
     }
 }
 
-// Determine Vt type.
-static cell_vtypes determine_vt_type(const std::string& name, Sizer* sizer) {
-    if(sizer->numVt == 3) {
-        if(name.find(sizer->suffixLVT) != std::string::npos) {
-            return f;
-        }
-        if(name.find(sizer->suffixHVT) != std::string::npos) {
-            return s;
-        }
-        return m;
-    }
-    if(sizer->numVt == 2) {
-        if(name.find(sizer->suffixHVT) != std::string::npos) {
-            return s;
-        }
-        return m;
-    }
-    return s;
-}
-
 void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
                          sta::LibertyCell* sta_cell, LibCellInfo& out_cell) {
     out_cell.name = sta_cell->name();
@@ -304,8 +284,10 @@ void Circuit::parse_cell(sta::LibertyLibrary* sta_lib,
     }
     out_cell.footprint = std::to_string(equiv_iter->second);
 
-    // Vt Type
-    out_cell.c_vtype = determine_vt_type(out_cell.name, _sizer);
+    // Vt Type is assigned by assign_vt_groups() after every library is
+    // parsed: the axis is the set of source libraries ranked against each
+    // other, which a single library's parse cannot know.
+    out_cell.c_vtype = default_vtype;
 
     // Leakage Power
     bool exists;

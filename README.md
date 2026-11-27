@@ -217,22 +217,36 @@ OpenROAD, OpenSTA, ABC, Boost, Tcl, gperftools, and other third-party
 dependencies are governed by their own licenses. Review the license files in
 the corresponding submodules and dependency packages before redistribution.
 
-### Explicit process configuration
+### Threshold-voltage groups
 
-Sizer no longer infers the number of threshold-voltage groups from a Liberty
-library name. Set `-num_vt` in the environment file. The current native ABI
-supports one to three groups; values outside that range fail before sizing.
-For two groups, supply distinct `-suffix_hvt` and `-suffix_nvt`; for three,
-also supply `-suffix_lvt`. These are ordered backend slots, not PDK family
-names. Use suffixes from the selected package; no ICS55 v1/v2 naming fallback
-is applied. Single-VT is the default when no group configuration is provided.
+Sizer derives threshold-voltage groups from the loaded Liberty. Nothing
+configures them, and no cell or library name is parsed to guess them.
 
-ECC translates the package's `tools.sizer.vt_groups` into these options.
-`Sizer --ecc-capabilities` returns a JSON document before OpenROAD initialization:
-`{"schema_version":1,"tool":"ecc-sizer","contracts":{"explicit_vt_groups":1}}`.
-ECC uses this side-effect-free probe to reject incompatible Sizer executables
-before stages that depend on explicit VT configuration. The contract identifies
-the interface; it does not certify timing or physical signoff for a process.
-Library/RC files and hold corner selection remain explicit inputs. This change
-does not certify arbitrary Liberty units, four or more VT groups, or additional
-foundry processes. The integration qualification for this revision uses ICS55 v2.
+A PDK ships one Liberty per threshold flavour, so a cell's source library
+identifies its threshold. A higher threshold leaks less and switches slower,
+so ordering those libraries by ascending mean cell leakage orders them
+slowest-first, which is the order the backend's group slots already use. The
+group count is the number of distinct libraries in the set.
+
+Pairing a cell with its counterparts at other thresholds uses the same
+evidence. Area names a drive strength, except where a PDK gives two drives of
+one function the same footprint and area; there the leakage order among
+equal-area cells separates them, and that order is identical in every
+threshold library of the set.
+
+Two cases are refused rather than guessed, because either would silently
+mis-rank every retype decision:
+
+- more distinct libraries than the backend has group slots (three), and
+- libraries whose mean leakage cannot order them, including a library that
+  reports no cell leakage at all.
+
+A single library is a single group. Library/RC files and hold corner selection
+remain explicit inputs. Deriving the groups does not certify timing or physical
+signoff for a process; the integration qualification for this revision uses
+ICS55 v2.
+
+One assumption is worth stating: a library is taken to hold one threshold
+flavour. That is how ICS55 v1 and v2 ship, and it matches how iSTA derives its
+own VT axis, so the two tools agree by construction. A library mixing
+thresholds would collapse into a single group.

@@ -86,6 +86,15 @@ if(BUILD_TESTING)
     target_link_libraries(ecc_sizer_liberty_lut_test OpenSTA)
     add_test(NAME ecc_sizer_liberty_lut COMMAND ecc_sizer_liberty_lut_test)
 
+    add_executable(ecc_sizer_vt_groups_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/vt_groups_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/vt_groups.cpp
+    )
+    target_include_directories(ecc_sizer_vt_groups_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(NAME ecc_sizer_vt_groups COMMAND ecc_sizer_vt_groups_test)
+
     add_executable(ecc_sizer_special_net_test
         ${CMAKE_CURRENT_SOURCE_DIR}/../tests/special_net_test.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/special_net.cpp

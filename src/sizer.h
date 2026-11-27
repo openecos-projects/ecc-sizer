@@ -895,9 +895,6 @@ class Sizer {
     vector< string > dontTouchCell;
     vector< string > dontUseCell;
 
-    string suffixNVT;
-    string suffixLVT;
-    string suffixHVT;
     string suffix;
     string lefPath;
     string setRCFile = "";
