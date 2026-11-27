@@ -152,8 +152,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/replay_capture.cpp
     )
     target_include_directories(ecc_sizer_replay_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    get_target_property(SIZER_REPLAY_TEST_LIBRARIES Sizer LINK_LIBRARIES)
-    target_link_libraries(ecc_sizer_replay_test ${SIZER_REPLAY_TEST_LIBRARIES})
+    target_link_libraries(ecc_sizer_replay_test PRIVATE odb)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME ecc_sizer_replay
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/replay_test.py
