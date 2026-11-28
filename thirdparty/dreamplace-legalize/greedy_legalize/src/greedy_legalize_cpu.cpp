@@ -30,177 +30,212 @@ int greedyLegalizationCPU(
 {
     float milliseconds = 0; 
 
-    // first from right to left 
-    // then from left to right 
-    for (int i = 0; i < 2; ++i)
-    {
-        num_bins_x = 1; 
-        num_bins_y = 1;
-        // adjust bin sizes 
-        T bin_size_x = div((xh-xl), num_bins_x); 
-        //bin_size_x = std::max(floorDiv(bin_size_x, site_width)*site_width, site_width); 
-        T bin_size_y = div((yh-yl), num_bins_y); 
-        bin_size_y = std::max((T)(ceilDiv(bin_size_y, row_height)*row_height), (T)row_height);
+    auto run_single_pass = [&](const T* base_x,
+                               const T* base_y,
+                               T alpha,
+                               T beta,
+                               bool lr_flag,
+                               bool width_first,
+                               bool snap_to_edge,
+                               std::vector<T>& cand_x,
+                               std::vector<T>& cand_y) -> int {
+        cand_x.assign(init_x, init_x + num_nodes);
+        cand_y.assign(init_y, init_y + num_nodes);
+        std::copy(base_x, base_x + num_movable_nodes, cand_x.begin());
+        std::copy(base_y, base_y + num_movable_nodes, cand_y.begin());
 
-        //num_bins_x = ceilDiv((xh-xl), bin_size_x);
-        num_bins_y = ceilDiv((yh-yl), bin_size_y);
+        int pass_bins_x = 1;
+        int pass_bins_y = 1;
+        T bin_size_x = div((xh - xl), pass_bins_x);
+        T bin_size_y = div((yh - yl), pass_bins_y);
+        bin_size_y = std::max(
+            (T)(ceilDiv(bin_size_y, row_height) * row_height), (T)row_height);
+        pass_bins_y = ceilDiv((yh - yl), bin_size_y);
 
-        // bin dimension in y direction for blanks is different from that for cells 
-        T blank_bin_size_y = row_height; 
-        int blank_num_bins_y = floorDiv((yh-yl), blank_bin_size_y); 
-        dreamplacePrint(kDEBUG, "%s blank_num_bins_y = %d\n", "Standard cell legalization", blank_num_bins_y);
+        // bin dimension in y direction for blanks is row_height
+        T blank_bin_size_y = row_height;
+        int blank_num_bins_y = floorDiv((yh - yl), blank_bin_size_y);
+        dreamplacePrint(kDEBUG, "%s blank_num_bins_y = %d\n",
+                        "Standard cell legalization", blank_num_bins_y);
 
-        // allocate bin cells 
-        std::vector<std::vector<int> > bin_cells (num_bins_x*num_bins_y); 
-        std::vector<std::vector<int> > bin_cells_copy (num_bins_x*num_bins_y); 
+        std::vector<std::vector<int> > bin_cells(pass_bins_x * pass_bins_y);
+        std::vector<std::vector<int> > bin_cells_copy(pass_bins_x * pass_bins_y);
 
-        // distribute cells to bins 
         distributeCells2BinsCPU(
-                db, 
-                x, y, 
-                node_size_x, node_size_y, 
-                bin_size_x, bin_size_y, 
-                xl, yl, xh, yh, 
-                num_bins_x, num_bins_y, 
-                num_nodes, num_movable_nodes, 
-                bin_cells
-                );
+            db, cand_x.data(), cand_y.data(), node_size_x, node_size_y,
+            bin_size_x, bin_size_y, xl, yl, xh, yh, pass_bins_x, pass_bins_y,
+            num_nodes, num_movable_nodes, bin_cells);
 
-
-        // allocate bin fixed cells 
-        std::vector<std::vector<int> > bin_fixed_cells (num_bins_x*num_bins_y); 
-
-        // distribute fixed cells to bins 
+        std::vector<std::vector<int> > bin_fixed_cells(pass_bins_x * pass_bins_y);
         distributeFixedCells2BinsCPU(
-                db, 
-                init_x, init_y, 
-                node_size_x, node_size_y, 
-                bin_size_x, bin_size_y, 
-                xl, yl, xh, yh, 
-                num_bins_x, num_bins_y, 
-                num_nodes, num_movable_nodes, 
-                bin_fixed_cells
-                ); 
+            db, init_x, init_y, node_size_x, node_size_y, bin_size_x, bin_size_y,
+            xl, yl, xh, yh, pass_bins_x, pass_bins_y, num_nodes,
+            num_movable_nodes, bin_fixed_cells);
 
-        // allocate bin blanks 
-        std::vector<std::vector<Blank<T> > > bin_blanks (num_bins_x*blank_num_bins_y); 
-        std::vector<std::vector<Blank<T> > > bin_blanks_copy (num_bins_x*blank_num_bins_y); 
-
-        // distribute blanks to bins 
+        std::vector<std::vector<Blank<T> > > bin_blanks(pass_bins_x *
+                                                        blank_num_bins_y);
+        std::vector<std::vector<Blank<T> > > bin_blanks_copy(pass_bins_x *
+                                                             blank_num_bins_y);
         distributeBlanks2BinsCPU(
-                init_x, init_y, 
-                node_size_x, node_size_y, 
-                bin_fixed_cells, 
-                bin_size_x, bin_size_y, blank_bin_size_y, 
-                xl, yl, xh, yh, 
-                site_width, row_height, 
-                num_bins_x, num_bins_y, blank_num_bins_y, 
-                bin_blanks
-                ); 
+            init_x, init_y, node_size_x, node_size_y, bin_fixed_cells,
+            bin_size_x, bin_size_y, blank_bin_size_y, xl, yl, xh, yh,
+            site_width, row_height, pass_bins_x, pass_bins_y, blank_num_bins_y,
+            bin_blanks);
 
-        int num_unplaced_cells_host;
-        // minimum width in sites 
-        int min_unplaced_node_size_x_host;
-        int num_iters = floor(log((T)std::min(num_bins_x, num_bins_y))/log(2.0))+1;
+        int num_unplaced_cells_host = 0;
+        int min_unplaced_node_size_x_host = 0;
+        int num_iters =
+            floor(log((T)std::min(pass_bins_x, pass_bins_y)) / log(2.0)) + 1;
         for (int iter = 0; iter < num_iters; ++iter)
         {
-            dreamplacePrint(kDEBUG, "%s iteration %d with %dx%d bins\n", "Standard cell legalization", iter, num_bins_x, num_bins_y);
-            num_unplaced_cells_host = 0; 
-            //countBinObjects(bin_cells);
-            dreamplacePrint(kDEBUG, "%s #bin_blanks\n", "Standard cell legalization");
+            dreamplacePrint(kDEBUG, "%s iteration %d with %dx%d bins\n",
+                            "Standard cell legalization", iter, pass_bins_x,
+                            pass_bins_y);
+            num_unplaced_cells_host = 0;
+            dreamplacePrint(kDEBUG, "%s #bin_blanks\n",
+                            "Standard cell legalization");
             countBinObjects(bin_blanks);
 
-            milliseconds = clock(); 
+            milliseconds = clock();
             legalizeBinCPU<T>(
-                    init_x, init_y, 
-                    node_size_x, node_size_y, 
-                    bin_blanks, // blanks in each bin, sorted from low to high, left to right 
-                    bin_cells, // unplaced cells in each bin 
-                    x, y, 
-                    num_bins_x, num_bins_y, blank_num_bins_y, 
-                    bin_size_x, bin_size_y, blank_bin_size_y, 
-                    site_width, row_height, 
-                    xl, yl, xh, yh,
-                    0.5, 
-                    4.0, 
-                    i%2,  
-                    &num_unplaced_cells_host
-                    );
-            milliseconds = (clock()-milliseconds)/CLOCKS_PER_SEC*1000; 
-            dreamplacePrint(kINFO, "%s legalizeBin takes %.3f ms\n", "Standard cell legalization", milliseconds);
+                init_x, init_y, node_size_x, node_size_y, bin_blanks, bin_cells,
+                cand_x.data(), cand_y.data(), pass_bins_x, pass_bins_y,
+                blank_num_bins_y, bin_size_x, bin_size_y, blank_bin_size_y,
+                site_width, row_height, xl, yl, xh, yh, alpha, beta, lr_flag,
+                &num_unplaced_cells_host, width_first, snap_to_edge);
+            milliseconds = (clock() - milliseconds) / CLOCKS_PER_SEC * 1000;
+            dreamplacePrint(kINFO, "%s legalizeBin takes %.3f ms\n",
+                            "Standard cell legalization", milliseconds);
+            dreamplacePrint(kDEBUG, "%s num_unplaced_cells = %d\n",
+                            "Standard cell legalization",
+                            num_unplaced_cells_host);
 
-            dreamplacePrint(kDEBUG, "%s num_unplaced_cells = %d\n", "Standard cell legalization", num_unplaced_cells_host); 
-            //countBinObjects(bin_cells);
-            //countBinObjects(bin_blanks);
-
-            if (num_unplaced_cells_host == 0 || iter+1 == num_iters)
+            if (num_unplaced_cells_host == 0 || iter + 1 == num_iters)
             {
-                break; 
+                break;
             }
 
-            // compute minimum size of unplaced cells 
-            milliseconds = clock(); 
-            min_unplaced_node_size_x_host = floorDiv((xh-xl), site_width);
-            minNodeSizeCPU(
-                    bin_cells, 
-                    node_size_x, node_size_y, 
-                    site_width, row_height, 
-                    num_bins_x, num_bins_y, 
-                    &min_unplaced_node_size_x_host
-                    );
-            milliseconds = (clock()-milliseconds)/CLOCKS_PER_SEC*1000; 
-            dreamplacePrint(kINFO, "%s minNodeSize takes %.3f ms\n", "Standard cell legalization", milliseconds);
-            dreamplacePrint(kDEBUG, "%s minimum unplaced node_size_x %d sites\n", "Standard cell legalization", min_unplaced_node_size_x_host);
+            milliseconds = clock();
+            min_unplaced_node_size_x_host = floorDiv((xh - xl), site_width);
+            minNodeSizeCPU(bin_cells, node_size_x, node_size_y, site_width,
+                           row_height, pass_bins_x, pass_bins_y,
+                           &min_unplaced_node_size_x_host);
+            milliseconds = (clock() - milliseconds) / CLOCKS_PER_SEC * 1000;
+            dreamplacePrint(kINFO, "%s minNodeSize takes %.3f ms\n",
+                            "Standard cell legalization", milliseconds);
 
-            // ceil(num_bins_x/2), ceil(num_bins_y/2)
-            int dst_num_bins_x = (num_bins_x>>1)+(num_bins_x&1); 
-            int dst_num_bins_y = (num_bins_y>>1)+(num_bins_y&1); 
-            int scale_ratio_x = (num_bins_x == dst_num_bins_x)? 1 : num_bins_x/dst_num_bins_x; 
-            int scale_ratio_y = (num_bins_y == dst_num_bins_y)? 1 : num_bins_y/dst_num_bins_y; 
+            int dst_num_bins_x = (pass_bins_x >> 1) + (pass_bins_x & 1);
+            int dst_num_bins_y = (pass_bins_y >> 1) + (pass_bins_y & 1);
+            int scale_ratio_x = (pass_bins_x == dst_num_bins_x)
+                                    ? 1
+                                    : pass_bins_x / dst_num_bins_x;
+            int scale_ratio_y = (pass_bins_y == dst_num_bins_y)
+                                    ? 1
+                                    : pass_bins_y / dst_num_bins_y;
 
-            milliseconds = clock(); 
-            resizeBinObjectsCPU(
-                    bin_cells_copy, 
-                    dst_num_bins_x, dst_num_bins_y
-                    );
-            mergeBinCellsCPU(
-                    bin_cells, 
-                    num_bins_x, num_bins_y, // dimensions for the src
-                    bin_cells_copy, // ceil(src_num_bins_x/2) * ceil(src_num_bins_y/2)
-                    dst_num_bins_x, dst_num_bins_y, 
-                    scale_ratio_x, scale_ratio_y
-                    );
-            milliseconds = (clock()-milliseconds)/CLOCKS_PER_SEC*1000; 
-            dreamplacePrint(kDEBUG, "%s mergeBinCells takes %.3f ms\n", "Standard cell legalization", milliseconds);
-            milliseconds = clock(); 
-            resizeBinObjectsCPU(
-                    bin_blanks_copy, 
-                    dst_num_bins_x, blank_num_bins_y
-                    );
-            mergeBinBlanksCPU(
-                    bin_blanks, 
-                    num_bins_x, blank_num_bins_y, // dimensions for the src
-                    bin_blanks_copy, // ceil(src_num_bins_x/2) * ceil(src_num_bins_y/2)
-                    dst_num_bins_x, blank_num_bins_y, 
-                    scale_ratio_x, 
-                    min_unplaced_node_size_x_host*site_width
-                    );
-            milliseconds = (clock()-milliseconds)/CLOCKS_PER_SEC*1000; 
-            dreamplacePrint(kDEBUG, "%s mergeBinBlanks takes %.3f ms\n", "Standard cell legalization", milliseconds);
+            resizeBinObjectsCPU(bin_cells_copy, dst_num_bins_x, dst_num_bins_y);
+            mergeBinCellsCPU(bin_cells, pass_bins_x, pass_bins_y,
+                             bin_cells_copy, dst_num_bins_x, dst_num_bins_y,
+                             scale_ratio_x, scale_ratio_y);
+            resizeBinObjectsCPU(bin_blanks_copy, dst_num_bins_x,
+                                blank_num_bins_y);
+            mergeBinBlanksCPU(bin_blanks, pass_bins_x, blank_num_bins_y,
+                              bin_blanks_copy, dst_num_bins_x, blank_num_bins_y,
+                              scale_ratio_x,
+                              min_unplaced_node_size_x_host * site_width);
 
-            // update bin dimensions
-            num_bins_x = dst_num_bins_x; 
-            num_bins_y = dst_num_bins_y; 
+            pass_bins_x = dst_num_bins_x;
+            pass_bins_y = dst_num_bins_y;
+            bin_size_x = bin_size_x * 2;
+            bin_size_y = bin_size_y * 2;
 
-            bin_size_x = bin_size_x*2;
-            bin_size_y = bin_size_y*2;
-
-            std::swap(bin_cells, bin_cells_copy); 
-            std::swap(bin_blanks, bin_blanks_copy); 
+            std::swap(bin_cells, bin_cells_copy);
+            std::swap(bin_blanks, bin_blanks_copy);
         }
+        return num_unplaced_cells_host;
+    };
+
+    auto compute_displacement = [&](const std::vector<T>& cand_x,
+                                    const std::vector<T>& cand_y) -> double {
+        double disp = 0.0;
+        for (int k = 0; k < num_movable_nodes; ++k)
+        {
+            disp += std::fabs(double(cand_x[k]) - double(init_x[k])) +
+                    std::fabs(double(cand_y[k]) - double(init_y[k]));
+        }
+        return disp;
+    };
+
+    std::vector<T> best_x(x, x + num_nodes);
+    std::vector<T> best_y(y, y + num_nodes);
+    int best_unplaced = num_movable_nodes + 1;
+    double best_disp = DBL_MAX;
+    bool best_lr = false;
+
+    std::vector<T> cand_x;
+    std::vector<T> cand_y;
+    auto try_candidate = [&](const T* base_x,
+                             const T* base_y,
+                             T alpha,
+                             T beta,
+                             bool lr_flag,
+                             bool width_first,
+                             bool snap_to_edge) {
+        int unplaced = run_single_pass(base_x, base_y, alpha, beta, lr_flag,
+                                       width_first, snap_to_edge, cand_x,
+                                       cand_y);
+        double disp = compute_displacement(cand_x, cand_y);
+        if (unplaced < best_unplaced ||
+            (unplaced == best_unplaced && disp < best_disp))
+        {
+            best_unplaced = unplaced;
+            best_disp = disp;
+            best_lr = lr_flag;
+            best_x.swap(cand_x);
+            best_y.swap(cand_y);
+        }
+    };
+
+    // 1. Evaluate independent right-to-left and left-to-right sweeps from
+    //    (init_x, init_y) and keep the one with fewer unplaced cells /
+    //    smaller total displacement.
+    try_candidate(x, y, (T)1.0, (T)4.0, /*lr_flag=*/false,
+                  /*width_first=*/false, /*snap_to_edge=*/false);
+    try_candidate(x, y, (T)1.0, (T)4.0, /*lr_flag=*/true,
+                  /*width_first=*/false, /*snap_to_edge=*/false);
+
+    // 2. If a valid sweep succeeded, also test one reverse-direction midpoint
+    //    refinement (alpha = 0.5) and keep it only if it stays legal and
+    //    strictly reduces total displacement.
+    if (best_unplaced == 0)
+    {
+        const std::vector<T> seed_x = best_x;
+        const std::vector<T> seed_y = best_y;
+        try_candidate(seed_x.data(), seed_y.data(), (T)0.5, (T)4.0, !best_lr,
+                      /*width_first=*/false, /*snap_to_edge=*/false);
     }
 
-    return 0; 
+    // 3. Fallback for dense layouts with wide buffers: only when position-order
+    //    sweeps leave unplaced cells due to blank fragmentation, pack widest
+    //    cells first (then with edge-snapping if needed).
+    if (best_unplaced > 0)
+    {
+        try_candidate(x, y, (T)1.0, (T)4.0, /*lr_flag=*/false,
+                      /*width_first=*/true, /*snap_to_edge=*/false);
+        try_candidate(x, y, (T)1.0, (T)4.0, /*lr_flag=*/true,
+                      /*width_first=*/true, /*snap_to_edge=*/false);
+    }
+    if (best_unplaced > 0)
+    {
+        try_candidate(x, y, (T)1.0, (T)4.0, /*lr_flag=*/false,
+                      /*width_first=*/true, /*snap_to_edge=*/true);
+        try_candidate(x, y, (T)1.0, (T)4.0, /*lr_flag=*/true,
+                      /*width_first=*/true, /*snap_to_edge=*/true);
+    }
+
+    std::copy(best_x.begin(), best_x.begin() + num_movable_nodes, x);
+    std::copy(best_y.begin(), best_y.begin() + num_movable_nodes, y);
+    return best_unplaced;
 }
 
 // Provide out-of-line definitions for callers that only see the

@@ -21,9 +21,14 @@ void legalizeBinCPU(
         T alpha, // a parameter to tune anchor initial locations and current locations 
         T beta, // a parameter to tune space reserving 
         bool lr_flag, // from left to right 
-        int* num_unplaced_cells 
+        int* num_unplaced_cells,
+        bool width_first,
+        bool snap_to_edge
         ) 
 {
+    std::vector<int> blank_index_offset;
+    std::vector<int> best_blank_bi;
+    std::vector<int> row_best_blank_bi;
     for (int i = 0; i < num_bins_x*num_bins_y; i += 1) 
     {
         //int num_cells = 0; 
@@ -37,10 +42,12 @@ void legalizeBinCPU(
         // cells in this bin 
         std::vector<int>& cells = bin_cells.at(i);
 
-        // sort cells according to width 
-        // from large to small 
-        //std::sort(cells.begin(), cells.end(), CompareByNodeNTUPlaceCostCPU<T>(init_x, init_y, node_size_x, node_size_y));
-        if (lr_flag)
+        // Sort cells so iterating backwards from size()-1 visits highest-priority cells first.
+        if (width_first)
+        {
+            std::sort(cells.begin(), cells.end(), CompareByNodeWidthFirstCPU<T>(init_x, init_y, node_size_x, node_size_y, lr_flag));
+        }
+        else if (lr_flag)
         {
             std::sort(cells.begin(), cells.end(), CompareByNodeNTUPlaceCostFromLeftCPU<T>(init_x, init_y, node_size_x, node_size_y));
         }
@@ -62,16 +69,15 @@ void legalizeBinCPU(
 
 
             int num_node_rows = ceilDiv(height, row_height); // may take multiple rows 
-            int blank_index_offset[num_node_rows]; 
-            std::fill(blank_index_offset, blank_index_offset+num_node_rows, 0);
+            blank_index_offset.assign(num_node_rows, 0);
 
             int blank_initial_bin_id_y = floorDiv((init_yl-yl), blank_bin_size_y);
             blank_initial_bin_id_y = std::min(blank_bin_id_yh-1, std::max(blank_bin_id_yl, blank_initial_bin_id_y));
             int blank_bin_id_dist_y = std::max(blank_initial_bin_id_y+1, blank_bin_id_yh-blank_initial_bin_id_y); 
 
             int best_blank_bin_id_y = -1;
-            int best_blank_bi[num_node_rows]; 
-            std::fill(best_blank_bi, best_blank_bi+num_node_rows, -1); 
+            best_blank_bi.assign(num_node_rows, -1);
+            row_best_blank_bi.resize(num_node_rows);
             T best_cost = xh-xl+yh-yl; 
             T best_xl = -1; 
             T best_yl = -1; 
@@ -90,8 +96,7 @@ void legalizeBinCPU(
                 // blanks in this bin 
                 const std::vector<Blank<T> >& blanks = bin_blanks.at(blank_bin_id);
 
-                int row_best_blank_bi[num_node_rows]; 
-                std::fill(row_best_blank_bi, row_best_blank_bi+num_node_rows, -1); 
+                std::fill(row_best_blank_bi.begin(), row_best_blank_bi.end(), -1);
                 T row_best_cost = xh-xl+yh-yl;
                 T row_best_xl = -1; 
                 T row_best_yl = -1; 
@@ -103,7 +108,7 @@ void legalizeBinCPU(
                     // for multi-row height cells, check blanks in upper rows  
                     // find blanks with maximum intersection 
                     blank_index_offset[0] = bi; 
-                    std::fill(blank_index_offset+1, blank_index_offset+num_node_rows, -1); 
+                    std::fill(blank_index_offset.begin()+1, blank_index_offset.end(), -1);
 
                     while (true)
                     {
@@ -137,22 +142,30 @@ void legalizeBinCPU(
                             // compute displacement 
                             T target_xl = init_xl; 
                             T target_yl = blank.yl; 
-                            // alow tolerance to avoid more dead space 
-                            T beta = 4; 
-                            T tolerance = std::min(beta*width, intersect_blank_width/beta); 
-                            if (target_xl <= intersect_blank.xl + tolerance)
+                            if (snap_to_edge)
                             {
-                                target_xl = intersect_blank.xl; 
+                                const T left_xl = intersect_blank.xl;
+                                const T right_xl = intersect_blank.xh - width;
+                                target_xl = (fabs(left_xl - init_xl) <= fabs(right_xl - init_xl)) ? left_xl : right_xl;
                             }
-                            else if (target_xl+width >= intersect_blank.xh - tolerance)
+                            else
                             {
-                                target_xl = (intersect_blank.xh-width);
+                                // allow tolerance to avoid more dead space
+                                T tolerance = std::min(beta*width, intersect_blank_width/beta);
+                                if (target_xl <= intersect_blank.xl + tolerance)
+                                {
+                                    target_xl = intersect_blank.xl;
+                                }
+                                else if (target_xl+width >= intersect_blank.xh - tolerance)
+                                {
+                                    target_xl = (intersect_blank.xh-width);
+                                }
                             }
                             T cost = fabs(target_xl-init_xl)+fabs(target_yl-init_yl); 
                             // update best cost 
                             if (cost < row_best_cost)
                             {
-                                std::copy(blank_index_offset, blank_index_offset+num_node_rows, row_best_blank_bi); 
+                                row_best_blank_bi = blank_index_offset;
                                 row_best_cost = cost; 
                                 row_best_xl = target_xl; 
                                 row_best_yl = target_yl; 
@@ -175,12 +188,12 @@ void legalizeBinCPU(
                 if (row_best_cost < best_cost)
                 {
                     best_blank_bin_id_y = blank_bin_id_y; 
-                    std::copy(row_best_blank_bi, row_best_blank_bi+num_node_rows, best_blank_bi);
+                    best_blank_bi = row_best_blank_bi;
                     best_cost = row_best_cost; 
                     best_xl = row_best_xl; 
                     best_yl = row_best_yl; 
                 }
-                else if (best_cost+row_height < bin_id_offset_y*row_height) // early exit since we iterate from close row to far-away row 
+                else if (best_cost+row_height < std::abs(bin_id_offset_y)*row_height) // early exit since we iterate from close row to far-away row
                 {
                     break; 
                 }
@@ -268,7 +281,9 @@ template void legalizeBinCPU<float>(
         float alpha,
         float beta,
         bool lr_flag,
-        int* num_unplaced_cells
+        int* num_unplaced_cells,
+        bool width_first,
+        bool snap_to_edge
         );
 
 template void legalizeBinCPU<double>(
@@ -284,7 +299,9 @@ template void legalizeBinCPU<double>(
         double alpha,
         double beta,
         bool lr_flag,
-        int* num_unplaced_cells
+        int* num_unplaced_cells,
+        bool width_first,
+        bool snap_to_edge
         );
 
 void instantiateLegalizeBinCPU(

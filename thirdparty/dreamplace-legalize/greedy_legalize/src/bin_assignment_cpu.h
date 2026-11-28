@@ -129,22 +129,47 @@ void distributeBlanks2BinsCPU(
             } else if (node_xl <= blank.xl)  // one blank
             {
               blank.xl = ceilDiv((node_xh - xl), site_width) * site_width +
-                         xl;                 // align blanks to sites
+                         xl;  // align blanks to sites
+              if (blank.xl >= blank.xh) {
+                bin_blanks.at(blank_bin_id)
+                    .erase(bin_blanks.at(blank_bin_id).begin() + bi);
+                --bi;
+                break;
+              }
             } else if (node_xh >= blank.xh)  // one blank
             {
               blank.xh = floorDiv((node_xl - xl), site_width) * site_width +
                          xl;  // align blanks to sites
-            } else            // two blanks
+              if (blank.xl >= blank.xh) {
+                bin_blanks.at(blank_bin_id)
+                    .erase(bin_blanks.at(blank_bin_id).begin() + bi);
+                --bi;
+                break;
+              }
+            } else  // two blanks
             {
               Blank<T> new_blank = blank;
               blank.xh = floorDiv((node_xl - xl), site_width) * site_width +
                          xl;  // align blanks to sites
-              new_blank.xl = floorDiv((node_xh - xl), site_width) * site_width +
+              new_blank.xl = ceilDiv((node_xh - xl), site_width) * site_width +
                              xl;  // align blanks to sites
-              bin_blanks.at(blank_bin_id)
-                  .insert(bin_blanks.at(blank_bin_id).begin() + bi + 1,
-                          new_blank);
-              --bi;
+              const bool keep_left = blank.xh > blank.xl;
+              const bool keep_right = new_blank.xh > new_blank.xl;
+              if (keep_left && keep_right) {
+                bin_blanks.at(blank_bin_id)
+                    .insert(bin_blanks.at(blank_bin_id).begin() + bi + 1,
+                            new_blank);
+                --bi;
+              } else if (keep_right) {
+                blank = new_blank;
+                --bi;
+              } else if (keep_left) {
+                --bi;
+              } else {
+                bin_blanks.at(blank_bin_id)
+                    .erase(bin_blanks.at(blank_bin_id).begin() + bi);
+                --bi;
+              }
               break;
             }
           }

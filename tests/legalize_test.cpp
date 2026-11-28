@@ -383,6 +383,86 @@ Scenario make_padding_below_threshold() {
     return sc;
 }
 
+// Regression for welltap-split subrows with wide DRV buffers (e.g. BUFX24 = 42
+// sites): narrow cells placed in the middle of subrows fragment blanks during
+// position-order sweeps, requiring best-sweep selection and width-first
+// fallback without overflowing a 10000-dbu right subrow in Abacus.
+Scenario make_welltap_wide_buffer_pack() {
+    Scenario sc;
+    sc.name = "welltap subrows with wide buffers";
+    const int base_x = 2000, base_y = 2000, sites = 205;  // width 41000
+    sc.segs = full_rows(6, base_x, base_y, sites);
+    std::vector<LegalizeNode> mv, fx;
+    // Top and bottom rows completely blocked by boundary caps; interior rows
+    // have [2000,3000] and [42000,43000] boundary caps, and odd rows also have
+    // a WELLTAP at [31000,32000] leaving a 10000-dbu right subrow [32000,42000].
+    fx.push_back({2000, double(base_y), 41000, SITE_H, true});
+    fx.push_back({2000, double(base_y + 5 * SITE_H), 41000, SITE_H, true});
+    for(int r = 1; r <= 4; ++r) {
+        const double ry = base_y + r * SITE_H;
+        fx.push_back({2000, ry, 1000, SITE_H, true});
+        fx.push_back({42000, ry, 1000, SITE_H, true});
+        if(r % 2 == 1) {
+            fx.push_back({31000, ry, 1000, SITE_H, true});
+        }
+    }
+    // Usable whitespace across rows 1..4: 2*39000 + 2*38000 = 154000.
+    // Place narrow cells in subrow centers plus 10 wide 8400-dbu buffers
+    // (~87% whitespace utilization) including overlaps in [32000,42000].
+    for(int r = 1; r <= 4; ++r) {
+        const double ry = base_y + r * SITE_H;
+        mv.push_back({9000, ry, 1800, SITE_H, false});
+        mv.push_back({18000, ry, 1800, SITE_H, false});
+        mv.push_back({26000, ry, 1400, SITE_H, false});
+        mv.push_back({36000, ry, 1800, SITE_H, false});
+        mv.push_back({38000, ry, 1400, SITE_H, false});
+    }
+    const double wide_xs[] = {32600, 33000, 7000,  11000, 15000,
+                              21000, 32600, 8000,  16000, 24000};
+    const int wide_rows[]  = {1,     3,     1,     2,     2,
+                              3,     3,     4,     4,     1};
+    for(int i = 0; i < 10; ++i) {
+        mv.push_back({wide_xs[i], double(base_y + wide_rows[i] * SITE_H),
+                      8400, SITE_H, false});
+    }
+    sc.nodes = mv;
+    sc.nodes.insert(sc.nodes.end(), fx.begin(), fx.end());
+    sc.num_movable = (int)mv.size();
+    sc.padding = 1.0;
+    return sc;
+}
+
+// Whole-row free space (5000 + 5000 = 10000) exceeds cell width (8400), but no
+// individual subrow around the fixed welltap can hold an 8400-wide cell. Core
+// must cleanly return -1 instead of tripping Abacus's subrow assert.
+Scenario make_subrow_infeasible_wide_cell() {
+    Scenario sc;
+    sc.name = "wide cell exceeds every subrow";
+    sc.segs = full_rows(1, 2000, 2000, 55);  // [2000, 13000], width 11000
+    sc.nodes.push_back({8000, 2000, 8400, SITE_H, false});
+    sc.num_movable = 1;
+    // Welltap at [7000, 8000] splits the row into [2000,7000] and [8000,13000].
+    sc.nodes.push_back({7000, 2000, 1000, SITE_H, true});
+    sc.padding = 0.0;
+    return sc;
+}
+
+// Narrow off-grid fixed obstacle strictly inside a single site must not cause
+// blank-splitting infinite recursion or overlap.
+Scenario make_subsite_offgrid_obstacle() {
+    Scenario sc;
+    sc.name = "sub-site off-grid fixed obstacle";
+    sc.segs = full_rows(1, 2000, 2000, 40);
+    sc.nodes.push_back({2000, 2000, 800, SITE_H, false});
+    sc.nodes.push_back({2400, 2000, 800, SITE_H, false});
+    sc.nodes.push_back({3000, 2000, 800, SITE_H, false});
+    sc.num_movable = 3;
+    // Strictly within site [2600, 2800): both edges off-grid in the same site.
+    sc.nodes.push_back({2650, 2000, 100, SITE_H, true});
+    sc.padding = 1.0;
+    return sc;
+}
+
 void run_expect_identity(const Scenario& sc) {
     printf("scenario: %s\n", sc.name.c_str());
     std::vector<LegalizeNode> nodes = sc.nodes;
@@ -440,6 +520,9 @@ int main() {
     run_expect_identity(make_out_of_core_fixed_obstacles());
     run_expect_identity(make_padding_threshold_identity());
     run(make_padding_below_threshold());
+    run(make_welltap_wide_buffer_pack());
+    run_expect_fallback(make_subrow_infeasible_wide_cell());
+    run(make_subsite_offgrid_obstacle());
     if(failures == 0) {
         printf("ALL LEGALIZE TESTS PASSED\n");
         return 0;

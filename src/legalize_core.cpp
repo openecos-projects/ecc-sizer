@@ -74,6 +74,17 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
         if(x1 <= x0) {
             return;
         }
+        // Align obstacle bounds outward to site boundaries so greedy blanks,
+        // abacus subrows, and post-hoc padding share the exact usable sites.
+        const long long s0 =
+            (long long)std::floor((x0 - double(base_x) + 1e-9) / site_w);
+        const long long s1 =
+            (long long)std::ceil((x1 - double(base_x) - 1e-9) / site_w);
+        x0 = std::max(double(base_x), double(base_x + s0 * site_w));
+        x1 = std::min(core_xh, double(base_x + s1 * site_w));
+        if(x1 <= x0) {
+            return;
+        }
         rid_lo = std::max(0, std::min(num_rows - 1, rid_lo));
         rid_hi = std::max(0, std::min(num_rows - 1, rid_hi));
         for(int rid = rid_lo; rid <= rid_hi; ++rid) {
@@ -367,31 +378,100 @@ int dpLegalizeCore(const std::vector<LegalizeRowSeg>& segs, int site_w,
     db.num_movable_nodes = num_movable;
     db.num_regions = 0;
 
-    DreamPlace::greedyLegalizationCPU(
+    const int unplaced = DreamPlace::greedyLegalizationCPU(
         db, px.data(), py.data(), sx.data(), sy.data(), x.data(), y.data(),
         db.xl, db.yl, db.xh, db.yh, db.site_width, db.row_height,
         db.num_bins_x, db.num_bins_y, num_nodes, num_movable);
+    if(unplaced > 0) {
+        printf("dp-legalize: greedy left %d unplaced cells, inapplicable\n",
+               unplaced);
+        return -1;
+    }
 
-    // Guard: a genuinely overfull row (movable + fixed width beyond row
-    // capacity) would trip the vendored abacus' internal assert. Detect and
-    // let the caller fall back to DPL instead of moving cells around.
+    // Guard: abacus cannot move cells across fixed obstacles or between rows.
+    // Partition each row into usable subrows (the complement of row_obstacles),
+    // verify every movable cell lands inside a subrow without exceeding that
+    // subrow's capacity, and pack cells within each subrow in init_x center
+    // order so width-first greedy fallback never introduces artificial cell
+    // crossings before abacus.
     {
-        std::vector<double> row_mov(num_rows, 0.0);
-        auto row_of = [&](double yy) {
-            return std::max(
-                0, std::min(num_rows - 1,
-                            (int)llround((yy - base_y) / site_h)));
-        };
-        for(int i = 0; i < num_movable; ++i) {
-            row_mov[row_of(y[i])] += sx[i];
-        }
-        const double row_cap = double(max_right);
+        std::vector<std::vector<Interval>> row_subrows(num_rows);
         for(int r = 0; r < num_rows; ++r) {
-            if(row_mov[r] + row_obstacle_width[r] > row_cap) {
-                printf("dp-legalize: row %d overfull (mov %.0f + fix %.0f > "
-                       "%.0f), inapplicable\n",
-                       r, row_mov[r], row_obstacle_width[r], row_cap);
+            double cursor = double(base_x);
+            for(const Interval& obstacle : row_obstacles[r]) {
+                if(obstacle.first > cursor) {
+                    row_subrows[r].push_back({cursor, obstacle.first});
+                }
+                cursor = std::max(cursor, obstacle.second);
+            }
+            if(core_xh > cursor) {
+                row_subrows[r].push_back({cursor, core_xh});
+            }
+        }
+
+        std::vector<std::vector<std::vector<int>>> subrow_cells(num_rows);
+        for(int r = 0; r < num_rows; ++r) {
+            subrow_cells[r].resize(row_subrows[r].size());
+        }
+
+        for(int i = 0; i < num_movable; ++i) {
+            const int r = (int)llround((y[i] - base_y) / site_h);
+            if(r < 0 || r >= num_rows ||
+               std::fabs(y[i] - (base_y + r * site_h)) > 1e-6) {
+                printf("dp-legalize: cell %d off row grid at y=%.1f, "
+                       "inapplicable\n",
+                       i, y[i]);
                 return -1;
+            }
+            const auto& subs = row_subrows[r];
+            int matched_sub = -1;
+            for(size_t s = 0; s < subs.size(); ++s) {
+                if(x[i] >= subs[s].first - 1e-6 &&
+                   x[i] + sx[i] <= subs[s].second + 1e-6) {
+                    matched_sub = (int)s;
+                    break;
+                }
+            }
+            if(matched_sub < 0) {
+                printf("dp-legalize: cell %d [%.0f,%.0f] outside usable "
+                       "subrows on row %d, inapplicable\n",
+                       i, x[i], x[i] + sx[i], r);
+                return -1;
+            }
+            subrow_cells[r][matched_sub].push_back(i);
+        }
+
+        for(int r = 0; r < num_rows; ++r) {
+            const auto& subs = row_subrows[r];
+            for(size_t s = 0; s < subs.size(); ++s) {
+                auto& cids = subrow_cells[r][s];
+                if(cids.empty()) {
+                    continue;
+                }
+                double sub_mov_w = 0.0;
+                for(int ci : cids) {
+                    const double aligned_w =
+                        std::ceil((sx[ci] - 1e-9) / site_w) * site_w;
+                    sub_mov_w += aligned_w;
+                }
+                const double sub_cap = subs[s].second - subs[s].first;
+                if(sub_mov_w > sub_cap + 1e-6) {
+                    printf("dp-legalize: row %d subrow [%.0f,%.0f] overfull "
+                           "(mov %.0f > cap %.0f), inapplicable\n",
+                           r, subs[s].first, subs[s].second, sub_mov_w,
+                           sub_cap);
+                    return -1;
+                }
+                std::sort(cids.begin(), cids.end(), [&](int lhs, int rhs) {
+                    const double cl = px[lhs] + 0.5 * sx[lhs];
+                    const double cr = px[rhs] + 0.5 * sx[rhs];
+                    return cl < cr || (cl == cr && lhs < rhs);
+                });
+                double cursor = subs[s].first;
+                for(int ci : cids) {
+                    x[ci] = cursor;
+                    cursor += std::ceil((sx[ci] - 1e-9) / site_w) * site_w;
+                }
             }
         }
     }

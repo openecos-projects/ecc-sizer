@@ -34,7 +34,8 @@ void legalizeBinCPU(
                    // locations
     T beta,        // a parameter to tune space reserving
     bool lr_flag,  // from left to right
-    int* num_unplaced_cells);
+    int* num_unplaced_cells, bool width_first = false,
+    bool snap_to_edge = false);
 
 template <typename T>
 int greedyLegalizationCPU(const LegalizationDB<T>& db, const T* init_x,

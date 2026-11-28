@@ -92,6 +92,41 @@ struct CompareByNodeNTUPlaceCostFromLeftCPU {
   const T* node_size_y;
 };
 
+template <typename T>
+struct CompareByNodeWidthFirstCPU {
+  CompareByNodeWidthFirstCPU(const T* x, const T* y, const T* size_x,
+                             const T* size_y, bool lr)
+      : node_x(x),
+        node_y(y),
+        node_size_x(size_x),
+        node_size_y(size_y),
+        lr_flag(lr) {}
+
+  bool operator()(const int i, const int j) const {
+    const T wi = node_size_x[i];
+    const T wj = node_size_x[j];
+    if (wi != wj) {
+      return wi < wj;
+    }
+    const T sign = lr_flag ? (T)-1000 : (T)1000;
+    const T ci = sign * (node_x[i] + wi / 2) + node_size_y[i];
+    const T cj = sign * (node_x[j] + wj / 2) + node_size_y[j];
+    if (ci != cj) {
+      return ci < cj;
+    }
+    if (node_y[i] != node_y[j]) {
+      return lr_flag ? (node_y[i] > node_y[j]) : (node_y[i] < node_y[j]);
+    }
+    return i < j;
+  }
+
+  const T* node_x;
+  const T* node_y;
+  const T* node_size_x;
+  const T* node_size_y;
+  bool lr_flag;
+};
+
 DREAMPLACE_END_NAMESPACE
 
 #endif
